@@ -242,7 +242,7 @@ _EXIT_REASONS = {0: 'stop', 1: 'target_5r', 2: 'target', 3: 'regime',
                  4: 'overbought', 5: 'mean_reached', 6: 'max_hold'}
 
 
-@njit(cache=False)
+@njit(cache=True)
 def _simulate_core_jit(close, high, low, atr, entry_mask, direction,
                        stop_mult, trail_mult, target_mult,
                        regime, exit_regime_mask, min_hold, max_hold,

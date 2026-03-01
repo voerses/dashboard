@@ -35,8 +35,16 @@ _v3_dir = os.path.dirname(os.path.abspath(__file__))
 # Use importlib to explicitly load v3 modules (avoids conflicts when v2 is also on sys.path)
 def _load_v3(name):
     import importlib.util
-    spec = importlib.util.spec_from_file_location(f'v3_{name}', os.path.join(_v3_dir, f'{name}.py'))
+    full_name = f'v3_{name}'
+    # Return cached if already loaded (avoids double-loading in workers)
+    if full_name in sys.modules:
+        return sys.modules[full_name]
+    spec = importlib.util.spec_from_file_location(full_name, os.path.join(_v3_dir, f'{name}.py'))
     mod = importlib.util.module_from_spec(spec)
+    # Register in sys.modules BEFORE exec to satisfy Numba cache and
+    # to ensure strategy `from engine import ...` gets the same module object
+    sys.modules[full_name] = mod
+    sys.modules[name] = mod
     spec.loader.exec_module(mod)
     return mod
 
@@ -145,6 +153,14 @@ def _run_walk_forward(engine: Engine, strategy_fn: StrategyFn, ticker: str,
     3. Simulate with masked entries → OOS trades only.
     4. Build equity curve, compute full metrics.
     5. WF gate: wf_pass = oos_pnl > 0
+
+    NOTE on indicator look-ahead: Indicators (SMA, RSI, etc.) are computed on
+    the full dataset before OOS masking. This is an intentional design choice —
+    the strategy can only ENTER during OOS windows, so the trading PnL is
+    unbiased. The indicators themselves (e.g. 200-bar SMA) would see the same
+    values at any given bar whether computed on full data or incrementally,
+    since they depend only on past bars. The CPCV path builds fresh contexts
+    per fold for independent cross-validation.
     """
     ctx = engine._build_context(ticker, df_1h)
     if ctx is None:
@@ -249,10 +265,16 @@ def _run_cpcv(engine: Engine, strategy_fn: StrategyFn, ticker: str,
 
         result = strategy_fn(ctx)
 
+        # Copy entry_mask to avoid mutating the StrategyResult in-place
+        masked_entries = result.entry_mask.copy()
+
         # Zero out warmup entries
         warmup_in_fold = test_start - data_start
         if warmup_in_fold > 0:
-            result.entry_mask[:warmup_in_fold] = False
+            masked_entries[:warmup_in_fold] = False
+
+        # Replace with the safe copy
+        result.entry_mask = masked_entries
 
         trades, final_equity = engine._simulate(ctx, result)
         fold_pnl = final_equity - capital
@@ -281,21 +303,19 @@ def _validate_token(ticker: str, strategy_module_path: str, config_dict: dict,
     Validate a single token. Designed to run in a ProcessPoolExecutor worker.
     Re-imports strategy inside worker to avoid pickling issues.
     """
-    # Re-import v3 modules explicitly in worker process
+    # Re-import v3 modules explicitly in worker process via importlib
+    # (avoids fragile sys.path manipulation that can cause v2/v3 conflicts)
     v3_dir = os.path.dirname(os.path.abspath(__file__))
-
-    # Also put v3 first on sys.path so strategy's `from engine import ...` resolves to v3
-    if v3_dir not in sys.path:
-        sys.path.insert(0, v3_dir)
-    # Add v2 dir for strategies that import from sibling modules
-    v2_dir = os.path.join(os.path.dirname(v3_dir), 'v2')
-    if v2_dir not in sys.path:
-        sys.path.append(v2_dir)
 
     _eng = _load_v3('engine')
     _met = _load_v3('metrics')
     Engine = _eng.Engine
     load_benchmark_returns = _met.load_benchmark_returns
+
+    # Put v3 first on sys.path so strategy's `from engine import ...` resolves to v3
+    # This is needed because strategies do `from engine import StrategyContext, StrategyResult`
+    if v3_dir not in sys.path:
+        sys.path.insert(0, v3_dir)
 
     config = ValidationConfig(
         wf=WalkForwardConfig(**config_dict.get('wf', {})),

@@ -68,7 +68,7 @@ def build_equity_curve(trades: list, n_bars: int, capital: float,
     last_bar = 0
     for t in sorted_trades:
         exit_bar = t.get('exit_bar', 0)
-        if exit_bar <= 0 or exit_bar >= n_bars:
+        if exit_bar < 0 or exit_bar >= n_bars:
             running += t['pnl']
             continue
         # Fill from last update to this exit bar with previous equity
@@ -150,7 +150,9 @@ def compute_metrics(trades: list, equity_curve: pd.Series,
     # --- Recovery Factor ---
     total_pnl = equity_curve.iloc[-1] - capital
     if abs(m.max_drawdown_pct) > 0.01:
-        max_dd_abs = abs(m.max_drawdown_pct / 100.0 * capital)
+        # Use peak equity (not initial capital) for max DD absolute value
+        peak_equity = float(cummax.max())
+        max_dd_abs = abs(m.max_drawdown_pct / 100.0 * peak_equity)
         if max_dd_abs > 0:
             m.recovery_factor = total_pnl / max_dd_abs
 
