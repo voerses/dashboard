@@ -74,9 +74,24 @@ tradesv3.sqlite
 freqtrade.log
 
 # ======================
-# AI dev process (not part of trading system)
+# AI dev process (workspace state, not shared)
 # ======================
-aidev/
-.claude/
-.specs/
-CLAUDE.md
+.specs/active/
+.specs/done/
+.specs/telemetry.jsonl
+.specs/retro-log.md
+.claude/.process-change-token
+.claude/settings.local.json
+
+# ======================
+# Node (if aidev UI is used)
+# ======================
+node_modules/
+dist/
+
+# ======================
+# Regenerable data
+# ======================
+data/*.txt
+data/repos-config.yaml
+repos/
