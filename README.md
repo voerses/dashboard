@@ -1,82 +1,89 @@
-# aidev — AI Development Process Framework
+# Automated Trading
 
-A structured AI development process for Claude Code. Enforces phased workflows (specify, design, decompose, implement, complete), test-driven development, independent code review, and human approval gates.
+Quantitative crypto trading system — swing and day trading strategies validated through a rigorous statistical pipeline.
 
-Clone this repo into your project directory, run `/setup` inside Claude, and you're ready to go.
+## What's Here
+
+```
+strategies/          # Trading strategies (s09-s22), TEMPLATE.py for new ones
+  archive/           # Tier C strategies (preserved, not active)
+knowledge/           # Domain knowledge base (~900KB)
+  process/           # Strategy development process (gates, kill criteria, research)
+v3/                  # Validation engine (walk-forward + CPCV dual gate)
+v2/                  # Signal lab, Freqtrade bridge, parameter export
+v1/                  # Legacy engine (reference only)
+data/                # Market data (1h/4h OHLCV, gitignored)
+results/             # Sweep summaries (JSON)
+indicators/          # Shared indicator library
+```
+
+## Strategy Tier System
+
+Strategies are classified by V3 validation rate (% of 49 tokens passing dual WF+CPCV gate):
+
+| Tier | Rate | Status | Count |
+|------|------|--------|-------|
+| **A** (production) | > 50% | Deploy | 6 strategies |
+| **B** (experimental) | 20-50% | Iterate | 6 strategies |
+| **C** (archived) | < 20% | Archive | 4 strategies |
+
+**Current Tier A:** s11 (75.5%), s09 (73.5%), s13 (67.3%), s21 (63.3%), s17 (55.1%), s18 (51.0%)
 
 ## Quick Start
 
 ```bash
-cd ~/my-project                # your project directory (create it if new)
-git clone <aidev-repo-url> aidev
-claude                         # start Claude Code from project root
+# Validate a strategy against all 49 tokens
+python v3/validation.py --strategy s11 --workers 4
+
+# Validate on BTC only (quick check)
+python v3/validation.py --strategy s11 --tokens BTC
+
+# Run full sweep (all strategies)
+python v3/validation.py --strategy s09 s11 s13 s17 s18 s21 --workers 4
+
+# Signal lab — test a new indicator's IC
+python v2/signal_lab.py
 ```
 
-Inside Claude, run:
-```
-/setup                         # creates symlinks, process is immediately active
-```
+## Strategy Development Pipeline
 
-## Requirements
-
-- macOS or Linux
-- bash 3.1+ (macOS default works)
-- git 2.x+
-- jq 1.6+ (`brew install jq` / `apt install jq`)
-- gh (GitHub CLI, optional — for repo cloning and PR workflows)
-
-## How It Works
-
-Run `claude` from the project root. Three symlinks wire Claude Code to aidev's process files:
-
-| Symlink | Target | Purpose |
-|---------|--------|---------|
-| `.claude` | `aidev/.claude` | Hooks, rules, skills, settings |
-| `CLAUDE.md` | `aidev/CLAUDE.md` | Root instructions |
-| `.specs` | `aidev/.specs` | Feature workflow templates + state |
-
-Working repos are siblings of `aidev/` — clone them directly into the project root.
-
-## Directory Layout
+8-gate process — kill losers fast, advance winners. Return-first (Calmar > Sortino > Sharpe).
 
 ```
-~/my-project/                        ← project root, run `claude` here
-├── .claude → aidev/.claude          ← symlink
-├── CLAUDE.md → aidev/CLAUDE.md      ← symlink
-├── .specs → aidev/.specs            ← symlink
-├── aidev/                           ← this repo
-│   ├── .claude/                     # Hooks, rules, skills, settings
-│   ├── CLAUDE.md                    # Root instructions
-│   ├── AIPIP/                       # Process improvement proposals
-│   ├── research/                    # Research reports
-│   └── .specs/                      # Templates + workspace state
-├── your-repo/                       ← working repo
-└── ...
+Gate 0: Idea Screen        (~5 min)    Kill ~50%
+Gate 1: Signal Lab (IC)    (~30 min)   Kill ~90%
+Gate 2: Knowledge + Dedup  (~15 min)   Kill ~30%
+Gate 3: Prototype          (~30 min)   Kill ~10%
+Gate 4: BTC Validation     (~5 min)    Kill ~50%
+Gate 5: Full 49-Token      (~10 min)   Kill ~50%
+Gate 6: Paper Trading      (~1-4 wks)  Kill ~50%
+Gate 7: Production + Decay (ongoing)   ~30%/yr decay
 ```
 
-## Knowledge System
+~99.8% of ideas never reach production. This is normal. See `knowledge/process/STRATEGY_PIPELINE_GATES.md`.
 
-| Layer | What | Where | Loaded |
-|-------|------|-------|--------|
-| 1 | Root instructions + rules | `CLAUDE.md`, `.claude/rules/` | Always |
-| 2 | Skills — reusable workflows | `.claude/skills/` | On invocation |
-| 3 | Research + AIPIPs — decision history | `research/`, `AIPIP/` | On demand |
+## Knowledge Base
 
-## Customization
+| File | What |
+|------|------|
+| `knowledge/STRATEGY_LIFECYCLE.md` | Tier system, sweep protocol, iteration rules |
+| `knowledge/process/STRATEGY_PIPELINE_GATES.md` | Gate criteria and kill thresholds |
+| `knowledge/process/SCOPE_AND_CONTEXT.md` | Trading style scope (swing/day, not HFT) |
+| `knowledge/process/DATA_GAP_ANALYSIS.md` | Missing data sources and acquisition plan |
+| `knowledge/KRAKEN_FEES.md` | Exchange fee tiers |
+| `knowledge/SLIPPAGE_RESEARCH.md` | Slippage modeling by exchange and tier |
 
-To adapt this framework for your project, see the "Customization" section in `CLAUDE.md`. You can add:
-- Project-specific knowledge files (`memory/`)
-- Per-repo guides (`repo-guides/`)
-- Scanner data and query tools (`data/`, `tools/`)
-- Additional skills (`.claude/skills/`)
+Full index: `knowledge/process/README.md`
 
-## Updating
+## AI Development Process
 
-```bash
-cd aidev && git pull
-# Process changes are active immediately — symlinks still point to the right place
-```
+This repo includes an AI-assisted development framework (via Claude Code):
 
-## Process Governance (AIPIPs)
+| Command | Purpose |
+|---------|---------|
+| `/strategy` | 8-gate strategy development pipeline |
+| `/dev` | Structured feature workflow (specify → design → implement) |
+| `/review` | Independent code review |
+| `/free` | Freeflow mode (no process enforcement) |
 
-Changes to the AI development process (rules, hooks, skills) require an AIPIP (AI Process Improvement Proposal). See [AIPIP/README.md](AIPIP/README.md) for the format and team PR flow.
+Process governance via AIPIPs — see `AIPIP/README.md`.
