@@ -35,6 +35,8 @@ from freqtrade_bridge.config_generator import (
 
 LOG_DIR = "paper_trading/logs"
 STATE_DIR = "paper_trading"
+SWEEP_RESULTS_DIR = "v2/results"
+STAKE_CURRENCY = "USDT"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -94,6 +96,47 @@ def get_exchange_credentials(exchange: str) -> dict:
     return {}
 
 
+def load_validated_pairs(strategy: str, sweep_dir: str = SWEEP_RESULTS_DIR) -> list:
+    """Load validated token pairs from the latest sweep results.
+
+    Matches strategy ID (e.g., 's11') to sweep label (e.g., 'S11 Momentum Burst'),
+    then converts tokens to exchange pairs (e.g., 'SUI' -> 'SUI/USDT').
+
+    Returns:
+        List of trading pairs, e.g. ['SUI/USDT', 'AVAX/USDT', ...]
+        Falls back to ['BTC/USDT'] if no sweep data found.
+    """
+    import glob as globmod
+
+    # Find the latest sweep result file
+    pattern = os.path.join(sweep_dir, "sweep_*.json")
+    files = sorted(globmod.glob(pattern))
+    if not files:
+        print(f"  Warning: No sweep results in {sweep_dir}, defaulting to BTC/USDT")
+        return [f"BTC/{STAKE_CURRENCY}"]
+
+    latest = files[-1]
+    with open(latest) as f:
+        sweep_data = json.load(f)
+
+    # Match strategy ID to sweep label (e.g., 's11' -> 'S11 ...')
+    strategy_upper = strategy.upper()  # 's11' -> 'S11'
+    matched = None
+    for entry in sweep_data:
+        label = entry.get("label", "")
+        if label.upper().startswith(strategy_upper):
+            matched = entry
+            break
+
+    if not matched or not matched.get("validated_tokens"):
+        print(f"  Warning: No validated tokens for {strategy}, defaulting to BTC/USDT")
+        return [f"BTC/{STAKE_CURRENCY}"]
+
+    tokens = matched["validated_tokens"]
+    pairs = [f"{token}/{STAKE_CURRENCY}" for token in tokens]
+    return pairs
+
+
 def allocate_port(strategy: str, exchange: str) -> int:
     """Deterministic port allocation: 8000 + strategy_num * 10 + exchange_offset."""
     strat_num = STRATEGY_NUM[strategy]
@@ -118,9 +161,13 @@ def cmd_start(args):
     strategy = args.strategy
     exchange = args.exchange.lower()
 
+    # Load validated pairs from sweep results
+    pairs = load_validated_pairs(strategy)
+    print(f"  Validated pairs ({len(pairs)}): {', '.join(pairs)}")
+
     # Generate config
     gen = ConfigGenerator()
-    config = gen.generate(strategy, exchange, pairs=["BTC/USDT"])
+    config = gen.generate(strategy, exchange, pairs=pairs)
 
     # Inject proxy if environment has one (needed for environments behind HTTP proxy)
     http_proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
