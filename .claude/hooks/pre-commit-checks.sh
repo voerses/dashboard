@@ -16,6 +16,17 @@
 
 set -euo pipefail
 
+# --- Process mode check (AIPIP-0013) ---
+PROJECT_DIR="${CLAUDE_PROJECT_DIR:-.}"
+MODE_FILE="$PROJECT_DIR/.process-mode"
+if [ ! -f "$MODE_FILE" ]; then
+  exit 0
+fi
+MODE=$(cut -d: -f1 < "$MODE_FILE")
+if [ "$MODE" != "dev" ]; then
+  exit 0
+fi
+
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
@@ -23,8 +34,6 @@ COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 if ! echo "$COMMAND" | grep -qE 'git\s+.*\bcommit\b'; then
   exit 0
 fi
-
-PROJECT_DIR="${CLAUDE_PROJECT_DIR:-.}"
 ERRORS=""
 
 # Determine which git repo the command targets (same logic as branch-protection.sh)

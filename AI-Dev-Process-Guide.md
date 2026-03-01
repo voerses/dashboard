@@ -1,4 +1,4 @@
-# Storacha AI Development Process Guide
+# AI Development Process Guide
 
 A structured workflow for AI-assisted development using Claude Code. Designed to prevent spec drift, enforce test-driven development, and keep the human in control.
 
@@ -14,7 +14,7 @@ SPECIFY → DESIGN → DECOMPOSE + TEST → IMPLEMENT → COMPLETE
  brief     design      tasks +          code +      PR +
   .md       notes    failing tests    passing tests  review
 
-   🔒 Human approval gate at each arrow 🔒
+   Human approval gate at each arrow
 ```
 
 ---
@@ -131,7 +131,7 @@ Not every change needs the full workflow. The AI auto-detects complexity:
 | **2: Standard** | New feature, 5-15 files | Full 5-phase workflow |
 | **3: Full** | Cross-service, 10+ files | Full workflow + architecture doc |
 
-**Tier 0 sanity check:** Even "trivial" changes escalate to Tier 1 if they touch blast-radius packages, capability schemas, or 3+ files.
+**Tier 0 sanity check:** Even "trivial" changes escalate to Tier 1 if they touch blast-radius packages, shared interfaces, or 3+ files.
 
 ---
 
@@ -164,15 +164,9 @@ Mandatory approval at every phase transition. The AI asks and waits.
 
 ## Blast Radius Awareness
 
-Some packages affect 10-15+ repos. The AI checks before changing them:
+Some packages affect many repos. The AI checks before changing them. Document your project's high-impact packages in `.claude/rules/blast-radius.md`.
 
-**EXTREME caution (15+ repos):** `@ucanto/core`, `@ucanto/interface`, `@ucanto/principal`, `@ucanto/transport`, `@ipld/car`
-
-**HIGH caution (10+ repos):** `@storacha/capabilities`, `@storacha/client`, `go-ucanto`, `go-libstoracha`
-
-**Rule:** Adding new capabilities = safe. Changing existing capability schemas = dangerous.
-
-The AI runs `python aidev/tools/query.py impact <package>` before touching shared packages.
+**Rule:** Adding new features to shared packages is generally safe. Changing existing public APIs or schemas is dangerous — check all consumers first.
 
 ---
 
@@ -186,8 +180,6 @@ The process itself is versioned and governed. To change any rule, hook, or skill
 
 This prevents the AI from silently weakening its own constraints under task pressure.
 
-10 AIPIPs have been accepted so far, each improving the workflow based on real usage.
-
 ---
 
 ## Slash Commands
@@ -195,11 +187,8 @@ This prevents the AI from silently weakening its own constraints under task pres
 | Command | What it does |
 |---------|-------------|
 | `/dev` | Start the full development workflow for a feature |
-| `/trace <flow>` | Load an end-to-end flow trace (upload, retrieval, auth, etc.) |
 | `/impact <pkg>` | Check blast radius before changing a shared package |
-| `/spec <name>` | Show spec-to-implementation mapping |
 | `/review` | Run code review (independent subagent) |
-| `/new-capability` | Step-by-step guide for adding a UCAN capability |
 | `/discover-repo` | Systematically explore a repo's structure |
 
 ---

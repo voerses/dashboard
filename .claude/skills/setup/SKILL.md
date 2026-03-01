@@ -23,10 +23,9 @@ This creates 3 symlinks in the current directory (project root):
 
 After the script runs successfully, tell the user:
 
-> Setup complete! The process is now active. Clone any repos you need alongside aidev/:
+> Setup complete! The process is now active. Clone your project repos alongside aidev/:
 > ```
-> gh repo clone storacha/upload-service
-> gh repo clone storacha/freeway
+> gh repo clone your-org/your-repo
 > ```
 >
 > Next time, just run `claude` from this directory — everything is wired up.

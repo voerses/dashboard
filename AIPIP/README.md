@@ -86,3 +86,6 @@ Numbers are assigned sequentially and never reused.
 | AIPIP-0009 | Rename plans/ to AIPIP/ and /plan to /dev | accepted |
 | AIPIP-0010 | Fix sed regex macOS compatibility in hooks | accepted |
 | AIPIP-0011 | Create storacha/aidev repo for team distribution | accepted |
+| AIPIP-0012 | Setup from project root | accepted |
+| AIPIP-0013 | Workspace-Aware Process Modes | accepted |
+| AIPIP-0014 | Strategy Development Process v2 — Gate-Based Validation Pipeline | accepted |

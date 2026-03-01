@@ -75,8 +75,8 @@ You are a code reviewer. Review the full implementation of a feature for quality
 
 ## Your Review Checklist
 1. SCOPE: Do changed files match the task plans? Flag any files changed that are NOT in any task's planned scope (scope creep).
-2. BLAST RADIUS: Are any high-blast-radius packages modified (@ucanto/core, @ucanto/interface, @storacha/capabilities, go-ucanto, go-libstoracha)? If so, was this explicitly planned?
-3. CONVENTIONS: Does the code follow naming (kebab-case JS files, snake_case Go), import order (@storacha/* vs @web3-storage/* vs @ucanto/*), and error handling (Result<T,X> pattern) conventions?
+2. BLAST RADIUS: Are any high-blast-radius packages modified (check `.claude/rules/blast-radius.md` for the project's list)? If so, was this explicitly planned?
+3. CONVENTIONS: Does the code follow the project's naming, import order, and error handling conventions (see `.claude/rules/conventions.md`)?
 4. TEST INTEGRITY: Were any acceptance tests weakened? (See Test Snapshot Diff above)
 5. COMPLETENESS: Does the diff fully implement all tasks and address all acceptance criteria?
 

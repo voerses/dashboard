@@ -11,6 +11,17 @@
 
 set -euo pipefail
 
+# --- Process mode check (AIPIP-0013) ---
+PROJECT_DIR="${CLAUDE_PROJECT_DIR:-.}"
+MODE_FILE="$PROJECT_DIR/.process-mode"
+if [ ! -f "$MODE_FILE" ]; then
+  exit 0
+fi
+MODE=$(cut -d: -f1 < "$MODE_FILE")
+if [ "$MODE" != "dev" ]; then
+  exit 0
+fi
+
 INPUT=$(cat)
 FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // .tool_input.file // empty')
 

@@ -80,7 +80,11 @@ If Tier 0 is confirmed, implement directly and stop. The remaining steps are for
 
 ## Step 2: PHASE 1 — SPECIFY (Value-First Questioning)
 
-### Create the spec directory
+### Set process mode and create the spec directory
+Switch to dev mode and create the spec directory:
+```bash
+echo "dev:{feature-slug}" > "$CLAUDE_PROJECT_DIR/.process-mode"
+```
 Create `.specs/active/{feature-slug}/` and write `PHASE` file:
 ```
 echo "specify" into .specs/active/{feature-slug}/PHASE
@@ -139,7 +143,7 @@ echo "design" into .specs/active/{feature-slug}/PHASE
    - Identify interfaces and data flows
    - Check for existing patterns to follow
    - Identify test infrastructure needs and mocking patterns
-   - For Storacha repos: check the repo's CLAUDE.md for repo-specific patterns
+   - Check the repo's CLAUDE.md for repo-specific patterns (if it exists)
 3. Identify risks and dependencies
 
 ### Produce Design Notes
@@ -418,7 +422,10 @@ When the human reports feedback (either in chat or by saying "check the PR comme
 - Use **fixup commits** per round for traceability
 - **Squash-and-merge** at the end for clean history
 
-8. **After approval + merge:** Move spec from `.specs/active/{feature-slug}/` to `.specs/done/{feature-slug}/`. Update PHASE to `done`.
+8. **After approval + merge:** Move spec from `.specs/active/{feature-slug}/` to `.specs/done/{feature-slug}/`. Update PHASE to `done`. Reset process mode:
+   ```bash
+   echo "freeflow" > "$CLAUDE_PROJECT_DIR/.process-mode"
+   ```
 
 ## Step 7: Retro Check
 

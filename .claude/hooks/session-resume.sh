@@ -10,6 +10,17 @@ set -euo pipefail
 
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-.}"
 
+# --- Show process mode (AIPIP-0013) ---
+MODE_FILE="$PROJECT_DIR/.process-mode"
+if [ -f "$MODE_FILE" ]; then
+  MODE=$(cut -d: -f1 < "$MODE_FILE")
+  echo "=== PROCESS MODE: $MODE ==="
+  echo ""
+else
+  echo "=== PROCESS MODE: freeflow (no .process-mode file) ==="
+  echo ""
+fi
+
 # Ensure workspace directories exist (first-run)
 mkdir -p "$PROJECT_DIR/.specs/active" "$PROJECT_DIR/.specs/done"
 

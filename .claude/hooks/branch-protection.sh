@@ -8,6 +8,17 @@
 
 set -euo pipefail
 
+# --- Process mode check (AIPIP-0013) ---
+PROJECT_DIR="${CLAUDE_PROJECT_DIR:-.}"
+MODE_FILE="$PROJECT_DIR/.process-mode"
+if [ ! -f "$MODE_FILE" ]; then
+  exit 0
+fi
+MODE=$(cut -d: -f1 < "$MODE_FILE")
+if [ "$MODE" != "dev" ]; then
+  exit 0
+fi
+
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
@@ -16,10 +27,8 @@ if ! echo "$COMMAND" | grep -qE 'git\s+.*\b(commit|push)\b'; then
   exit 0
 fi
 
-PROJECT_DIR="${CLAUDE_PROJECT_DIR:-.}"
-
 # Determine which git repo the command targets.
-# The Bash tool may cd into a sub-repo (e.g., repos/storacha/guppy/).
+# The Bash tool may cd into a sub-repo.
 # Try to extract the working directory from the command itself.
 REPO_DIR=""
 if echo "$COMMAND" | grep -qE '^\s*cd\s+'; then

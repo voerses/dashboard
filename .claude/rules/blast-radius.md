@@ -1,16 +1,19 @@
 # Blast Radius — Check Before Changing Shared Code
 
-## EXTREME caution (15+ repos affected)
-`@ucanto/core`, `@ucanto/interface`, `@ucanto/principal`, `@ucanto/transport`, `@ipld/car`
+## How to Use This File
 
-## HIGH caution (10+ repos)
-`@storacha/capabilities`, `@storacha/client`, `@ucanto/server`, `@ucanto/client`, `@ipld/dag-cbor`
+Document your project's high-impact shared packages here, organized by caution level. Before changing any listed package, assess downstream impact.
 
-## Go equivalents
-`go-ucanto` (12 repos), `go-libstoracha` (11 repos)
+## EXTREME caution (many repos affected)
+<!-- List packages that are imported by 15+ repos or services -->
+<!-- Example: `@your-org/core`, `@your-org/shared-types` -->
+
+## HIGH caution (moderate impact)
+<!-- List packages imported by 10+ repos or services -->
+<!-- Example: `@your-org/client`, `@your-org/server` -->
 
 ## Rules
-- Adding new capabilities = safe
-- Changing existing capability schemas = dangerous (check all handler + client repos)
-- Before changing any package above, run: `python aidev/tools/query.py impact <package>`
-- Consult `aidev/memory/architecture/shared-packages.md` for full dependency analysis
+- Adding new features to shared packages is generally safe
+- Changing existing public APIs or schemas is dangerous — check all consumers first
+- Before changing any high-impact package, identify all downstream dependents
+- Run tests in affected repos after making changes

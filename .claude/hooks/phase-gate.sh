@@ -7,8 +7,18 @@
 #   0 = allow
 #   2 = block (Claude Code convention)
 
-# Resolve project root from hook location (.claude/hooks/ -> project root)
-cd "$(cd "$(dirname "$0")/../.." && pwd)" || exit 0
+# --- Process mode check (AIPIP-0013) ---
+PROJECT_DIR="${CLAUDE_PROJECT_DIR:-.}"
+MODE_FILE="$PROJECT_DIR/.process-mode"
+if [ ! -f "$MODE_FILE" ]; then
+  exit 0  # No mode file = freeflow
+fi
+MODE=$(cut -d: -f1 < "$MODE_FILE")
+if [ "$MODE" != "dev" ]; then
+  exit 0  # Only enforce in dev mode
+fi
+
+cd "$PROJECT_DIR" || exit 0
 
 INPUT=$(cat)
 FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // .tool_input.file // empty')

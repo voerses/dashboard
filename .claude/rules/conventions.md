@@ -1,22 +1,21 @@
-# Storacha Conventions
+# Project Conventions
+
+## How to Use This File
+
+Document your project's naming conventions, error handling patterns, import conventions, and testing patterns here. The AI will follow these conventions when writing code.
 
 ## Naming
-- Capabilities: `domain/verb` (e.g., `blob/add`, `space/info`)
-- JS files: kebab-case
-- Go files: snake_case
-- Imports: `@storacha/*` (new), `@web3-storage/*` (legacy), `@ucanto/*` (stable)
-- Go imports: `github.com/storacha/*`
+<!-- Define your file naming conventions -->
+<!-- Example: JS files: kebab-case. Go files: snake_case. -->
 
 ## Error Handling
-- JS: `Result<T,X>` discriminated union (`{ ok }` or `{ error }`). Never throw from service handlers.
-- `Failure` base class with `.name` string matching for error types
-- Go: `result.Result[O,X]` from go-ucanto
+<!-- Define your error handling patterns -->
+<!-- Example: Use Result<T,E> types. Never throw from service handlers. -->
 
-## Effects
-- Use `fork()`/`join()` on `OkBuilder` for async workflows
-- `ucan/await` references receipts from prior invocations
+## Imports
+<!-- Define preferred package namespaces and import order -->
+<!-- Example: Prefer `@your-org/*` packages over legacy namespaces. -->
 
 ## Testing
-- JS: Mocha + shared test suites passed to `testVariant`
-- Go: testify assertions + mockery mocks
-- Use shared ed25519 fixtures for deterministic DIDs in tests
+<!-- Define your test framework and patterns -->
+<!-- Example: JS: Vitest + shared fixtures. Go: testify + mockery. -->

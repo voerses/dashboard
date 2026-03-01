@@ -35,6 +35,13 @@ FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // .tool_input.file // 
 [[ "$FILE_PATH" == */AIPIP/README.md ]] && exit 0
 [[ "$FILE_PATH" == */.claude/.process-change-token ]] && exit 0
 
+# Block .process-mode writes (AIPIP-0013: only user can switch modes via /dev /strategy /free)
+if [[ "$FILE_PATH" == */.process-mode ]]; then
+  echo "BLOCKED: Only the user can switch process modes." >&2
+  echo "Use /dev, /strategy, or /free to change modes." >&2
+  exit 2
+fi
+
 # Check if this is a protected process file
 IS_PROTECTED=false
 
