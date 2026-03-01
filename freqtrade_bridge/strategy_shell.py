@@ -200,7 +200,7 @@ class CpcvSwingStrategy(IStrategy):
         dataframe['plus_di'] = ta.PLUS_DI(dataframe, timeperiod=14)
         dataframe['minus_di'] = ta.MINUS_DI(dataframe, timeperiod=14)
 
-        bb = ta.BBANDS(dataframe, timeperiod=20, nbdevup=2, nbdevdn=2)
+        bb = ta.BBANDS(dataframe, timeperiod=20, nbdevup=2.0, nbdevdn=2.0)
         dataframe['bb_upper'] = bb['upperband']
         dataframe['bb_lower'] = bb['lowerband']
         dataframe['bb_mid'] = bb['middleband']

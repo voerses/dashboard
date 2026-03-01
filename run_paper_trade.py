@@ -18,6 +18,7 @@ Usage:
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 
@@ -121,6 +122,36 @@ def cmd_start(args):
     gen = ConfigGenerator()
     config = gen.generate(strategy, exchange, pairs=["BTC/USDT"])
 
+    # Inject proxy if environment has one (needed for environments behind HTTP proxy)
+    http_proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
+    if http_proxy:
+        proxy_conf = {"https": http_proxy, "http": http_proxy}
+        config["exchange"]["ccxt_sync_config"]["proxies"] = proxy_conf
+        config["exchange"]["ccxt_async_config"]["aiohttp_proxy"] = http_proxy
+
+    # Add Freqtrade runtime config keys not in the base generator
+    config.setdefault("entry_pricing", {
+        "price_side": "same",
+        "use_order_book": True,
+        "order_book_top": 1,
+    })
+    config.setdefault("exit_pricing", {
+        "price_side": "same",
+        "use_order_book": True,
+        "order_book_top": 1,
+    })
+    config.setdefault("pairlists", [{"method": "StaticPairList"}])
+    # Disable WebSocket if behind proxy (WebSocket can't traverse HTTP proxies)
+    if http_proxy:
+        config["exchange"]["enable_ws"] = False
+
+    # Ensure API server has required auth fields
+    if "api_server" in config and config["api_server"].get("enabled"):
+        config["api_server"].setdefault("username", "paper")
+        config["api_server"].setdefault("password", "paper")
+        config["api_server"].setdefault("jwt_secret_key",
+                                         f"paper_{strategy}_{exchange}")
+
     # Read optional credentials (never written to disk)
     creds = get_exchange_credentials(exchange)
 
@@ -148,14 +179,42 @@ def cmd_start(args):
         env["FREQTRADE__EXCHANGE__KEY"] = creds["key"]
         env["FREQTRADE__EXCHANGE__SECRET"] = creds["secret"]
 
+    # Find freqtrade binary
+    ft_bin = shutil.which("freqtrade")
+    if not ft_bin:
+        # Check common user-install location
+        pylib_bin = os.path.join(
+            os.environ.get("PYTHONUSERBASE", ""), "bin", "freqtrade"
+        )
+        if os.path.isfile(pylib_bin):
+            ft_bin = pylib_bin
+    if not ft_bin:
+        raise FileNotFoundError(
+            "freqtrade not found on PATH. Install it with: "
+            "pip install freqtrade"
+        )
+
+    # Ensure freqtrade subprocess can find its own packages
+    if "PYTHONUSERBASE" in os.environ:
+        pylib = os.environ["PYTHONUSERBASE"]
+        site_pkgs = os.path.join(pylib, "lib", f"python{sys.version_info.major}.{sys.version_info.minor}", "site-packages")
+        existing = env.get("PYTHONPATH", "")
+        env["PYTHONPATH"] = f"{site_pkgs}:{existing}" if existing else site_pkgs
+        env["PYTHONUSERBASE"] = pylib
+
+    # Resolve paths to absolute for subprocess
+    abs_config = os.path.abspath(config_path)
+    abs_db = os.path.abspath(os.path.join(config_dir, "tradesv3.sqlite"))
+    abs_userdir = os.path.abspath("user_data")
+
     with open(log_path, "a") as log_file:
         proc = subprocess.Popen(
             [
-                "freqtrade", "trade",
-                "--config", config_path,
-                "--strategy", strategy,
-                "--db-url", f"sqlite:///{config_dir}/tradesv3.sqlite",
-                "--api-server-port", str(port),
+                sys.executable, "-m", "freqtrade", "trade",
+                "--config", abs_config,
+                "--strategy", config.get("strategy", "CpcvSwingStrategy"),
+                "--userdir", abs_userdir,
+                "--db-url", f"sqlite:///{abs_db}",
             ],
             stdout=log_file,
             stderr=log_file,
