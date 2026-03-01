@@ -572,6 +572,55 @@ def _compute_enriched_signals(ctx: StrategyContext):
             ctx.custom[f'enr_{col}'] = mapped
 
 
+
+
+# =============================================================================
+# Vectorized Rolling Helpers (for strategy authors — avoid Python loops)
+# =============================================================================
+
+def rolling_mean(arr, window):
+    """Vectorized rolling mean. Use instead of for-loop + np.mean."""
+    s = pd.Series(arr)
+    return s.rolling(window, min_periods=1).mean().values
+
+def rolling_std(arr, window):
+    """Vectorized rolling std. Use instead of for-loop + np.std."""
+    s = pd.Series(arr)
+    return s.rolling(window, min_periods=1).std().values
+
+def rolling_median(arr, window):
+    """Vectorized rolling median. Use instead of for-loop + np.median."""
+    s = pd.Series(arr)
+    return s.rolling(window, min_periods=1).median().values
+
+def rolling_max(arr, window):
+    """Vectorized rolling max. Use instead of for-loop + np.max."""
+    s = pd.Series(arr)
+    return s.rolling(window, min_periods=1).max().values
+
+def rolling_min(arr, window):
+    """Vectorized rolling min. Use instead of for-loop + np.min."""
+    s = pd.Series(arr)
+    return s.rolling(window, min_periods=1).min().values
+
+def rolling_zscore(arr, window):
+    """Vectorized rolling z-score. Returns (arr - rolling_mean) / rolling_std."""
+    s = pd.Series(arr)
+    mu = s.rolling(window, min_periods=max(10, window // 4)).mean()
+    sigma = s.rolling(window, min_periods=max(10, window // 4)).std()
+    z = ((s - mu) / sigma.clip(lower=1e-10)).clip(-3, 3).fillna(0)
+    return z.values
+
+def rolling_skew(arr, window):
+    """Vectorized rolling skewness."""
+    s = pd.Series(arr)
+    return s.rolling(window, min_periods=max(5, window // 4)).skew().fillna(0).values
+
+def rolling_corr(arr1, arr2, window):
+    """Vectorized rolling correlation."""
+    s1, s2 = pd.Series(arr1), pd.Series(arr2)
+    return s1.rolling(window, min_periods=max(10, window // 4)).corr(s2).fillna(0).values
+
 # =============================================================================
 # Engine
 # =============================================================================
@@ -587,6 +636,7 @@ class Engine:
         self.slippage_bps = slippage_bps
         self._enriched = None
         self._enriched_loaded = False
+        self._context_cache = {}  # {ticker: StrategyContext} for caching across strategy runs
 
     def _load_enriched(self):
         if self._enriched_loaded:
@@ -600,10 +650,20 @@ class Engine:
         self._enriched_loaded = True
         return self._enriched
 
-    def _build_context(self, ticker: str, df_1h: pd.DataFrame) -> Optional[StrategyContext]:
-        """Build a StrategyContext for one token."""
+    def _build_context(self, ticker: str, df_1h: pd.DataFrame,
+                       use_cache: bool = False) -> Optional[StrategyContext]:
+        """Build a StrategyContext for one token.
+        
+        Args:
+            use_cache: If True, cache and reuse contexts for the same (ticker, len) pair.
+                       Useful when running multiple strategies on the same token data.
+        """
         if df_1h is None or len(df_1h) < 500:
             return None
+        
+        cache_key = (ticker, len(df_1h))
+        if use_cache and cache_key in self._context_cache:
+            return self._context_cache[cache_key]
 
         df_4h = aggregate_to_timeframe(df_1h, hours=4)
         df_daily = aggregate_to_timeframe(df_1h, hours=24)
@@ -662,6 +722,8 @@ class Engine:
             except Exception:
                 pass
 
+        if use_cache:
+            self._context_cache[cache_key] = ctx
         return ctx
 
     def _simulate(self, ctx: StrategyContext, result: StrategyResult) -> Tuple[list, float]:
