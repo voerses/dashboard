@@ -1,0 +1,123 @@
+{
+  "sweep_date": "2026-03-01",
+  "strategies": {
+    "s11_momentum_burst": {
+      "validated": 37,
+      "total": 49,
+      "rate": 75.5,
+      "elapsed_s": 18.4
+    },
+    "s09_optimized_trend": {
+      "validated": 36,
+      "total": 49,
+      "rate": 73.5,
+      "elapsed_s": 20.2
+    },
+    "s13_vol_weighted_tsmom": {
+      "validated": 33,
+      "total": 49,
+      "rate": 67.3,
+      "elapsed_s": 24.2
+    },
+    "s21_skew_momentum": {
+      "validated": 31,
+      "total": 49,
+      "rate": 63.3,
+      "elapsed_s": 18.8
+    },
+    "s17_trend_strength_filter": {
+      "validated": 27,
+      "total": 49,
+      "rate": 55.1,
+      "elapsed_s": 19.7
+    },
+    "s18_momentum_accel": {
+      "validated": 25,
+      "total": 49,
+      "rate": 51.0,
+      "elapsed_s": 19.4
+    },
+    "s20_low_beta_quality": {
+      "validated": 23,
+      "total": 49,
+      "rate": 46.9,
+      "elapsed_s": 21.9
+    },
+    "s22_supertrend_adx": {
+      "validated": 23,
+      "total": 49,
+      "rate": 46.9,
+      "elapsed_s": 22.3
+    },
+    "s12_quality_breakout": {
+      "validated": 16,
+      "total": 49,
+      "rate": 32.7,
+      "elapsed_s": 19.6
+    },
+    "s15_vol_regime_breakout": {
+      "validated": 15,
+      "total": 49,
+      "rate": 30.6,
+      "elapsed_s": 22.7
+    },
+    "s14_microstructure_edge": {
+      "validated": 13,
+      "total": 49,
+      "rate": 26.5,
+      "elapsed_s": 28.2
+    },
+    "s10_research_dip_buy": {
+      "validated": 12,
+      "total": 49,
+      "rate": 24.5,
+      "elapsed_s": 22.9
+    },
+    "s07_rsi_bounce": {
+      "validated": 5,
+      "total": 49,
+      "rate": 10.2,
+      "elapsed_s": 19.9
+    },
+    "s08_obv_divergence": {
+      "validated": 3,
+      "total": 49,
+      "rate": 6.1,
+      "elapsed_s": 21.9
+    },
+    "s16_composite_factor": {
+      "validated": 0,
+      "total": 49,
+      "rate": 0.0,
+      "elapsed_s": 20.2
+    },
+    "s19_mean_reversion_filtered": {
+      "validated": 0,
+      "total": 49,
+      "rate": 0.0,
+      "elapsed_s": 16.9
+    }
+  },
+  "tier_a": [
+    "s11_momentum_burst",
+    "s09_optimized_trend",
+    "s13_vol_weighted_tsmom",
+    "s21_skew_momentum",
+    "s17_trend_strength_filter",
+    "s18_momentum_accel"
+  ],
+  "tier_b": [
+    "s20_low_beta_quality",
+    "s22_supertrend_adx",
+    "s12_quality_breakout",
+    "s15_vol_regime_breakout",
+    "s14_microstructure_edge",
+    "s10_research_dip_buy"
+  ],
+  "tier_c": [
+    "s07_rsi_bounce",
+    "s08_obv_divergence",
+    "s16_composite_factor",
+    "s19_mean_reversion_filtered"
+  ]
+}
