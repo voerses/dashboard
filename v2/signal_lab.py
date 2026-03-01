@@ -343,6 +343,529 @@ def sig_liquidity_adjusted_ret(g, btc):
 
 
 # ===========================================================================
+# NEW SIGNALS — Expansion Wave 1 (added 2026-03-01)
+# Priority signals from Strategy Catalog, Advanced Signals Catalog,
+# Indicator Catalog, and Quant Strategies Research.
+# ===========================================================================
+
+# ---- TSMOM Variants (Academic Sharpe 1.5-2.17) ----
+
+@register_signal("tsmom_28d")
+def sig_tsmom_28d(g, btc):
+    """Time-Series Momentum: 28-day lookback (Han, Kang & Ryu 2023).
+    Optimal lookback for crypto. Returns tercile rank of own trailing return."""
+    ret_28 = g["close"].pct_change(28)
+    # Rolling percentile rank of own return (0-1)
+    return ret_28.rolling(252, min_periods=60).rank(pct=True)
+
+@register_signal("tsmom_14d")
+def sig_tsmom_14d(g, btc):
+    """Shorter TSMOM variant — 14-day lookback."""
+    ret_14 = g["close"].pct_change(14)
+    return ret_14.rolling(180, min_periods=60).rank(pct=True)
+
+@register_signal("tsmom_7d")
+def sig_tsmom_7d(g, btc):
+    """Short TSMOM — 7-day lookback for faster signals."""
+    ret_7 = g["close"].pct_change(7)
+    return ret_7.rolling(120, min_periods=40).rank(pct=True)
+
+@register_signal("vol_weighted_tsmom")
+def sig_vol_weighted_tsmom(g, btc):
+    """Volume-Weighted TSMOM (Huang, Sangiorgi & Urquhart 2024, Sharpe 2.17).
+    Weight returns by relative volume."""
+    ret_1 = g["close"].pct_change(1)
+    vol_ratio = g["volume"] / g["volume"].rolling(20, min_periods=20).mean().replace(0, np.nan)
+    vw_ret = ret_1 * vol_ratio
+    return vw_ret.rolling(28, min_periods=14).sum()
+
+@register_signal("tsmom_acceleration")
+def sig_tsmom_acceleration(g, btc):
+    """Momentum acceleration: rate of change of momentum.
+    Captures when trends are speeding up vs slowing down."""
+    ret_14 = g["close"].pct_change(14)
+    ret_14_prev = ret_14.shift(7)
+    return ret_14 - ret_14_prev
+
+
+# ---- Adaptive / Modern Trend Indicators ----
+
+@register_signal("kama_20")
+def sig_kama_20(g, btc):
+    """Kaufman Adaptive Moving Average (KAMA).
+    Adapts speed based on noise ratio — fast in trends, slow in chop."""
+    close = g["close"]
+    n = len(close)
+    fast_sc = 2.0 / (2 + 1)   # fast EMA constant (period 2)
+    slow_sc = 2.0 / (30 + 1)  # slow EMA constant (period 30)
+    period = 20
+    kama = close.copy() * np.nan
+    if n <= period:
+        return kama
+    kama.iloc[period - 1] = close.iloc[period - 1]
+    for i in range(period, n):
+        direction = abs(close.iloc[i] - close.iloc[i - period])
+        volatility = close.diff().abs().iloc[i - period + 1:i + 1].sum()
+        if volatility == 0:
+            er = 0
+        else:
+            er = direction / volatility  # efficiency ratio
+        sc = (er * (fast_sc - slow_sc) + slow_sc) ** 2  # smoothing constant
+        kama.iloc[i] = kama.iloc[i - 1] + sc * (close.iloc[i] - kama.iloc[i - 1])
+    return (close - kama) / kama.replace(0, np.nan)  # deviation from KAMA
+
+@register_signal("hull_ma_dev")
+def sig_hull_ma_dev(g, btc):
+    """Hull Moving Average deviation — faster-responding MA."""
+    close = g["close"]
+    half_wma = close.rolling(10, min_periods=10).mean()
+    full_wma = close.rolling(20, min_periods=20).mean()
+    diff = 2 * half_wma - full_wma
+    hull = diff.rolling(4, min_periods=4).mean()  # sqrt(20) ≈ 4
+    return (close - hull) / hull.replace(0, np.nan)
+
+@register_signal("supertrend_dir")
+def sig_supertrend_dir(g, btc):
+    """Supertrend direction — trend-following indicator.
+    Returns +1 in uptrend, -1 in downtrend."""
+    close = g["close"]
+    high = g["high"]
+    low = g["low"]
+    atr = _atr(high, low, close, 10)
+    mid = (high + low) / 2
+    upper = mid + 3 * atr
+    lower = mid - 3 * atr
+    direction = pd.Series(1, index=close.index, dtype=float)
+    for i in range(1, len(close)):
+        if close.iloc[i] > upper.iloc[i - 1]:
+            direction.iloc[i] = 1
+        elif close.iloc[i] < lower.iloc[i - 1]:
+            direction.iloc[i] = -1
+        else:
+            direction.iloc[i] = direction.iloc[i - 1]
+    return direction
+
+@register_signal("di_crossover")
+def sig_di_crossover(g, btc):
+    """Directional Indicator crossover: +DI minus -DI.
+    Positive = bullish trend, negative = bearish trend."""
+    plus_dm = g["high"].diff().clip(lower=0)
+    minus_dm = (-g["low"].diff()).clip(lower=0)
+    plus_dm[plus_dm < minus_dm] = 0
+    minus_dm[minus_dm < plus_dm] = 0
+    atr = _atr(g["high"], g["low"], g["close"], 14)
+    plus_di = 100 * _ema(plus_dm, 14) / atr.replace(0, np.nan)
+    minus_di = 100 * _ema(minus_dm, 14) / atr.replace(0, np.nan)
+    return plus_di - minus_di
+
+@register_signal("aroon_osc")
+def sig_aroon_osc(g, btc):
+    """Aroon Oscillator: measures how recently the highest high vs lowest low occurred.
+    +100 = strong uptrend, -100 = strong downtrend."""
+    period = 25
+    aroon_up = g["high"].rolling(period, min_periods=period).apply(
+        lambda x: x.argmax() / (period - 1) * 100, raw=True
+    )
+    aroon_dn = g["low"].rolling(period, min_periods=period).apply(
+        lambda x: x.argmin() / (period - 1) * 100, raw=True
+    )
+    return aroon_up - aroon_dn
+
+
+# ---- Momentum Quality / Crash Protection ----
+
+@register_signal("momentum_quality")
+def sig_momentum_quality(g, btc):
+    """Momentum Quality: ret * consistency. High return + smooth path = high quality.
+    Frog-in-the-Pan concept (Da, Gurun & Warachka 2014)."""
+    ret_20 = g["close"].pct_change(20)
+    # Count fraction of positive daily returns in the window
+    daily_ret = g["close"].pct_change()
+    pos_frac = daily_ret.rolling(20, min_periods=20).apply(lambda x: (x > 0).mean(), raw=True)
+    return ret_20 * pos_frac  # big smooth up moves score highest
+
+@register_signal("frog_in_pan")
+def sig_frog_in_pan(g, btc):
+    """Frog-in-the-Pan: slow, steady momentum beats explosive moves.
+    FIP = sign(ret) * (fraction of days matching sign of total return)."""
+    ret_20 = g["close"].pct_change(20)
+    daily_ret = g["close"].pct_change()
+    sign_ret = np.sign(ret_20)
+    # Fraction of days where daily return matches the overall direction
+    def fip_calc(window):
+        if len(window) < 20:
+            return np.nan
+        total_sign = np.sign(window.sum())
+        if total_sign == 0:
+            return 0
+        return (np.sign(window) == total_sign).mean()
+    consistency = daily_ret.rolling(20, min_periods=20).apply(fip_calc, raw=True)
+    return sign_ret * consistency
+
+@register_signal("vol_scaled_momentum")
+def sig_vol_scaled_momentum(g, btc):
+    """Barroso & Santa-Clara (2015) momentum crash protection.
+    Scale momentum by inverse of recent realized vol."""
+    ret_20 = g["close"].pct_change(20)
+    log_ret = np.log(g["close"] / g["close"].shift(1))
+    vol_20 = log_ret.rolling(20, min_periods=20).std()
+    # Target vol of 10% annualized
+    target_vol = 0.10 / np.sqrt(252)
+    scale = target_vol / vol_20.replace(0, np.nan)
+    scale = scale.clip(0.2, 5.0)  # prevent extreme scaling
+    return ret_20 * scale
+
+@register_signal("momentum_reversal")
+def sig_momentum_reversal(g, btc):
+    """Short-term reversal vs medium-term momentum.
+    Positive when medium-term is up but short-term pulled back — potential continuation."""
+    ret_5 = g["close"].pct_change(5)
+    ret_20 = g["close"].pct_change(20)
+    return ret_20 - ret_5  # medium momentum minus recent return
+
+
+# ---- Statistical Distribution Signals ----
+
+@register_signal("rolling_skew")
+def sig_rolling_skew(g, btc):
+    """Rolling skewness of returns (20d).
+    Positive skew = right tail (breakout potential), negative = crash risk."""
+    daily_ret = g["close"].pct_change()
+    return daily_ret.rolling(20, min_periods=20).skew()
+
+@register_signal("rolling_kurtosis")
+def sig_rolling_kurtosis(g, btc):
+    """Rolling excess kurtosis (20d).
+    High kurtosis = fat tails = more extreme moves coming."""
+    daily_ret = g["close"].pct_change()
+    return daily_ret.rolling(20, min_periods=20).kurt()
+
+@register_signal("return_autocorr")
+def sig_return_autocorr(g, btc):
+    """Rolling lag-1 autocorrelation of returns (20d).
+    Positive = trending, negative = mean-reverting, zero = random."""
+    daily_ret = g["close"].pct_change()
+    return daily_ret.rolling(20, min_periods=20).apply(
+        lambda x: pd.Series(x).autocorr(lag=1), raw=False
+    )
+
+@register_signal("hurst_exponent")
+def sig_hurst_exponent(g, btc):
+    """Simplified Hurst exponent via variance ratio.
+    H > 0.5 = trending (momentum works), H < 0.5 = mean-reverting."""
+    log_ret = np.log(g["close"] / g["close"].shift(1))
+    # Variance ratio: var(2-period) / (2 * var(1-period))
+    var_1 = log_ret.rolling(20, min_periods=20).var()
+    ret_2 = log_ret.rolling(2, min_periods=2).sum()
+    var_2 = ret_2.rolling(20, min_periods=20).var()
+    vr = var_2 / (2 * var_1).replace(0, np.nan)
+    return vr  # > 1 = trending, < 1 = reverting
+
+@register_signal("max_dd_speed")
+def sig_max_dd_speed(g, btc):
+    """Maximum drawdown speed over 20 days.
+    How fast the worst drawdown happened — measures crash risk."""
+    close = g["close"]
+    rolling_max = close.rolling(20, min_periods=5).max()
+    dd = (close - rolling_max) / rolling_max.replace(0, np.nan)
+    return dd  # most negative = deepest drawdown
+
+
+# ---- Volume / Flow Signals ----
+
+@register_signal("volume_trend")
+def sig_volume_trend(g, btc):
+    """Volume trend: ratio of recent to older volume.
+    Rising volume often precedes price moves."""
+    vol_5 = g["volume"].rolling(5, min_periods=5).mean()
+    vol_20 = g["volume"].rolling(20, min_periods=20).mean()
+    return vol_5 / vol_20.replace(0, np.nan) - 1
+
+@register_signal("price_volume_divergence")
+def sig_price_volume_divergence(g, btc):
+    """Price-volume divergence: price trending up but volume declining = weak.
+    Price trending up with volume rising = strong."""
+    ret_10 = g["close"].pct_change(10)
+    vol_change = g["volume"].pct_change(10)
+    return ret_10 * vol_change  # aligned = positive, divergent = negative
+
+@register_signal("mfi_14")
+def sig_mfi_14(g, btc):
+    """Money Flow Index (MFI) — volume-weighted RSI.
+    More informative than plain RSI because it includes volume."""
+    typical = (g["high"] + g["low"] + g["close"]) / 3
+    mf = typical * g["volume"]
+    pos_mf = mf.where(typical > typical.shift(1), 0)
+    neg_mf = mf.where(typical < typical.shift(1), 0)
+    pos_sum = pos_mf.rolling(14, min_periods=14).sum()
+    neg_sum = neg_mf.rolling(14, min_periods=14).sum()
+    mfr = pos_sum / neg_sum.replace(0, np.nan)
+    return 100 - 100 / (1 + mfr) - 50  # center around 0
+
+@register_signal("ad_line_slope")
+def sig_ad_line_slope(g, btc):
+    """Accumulation/Distribution line slope (10d).
+    Measures money flow into/out of the asset."""
+    clv = ((g["close"] - g["low"]) - (g["high"] - g["close"])) / \
+          (g["high"] - g["low"]).replace(0, np.nan)
+    ad = (clv * g["volume"]).cumsum()
+    ad_std = ad.rolling(10, min_periods=10).std().replace(0, np.nan)
+    return ad.diff(10) / ad_std
+
+@register_signal("taker_imbalance")
+def sig_taker_imbalance(g, btc):
+    """Approximate taker buy/sell imbalance from close position in bar range.
+    Close near high = buying pressure, close near low = selling."""
+    rng = (g["high"] - g["low"]).replace(0, np.nan)
+    buy_frac = (g["close"] - g["low"]) / rng
+    # 5-day average of buy fraction
+    return buy_frac.rolling(5, min_periods=5).mean() - 0.5
+
+@register_signal("dollar_volume_momentum")
+def sig_dollar_volume_momentum(g, btc):
+    """Dollar volume momentum — rising dollar volume = increasing interest."""
+    dv = g["close"] * g["volume"]
+    dv_5 = dv.rolling(5, min_periods=5).mean()
+    dv_20 = dv.rolling(20, min_periods=20).mean()
+    return dv_5 / dv_20.replace(0, np.nan) - 1
+
+
+# ---- Volatility Regime Signals ----
+
+@register_signal("yang_zhang")
+def sig_yang_zhang(g, btc):
+    """Yang-Zhang volatility estimator — most efficient for OHLC data.
+    Combines overnight, open-close, and Rogers-Satchell components."""
+    log_oc = np.log(g["open"] / g["close"].shift(1))  # overnight
+    log_co = np.log(g["close"] / g["open"])  # open-to-close
+    log_ho = np.log(g["high"] / g["open"])
+    log_lo = np.log(g["low"] / g["open"])
+    rs = log_ho * (log_ho - log_co) + log_lo * (log_lo - log_co)  # Rogers-Satchell
+    overnight_var = log_oc.rolling(20, min_periods=20).var()
+    close_var = log_co.rolling(20, min_periods=20).var()
+    rs_var = rs.rolling(20, min_periods=20).mean()
+    k = 0.34 / (1.34 + (20 + 1) / (20 - 1))
+    yz = np.sqrt(overnight_var + k * close_var + (1 - k) * rs_var)
+    return yz
+
+@register_signal("vol_term_structure")
+def sig_vol_term_structure(g, btc):
+    """Volatility term structure: short vol / long vol.
+    > 1 = backwardation (vol spike), < 1 = contango (calm)."""
+    log_ret = np.log(g["close"] / g["close"].shift(1))
+    vol_5 = log_ret.rolling(5, min_periods=5).std()
+    vol_60 = log_ret.rolling(60, min_periods=60).std()
+    return vol_5 / vol_60.replace(0, np.nan)
+
+@register_signal("bb_squeeze")
+def sig_bb_squeeze(g, btc):
+    """Bollinger Band squeeze intensity — how compressed is volatility?
+    Low values = potential breakout incoming."""
+    bb_width = 2 * _std(g["close"], 20) / _sma(g["close"], 20).replace(0, np.nan)
+    # Normalize by its own history
+    return bb_width / bb_width.rolling(120, min_periods=60).mean().replace(0, np.nan)
+
+@register_signal("realized_vs_parkinson")
+def sig_realized_vs_parkinson(g, btc):
+    """Ratio of close-to-close vol to Parkinson (range-based) vol.
+    Divergence signals jump activity or overnight moves."""
+    log_ret = np.log(g["close"] / g["close"].shift(1))
+    cc_vol = log_ret.rolling(20, min_periods=20).std()
+    log_hl = np.log(g["high"] / g["low"])
+    pk_vol = np.sqrt((log_hl ** 2 / (4 * np.log(2))).rolling(20, min_periods=20).mean())
+    return cc_vol / pk_vol.replace(0, np.nan)
+
+
+# ---- Cross-Asset / BTC Signals ----
+
+@register_signal("btc_dominance_proxy")
+def sig_btc_dominance_proxy(g, btc):
+    """BTC dominance proxy: BTC return vs token return.
+    When BTC outperforms = risk-off, when token outperforms = risk-on."""
+    token_ret_10 = g["close"].pct_change(10)
+    btc_10 = btc[["date"]].copy()
+    btc_10["btc_ret_10d"] = btc["close"].pct_change(10)
+    merged = g[["date"]].merge(btc_10, on="date", how="left")
+    btc_r = pd.Series(merged["btc_ret_10d"].values, index=g.index)
+    return token_ret_10 - btc_r
+
+@register_signal("btc_corr_60")
+def sig_btc_corr_60(g, btc):
+    """Longer-term BTC correlation (60d).
+    Low correlation = potential diversifier, high = beta play."""
+    token_ret = g["close"].pct_change()
+    btc_merged = g[["date"]].merge(btc[["date", "btc_ret"]], on="date", how="left")
+    btc_ret = btc_merged["btc_ret"].values
+    btc_s = pd.Series(btc_ret, index=g.index)
+    return token_ret.rolling(60, min_periods=40).corr(btc_s)
+
+@register_signal("btc_corr_change")
+def sig_btc_corr_change(g, btc):
+    """Change in BTC correlation: short vs long window.
+    Increasing correlation = regime shift (herding)."""
+    token_ret = g["close"].pct_change()
+    btc_merged = g[["date"]].merge(btc[["date", "btc_ret"]], on="date", how="left")
+    btc_ret = btc_merged["btc_ret"].values
+    btc_s = pd.Series(btc_ret, index=g.index)
+    corr_10 = token_ret.rolling(10, min_periods=10).corr(btc_s)
+    corr_60 = token_ret.rolling(60, min_periods=40).corr(btc_s)
+    return corr_10 - corr_60
+
+@register_signal("btc_vol_regime")
+def sig_btc_vol_regime(g, btc):
+    """BTC volatility regime: high BTC vol = risk-off environment.
+    Useful as a filter — avoid entries during BTC turmoil."""
+    btc_merged = g[["date"]].merge(btc[["date", "close"]], on="date", how="left", suffixes=("", "_btc"))
+    btc_close = pd.Series(btc_merged["close_btc"].values, index=g.index)
+    btc_ret = btc_close.pct_change()
+    btc_vol = btc_ret.rolling(20, min_periods=20).std()
+    btc_vol_med = btc_vol.rolling(120, min_periods=60).median()
+    return btc_vol / btc_vol_med.replace(0, np.nan)  # > 1 = elevated vol regime
+
+
+# ---- Microstructure Signals ----
+
+@register_signal("corwin_schultz")
+def sig_corwin_schultz(g, btc):
+    """Corwin-Schultz (2012) spread estimator from high-low prices.
+    Estimates bid-ask spread without needing tick data."""
+    high = g["high"]
+    low = g["low"]
+    # Beta = sum of squared log(H/L) over 2 consecutive bars
+    log_hl = np.log(high / low)
+    log_hl_sq = log_hl ** 2
+    beta = log_hl_sq + log_hl_sq.shift(1)
+    # Gamma = log(max(H_t, H_{t-1}) / min(L_t, L_{t-1}))^2
+    h2 = high.rolling(2, min_periods=2).max()
+    l2 = low.rolling(2, min_periods=2).min()
+    gamma = np.log(h2 / l2) ** 2
+    # Alpha
+    alpha = (np.sqrt(2 * beta) - np.sqrt(beta)) / (3 - 2 * np.sqrt(2)) - np.sqrt(gamma / (3 - 2 * np.sqrt(2)))
+    alpha = alpha.clip(lower=0)
+    spread = 2 * (np.exp(alpha) - 1) / (1 + np.exp(alpha))
+    return spread.rolling(20, min_periods=10).mean()
+
+@register_signal("kyle_lambda")
+def sig_kyle_lambda(g, btc):
+    """Kyle's Lambda approximation — price impact per unit of volume.
+    Higher = more illiquid, lower = more liquid."""
+    abs_ret = g["close"].pct_change().abs()
+    signed_vol = np.sign(g["close"].diff()) * np.sqrt(g["volume"].clip(lower=0))
+    abs_signed = signed_vol.abs().replace(0, np.nan)
+    lam = abs_ret / abs_signed
+    return lam.rolling(20, min_periods=10).mean()
+
+@register_signal("roll_spread")
+def sig_roll_spread(g, btc):
+    """Roll (1984) spread estimator from serial covariance of returns.
+    Negative autocovariance = bid-ask bounce = spread."""
+    ret = g["close"].pct_change()
+    cov = ret.rolling(20, min_periods=20).apply(
+        lambda x: pd.Series(x).autocorr(lag=1) * pd.Series(x).var(), raw=False
+    )
+    # Spread = 2 * sqrt(-cov) when cov < 0
+    spread = np.where(cov < 0, 2 * np.sqrt(-cov), 0)
+    return pd.Series(spread, index=g.index)
+
+@register_signal("trade_intensity")
+def sig_trade_intensity(g, btc):
+    """Trade intensity proxy: volume per unit of price range.
+    High intensity = lots of volume in tight range = accumulation/distribution."""
+    rng = (g["high"] - g["low"]).replace(0, np.nan)
+    intensity = g["volume"] / rng
+    avg_intensity = intensity.rolling(20, min_periods=20).mean()
+    return intensity / avg_intensity.replace(0, np.nan) - 1
+
+
+# ---- Multi-Timeframe / Higher-Order Signals ----
+
+@register_signal("weekly_momentum")
+def sig_weekly_momentum(g, btc):
+    """5-day (weekly) momentum — captures the weekly trading cycle."""
+    return g["close"].pct_change(5)
+
+@register_signal("monthly_momentum")
+def sig_monthly_momentum(g, btc):
+    """21-day (monthly) momentum."""
+    return g["close"].pct_change(21)
+
+@register_signal("quarterly_momentum")
+def sig_quarterly_momentum(g, btc):
+    """63-day (quarterly) momentum — captures longer allocation cycles."""
+    return g["close"].pct_change(63)
+
+@register_signal("monthly_vs_quarterly")
+def sig_monthly_vs_quarterly(g, btc):
+    """Momentum acceleration across timeframes.
+    Monthly momentum minus quarterly trend — captures acceleration."""
+    ret_21 = g["close"].pct_change(21)
+    ret_63 = g["close"].pct_change(63)
+    return ret_21 - ret_63 / 3  # normalize quarterly to monthly scale
+
+@register_signal("new_high_distance")
+def sig_new_high_distance(g, btc):
+    """Distance from 60-day high (%).
+    Near 0 = at new highs (momentum), very negative = deep pullback."""
+    high_60 = g["high"].rolling(60, min_periods=20).max()
+    return (g["close"] - high_60) / high_60.replace(0, np.nan)
+
+@register_signal("new_low_distance")
+def sig_new_low_distance(g, btc):
+    """Distance from 60-day low (%).
+    Near 0 = at new lows (weakness), very positive = strong bounce."""
+    low_60 = g["low"].rolling(60, min_periods=20).min()
+    return (g["close"] - low_60) / low_60.replace(0, np.nan)
+
+
+# ---- Regime Detection Signals ----
+
+@register_signal("trend_strength")
+def sig_trend_strength(g, btc):
+    """Combined trend strength: ADX * sign of DI crossover.
+    Positive = strong uptrend, negative = strong downtrend, near-zero = no trend."""
+    adx = _adx(g["high"], g["low"], g["close"], 14)
+    plus_dm = g["high"].diff().clip(lower=0)
+    minus_dm = (-g["low"].diff()).clip(lower=0)
+    plus_dm_c = plus_dm.copy()
+    minus_dm_c = minus_dm.copy()
+    plus_dm_c[plus_dm < minus_dm] = 0
+    minus_dm_c[minus_dm < plus_dm] = 0
+    atr = _atr(g["high"], g["low"], g["close"], 14)
+    plus_di = 100 * _ema(plus_dm_c, 14) / atr.replace(0, np.nan)
+    minus_di = 100 * _ema(minus_dm_c, 14) / atr.replace(0, np.nan)
+    return adx * np.sign(plus_di - minus_di)
+
+@register_signal("regime_vol_ratio")
+def sig_regime_vol_ratio(g, btc):
+    """Vol regime: ratio of current vol to 6-month median.
+    > 1.5 = crisis, < 0.7 = quiet, around 1 = normal."""
+    log_ret = np.log(g["close"] / g["close"].shift(1))
+    vol_10 = log_ret.rolling(10, min_periods=10).std()
+    vol_med = vol_10.rolling(120, min_periods=60).median()
+    return vol_10 / vol_med.replace(0, np.nan)
+
+@register_signal("ema_stack")
+def sig_ema_stack(g, btc):
+    """EMA stack alignment: measures how aligned the EMA layers are.
+    All EMAs in order (10>20>50) = strong trend. Score: -1 to +1."""
+    ema10 = _ema(g["close"], 10)
+    ema20 = _ema(g["close"], 20)
+    ema50 = _ema(g["close"], 50)
+    score = pd.Series(0.0, index=g.index)
+    score += (ema10 > ema20).astype(float) - (ema10 < ema20).astype(float)
+    score += (ema20 > ema50).astype(float) - (ema20 < ema50).astype(float)
+    score += (g["close"] > ema10).astype(float) - (g["close"] < ema10).astype(float)
+    return score / 3  # normalize to [-1, +1]
+
+@register_signal("price_vs_200ma")
+def sig_price_vs_200ma(g, btc):
+    """Price relative to 200-day MA — classic regime indicator.
+    Above = bull market, below = bear market."""
+    ma200 = _sma(g["close"], 200)
+    return (g["close"] - ma200) / ma200.replace(0, np.nan)
+
+
+# ===========================================================================
 # Signal Computation Engine
 # ===========================================================================
 def compute_all_signals(df: pd.DataFrame, btc: pd.DataFrame) -> pd.DataFrame:
