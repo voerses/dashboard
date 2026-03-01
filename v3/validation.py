@@ -543,18 +543,26 @@ def _print_token_progress(r: dict, idx: int, total: int):
 
 
 def _print_validation_table(results: Dict, run_wf: bool, run_cpcv: bool):
-    """Print the final validation table."""
-    print(f"\n{'='*120}")
+    """Print the final validation table with full quant metrics."""
+    width = 180
+    print()
+    print("=" * width)
 
-    # Header
-    hdr = f"{'Token':>8s}"
+    # Two-row header for compactness
+    hdr1 = "{:>8s}".format("Token")
+    hdr2 = "{:>8s}".format("")
     if run_wf:
-        hdr += f"  {'AnnRet':>7s}  {'Sharpe':>6s}  {'Sortino':>7s}  {'MaxDD':>7s}  {'Calmar':>6s}  {'Beta':>5s}  {'Alpha':>6s}  {'WF':>4s}"
+        hdr1 += "  {:>7s}  {:>6s}  {:>7s}  {:>7s}  {:>6s}".format(
+            "AnnRet", "Sharpe", "Sortno", "MaxDD", "Calmar")
+        hdr1 += "  {:>5s}  {:>6s}  {:>6s}".format("WinR%", "ProfF", "Payoff")
+        hdr1 += "  {:>5s}  {:>5s}  {:>6s}  {:>5s}  {:>6s}".format(
+            "Trds", "AvgHH", "Beta", "Corr", "Alpha")
+        hdr1 += "  {:>4s}".format("WF")
     if run_cpcv:
-        hdr += f"  {'PBO':>5s}  {'Folds+':>7s}  {'CPCV':>4s}"
-    hdr += f"  {'Status':>10s}"
-    print(hdr)
-    print("-" * 120)
+        hdr1 += "  {:>5s}  {:>7s}  {:>4s}".format("PBO", "Folds+", "CPCV")
+    hdr1 += "  {:>10s}".format("Status")
+    print(hdr1)
+    print("-" * width)
 
     sorted_results = sorted(results.items(),
                             key=lambda x: x[1].get('wf_metrics', {}).get('annualized_return_pct', 0)
@@ -563,7 +571,7 @@ def _print_validation_table(results: Dict, run_wf: bool, run_cpcv: bool):
 
     for tk, r in sorted_results:
         wm = r.get('wf_metrics', {})
-        line = f"  {tk:>8s}"
+        line = "  {:>8s}".format(tk)
 
         if run_wf and wm:
             ann = wm.get('annualized_return_pct', 0)
@@ -571,25 +579,41 @@ def _print_validation_table(results: Dict, run_wf: bool, run_cpcv: bool):
             sortino = wm.get('sortino_ratio', 0)
             maxdd = wm.get('max_drawdown_pct', 0)
             calmar = wm.get('calmar_ratio', 0)
+            win_rate = wm.get('win_rate_pct', 0)
+            profit_f = wm.get('profit_factor', 0)
+            payoff = wm.get('payoff_ratio', 0)
+            trades = wm.get('total_trades', 0)
+            avg_hh = wm.get('avg_hold_hours', 0)
             beta = wm.get('beta', 0)
+            corr = wm.get('correlation', 0)
             alpha = wm.get('alpha_annualized', 0)
             wf_str = 'PASS' if r.get('wf_pass') else 'FAIL'
-            line += f"  {ann:+7.1f}%  {sharpe:+6.2f}  {sortino:+7.2f}  {maxdd:+7.1f}%  {calmar:+6.2f}  {beta:5.2f}  {alpha:+6.1f}  {wf_str:>4s}"
+            line += "  {:+7.1f}%  {:+6.2f}  {:+7.2f}  {:+7.1f}%  {:+6.2f}".format(
+                ann, sharpe, sortino, maxdd, calmar)
+            line += "  {:5.1f}  {:6.2f}  {:6.2f}".format(win_rate, profit_f, payoff)
+            line += "  {:5d}  {:5.0f}  {:6.4f}  {:5.2f}  {:+6.1f}".format(
+                trades, avg_hh, beta, corr, alpha)
+            line += "  {:>4s}".format(wf_str)
         elif run_wf:
-            line += f"  {'---':>7s}  {'---':>6s}  {'---':>7s}  {'---':>7s}  {'---':>6s}  {'---':>5s}  {'---':>6s}  {'FAIL':>4s}"
+            line += "  {:>7s}  {:>6s}  {:>7s}  {:>7s}  {:>6s}".format(
+                "---", "---", "---", "---", "---")
+            line += "  {:>5s}  {:>6s}  {:>6s}".format("---", "---", "---")
+            line += "  {:>5s}  {:>5s}  {:>6s}  {:>5s}  {:>6s}".format(
+                "---", "---", "---", "---", "---")
+            line += "  {:>4s}".format("FAIL")
 
         if run_cpcv:
             pbo = r.get('cpcv_pbo', 1.0)
             fp = r.get('cpcv_folds_profitable', 0)
             tf = r.get('cpcv_total_folds', 0)
             cpcv_str = 'PASS' if r.get('cpcv_pass') else 'FAIL'
-            line += f"  {pbo:5.0%}  {fp:2d}/{tf:<2d}    {cpcv_str:>4s}"
+            line += "  {:5.0%}  {:2d}/{:<2d}    {:>4s}".format(pbo, fp, tf, cpcv_str)
 
         status = 'VALIDATED' if r.get('validated') else 'REJECTED'
-        line += f"  {status:>10s}"
+        line += "  {:>10s}".format(status)
         print(line)
 
-    print("-" * 120)
+    print("-" * width)
 
 
 def _save_results(results: Dict, strategy_name: str, config: ValidationConfig,

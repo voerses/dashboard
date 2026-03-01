@@ -674,10 +674,8 @@ class Engine:
         low = ctx.ind_1h['low']
         atr_arr = ctx.ind_1h['atr']
 
-        exit_regime_mask = np.zeros(n, dtype=np.bool_)
-        for i in range(n):
-            if ctx.regime_1h[i] in result.exit_regimes:
-                exit_regime_mask[i] = True
+        regime_vals = np.array(list(result.exit_regimes), dtype=np.int8)
+        exit_regime_mask = np.isin(ctx.regime_1h, regime_vals)
 
         use_rsi = result.rsi_exit_level < 999
         rsi = ctx.ind_1h['rsi']
