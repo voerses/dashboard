@@ -1,0 +1,229 @@
+"""
+Parity Validation: Engine (vectorized) vs Freqtrade (event-driven)
+===================================================================
+
+Compares trades from our Numba engine against Freqtrade's backtester
+on the SAME data slice to detect vectorized→event-driven divergence.
+
+The "Parity Trap": Our engine processes all bars at once (vectorized),
+while Freqtrade processes bar-by-bar (event-driven). This can cause:
+- Entry timing differences (bar alignment)
+- Stop-loss trigger differences (high/low vs close)
+- Position sizing rounding
+
+This script quantifies the divergence and flags if it exceeds tolerance.
+
+Usage:
+    python parity_check.py                  # Run on all validated tokens
+    python parity_check.py --token BTC      # Single token
+    python parity_check.py --tolerance 0.15 # 15% PnL divergence tolerance
+"""
+
+import sys, os
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+
+import json
+import argparse
+import numpy as np
+import pandas as pd
+from datetime import datetime
+from typing import Dict, List, Tuple
+
+from engine import Engine, CPCV_ROBUST_TOKENS
+
+
+def load_engine_trades(strategy_fn, token: str, engine: Engine) -> List[Dict]:
+    """Get trades from our vectorized engine."""
+    result = engine.backtest_token(strategy_fn, token)
+    if result is None:
+        return []
+    return result.get('trades', [])
+
+
+def load_freqtrade_trades(token: str, ft_results_dir: str = 'user_data/backtest_results') -> List[Dict]:
+    """
+    Load Freqtrade backtest trades from its JSON output.
+
+    Run Freqtrade backtester first:
+        freqtrade backtesting --strategy CpcvSwingStrategy --timerange 20240101-
+    """
+    # Find most recent backtest result
+    if not os.path.exists(ft_results_dir):
+        return []
+
+    result_files = sorted([f for f in os.listdir(ft_results_dir) if f.endswith('.json')])
+    if not result_files:
+        return []
+
+    with open(os.path.join(ft_results_dir, result_files[-1]), 'r') as f:
+        data = json.load(f)
+
+    pair = f'{token}/USDT'
+    trades = []
+    for strat_data in data.get('strategy', {}).values():
+        for t in strat_data.get('trades', []):
+            if t.get('pair') == pair:
+                trades.append({
+                    'pnl': t.get('profit_abs', 0),
+                    'return_pct': t.get('profit_ratio', 0) * 100,
+                    'hold_hours': (pd.Timestamp(t['close_date']) - pd.Timestamp(t['open_date'])).total_seconds() / 3600,
+                    'exit_reason': t.get('exit_reason', 'unknown'),
+                    'open_date': t.get('open_date', ''),
+                    'close_date': t.get('close_date', ''),
+                })
+
+    return trades
+
+
+def compare_trades(engine_trades: List[Dict], ft_trades: List[Dict],
+                   token: str, tolerance_pct: float = 0.10) -> Dict:
+    """
+    Compare engine vs Freqtrade trades and compute divergence metrics.
+
+    Returns a report dict with pass/fail and divergence details.
+    """
+    report = {
+        'token': token,
+        'engine_trades': len(engine_trades),
+        'ft_trades': len(ft_trades),
+        'trade_count_match': False,
+        'pnl_divergence_pct': 0.0,
+        'avg_hold_divergence_hrs': 0.0,
+        'pass': False,
+        'issues': [],
+    }
+
+    if not engine_trades and not ft_trades:
+        report['pass'] = True
+        report['issues'].append('No trades in either system')
+        return report
+
+    # Trade count divergence
+    if len(engine_trades) > 0:
+        count_div = abs(len(engine_trades) - len(ft_trades)) / len(engine_trades)
+    else:
+        count_div = float('inf') if len(ft_trades) > 0 else 0
+
+    report['trade_count_divergence_pct'] = round(count_div * 100, 1)
+    report['trade_count_match'] = count_div < tolerance_pct
+
+    if count_div > tolerance_pct:
+        report['issues'].append(
+            f"Trade count divergence: {len(engine_trades)} vs {len(ft_trades)} "
+            f"({count_div*100:.1f}% > {tolerance_pct*100:.0f}% tolerance)")
+
+    # PnL comparison
+    engine_pnl = sum(t['pnl'] for t in engine_trades)
+    ft_pnl = sum(t['pnl'] for t in ft_trades)
+
+    if abs(engine_pnl) > 0:
+        pnl_div = abs(engine_pnl - ft_pnl) / abs(engine_pnl)
+    else:
+        pnl_div = abs(ft_pnl) if ft_pnl != 0 else 0
+
+    report['engine_pnl'] = round(engine_pnl, 2)
+    report['ft_pnl'] = round(ft_pnl, 2)
+    report['pnl_divergence_pct'] = round(pnl_div * 100, 1)
+
+    if pnl_div > tolerance_pct:
+        report['issues'].append(
+            f"PnL divergence: ${engine_pnl:+,.0f} vs ${ft_pnl:+,.0f} "
+            f"({pnl_div*100:.1f}% > {tolerance_pct*100:.0f}% tolerance)")
+
+    # Hold time comparison
+    engine_holds = [t['hold_hours'] for t in engine_trades]
+    ft_holds = [t['hold_hours'] for t in ft_trades]
+
+    if engine_holds and ft_holds:
+        avg_engine = np.mean(engine_holds)
+        avg_ft = np.mean(ft_holds)
+        hold_div = abs(avg_engine - avg_ft)
+        report['avg_hold_divergence_hrs'] = round(hold_div, 1)
+        report['engine_avg_hold'] = round(avg_engine, 1)
+        report['ft_avg_hold'] = round(avg_ft, 1)
+
+        if hold_div > 6:  # > 6 hour average divergence is concerning
+            report['issues'].append(
+                f"Hold time divergence: {avg_engine:.1f}h vs {avg_ft:.1f}h "
+                f"(diff={hold_div:.1f}h)")
+
+    # Overall pass/fail
+    report['pass'] = (
+        report['trade_count_match'] and
+        pnl_div <= tolerance_pct and
+        len(report['issues']) == 0
+    )
+
+    return report
+
+
+def run_parity_check(tokens: List[str], strategy_fn, engine: Engine,
+                     ft_results_dir: str = 'user_data/backtest_results',
+                     tolerance: float = 0.10, verbose: bool = True) -> Dict:
+    """Run parity check across all validated tokens."""
+
+    print("=" * 70)
+    print("PARITY VALIDATION: Engine vs Freqtrade")
+    print("=" * 70)
+
+    all_reports = {}
+    passes = 0
+
+    for tk in tokens:
+        if verbose:
+            print(f"\n  {tk}:", end=' ')
+
+        engine_trades = load_engine_trades(strategy_fn, tk, engine)
+        ft_trades = load_freqtrade_trades(tk, ft_results_dir)
+
+        report = compare_trades(engine_trades, ft_trades, tk, tolerance)
+        all_reports[tk] = report
+
+        if report['pass']:
+            passes += 1
+            if verbose:
+                print(f"PASS  (trades: {report['engine_trades']} vs {report['ft_trades']}, "
+                      f"PnL div: {report['pnl_divergence_pct']:.1f}%)")
+        else:
+            if verbose:
+                print(f"FAIL")
+                for issue in report['issues']:
+                    print(f"    - {issue}")
+
+    print(f"\n{'=' * 70}")
+    print(f"RESULT: {passes}/{len(tokens)} tokens pass parity check "
+          f"(tolerance: {tolerance*100:.0f}%)")
+    if passes < len(tokens):
+        print(f"NOTE: Some divergence is expected due to vectorized vs event-driven execution.")
+        print(f"      18-720hr holds make <1hr timing skew negligible.")
+        print(f"      Check that PnL sign matches (both profitable or both losing).")
+    print(f"{'=' * 70}")
+
+    return all_reports
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Parity check: engine vs Freqtrade')
+    parser.add_argument('--token', type=str, help='Single token to check')
+    parser.add_argument('--tolerance', type=float, default=0.10,
+                        help='Max acceptable divergence (0.10 = 10%%)')
+    parser.add_argument('--ft-dir', default='user_data/backtest_results',
+                        help='Freqtrade backtest results directory')
+    parser.add_argument('--strategy', default='s11', choices=['s11', 's09', 'dm'])
+    args = parser.parse_args()
+
+    if args.strategy == 's11':
+        from strategies.s11_momentum_burst import strategy as strat_fn
+    elif args.strategy == 's09':
+        from strategies.s09_optimized_trend import strategy as strat_fn
+    else:
+        from engine import strategy_dual_momentum as strat_fn
+
+    tokens = [args.token] if args.token else CPCV_ROBUST_TOKENS
+
+    engine = Engine()
+    run_parity_check(tokens, strat_fn, engine, args.ft_dir, args.tolerance)
+
+
+if __name__ == '__main__':
+    main()

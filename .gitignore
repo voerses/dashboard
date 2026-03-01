@@ -1,0 +1,75 @@
+# ======================
+# Python
+# ======================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# ======================
+# Virtual environments
+# ======================
+venv/
+.venv/
+env/
+.pylib/
+
+# ======================
+# Market data (large, re-fetchable from Binance)
+# ======================
+v2/real_data/1h_cache/
+v2/real_data/4h_cache/
+v2/real_data/1m_cache/
+v2/real_data/1h_cache_2yr_backup/
+v2/real_data/4h_cache_2yr_backup/
+v2/real_data/1m_test/
+v2/real_data/*.csv
+v2/real_data/*.parquet
+
+# ======================
+# Generated outputs (charts, CSVs, backtest logs)
+# ======================
+v2/outputs_v2/
+v2/results/
+v1/outputs/
+
+# ======================
+# Generated charts
+# ======================
+*.png
+
+# ======================
+# IDE / OS
+# ======================
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ======================
+# Secrets (NEVER commit)
+# ======================
+*.env
+.env.*
+*secret*
+*credential*
+api_keys*
+
+# ======================
+# Freqtrade runtime (if installed later)
+# ======================
+freqtrade/
+user_data/
+*.sqlite
+tradesv3.sqlite
+freqtrade.log
+
+# ======================
+# AI dev process (not part of trading system)
+# ======================
+aidev/
+.claude/
+.specs/
+CLAUDE.md
