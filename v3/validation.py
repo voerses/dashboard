@@ -100,7 +100,7 @@ class ValidationConfig:
     cpcv: CPCVConfig = None
     capital: float = 200_000
     pbo_threshold: float = 0.40
-    data_dir: str = 'real_data'
+    data_dir: str = 'data'
     workers: int = 4
 
     def __post_init__(self):
@@ -619,7 +619,7 @@ def _print_validation_table(results: Dict, run_wf: bool, run_cpcv: bool):
 def _save_results(results: Dict, strategy_name: str, config: ValidationConfig,
                   elapsed: float, validated_tokens: list):
     """Save validation results to JSON."""
-    results_dir = os.path.join(_v3_dir, 'results')
+    results_dir = os.path.join(os.path.dirname(_v3_dir), 'results')
     os.makedirs(results_dir, exist_ok=True)
 
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -656,19 +656,28 @@ def _resolve_strategy_path(strategy_arg: str) -> str:
     if os.path.isfile(strategy_arg):
         return os.path.abspath(strategy_arg)
 
-    # Short name like "s11" → look in v2/strategies/
-    v2_strats = os.path.join(os.path.dirname(_v3_dir), 'v2', 'strategies')
-    for fname in os.listdir(v2_strats):
-        if fname.startswith(strategy_arg) and fname.endswith('.py'):
-            return os.path.join(v2_strats, fname)
+    _root_dir = os.path.dirname(_v3_dir)
 
-    # Try as module name
-    candidate = os.path.join(v2_strats, f'{strategy_arg}.py')
-    if os.path.isfile(candidate):
-        return candidate
+    # Short name like "s11" → look in top-level strategies/
+    strats_dir = os.path.join(_root_dir, 'strategies')
+    if os.path.isdir(strats_dir):
+        for fname in os.listdir(strats_dir):
+            if fname.startswith(strategy_arg) and fname.endswith('.py'):
+                return os.path.join(strats_dir, fname)
+        # Try as module name
+        candidate = os.path.join(strats_dir, f'{strategy_arg}.py')
+        if os.path.isfile(candidate):
+            return candidate
+
+    # Fallback: legacy v2/strategies/ path
+    v2_strats = os.path.join(_root_dir, 'v2', 'strategies')
+    if os.path.isdir(v2_strats):
+        for fname in os.listdir(v2_strats):
+            if fname.startswith(strategy_arg) and fname.endswith('.py'):
+                return os.path.join(v2_strats, fname)
 
     raise FileNotFoundError(f"Cannot find strategy: {strategy_arg}\n"
-                            f"Tried: {strategy_arg}, v2/strategies/{strategy_arg}*.py")
+                            f"Tried: {strategy_arg}, strategies/{strategy_arg}*.py")
 
 
 # =============================================================================
@@ -699,7 +708,7 @@ def main():
                         help='PBO threshold for CPCV pass')
     parser.add_argument('--capital', type=float, default=200_000,
                         help='Starting capital')
-    parser.add_argument('--data-dir', type=str, default='real_data',
+    parser.add_argument('--data-dir', type=str, default='data',
                         help='Data directory')
     args = parser.parse_args()
 

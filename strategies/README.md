@@ -11,7 +11,7 @@ The V3 validation engine validates strategies via walk-forward + CPCV dual gate.
 3. Knowledge base check — read PERFORMANCE_PATTERNS.md + SIGNAL_DEVELOPMENT.md
 4. Performance check — must be < 1ms per call on 40K bars
 
-See `v3/STRATEGY_LIFECYCLE.md` for the full research-to-production pipeline.
+See `knowledge/STRATEGY_LIFECYCLE.md` for the full research-to-production pipeline.
 
 ## Current Classification (2026-03-01 sweep)
 

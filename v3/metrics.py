@@ -204,7 +204,7 @@ def compute_metrics(trades: list, equity_curve: pd.Series,
     return m
 
 
-def load_benchmark_returns(data_dir: str = 'real_data') -> Optional[pd.Series]:
+def load_benchmark_returns(data_dir: str = 'data') -> Optional[pd.Series]:
     """Load BTC daily returns as market benchmark for beta/alpha."""
     btc_path = os.path.join(data_dir, '1h_cache/BTC_1h.parquet')
     if not os.path.exists(btc_path):

@@ -5,8 +5,8 @@ Strategy Template — Copy this file to create a new strategy.
 PRE-DEVELOPMENT CHECKLIST (mandatory before writing code):
 ──────────────────────────────────────────────────────────
 [ ] 1. DEDUPLICATION CHECK — verify this strategy doesn't already exist:
-       - Read v3/STRATEGY_LIFECYCLE.md → current tier classifications
-       - Read v2/strategies/README.md → existing strategy summaries
+       - Read knowledge/STRATEGY_LIFECYCLE.md → current tier classifications
+       - Read strategies/README.md → existing strategy summaries
        - Check entry signal correlation with Tier A strategies:
            s11: ret_1 > 0.03 (momentum burst)
            s09: EMA stack + daily EMA50 (dual momentum)
@@ -23,10 +23,10 @@ PRE-DEVELOPMENT CHECKLIST (mandatory before writing code):
        - Signal must be stable across 2+ horizons
 
 [ ] 3. KNOWLEDGE BASE CHECK:
-       - Read v3/PERFORMANCE_PATTERNS.md (vectorization rules)
-       - Read v3/SIGNAL_DEVELOPMENT.md (signal stack structure)
-       - Read v2/knowledge/INDICATOR_CATALOG.md (available indicators)
-       - Read v2/knowledge/STRATEGY_CATALOG.md (academic backing)
+       - Read knowledge/PERFORMANCE_PATTERNS.md (vectorization rules)
+       - Read knowledge/SIGNAL_DEVELOPMENT.md (signal stack structure)
+       - Read knowledge/INDICATOR_CATALOG.md (available indicators)
+       - Read knowledge/STRATEGY_CATALOG.md (academic backing)
 
 [ ] 4. PERFORMANCE CHECK after writing:
        - Profile: must be < 1ms per call on 40K bars
@@ -42,8 +42,8 @@ Steps:
      import sys; sys.path.insert(0, 'v3'); sys.path.insert(0, 'v2')
      from engine import Engine
      import pandas as pd, time
-     eng = Engine(data_dir='v2/real_data')
-     df = pd.read_parquet('v2/real_data/1h_cache/BTC_1h.parquet')
+     eng = Engine(data_dir='data')
+     df = pd.read_parquet('data/1h_cache/BTC_1h.parquet')
      ctx = eng._build_context('BTC', df)
      from strategies.sNN_my_strategy import strategy
      t0 = time.perf_counter()

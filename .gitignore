@@ -17,14 +17,16 @@ env/
 # ======================
 # Market data (large, re-fetchable from Binance)
 # ======================
-v2/real_data/1h_cache/
-v2/real_data/4h_cache/
-v2/real_data/1m_cache/
-v2/real_data/1h_cache_2yr_backup/
-v2/real_data/4h_cache_2yr_backup/
-v2/real_data/1m_test/
-v2/real_data/*.csv
-v2/real_data/*.parquet
+data/1h_cache/
+data/4h_cache/
+data/1m_cache/
+data/1h_cache_2yr_backup/
+data/4h_cache_2yr_backup/
+data/1m_test/
+data/*.csv
+data/*.parquet
+# Legacy paths (v2)
+v2/real_data/
 
 # ======================
 # Generated outputs (charts, CSVs, backtest logs)
@@ -32,6 +34,11 @@ v2/real_data/*.parquet
 v2/outputs_v2/
 v2/results/
 v1/outputs/
+
+# ======================
+# Validation results (re-runnable)
+# ======================
+results/validation_*.json
 
 # ======================
 # Generated charts

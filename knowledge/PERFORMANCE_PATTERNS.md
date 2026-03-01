@@ -124,8 +124,8 @@ signal[:200] = False  # warmup guard
 When testing multiple strategies on the same tokens, use `use_cache=True`:
 
 ```python
-engine = Engine(data_dir='v2/real_data')
-df = pd.read_parquet('v2/real_data/1h_cache/BTC_1h.parquet')
+engine = Engine(data_dir='data')
+df = pd.read_parquet('data/1h_cache/BTC_1h.parquet')
 
 # First call computes indicators (~54ms)
 ctx = engine._build_context('BTC', df, use_cache=True)
@@ -221,18 +221,18 @@ When running the V3 validation sweep:
 
 ```bash
 # Single strategy, fast
-python v3/validation.py --strategy s11 --workers 4 --data-dir v2/real_data
+python v3/validation.py --strategy s11 --workers 4 --data-dir data
 # Expected: ~17s for 49 tokens
 
 # Multi-strategy sweep (runs sequentially, indicators cached per-worker)
-python v3/validation.py --strategy s11 s09 s17 --workers 4 --data-dir v2/real_data
+python v3/validation.py --strategy s11 s09 s17 --workers 4 --data-dir data
 
 # Profile a specific strategy
 python -c "
 from engine import Engine
 import pandas as pd, time
-eng = Engine(data_dir='v2/real_data')
-df = pd.read_parquet('v2/real_data/1h_cache/BTC_1h.parquet')
+eng = Engine(data_dir='data')
+df = pd.read_parquet('data/1h_cache/BTC_1h.parquet')
 ctx = eng._build_context('BTC', df)
 from strategies.s11_momentum_burst import strategy
 t0 = time.perf_counter()

@@ -628,7 +628,7 @@ def rolling_corr(arr1, arr2, window):
 class Engine:
     """Main backtesting engine."""
 
-    def __init__(self, data_dir='real_data', capital=200_000,
+    def __init__(self, data_dir='data', capital=200_000,
                  fee_rate=0.001, slippage_bps=5):
         self.data_dir = data_dir
         self.capital = capital

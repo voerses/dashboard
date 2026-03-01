@@ -14,9 +14,9 @@ Strategies are classified by V3 validation rate (% of 49 tokens passing dual WF+
 
 | Tier | Validation Rate | Status | Location | Action |
 |------|----------------|--------|----------|--------|
-| **A** | > 50% | Production | `v2/strategies/` | Deploy, monitor, iterate |
-| **B** | 20–50% | Experimental | `v2/strategies/` | Investigate, tune, re-validate |
-| **C** | < 20% | Archive | `v2/strategies/archive/` | Moved out, preserved for reference |
+| **A** | > 50% | Production | `strategies/` | Deploy, monitor, iterate |
+| **B** | 20–50% | Experimental | `strategies/` | Investigate, tune, re-validate |
+| **C** | < 20% | Archive | `strategies/archive/` | Moved out, preserved for reference |
 
 ### Current Classification (2026-03-01)
 
@@ -57,13 +57,13 @@ Strategies are classified by V3 validation rate (% of 49 tokens passing dual WF+
 ### Pre-Development Checklist
 
 ```
-[ ] Read v3/PERFORMANCE_PATTERNS.md
+[ ] Read knowledge/PERFORMANCE_PATTERNS.md
     - No Python for-loops over bar arrays
     - Use rolling_* helpers from engine
     - Use pre-computed indicators from ctx.ind_1h/ctx.custom
     - Target < 1ms per call on 40K bars
 
-[ ] Read v3/SIGNAL_DEVELOPMENT.md
+[ ] Read knowledge/SIGNAL_DEVELOPMENT.md
     - Signal structure: Regime → Trend → Entry → Exit → Sizing
     - Use proper signal composition patterns
     - Include all mandatory components
@@ -83,7 +83,7 @@ Strategies are classified by V3 validation rate (% of 49 tokens passing dual WF+
     - Check signal decay rate across horizons
     - Check regime-conditional performance
 
-[ ] Check v3/results/sweep_summary_*.json
+[ ] Check results/sweep_summary_*.json
     - Review current tier classifications
     - Avoid duplicating existing approaches
     - Identify gaps in strategy coverage
@@ -109,8 +109,8 @@ full checklist. Any new strategy or new indicator requires ALL checks.
    - Check if signal flipped sign post-ETF (some did — see s22_supertrend_adx)
 
 2. **DEDUPLICATION CHECK (mandatory, before ANY code is written)**
-   - Read `v2/strategies/README.md` for existing strategy summaries
-   - Read `v3/STRATEGY_LIFECYCLE.md` tier classifications for current status
+   - Read `strategies/README.md` for existing strategy summaries
+   - Read `knowledge/STRATEGY_LIFECYCLE.md` tier classifications for current status
    - Compare your proposed entry signal against ALL existing Tier A/B entry signals:
 
    | Strategy | Core Entry Signal | Signal Type |
@@ -155,13 +155,13 @@ full checklist. Any new strategy or new indicator requires ALL checks.
 **Input:** Validated research hypothesis + knowledge base check.
 
 **Process:**
-1. Copy `v2/strategies/TEMPLATE.py` → `v2/strategies/sNN_name.py`
-2. Follow the signal structure from `v3/SIGNAL_DEVELOPMENT.md`:
+1. Copy `strategies/TEMPLATE.py` → `strategies/sNN_name.py`
+2. Follow the signal structure from `knowledge/SIGNAL_DEVELOPMENT.md`:
    - Regime filter (mandatory)
    - Trend alignment (mandatory for trend strategies)
    - Entry signal (the core hypothesis)
    - Exit logic (regime-based + trailing stop)
-3. All code MUST be vectorized (see `v3/PERFORMANCE_PATTERNS.md`)
+3. All code MUST be vectorized (see `knowledge/PERFORMANCE_PATTERNS.md`)
 4. Run performance check:
    ```python
    # Must complete in < 1ms per call
@@ -169,8 +169,8 @@ full checklist. Any new strategy or new indicator requires ALL checks.
    import sys; sys.path.insert(0, 'v3'); sys.path.insert(0, 'v2')
    from engine import Engine
    import pandas as pd, time
-   eng = Engine(data_dir='v2/real_data')
-   df = pd.read_parquet('v2/real_data/1h_cache/BTC_1h.parquet')
+   eng = Engine(data_dir='data')
+   df = pd.read_parquet('data/1h_cache/BTC_1h.parquet')
    ctx = eng._build_context('BTC', df)
    from strategies.sNN_name import strategy
    t0 = time.perf_counter()
@@ -219,7 +219,7 @@ the hypothesis is likely wrong — archive the prototype.
 4. If rate doesn't improve past 50% after 3 cycles → archive
 
 **Tier C strategies** are archived immediately:
-1. Move to `v2/strategies/archive/`
+1. Move to `strategies/archive/`
 2. Add entry to archive log with reason and validation date
 3. Strategy preserved for reference but excluded from sweeps
 
@@ -263,12 +263,12 @@ Run the full 16-strategy sweep after:
 # Full sweep — all strategies, all tokens
 /workspace/venv/bin/python v3/validation.py \
   --strategy s07 s08 s09 s10 s11 s12 s13 s14 s15 s16 s17 s18 s19 s20 s21 s22 \
-  --workers 4 --data-dir v2/real_data
+  --workers 4 --data-dir data
 ```
 
 ### Sweep Output
 
-Results saved to `v3/results/sweep_summary_YYYYMMDD.json`.
+Results saved to `results/sweep_summary_YYYYMMDD.json`.
 Compare across dates to track strategy evolution.
 
 ### Post-Sweep Actions
