@@ -1,5 +1,13 @@
 # Exhaustive Indicator Catalog for Crypto Swing Trading
 
+> **TL;DR — All indicators ranked by usefulness**
+> - Tier 1: EMA 12/26/50 (trend), ADX (strength, IC=0.067), RSI (extremes only with regime filter)
+> - Volume analysis: vol_ratio for confirmation, taker buy ratio for order flow, OBV for accumulation
+> - Redundant pairs to avoid: RSI ↔ BB_pct (95% corr), realized_vol ↔ parkinson_vol (99% corr)
+> - Crypto-specific: funding rate divergence, liquidation cascades, exchange netflows
+> **When to read full file:** Building new entry/exit filters, checking if an indicator exists in the engine
+> **Sections:** 1-Trend/Momentum, 2-Mean Reversion, 3-Volatility, 4-Volume, 5-Oscillators, 6-On-Chain, 7-Derivatives, 8-Crypto-Specific, 9-Combination Rules, 10-Empirical IC/Regime Results, 11-Priority Matrix
+
 **System context:** 1H timeframe, 18-720 hour holding periods, cryptocurrency markets.
 
 ---
@@ -822,7 +830,56 @@
 
 ---
 
-## 10. IMPLEMENTATION PRIORITY MATRIX
+## 10. EMPIRICAL RESULTS (49-Token Signal Lab Analysis)
+
+*Source: Signal Lab IC analysis across 49 tokens, 2024-01-01 to 2026-01-31 (762 days)*
+
+### IC Rankings (Forward Return Predictability)
+
+| Rank | Indicator | Avg |IC| | Verdict | Notes |
+|------|-----------|---------|---------|-------|
+| 1 | **ADX** | 0.067 | PREDICTIVE | IC increases with horizon (0.05→0.08) |
+| 2 | realized_vol | 0.053 | PREDICTIVE | Leading indicator of forward returns |
+| 3 | BB_width | 0.039 | WEAK | Consistent across horizons |
+| 4 | vol_ratio | 0.027 | WEAK | Decays with horizon |
+| 5 | taker | 0.021 | WEAK | Useful at 1d only (+0.035), gone by 5d |
+| 16 | RSI | 0.004 | NOISE | Useless standalone despite popularity |
+
+### Redundant Pairs (|corr| > 0.7) — Drop One
+
+| Pair | Corr | Keep |
+|------|------|------|
+| RSI ↔ BB_pct | 0.952 | RSI |
+| realized_vol ↔ parkinson_vol | 0.992 | realized_vol |
+| taker ↔ taker_buy_ratio | 1.000 | taker |
+| ret_1 ↔ vwap_deviation | 0.827 | ret_1 |
+| ATR_pct ↔ vol_20 | 0.805 | ATR_pct |
+
+### Truly Independent Signals (max |corr| < 0.5 with all others)
+
+VPIN (0.310), amihud_1m (0.337), intraday_skew (0.323), intraday_kurtosis (0.310)
+
+### Best Indicator by Regime
+
+| Regime | Best Indicator | IC | Key Insight |
+|--------|---------------|-----|-------------|
+| Uptrend | ATR_pct | -0.072 | Low vol predicts continuation; momentum works WITH trend |
+| Downtrend | **RSI** | **-0.145** | High RSI bounces = sell signals (opposite of textbook!) |
+| Range | intraday_kurtosis | -0.072 | Microstructure beats traditional indicators |
+| Quiet | ret_1 | +0.074 | Short-term momentum + order flow dominant |
+
+### Top Actionable Combinations (2-indicator)
+
+| Combo | Mean Ret | WR | Tokens | Use |
+|-------|----------|-----|--------|-----|
+| RSI_low + MACD_pos | +1.37% | 58.3% | 27 | LONG: dip buy + momentum confirm |
+| vol_ratio_hi + BB_pct_low | +0.99% | 58.4% | 45 | LONG: capitulation buy (most robust) |
+| vol_ratio_hi + ret_neg | +0.92% | 56.2% | 49 | LONG: volume spike reversal (universal) |
+| ADX_weak + MACD_neg | -1.58% | 37.0% | 29 | AVOID: no trend + negative momentum |
+
+---
+
+## 11. IMPLEMENTATION PRIORITY MATRIX
 
 For a 1H crypto swing trading system (18-720 hour holds), prioritize indicators by impact and feasibility:
 
@@ -882,7 +939,7 @@ For a 1H crypto swing trading system (18-720 hour holds), prioritize indicators 
 
 ---
 
-## 11. BIBLIOGRAPHY (SELECTED KEY PAPERS)
+## 12. BIBLIOGRAPHY (SELECTED KEY PAPERS)
 
 1. Amihud, Y. (2002). "Illiquidity and Stock Returns." *Journal of Financial Markets* 5(1), 31-56.
 2. Andersen, T.G. & Bollerslev, T. (1998). "Answering the Skeptics." *International Economic Review* 39(4), 885-905.

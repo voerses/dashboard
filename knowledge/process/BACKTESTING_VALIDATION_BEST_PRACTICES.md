@@ -1,5 +1,13 @@
 # Backtesting & Validation Best Practices
 
+> **TL;DR — Rigorous backtesting and validation methodology**
+> - Walk-forward mandatory: 1yr train, 90d OOS, quarterly recalibration; CPCV required for multi-asset
+> - Deflated Sharpe Ratio: reject if DSR < 0.05 p-value; PBO < 40% for CPCV pass
+> - Tier-based transaction costs: 0.30% Tier 1, 0.37% Tier 2, 0.60% Tier 3 per side (never flat 0.10%)
+> - Bias audit: no full-array statistics (use expanding), CPCV non-contiguous folds masked, point-in-time data
+> **When to read full file:** Investigating validation failures, debugging CPCV/WF issues, reviewing bias checklist details
+> **Sections:** 1-WF, 2-CPCV, 3-Paper Trading, 4-DSR, 5-Metrics, 6-Monte Carlo, 7-Regime, 8-OOS Degradation, 9-Costs, 10-Bias, 11-PBO, 12-Min Length, 13-Capacity, 14-Pipeline, 15-References, 16-Audit Checklist
+
 Comprehensive reference for building statistically rigorous backtesting and validation
 pipelines for trading strategies. Drawn from quantitative finance literature, practitioner
 consensus, and the work of Lopez de Prado, Bailey, Harvey, and Liu.
@@ -23,6 +31,7 @@ consensus, and the work of Lopez de Prado, Bailey, Harvey, and Liu.
 13. [Strategy Capacity Estimation](#13-strategy-capacity-estimation)
 14. [Building a Proper Validation Pipeline](#14-building-a-proper-validation-pipeline)
 15. [Key Academic References](#15-key-academic-references)
+16. [Backtesting Bias Audit Checklist](#16-backtesting-bias-audit-checklist)
 
 ---
 
@@ -165,6 +174,38 @@ Available implementations:
 - Bugs in higher-moment statistics can invalidate results.
 - The most dangerous aspect: these bugs result in **silent failures** -- the code runs,
   produces results, but those results are wrong.
+
+### Non-Contiguous Fold Contamination (CRITICAL)
+
+**Bug found March 2026 in our own CPCV implementation.**
+
+When CPCV selects two non-adjacent test groups (e.g., groups 0 and 2 out of 6), there is a
+gap of in-sample bars between them (group 1). If the entry mask is not restricted to only
+test-group bars, trades can enter on gap bars and their PnL contaminates the fold's
+out-of-sample result.
+
+**Example:** With 6 groups and 2 test groups, 10 of the 15 folds have non-contiguous test
+groups. In those folds, any entry signal firing on a gap bar produces a trade whose PnL is
+counted as "out-of-sample" when it is actually in-sample data.
+
+**Impact:** Validation rates appear higher than reality. Strategies look more robust than they
+are. In our case, ETH went from PASS to FAIL once the bug was fixed — its edge was a
+false positive inflated by contaminated folds.
+
+**Fix:** After extracting the fold's data slice, build an explicit test-only mask:
+
+```python
+fold_indices = np.arange(data_start, data_start + fold_len)
+test_only_mask = np.isin(fold_indices, test_idx)
+masked_entries = result.entry_mask.copy() & test_only_mask
+```
+
+**Detection checklist:**
+- [ ] For each fold, verify entries occur ONLY on bars whose global index is in `test_idx`
+- [ ] Count entries per fold — non-contiguous folds should NOT have more entries than
+      contiguous folds of the same total bar count
+- [ ] Compare validation rates before/after applying the mask — any change means
+      contamination was present
 
 ---
 
@@ -654,16 +695,46 @@ The **square root model** is the most empirically validated:
 | Market impact (large orders) | 0.10-0.50%+ | 0.05-0.20% |
 | Funding rate (per 8h, perps) | -0.01% to +0.03% | Variable |
 
+### Exchange-Specific and Tier-Based Costs (IMPORTANT)
+
+**Lesson learned March 2026:** Using a single flat fee/slippage for all tokens materially
+understates costs and inflates validation rates. Different tokens have vastly different
+execution costs depending on liquidity.
+
+The V3 engine uses **tier-based costs** defined in `v3/universe.py` (`TIER_COSTS`):
+
+| Tier | Tokens | Fee (taker) | Slippage (bps) | Total per side | Round-trip |
+|------|--------|-------------|----------------|----------------|------------|
+| 1 (>$50M ADV) | BTC, ETH, SOL, SUI, XRP | 0.22% | 8 bps | 0.30% | 0.60% |
+| 2 ($10-50M ADV) | ADA, AVAX, DOT, LINK, NEAR | 0.22% | 15 bps | 0.37% | 0.74% |
+| 3 ($5-10M ADV) | BONK, FLOKI, PENGU, DENT, OM | 0.25% | 35 bps | 0.60% | 1.20% |
+
+These are calibrated to **Kraken Pro at $200K-$500K monthly volume** (taker side). See
+`knowledge/KRAKEN_FEES.md` for the full tier schedule and derivation.
+
+**Previously the engine used 0.10% fee + 5 bps slippage (0.15% per side) for all tokens.**
+This was Binance base-tier pricing — approximately 2x too low for Tier 1 on Kraken and
+3-5x too low for Tier 3. When we applied realistic costs, ETH dropped from PASS to FAIL
+on S11 — its edge was a false positive that only survived under optimistic cost assumptions.
+
+**Rule: Never use a single flat cost model.** Always differentiate by:
+1. Exchange (Kraken vs Binance have very different fee schedules)
+2. Volume tier (monthly volume determines your fee tier)
+3. Token liquidity (BTC spread is 0.01%; BONK spread can be 1%+)
+
 ### Best Practices for Cost Modeling
 
 1. **Never backtest without transaction costs.** A zero-cost backtest is fiction.
-2. **Use the square root model** for market impact, not flat fees.
-3. **Add a safety margin**: Include an extra 0.05-0.10% beyond measured costs.
-4. **Calibrate regularly**: Compare modeled costs to actual execution costs.
-5. **Account for funding rates**: For strategies using perpetual swaps, funding costs can
+2. **Use tier-based costs** that reflect your actual exchange, volume tier, and token liquidity.
+3. **Use the square root model** for market impact, not flat fees.
+4. **Add a safety margin**: Include an extra 0.05-0.10% beyond measured costs.
+5. **Calibrate regularly**: Compare modeled costs to actual execution costs.
+6. **Account for funding rates**: For strategies using perpetual swaps, funding costs can
    dominate for longer holding periods.
-6. **Use event-driven simulation** for the most realistic execution modeling.
-7. **Model partial fills**: Large orders may not fill completely at the quoted price.
+7. **Use event-driven simulation** for the most realistic execution modeling.
+8. **Model partial fills**: Large orders may not fill completely at the quoted price.
+9. **Re-validate when changing exchanges.** A strategy validated on Binance costs may fail
+   on Kraken costs. Always re-run validation after changing cost assumptions.
 
 ### Transaction Cost Analysis (TCA)
 
@@ -724,12 +795,48 @@ a trading decision is incorporated into the backtest.
 - Using **today's index constituents** for historical analysis (preinclusion bias).
 - Accessing **financial reports** before their actual publication date.
 - Using **adjusted prices** without accounting for the adjustment date.
+- **Regime detection using full-dataset statistics** (see below).
+
+#### Regime/Indicator Look-Ahead (CRITICAL)
+
+**Bug found March 2026 in our own engine.** `detect_daily_regime()` computed volatility
+percentiles using `np.percentile(vol_20, 75)` across the entire dataset. This means a bar
+in 2022 was classified using 2022–2026 volatility statistics — classic look-ahead.
+
+**Why it's insidious:** The regime filter doesn't directly predict returns, so its look-ahead
+bias is subtle. It doesn't make the backtest look "too good to be true." Instead, it
+makes regime transitions slightly more prescient than they should be, inflating regime
+filter effectiveness by a few percent.
+
+**Fix:** Use expanding (causal) statistics with a minimum lookback period:
+
+```python
+# WRONG: uses future data
+vol_p75 = np.percentile(vol_20, 75)
+
+# RIGHT: causal — each bar sees only its own past
+vol_p75 = pd.Series(vol_20).expanding(min_periods=60).quantile(0.75).values
+```
+
+**General rule:** Any function that computes a statistic over the full array and uses it
+to classify individual bars is a look-ahead bug. This includes:
+- `np.percentile()`, `np.mean()`, `np.std()` on the full array
+- Scikit-learn's `StandardScaler.fit_transform()` on the full dataset
+- HMM/clustering fitted on the entire history
+
+**Audit checklist for regime/indicator code:**
+- [ ] Every percentile, mean, or std is computed with `.expanding()` or `.rolling()`
+- [ ] `min_periods` is set to a reasonable value (30–60 bars minimum)
+- [ ] Early bars where statistics are unstable default to a neutral/conservative state
+- [ ] No sklearn `.fit()` on the full dataset — use `.partial_fit()` or rolling windows
 
 #### Detection
 
 - Backtest performance that seems "too good to be true."
 - Strategy performs perfectly at turning points (suspiciously prescient entries/exits).
 - Same code crashes or produces different results in live trading.
+- Regime distribution is suspiciously well-balanced (look-ahead makes classification
+  more "accurate" than it would be in real-time).
 
 #### Prevention
 
@@ -740,6 +847,8 @@ a trading decision is incorporated into the backtest.
 5. Apply **execution delays** that match real-world latency.
 6. Conduct **out-of-sample testing** on truly unseen data.
 7. Audit code rigorously for any forward-looking references.
+8. **Use expanding/rolling statistics, never full-dataset statistics** for any classification
+   or threshold used in trading decisions.
 
 ### Other Biases to Watch
 
@@ -996,8 +1105,14 @@ Gate 10: Continuous Monitoring & Adaptation
 
 #### Gate 3: Walk-Forward / CPCV Validation
 
-- Run CPCV with purging and embargo on the full dataset.
-- Run walk-forward analysis (both rolling and anchored) on the remaining 40%.
+WF and CPCV are **complementary, not alternatives** (Lopez de Prado 2018, Arian et al. 2024):
+- **WF** simulates production deployment (rolling retrain) — answers "does this strategy work?"
+- **CPCV** tests robustness across all combinatorial paths — answers "should you believe it?"
+- Deploy only strategy/token pairs that pass BOTH gates.
+
+Steps:
+- Run walk-forward analysis (365d train, 90d test, 5d purge).
+- Run CPCV with purging and embargo (6 groups, 2 test, 15 splits).
 - Generate a distribution of Sharpe ratios, not a single number.
 - Compute PBO from the CPCV results.
 - **Kill criteria:** PBO > 0.30, median OOS Sharpe < 0.5.
@@ -1140,17 +1255,70 @@ Published in *The Review of Financial Studies*, Vol. 29(1), pp. 5-68.
 
 ---
 
+## 16. Backtesting Bias Audit Checklist
+
+Run this checklist whenever modifying engine code, adding indicators, or reviewing
+validation results. Each item addresses a real bug found in production backtesting systems.
+
+### Cost Model Biases
+
+```
+[ ] Fee rate reflects actual exchange tier, not Binance base rate
+    - Kraken Tier 1: 0.22% taker, Tier 3: 0.25%. NOT 0.10% flat.
+[ ] Slippage varies by token liquidity tier
+    - BTC: 8 bps, mid-cap: 15 bps, small-cap: 35 bps
+[ ] Costs applied on BOTH entry and exit
+[ ] If exchange or volume tier changed, re-validate all strategies
+```
+
+### Look-Ahead Biases
+
+```
+[ ] No np.percentile/np.mean/np.std on full arrays for bar-level classification
+    - Use .expanding() or .rolling() with min_periods instead
+[ ] Regime detection uses only data available at bar start
+[ ] No sklearn fit_transform() on full dataset for normalization/clustering
+[ ] Early bars (before min_periods) default to neutral/conservative state
+[ ] Forward-fill gaps use shift(1) — never fill with current bar's data
+```
+
+### CPCV Implementation Biases
+
+```
+[ ] Non-contiguous fold entries restricted to test_idx bars only
+    - Gap bars between non-adjacent test groups must be masked out
+[ ] Purge/embargo fraction >= 0.01 of total data
+[ ] Warmup bars excluded from PnL calculation (not just from entries)
+[ ] Entry mask applied AFTER fold slicing, not before
+```
+
+### Data Biases
+
+```
+[ ] Universe uses point-in-time constituents (no survivorship bias)
+[ ] Delisted tokens included in historical analysis
+[ ] Daily data aligned to UTC midnight, not exchange local time
+[ ] No future data in any feature: verify with shift(1) or expanding()
+```
+
+---
+
 ## Summary: The Non-Negotiable Rules
 
-1. **Never backtest without transaction costs.** Zero-cost backtests are fiction.
+1. **Never backtest without realistic, tier-based transaction costs.** A flat 0.10% fee
+   for all tokens is fiction. Use exchange-specific, liquidity-tiered costs.
 2. **Never report a Sharpe ratio without the number of trials.** Without N, the SR is meaningless.
 3. **Never trust a single backtest path.** Use CPCV to generate a distribution.
 4. **Always compute PBO and DSR.** These are the minimum credibility checks.
 5. **Apply a 30-50% haircut** to backtested Sharpe ratios for live expectations.
 6. **Test across regimes.** A strategy that only works in one regime is a time bomb.
 7. **Use point-in-time data.** Survivorship and look-ahead bias silently inflate results.
-8. **Paper trade before live trading.** Minimum 50 trades, ideally 1-3 months.
-9. **Start small.** 10-20% of target capital for the first 3-6 months of live trading.
-10. **Document everything.** Every trial, every configuration, every decision.
-11. **Automate the pipeline.** Manual validation introduces human bias.
-12. **Know your capacity.** Exceeding it destroys the very alpha you are trying to capture.
+8. **Never use full-dataset statistics for bar-level decisions.** Use expanding/rolling.
+9. **Verify CPCV fold isolation.** Non-contiguous folds contaminate silently.
+10. **Paper trade before live trading.** Minimum 50 trades, ideally 1-3 months.
+11. **Start small.** 10-20% of target capital for the first 3-6 months of live trading.
+12. **Document everything.** Every trial, every configuration, every decision.
+13. **Automate the pipeline.** Manual validation introduces human bias.
+14. **Know your capacity.** Exceeding it destroys the very alpha you are trying to capture.
+15. **Re-validate when assumptions change.** New exchange, new fee tier, new token list →
+    re-run the full validation pipeline.

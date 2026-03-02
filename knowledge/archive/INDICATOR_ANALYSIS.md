@@ -1,5 +1,13 @@
 # Indicator Relationship and Causal Analysis
 
+> **TL;DR — IC rankings and redundancy map**
+> - ADX is #1 (IC=+0.067); realized_vol #2 (+0.053); RSI useless standalone (+0.004)
+> - 4 truly independent signals: VPIN, amihud_1m, intraday_skew, intraday_kurtosis (all |corr| < 0.5)
+> - Best combos: RSI_low + MACD_pos (+1.37%, 58% WR), vol_ratio_hi + BB_pct_low (+0.99%)
+> - Regime-conditional: uptrend → momentum; downtrend → RSI contrarian; range → intraday kurtosis/skew
+> **When to read full file:** Building indicator combinations, checking redundancy, regime-conditional logic
+> **Sections:** 1-Cross-Correlation, 2-Lead-Lag IC, 3-Regime-Conditional, 4-Combinations + Synergies
+
 *Generated from 49 tokens of 1H data aggregated to daily timeframe*
 *Date range: 2024-01-01 to 2026-01-31 (762 trading days)*
 

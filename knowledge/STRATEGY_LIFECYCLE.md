@@ -1,5 +1,13 @@
 # Strategy Lifecycle — Research to Production Pipeline
 
+> **TL;DR — Tier system and development pipeline**
+> - Tier A (>50%): production; Tier B (20-50%): experimental, max 3 cycles; Tier C (<20%): archive immediately
+> - Pre-dev checklist: 7 knowledge files + sweep results + bias audit + cost verification
+> - Fast iteration: idea to validated result in ~25 min (vectorized + parallel workers)
+> - Dedup: >80% overlap with Tier A → propose as filter instead of new strategy
+> **When to read full file:** Starting a new strategy, understanding tiers, deciding promote/demote/archive
+> **Sections:** 1-Tier System (current classification), 2-Mandatory Checklist, 3-Pipeline Phases, 4-Promotion Rules, 5-Sweep Protocol, 6-Numbering, 7-Fast Iteration
+
 ## Overview
 
 Every strategy follows a strict lifecycle: **Research → Prototype → Validate → Promote/Archive**.
@@ -68,17 +76,17 @@ Strategies are classified by V3 validation rate (% of 49 tokens passing dual WF+
     - Use proper signal composition patterns
     - Include all mandatory components
 
-[ ] Read v2/knowledge/INDICATOR_CATALOG.md
+[ ] Read knowledge/INDICATOR_CATALOG.md
     - Check if indicator already exists in engine
     - Check IC (information coefficient) for relevance
     - Check post-ETF vs pre-ETF signal stability
 
-[ ] Read v2/knowledge/STRATEGY_CATALOG.md
+[ ] Read knowledge/STRATEGY_CATALOG.md
     - Check if strategy type already implemented
     - Check academic backing and expected profile
     - Check our own backtest findings for this approach
 
-[ ] Read v2/knowledge/INDICATOR_ANALYSIS.md (Signal Lab results)
+[ ] Read knowledge/INDICATOR_CATALOG.md Section 10 (Empirical Results)
     - Verify signal IC is positive and significant post-ETF
     - Check signal decay rate across horizons
     - Check regime-conditional performance
@@ -87,6 +95,16 @@ Strategies are classified by V3 validation rate (% of 49 tokens passing dual WF+
     - Review current tier classifications
     - Avoid duplicating existing approaches
     - Identify gaps in strategy coverage
+
+[ ] Read knowledge/KRAKEN_FEES.md (Sections 8 & 11)
+    - Verify backtest cost assumptions match your target exchange and volume tier
+    - Tier 1 tokens: 0.30% per side, Tier 3 tokens: 0.60% per side
+    - Do NOT use Binance base-tier costs (0.15%) for Kraken strategies
+
+[ ] Run bias audit checklist (knowledge/process/BACKTESTING_VALIDATION_BEST_PRACTICES.md §16)
+    - Look-ahead: no full-array statistics in regime/indicator code
+    - CPCV: non-contiguous folds properly masked
+    - Costs: tier-based, not flat
 ```
 
 ### When to Skip
@@ -103,7 +121,7 @@ full checklist. Any new strategy or new indicator requires ALL checks.
 **Input:** Academic papers, Signal Lab IC analysis, market structure observations.
 
 **Process:**
-1. Identify a candidate signal from Signal Lab (`v2/signal_lab.py`)
+1. Identify a candidate signal from Signal Lab (`tools/signal_lab.py`)
    - IC must be > +0.02 post-ETF (Jan 2024+) to proceed
    - Signal must be stable across at least 2 horizons (1d, 5d, 10d)
    - Check if signal flipped sign post-ETF (some did — see s22_supertrend_adx)
@@ -166,7 +184,7 @@ full checklist. Any new strategy or new indicator requires ALL checks.
    ```python
    # Must complete in < 1ms per call
    python -c "
-   import sys; sys.path.insert(0, 'v3'); sys.path.insert(0, 'v2')
+   import sys; sys.path.insert(0, 'v3')
    from engine import Engine
    import pandas as pd, time
    eng = Engine(data_dir='data')

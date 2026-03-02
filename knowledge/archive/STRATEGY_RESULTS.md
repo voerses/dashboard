@@ -119,7 +119,7 @@ AVAX (13%), BONK (33%), FIL (27%), FLOKI (20%), DENT (27%), ZRO (27%)
 
 ## STRATEGY DESCRIPTIONS
 
-### Fat-Tail Strategies (mtf_strategy_v2.py)
+### Fat-Tail Strategies (legacy, from v2 engine)
 
 #### Dual Momentum (BEST single strategy)
 - **Timeframe**: 1H:4H:Daily stack

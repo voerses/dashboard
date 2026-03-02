@@ -634,7 +634,7 @@ def my_strategy_with_onchain(ctx: StrategyContext) -> StrategyResult:
 
 ### Complete On-Chain Data Module
 
-This is a drop-in module for `/workspace/crypto_backtest/v2/`. Save as `onchain_data.py`.
+This is a drop-in module for the project root. Save as `tools/onchain_data.py`.
 
 ```python
 """

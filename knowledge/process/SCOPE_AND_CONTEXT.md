@@ -56,5 +56,5 @@ When reading the research files in this directory, apply this filter:
 - Backtesting engine: custom Python v3 (vectorized)
 - Validation: walk-forward + CPCV dual gate across 49 tokens
 - Exchange: Kraken (maker/taker fees documented in KRAKEN_FEES.md)
-- Data: Binance spot OHLCV (gaps documented in DATA_GAP_ANALYSIS.md)
+- Data: Binance spot OHLCV (see DATA_MANIFEST.md for coverage)
 - Strategies: Python files following TEMPLATE.py pattern

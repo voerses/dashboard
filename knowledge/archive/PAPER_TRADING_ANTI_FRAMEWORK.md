@@ -1,5 +1,13 @@
 # The Case Against Trading Frameworks: Build a Thin CCXT Wrapper
 
+> **TL;DR — Why custom CCXT beats frameworks**
+> - Jesse: Kraken NOT supported, $899-$1,599 license, complete strategy rewrite — disqualified
+> - Freqtrade: Kraken painful (720-candle limit, 3100ms rate limit), 2-4 day rewrite per strategy, two codebases to maintain
+> - OctoBot: quant scripting in "early alpha", async mismatch with our vectorized approach — not ready
+> - Custom CCXT Pro wrapper: handles both exchanges, no rewrite tax, full control over execution
+> **When to read full file:** Justifying infrastructure choices, evaluating framework adoption, troubleshooting execution
+> **Sections:** 1-Summary, 2-Requirements, 3-Framework Demolition, 4-CCXT Capabilities, 5-Porting Tax, 6-Slippage, 7-Wrapper Arch, 8-Concessions, 9-Cost-Benefit, 10-Verdict
+
 > **Position:** AGAINST using Jesse, Freqtrade, or OctoBot for paper trading.
 > FOR building a thin custom wrapper using CCXT + CCXT Pro.
 >
