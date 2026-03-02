@@ -1,10 +1,12 @@
 # V3 Performance Patterns — Strategy & Engine Best Practices
 
-## TL;DR
-
-The V3 validation engine calls each strategy function ~784 times per token
-(1 WF + 15 CPCV folds × 49 tokens). A strategy that takes 1ms/call finishes
-in 38 seconds. One that takes 100ms/call takes 64 MINUTES. **Vectorize everything.**
+> **TL;DR — Vectorize everything; <1ms target**
+> - 0.04ms (s11 vectorized) vs 1,864ms (s16 loops) — 46,600x difference; total 49-token: 18s vs 64 min
+> - Never `for i in range(n)` on bars; use `rolling_mean/std/max/min` helpers (137x faster)
+> - Use pre-computed `ctx.ind_1h` (23+ indicators) and `ctx.custom` — never recompute
+> - Boolean vectorization: `(close > sma) & (rsi < 30) & (adx > 25)` not per-bar if-else
+> **When to read full file:** Writing a new strategy, profiling slow code, optimizing indicator computation
+> **Sections:** 1-2-Performance Model, 3-5-Rules, 6-Checklist + Speed Tiers, 7-8-Engine Internals + Anti-Patterns, 9-Testing
 
 ---
 

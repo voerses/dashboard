@@ -2,9 +2,7 @@
 Combinatorial Purged Cross-Validation — V3 standalone copy.
 ============================================================
 
-Copied from v2/cpcv.py (split generation + deflated Sharpe only).
-V2 is untouched.
-
+CPCV split generation + deflated Sharpe ratio.
 Based on Lopez de Prado (2018) "Advances in Financial Machine Learning".
 """
 

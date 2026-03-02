@@ -1,5 +1,13 @@
 # Strategy Pipeline Gates -- Definitive Reference
 
+> **TL;DR — Six gates from idea to production**
+> - Return first: Calmar > 0.5, Sortino > 1.0, MaxDD < 25%, PF > 1.5; Sharpe is diagnostic only
+> - Tier-based costs mandatory: 0.30% Tier 1, 0.37% Tier 2, 0.60% Tier 3 per side (Kraken)
+> - V3 dual gate: WF + CPCV; >50% validation = Tier A, 20-50% = Tier B (max 3 cycles), <20% = archive
+> - Paper trading: min 50 trades, acceptable degradation 0.6x backtest Sharpe
+> **When to read full file:** Setting kill/promotion thresholds, interpreting validation results, full gate details
+> **Sections:** 0-Idea, 1-Signal Lab, 2-Single-Token, 3-Multi-Token, 4-Paper Trading, 5-Live, Appendix-Metrics
+
 > Single source of truth for strategy development gate criteria, kill thresholds, and quality checks.
 > Cross-references: `knowledge/STRATEGY_LIFECYCLE.md` (tier system), `knowledge/SIGNAL_DEVELOPMENT.md` (signal structure).
 > Sources: 8 research files in `knowledge/process/`.
@@ -105,8 +113,8 @@ A viable idea must have ALL of the following:
 ```
 [ ] Read knowledge/STRATEGY_LIFECYCLE.md -- check tier classifications, dedup table
 [ ] Read knowledge/SIGNAL_DEVELOPMENT.md -- signal structure requirements
-[ ] Read v2/knowledge/INDICATOR_CATALOG.md -- check if indicator already exists
-[ ] Read v2/knowledge/STRATEGY_CATALOG.md -- check if strategy type already implemented
+[ ] Read knowledge/INDICATOR_CATALOG.md -- check if indicator already exists
+[ ] Read knowledge/STRATEGY_CATALOG.md -- check if strategy type already implemented
 [ ] Check results/sweep_summary_*.json -- current sweep results
 [ ] Check idea graveyard -- has this been tried and failed before?
 ```
@@ -132,7 +140,7 @@ A viable idea must have ALL of the following:
 
 **Time budget:** 2-4 hours (includes writing the MVS prototype).
 
-**Tool:** `v2/signal_lab.py`
+**Tool:** `tools/signal_lab.py`
 
 ### Minimum IC Threshold
 
@@ -217,15 +225,24 @@ The strategy must be implemented as a vectorized function following `strategies/
 
 ### Transaction Cost Requirements
 
-Backtests must include realistic costs. Use the conservative model unless justified:
+Backtests must use **tier-based costs** that reflect the target exchange and token liquidity.
+The V3 engine applies these automatically via `v3/universe.py` (`TIER_COSTS`).
 
-| Scenario | Round-Trip Cost | When to Use |
-|----------|----------------|-------------|
-| Conservative | 0.50% | Default for all Gate 2 testing |
-| Moderate | 0.30% | After execution quality data supports it |
-| Optimistic | 0.15% | Only for maker-maker strategies with proven fills |
+**Kraken Pro costs (default — $200K–$500K monthly volume):**
 
-Components modeled: exchange fees (maker/taker), spread cost, slippage, funding rates.
+| Tier | Tokens | Fee (taker) | Slippage | Per-side | Round-trip |
+|------|--------|-------------|----------|----------|------------|
+| 1 (>$50M ADV) | BTC, ETH, SOL, SUI | 0.22% | 8 bps | 0.30% | 0.60% |
+| 2 ($10–50M ADV) | ADA, AVAX, DOT, LINK | 0.22% | 15 bps | 0.37% | 0.74% |
+| 3 ($5–10M ADV) | BONK, FLOKI, PENGU | 0.25% | 35 bps | 0.60% | 1.20% |
+
+**Do NOT use a single flat cost for all tokens.** A strategy that passes validation at
+0.15% per-side may fail at realistic tier-based costs — this is a real false positive
+we caught in March 2026 (ETH on S11 went from PASS to FAIL).
+
+See `knowledge/KRAKEN_FEES.md` for full derivation and Binance comparison.
+
+Components modeled: exchange fees (maker/taker), spread cost, slippage per liquidity tier.
 
 ### Walk-Forward Efficiency Threshold
 
@@ -330,6 +347,15 @@ The validation rate = % of 49 tokens passing the dual WF+CPCV gate.
 | Backtest includes at least one crisis period (Mar 2020, May 2021, Nov 2022) | Mandatory |
 | Stress test: drawdown < 2x expected during historical stress events | Mandatory |
 | Negative returns in any major regime | Flag for review (not auto-kill) |
+| Regime detection uses causal (expanding) statistics only | Mandatory |
+
+**Regime look-ahead audit (mandatory for any strategy using regime filters):**
+- [ ] `detect_daily_regime()` uses `.expanding()` or `.rolling()`, never `np.percentile()`
+      on the full array
+- [ ] Early bars (before `min_periods`) default to neutral regime (RANGE), not a
+      classification based on insufficient data
+- [ ] Any custom regime logic added by a strategy follows the same causal rules
+- See: `knowledge/process/BACKTESTING_VALIDATION_BEST_PRACTICES.md` Section 10
 
 ### Portfolio-Level Checks
 

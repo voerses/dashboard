@@ -2,12 +2,10 @@
 V3 Backtest Engine — Consolidated Core
 ========================================
 
-Merges v2/engine.py + v2/mtf_strategy_v2.py into a single import.
-Same API surface as v2 — strategies do `from engine import StrategyContext, StrategyResult`.
-
-Key change vs v2: The JIT simulation now returns out_entry_bar and out_exit_bar
-arrays so we can reconstruct equity curves and compute per-window stats.
-V2's JIT is UNTOUCHED — this is our own copy.
+Consolidated backtest engine with plugin strategy architecture.
+Strategies import `from engine import StrategyContext, StrategyResult`.
+JIT simulation returns out_entry_bar and out_exit_bar arrays for
+equity curve reconstruction and per-window stats.
 """
 
 import sys
@@ -23,7 +21,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Optional, List, Dict, Tuple
 from pathlib import Path
 
-# Explicit import from v3/universe.py to avoid conflicts with v2/liquid_universe.py
+# Explicit import from v3/universe.py using importlib
 def _load_v3_mod(name):
     spec = importlib.util.spec_from_file_location(f'v3_{name}', os.path.join(_v3_dir, f'{name}.py'))
     mod = importlib.util.module_from_spec(spec)
@@ -31,11 +29,14 @@ def _load_v3_mod(name):
     return mod
 
 _universe = _load_v3_mod('universe')
+get_all_tradeable = _universe.get_all_tradeable
+compute_adv = _universe.compute_adv
+adv_to_tier = _universe.adv_to_tier
+adv_to_sizing = _universe.adv_to_sizing
+adv_to_costs = _universe.adv_to_costs
+FALLBACK_ADV = _universe.FALLBACK_ADV
+# Legacy — kept for backward compat of external imports
 LIQUID_TOKENS = _universe.LIQUID_TOKENS
-TIER1 = _universe.TIER1
-TIER2 = _universe.TIER2
-TIER3 = _universe.TIER3
-get_tier = _universe.get_tier
 
 # Numba JIT — optional
 try:
@@ -205,20 +206,27 @@ def _align_higher_to_lower(higher_idx, higher_vals, lower_idx):
 # =============================================================================
 
 def detect_daily_regime(ind_d):
-    """Vectorized regime detection on daily indicators."""
+    """Vectorized regime detection on daily indicators.
+
+    Uses expanding (causal) percentiles for volatility thresholds to avoid
+    look-ahead bias. Each bar's regime is determined using only data up to
+    that point. A minimum of 60 daily bars is required for stable estimates.
+    """
     n = len(ind_d['adx'])
     adx = ind_d['adx']
     ema_20 = ind_d['ema_20']
     ema_50 = ind_d['ema_50']
     vol_20 = ind_d['vol_20']
 
-    valid_vol = vol_20[~np.isnan(vol_20)]
-    vol_p75 = np.percentile(valid_vol, 75) if len(valid_vol) > 20 else 0.04
-    vol_p25 = np.percentile(valid_vol, 25) if len(valid_vol) > 20 else 0.015
+    # Expanding (causal) percentiles: at bar i, use only vol_20[:i+1]
+    vol_series = pd.Series(vol_20)
+    min_periods = 60  # need ~2 months of daily data for stable quantiles
+    vol_p75 = vol_series.expanding(min_periods=min_periods).quantile(0.75).values
+    vol_p25 = vol_series.expanding(min_periods=min_periods).quantile(0.25).values
 
-    regimes = np.full(n, 3, dtype=np.int8)
+    regimes = np.full(n, 3, dtype=np.int8)  # default: RANGE
 
-    valid = ~np.isnan(adx) & ~np.isnan(vol_20)
+    valid = ~np.isnan(adx) & ~np.isnan(vol_20) & ~np.isnan(vol_p75)
     crisis = valid & (vol_20 > vol_p75 * 2)
     quiet = valid & ~crisis & (vol_20 < vol_p25 * 0.7)
     strong = valid & ~crisis & ~quiet & (adx > 25)
@@ -247,13 +255,14 @@ def _simulate_core_jit(close, high, low, atr, entry_mask, direction,
                        stop_mult, trail_mult, target_mult,
                        regime, exit_regime_mask, min_hold, max_hold,
                        rsi, rsi_exit_level, use_rsi,
-                       fee_rate, slippage_bps,
+                       fee_rate, adv, base_spread_bps, impact_coeff,
                        initial_capital, tier,
                        convex_exit, mean_target_vals, use_mean_target,
                        no_stop_bars, edge_override,
                        kelly_mult, cap_pct):
     """
     Numba-JIT compiled trade simulation loop.
+    Slippage is position-size-aware: slip_bps = base_spread + impact * sqrt(pos_usd / adv)
     Returns: pnl[], ret_pct[], hold_hours[], exit_code[], pos_usd[],
              entry_bar[], exit_bar[], final_equity
     """
@@ -353,7 +362,12 @@ def _simulate_core_jit(close, high, low, atr, entry_mask, direction,
                 exit_code = 6
 
             if exit_signal:
-                slip = exit_price * slippage_bps / 10000.0
+                exit_pos_usd = abs(position * exit_price)
+                exit_participation = exit_pos_usd / max(adv, 1.0)
+                exit_slip_bps = base_spread_bps + impact_coeff * np.sqrt(exit_participation) * 10000.0
+                if exit_slip_bps > 100.0:
+                    exit_slip_bps = 100.0
+                slip = exit_price * exit_slip_bps / 10000.0
                 if d == 1:
                     exit_price -= slip
                     pnl = position * (exit_price - entry_price)
@@ -387,7 +401,7 @@ def _simulate_core_jit(close, high, low, atr, entry_mask, direction,
                 cur_atr_e = close[i] * 0.02
             vol = cur_atr_e / max(close[i], 1e-10)
 
-            if tier == 0 or edge_override < 0.10:
+            if edge_override < 0.10:
                 continue
             kelly_frac = kelly_mult * edge_override
             vol_adj = 0.02 / max(vol, 0.005) if vol > 0.0 else 1.0
@@ -400,7 +414,13 @@ def _simulate_core_jit(close, high, low, atr, entry_mask, direction,
             if pos_usd < 200.0:
                 continue
 
-            entry_price = close[i] + (close[i] * slippage_bps / 10000.0 * d)
+            # Position-size-aware slippage: base spread + market impact
+            participation = pos_usd / max(adv, 1.0)
+            slip_bps = base_spread_bps + impact_coeff * np.sqrt(participation) * 10000.0
+            if slip_bps > 100.0:
+                slip_bps = 100.0
+
+            entry_price = close[i] + (close[i] * slip_bps / 10000.0 * d)
             position = pos_usd / max(entry_price, 1e-10) * d
             entry_bar = i
             highest = high[i]
@@ -452,6 +472,7 @@ class StrategyContext:
     """Everything a strategy needs to make decisions. Read-only."""
     ticker: str
     tier: int
+    adv: float  # Average Daily Volume in USD (computed from volume data)
 
     ind_1h: Dict[str, np.ndarray]
     ind_4h: Dict[str, np.ndarray]
@@ -628,15 +649,20 @@ def rolling_corr(arr1, arr2, window):
 class Engine:
     """Main backtesting engine."""
 
-    def __init__(self, data_dir='data', capital=200_000,
-                 fee_rate=0.001, slippage_bps=5):
+    def __init__(self, data_dir='data', market='spot', capital=200_000,
+                 fee_rate=None, slippage_bps=None):
         self.data_dir = data_dir
+        self.market = market  # 'perp' or 'spot'
         self.capital = capital
-        self.fee_rate = fee_rate
-        self.slippage_bps = slippage_bps
+        self._fee_override = fee_rate
+        self._slip_override = slippage_bps
         self._enriched = None
         self._enriched_loaded = False
-        self._context_cache = {}  # {ticker: StrategyContext} for caching across strategy runs
+        self._context_cache = {}
+
+    def _cache_dir(self, timeframe='1h'):
+        """Resolve cache directory: data/{market}/{timeframe}_cache/"""
+        return os.path.join(self.data_dir, self.market, f'{timeframe}_cache')
 
     def _load_enriched(self):
         if self._enriched_loaded:
@@ -705,10 +731,12 @@ class Engine:
                 if len(token_enriched) < 10:
                     token_enriched = None
 
-        tier, _ = get_tier(ticker)
+        # Compute ADV from actual volume data, derive tier dynamically
+        adv = compute_adv(c1, v1, lookback_days=30, hours_per_bar=1)
+        tier = adv_to_tier(adv)
 
         ctx = StrategyContext(
-            ticker=ticker, tier=tier,
+            ticker=ticker, tier=tier, adv=adv,
             ind_1h=ind_1h, ind_4h=ind_4h, ind_d=ind_d,
             idx_1h=idx_1h, idx_4h=idx_4h, idx_d=idx_d,
             regime_1h=regime_1h,
@@ -745,8 +773,25 @@ class Engine:
         use_mean_target = result.mean_target_vals is not None
         mean_target = result.mean_target_vals if use_mean_target else np.full(n, np.nan)
 
-        kelly_mult = 0.5 if ctx.tier == 1 else 0.25
-        cap_pct = 0.12 if ctx.tier == 1 else (0.08 if ctx.tier == 2 else 0.04)
+        # ADV-based sizing: continuous functions of actual volume
+        kelly_mult, cap_pct = adv_to_sizing(ctx.adv)
+
+        # Fee: flat override or ADV-based
+        if self._fee_override is not None:
+            fee_rate = self._fee_override
+        else:
+            fee_rate = adv_to_costs(ctx.adv)
+
+        # Slippage model: base_spread + impact * sqrt(pos/ADV)
+        # base_spread: half the typical bid-ask spread (~3bps for liquid, doesn't vary much)
+        # impact_coeff: market impact coefficient (~0.10 = 10% of sqrt participation)
+        if self._slip_override is not None:
+            # Legacy: flat slippage override → set base=override, impact=0
+            base_spread_bps = self._slip_override
+            impact_coeff = 0.0
+        else:
+            base_spread_bps = 3.0   # minimum spread cost
+            impact_coeff = 0.03     # sqrt market impact coefficient
 
         entry_mask = np.asarray(result.entry_mask, dtype=np.bool_)
         direction = np.asarray(result.direction, dtype=np.int8)
@@ -756,7 +801,7 @@ class Engine:
             float(result.stop_mult), float(result.trail_mult), float(result.target_mult),
             ctx.regime_1h, exit_regime_mask, int(result.min_hold), int(result.max_hold),
             rsi, float(result.rsi_exit_level), use_rsi,
-            float(self.fee_rate), float(self.slippage_bps),
+            float(fee_rate), float(ctx.adv), float(base_spread_bps), float(impact_coeff),
             float(self.capital), int(ctx.tier),
             result.convex_exit, mean_target, use_mean_target,
             int(result.no_stop_bars), float(result.edge),
@@ -784,7 +829,7 @@ class Engine:
                        df_1h: Optional[pd.DataFrame] = None) -> Optional[Dict]:
         """Backtest a single token with a strategy function."""
         if df_1h is None:
-            h1_path = os.path.join(self.data_dir, f'1h_cache/{ticker}_1h.parquet')
+            h1_path = os.path.join(self._cache_dir('1h'), f'{ticker}_1h.parquet')
             if not os.path.exists(h1_path):
                 return None
             df_1h = pd.read_parquet(h1_path)
@@ -805,6 +850,7 @@ class Engine:
         return {
             'ticker': ticker,
             'tier': ctx.tier,
+            'adv': ctx.adv,
             'total_return': total_return,
             'n_trades': len(trades),
             'win_rate': len(wins) / max(len(trades), 1) * 100,
@@ -816,9 +862,9 @@ class Engine:
 
     def run(self, strategy_fn: StrategyFn, tokens: Optional[List[str]] = None,
             verbose: bool = True) -> Dict[str, Dict]:
-        """Run a strategy across all tokens."""
+        """Run a strategy across all tokens with data."""
         if tokens is None:
-            tokens = LIQUID_TOKENS
+            tokens = get_all_tradeable(self.market)
 
         results = {}
         t0 = time.time()

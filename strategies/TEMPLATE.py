@@ -18,7 +18,7 @@ PRE-DEVELOPMENT CHECKLIST (mandatory before writing code):
          Consider adding a filter to the existing strategy instead.
 
 [ ] 2. SIGNAL LAB IC CHECK — verify the signal has predictive power:
-       - Run: python v2/signal_lab.py --signal <name> --post-etf
+       - Run: python tools/signal_lab.py --signal <name> --post-etf
        - IC must be > +0.02 post-ETF (Jan 2024+) at target horizon
        - Signal must be stable across 2+ horizons
 
@@ -42,8 +42,8 @@ Steps:
      import sys; sys.path.insert(0, 'v3'); sys.path.insert(0, 'v2')
      from engine import Engine
      import pandas as pd, time
-     eng = Engine(data_dir='data')
-     df = pd.read_parquet('data/1h_cache/BTC_1h.parquet')
+     eng = Engine(data_dir='data', market='spot')
+     df = pd.read_parquet('data/spot/1h_cache/BTC_1h.parquet')
      ctx = eng._build_context('BTC', df)
      from strategies.sNN_my_strategy import strategy
      t0 = time.perf_counter()
@@ -76,7 +76,8 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
     Available in ctx:
     ─────────────────
     ctx.ticker          # 'BTC', 'ETH', etc.
-    ctx.tier            # 1, 2, or 3 (liquidity tier)
+    ctx.tier            # 1, 2, or 3 (derived from ADV, reporting only)
+    ctx.adv             # Average Daily Volume in USD (drives position sizing)
 
     ctx.ind_1h          # dict of 1H numpy arrays:
                         #   close, high, low, volume, ema_10, ema_20, ema_50,

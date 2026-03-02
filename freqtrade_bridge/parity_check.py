@@ -2,7 +2,7 @@
 Parity Validation: Engine (vectorized) vs Freqtrade (event-driven)
 ===================================================================
 
-Compares trades from our Numba engine against Freqtrade's backtester
+Compares trades from our V3 engine against Freqtrade's backtester
 on the SAME data slice to detect vectorized→event-driven divergence.
 
 The "Parity Trap": Our engine processes all bars at once (vectorized),
@@ -31,17 +31,28 @@ from typing import Dict, List, Tuple
 # without requiring the full engine stack
 _engine_imported = False
 Engine = None
-CPCV_ROBUST_TOKENS = None
 
 
 def _ensure_engine():
-    global _engine_imported, Engine, CPCV_ROBUST_TOKENS
+    global _engine_imported, Engine
     if not _engine_imported:
         sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
-        from v2.engine import Engine as _Engine, CPCV_ROBUST_TOKENS as _Tokens
+        from v3.engine import Engine as _Engine
         Engine = _Engine
-        CPCV_ROBUST_TOKENS = _Tokens
         _engine_imported = True
+
+
+def _load_validated_tokens(strategy: str, results_dir: str = 'results') -> List[str]:
+    """Load validated tokens from the latest full validation run."""
+    import glob as globmod
+    pattern = os.path.join(results_dir, f"validation_{strategy}_*.json")
+    files = sorted(globmod.glob(pattern))
+    for fpath in reversed(files):
+        with open(fpath) as f:
+            data = json.load(f)
+        if data.get("n_total", 0) >= 49 and data.get("validated_tokens"):
+            return data["validated_tokens"]
+    return ['BTC']
 
 
 def load_engine_trades(strategy_fn, token: str, engine: Engine) -> List[Dict]:
@@ -231,7 +242,7 @@ def main():
     else:
         from engine import strategy_dual_momentum as strat_fn
 
-    tokens = [args.token] if args.token else CPCV_ROBUST_TOKENS
+    tokens = [args.token] if args.token else _load_validated_tokens(args.strategy)
 
     engine = Engine()
     run_parity_check(tokens, strat_fn, engine, args.ft_dir, args.tolerance)

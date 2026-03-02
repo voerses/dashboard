@@ -2,70 +2,76 @@
 
 ## Directory Layout
 ```
-v2/
-├── knowledge/                    # KNOWLEDGE BASE — findings, results, data docs
-│   ├── STRATEGY_RESULTS.md       # Master strategy comparison & findings
-│   ├── DATA_MANIFEST.md          # Data file inventory (DO NOT DELETE DATA)
-│   └── ARCHITECTURE.md           # This file
-│
+crypto_backtest/
 ├── strategies/                   # STRATEGY LIBRARY — one file per strategy
 │   ├── __init__.py               # Registry of all strategies
 │   ├── TEMPLATE.py               # Copy this to create a new strategy
 │   ├── README.md                 # How to add strategies
-│   ├── s07_rsi_bounce.py         # Example: RSI bounce (EXPERIMENTAL)
-│   └── s08_obv_divergence.py     # Example: OBV divergence (EXPERIMENTAL)
+│   ├── s09_optimized_trend.py    # Tier A: EMA stack + ADX > 30
+│   ├── s11_momentum_burst.py     # Tier A: ret_1 > 0.03
+│   ├── s13_vol_weighted_tsmom.py # Tier A: volume-weighted cumulative returns
+│   ├── s17_trend_strength_filter.py # Tier A: ret_1 > 0.02 + ADX > 25
+│   ├── s18_momentum_accel.py     # Tier A: momentum acceleration
+│   ├── s21_skew_momentum.py      # Tier A: rolling_skew > 0.3 + ret > 0
+│   ├── s22_supertrend_adx.py     # Tier B: Supertrend flip + ADX
+│   └── archive/                  # Tier C (killed) strategies
 │
-├── engine.py            # PLUGIN ENGINE — generic, extensible framework
-│   │                             # StrategyContext, StrategyResult, Engine class
-│   │                             # Indicator plugin system, auto-comparison
+├── v3/                           # V3 ENGINE — current production engine
+│   ├── engine.py                 # StrategyContext, StrategyResult, Engine class
+│   ├── validation.py             # Combined Walk-Forward + CPCV validation
+│   ├── cpcv.py                   # CPCV split generation + deflated Sharpe
+│   ├── universe.py               # Token tiers & position sizing
+│   └── metrics.py                # Quant metrics (Sharpe, Sortino, Calmar, etc.)
 │
-├── results/                      # LOGGED RESULTS — auto-generated JSON per test run
+├── tools/                        # STANDALONE TOOLS
+│   └── signal_lab.py             # Signal IC evaluation — 37 signals
 │
-├── real_data/                    # RAW DATA — NEVER MODIFY
+├── data/                         # RAW DATA — NEVER MODIFY
 │   ├── 1h_cache/                 # 49 tokens × 18K bars each (PRIMARY)
 │   ├── 4h_cache/                 # 49 tokens × 4.5K bars each
 │   ├── 1m_cache/                 # 49 tokens daily microstructure features
 │   ├── all_tokens_enriched.parquet  # 57 tokens × 20 features
 │   └── *_daily.csv               # 57 tokens raw daily OHLCV
 │
-├── mtf_strategy_v2.py            # CORE ENGINE — DO NOT OVERWRITE
-│   │                             # 3-tier MTF backtest (1H:4H:Daily)
-│   │                             # Numba-JIT simulation, indicators, regime detection
-│   │                             # Built-in strategies: dual_momentum, vol_breakout, mean_reversion
+├── results/                      # VALIDATION RESULTS — auto-generated JSON
+│   ├── sweep_summary_*.json      # Tier classifications (A/B/C)
+│   └── validation_sNN_*.json     # Per-strategy validation details
 │
-├── cpcv.py                       # CPCV validation framework
-├── liquid_universe.py            # Token tiers & position sizing
+├── knowledge/                    # KNOWLEDGE BASE — findings, research, guides
+│   ├── process/                  # Process docs (gates, validation, risk)
+│   ├── ARCHITECTURE.md           # This file
+│   ├── STRATEGY_LIFECYCLE.md     # Strategy tiers & development checklist
+│   ├── INDICATOR_CATALOG.md      # Available indicators & IC values
+│   └── ...                       # Signal development, performance patterns, etc.
 │
-├── run_test_suite.py             # Legacy test runner (uses mtf_strategy_v2 directly)
-├── strategy_comparison.py        # Legacy comparison (V2/V3/VPIN/fat-tail)
+├── freqtrade_bridge/             # FREQTRADE INTEGRATION
+│   ├── parity_check.py           # Engine vs Freqtrade divergence checker
+│   └── ...                       # Config generation, strategy shell
 │
-├── strategies.py                 # Prior V2 strategies (reference only)
-├── strategies_v3.py              # Prior V3 strategies (reference only)
-├── signal_lab.py                 # Signal IC evaluation — 37 signals
-├── walk_forward_fast.py          # Walk-forward optimization engine
-├── regime_detector.py            # HMM + BOCPD + VPIN regime detection
-├── mtf_swing_strategy.py         # V1 MTF swing (reference only)
+├── paper_trading/                # PAPER TRADING SYSTEM
+│   ├── config_generator.py       # Freqtrade config generation
+│   ├── instance_manager.py       # Instance lifecycle management
+│   ├── equity_tracker.py         # P&L tracking
+│   └── monitor.py                # Live monitoring
 │
-├── fetch_1m_data.py              # Data download from Binance Vision
-├── real_data_fetcher.py          # Alternative data fetcher
-├── live_scanner.py               # Live Binance market scanner
+├── run_paper_trade.py            # CLI LAUNCHER — ties everything together
+├── tests/                        # TEST SUITE (pytest)
 │
-├── outputs_v2/                   # Prior run outputs (CSVs, PNGs, JSONs)
-└── dashboard.html                # Visualization dashboard
+├── v1-deprecated/                # V1 engine (historical reference only)
+└── AIPIP/                        # Process improvement proposals
 ```
 
 ## Protected Files — DO NOT OVERWRITE
-1. **`mtf_strategy_v2.py`** — Core backtesting engine with Numba JIT simulation
-2. **`engine.py`** — Plugin architecture (StrategyContext, Engine)
-3. **`cpcv.py`** — CPCV validation framework
-4. **`liquid_universe.py`** — Token universe & position sizing rules
-5. **Everything in `real_data/`** — Raw data, never modify
+1. **`v3/engine.py`** — Core engine (StrategyContext, Engine, indicators)
+2. **`v3/validation.py`** — Combined WF + CPCV validation pipeline
+3. **`v3/universe.py`** — Token universe & position sizing rules
+4. **Everything in `data/`** — Raw data, never modify
 
 ## How to Write a New Strategy (3 steps)
 
 ### Step 1: Copy the template
 ```bash
-cp strategies/TEMPLATE.py strategies/s09_my_idea.py
+cp strategies/TEMPLATE.py strategies/sNN_my_idea.py
 ```
 
 ### Step 2: Edit the strategy() function
@@ -84,22 +90,13 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
     )
 ```
 
-### Step 3: Test it
-```python
-from engine import Engine, strategy_dual_momentum, CPCV_ROBUST_TOKENS
-from strategies.s09_my_idea import strategy as my_idea
+### Step 3: Validate it
+```bash
+# Quick check on BTC
+python v3/validation.py --strategy sNN --tokens BTC --workers 1
 
-engine = Engine()
-
-# Quick test on CPCV tokens
-engine.run(my_idea, tokens=CPCV_ROBUST_TOKENS)
-
-# Compare against the proven baseline
-engine.compare(
-    strategies=[strategy_dual_momentum, my_idea],
-    labels=['Dual Momentum (baseline)', 'My Idea'],
-    tokens=CPCV_ROBUST_TOKENS,
-)
+# Full validation (49 tokens)
+python v3/validation.py --strategy sNN --workers 4
 ```
 
 ## What's Available in StrategyContext
@@ -142,35 +139,16 @@ def my_custom_indicator(ctx: StrategyContext):
     ctx.custom['my_signal'] = ...  # your computation
 ```
 
-## Key Parameters (Current Best: S11 Momentum Burst +$62,705/yr on CPCV tokens)
-```python
-# S11 Momentum Burst (best validated strategy)
-stop_mult = 3.0        # 3x ATR initial stop (tighter = better, from sweep)
-trail_mult = 3.0       # 3x ATR trailing stop
-no_stop_bars = 24      # 24-bar protection window (biggest single lever: +$9K/yr)
-edge = 0.40            # Kelly edge assumption
-min_hold = 18          # 18 hours minimum hold
-max_hold = 720         # 30 days maximum hold
-
-# Dual-validated tokens (pass BOTH CPCV + Walk-Forward):
-# S11: PENGU, SUI, AVAX, BONK, FLOKI, ZRO
-# S09: SUI, TRX, BONK, FLOKI
-# Triple-validated core: SUI, BONK, FLOKI
-```
-
 ## Validation Pipeline
-```python
-engine = Engine()
-# Runs: backtest → CPCV (per token PBO) → Walk-Forward (60/40 split)
-# Only deploys tokens passing BOTH gates (PBO < 40% AND OOS profitable)
-result = engine.validate(strategy_fn, tokens=CPCV_ROBUST_TOKENS)
-print(result['validated_tokens'])  # Only the robust ones
+```bash
+# Runs: backtest → Walk-Forward + CPCV (dual gate) → tier assignment
+python v3/validation.py --strategy sNN --workers 4
+# Results written to results/validation_sNN_*.json
 ```
 
-## Performance Benchmarks (with Numba JIT)
-- Single token (BTC): **25ms**
-- 49 tokens × 3 strategies: **1.38s**
-- 49 tokens × DM only: **1.07s**
-- 11 CPCV × DM only: **0.23s**
-- CPCV (49 tokens × 15 folds): ~8s with 4 workers
-- First run includes ~0.9s JIT warmup (cached after)
+## Current Tier Classifications (2026-03-01 sweep)
+| Tier | Strategies | Rate |
+|------|-----------|------|
+| A | s11, s09, s13, s21, s17, s18 | >50% |
+| B | s20, s22, s12, s15, s14, s10 | 20-50% |
+| C | s07, s08, s16, s19 | <20% (archived) |

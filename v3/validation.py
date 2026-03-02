@@ -8,8 +8,7 @@ Combines:
   3. Full quant metrics suite (Sharpe, Sortino, Calmar, Beta, Alpha, ...)
   4. Dual gate: token must pass BOTH WF and CPCV to be "validated"
 
-Uses v2's strategy protocol (StrategyContext/StrategyResult).
-Does NOT touch v1 or v2.
+Uses the strategy protocol (StrategyContext/StrategyResult) from v3/engine.py.
 
 Usage:
     python v3/validation.py --strategy s11 --tokens BTC ETH SOL --workers 4
@@ -32,7 +31,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 
 _v3_dir = os.path.dirname(os.path.abspath(__file__))
 
-# Use importlib to explicitly load v3 modules (avoids conflicts when v2 is also on sys.path)
+# Use importlib to explicitly load v3 modules
 def _load_v3(name):
     import importlib.util
     full_name = f'v3_{name}'
@@ -73,6 +72,7 @@ deflated_sharpe = _cpcv_mod.deflated_sharpe
 
 LIQUID_TOKENS = _universe_mod.LIQUID_TOKENS
 get_tier = _universe_mod.get_tier
+get_all_tradeable = _universe_mod.get_all_tradeable
 
 
 # =============================================================================
@@ -101,6 +101,7 @@ class ValidationConfig:
     capital: float = 200_000
     pbo_threshold: float = 0.40
     data_dir: str = 'data'
+    market: str = 'spot'
     workers: int = 4
 
     def __post_init__(self):
@@ -235,9 +236,10 @@ def _run_cpcv(engine: Engine, strategy_fn: StrategyFn, ticker: str,
     CPCV validation for a single token.
 
     For each of C(n_groups, n_test_groups) folds:
-    1. Slice df_1h to test portion + warmup_bars
+    1. Slice df_1h to cover test groups + warmup_bars before earliest test bar
     2. Build FRESH StrategyContext on slice
-    3. Zero warmup entries, simulate, collect PnL
+    3. Restrict entries to TEST bars only (not warmup, not gap bars between
+       non-contiguous test groups)
     4. PBO = fraction of folds with negative return
     """
     n = len(df_1h)
@@ -252,7 +254,7 @@ def _run_cpcv(engine: Engine, strategy_fn: StrategyFn, ticker: str,
         test_start = int(test_idx.min())
         test_end = int(test_idx.max())
 
-        # Include warmup before test start
+        # Include warmup before earliest test bar for indicator stability
         data_start = max(0, test_start - config.warmup_bars)
         df_fold = df_1h.iloc[data_start:test_end + 1]
 
@@ -265,15 +267,14 @@ def _run_cpcv(engine: Engine, strategy_fn: StrategyFn, ticker: str,
 
         result = strategy_fn(ctx)
 
-        # Copy entry_mask to avoid mutating the StrategyResult in-place
-        masked_entries = result.entry_mask.copy()
+        # Build a test-only entry mask: only allow entries on bars that are
+        # actually in test_idx. This correctly handles non-contiguous test
+        # groups (e.g., groups 0+2) by blocking entries on gap bars (group 1).
+        fold_len = len(df_fold)
+        fold_indices = np.arange(data_start, data_start + fold_len)
+        test_only_mask = np.isin(fold_indices, test_idx)
 
-        # Zero out warmup entries
-        warmup_in_fold = test_start - data_start
-        if warmup_in_fold > 0:
-            masked_entries[:warmup_in_fold] = False
-
-        # Replace with the safe copy
+        masked_entries = result.entry_mask.copy() & test_only_mask
         result.entry_mask = masked_entries
 
         trades, final_equity = engine._simulate(ctx, result)
@@ -304,7 +305,7 @@ def _validate_token(ticker: str, strategy_module_path: str, config_dict: dict,
     Re-imports strategy inside worker to avoid pickling issues.
     """
     # Re-import v3 modules explicitly in worker process via importlib
-    # (avoids fragile sys.path manipulation that can cause v2/v3 conflicts)
+    # (avoids fragile sys.path manipulation)
     v3_dir = os.path.dirname(os.path.abspath(__file__))
 
     _eng = _load_v3('engine')
@@ -335,7 +336,7 @@ def _validate_token(ticker: str, strategy_module_path: str, config_dict: dict,
         return {'ticker': ticker, 'error': f'strategy_load: {e}'}
 
     # Load data
-    h1_path = os.path.join(config.data_dir, f'1h_cache/{ticker}_1h.parquet')
+    h1_path = os.path.join(config.data_dir, config.market, f'1h_cache/{ticker}_1h.parquet')
     if not os.path.exists(h1_path):
         return {'ticker': ticker, 'error': 'no_data'}
 
@@ -343,7 +344,7 @@ def _validate_token(ticker: str, strategy_module_path: str, config_dict: dict,
     if len(df_1h) < 2000:
         return {'ticker': ticker, 'error': 'insufficient_data'}
 
-    engine = Engine(data_dir=config.data_dir, capital=config.capital)
+    engine = Engine(data_dir=config.data_dir, market=config.market, capital=config.capital)
 
     result = TokenValidationResult(ticker=ticker)
 
@@ -404,7 +405,7 @@ def validate_strategy(strategy_path: str, tokens: Optional[List[str]] = None,
 
     Args:
         strategy_path: Path to strategy .py file (must have `strategy(ctx)` function)
-        tokens: Token list (default: LIQUID_TOKENS)
+        tokens: Token list (default: all tokens with data)
         config: Validation configuration
         run_wf: Run walk-forward validation
         run_cpcv: Run CPCV validation
@@ -413,7 +414,7 @@ def validate_strategy(strategy_path: str, tokens: Optional[List[str]] = None,
     if config is None:
         config = ValidationConfig()
     if tokens is None:
-        tokens = LIQUID_TOKENS
+        tokens = get_all_tradeable(config.market)
 
     strategy_path = os.path.abspath(strategy_path)
     strategy_name = os.path.splitext(os.path.basename(strategy_path))[0]
@@ -432,7 +433,7 @@ def validate_strategy(strategy_path: str, tokens: Optional[List[str]] = None,
     # Filter tokens with data
     valid_tokens = []
     for tk in tokens:
-        h1_path = os.path.join(config.data_dir, f'1h_cache/{tk}_1h.parquet')
+        h1_path = os.path.join(config.data_dir, config.market, f'1h_cache/{tk}_1h.parquet')
         if os.path.exists(h1_path):
             valid_tokens.append(tk)
 
@@ -669,13 +670,6 @@ def _resolve_strategy_path(strategy_arg: str) -> str:
         if os.path.isfile(candidate):
             return candidate
 
-    # Fallback: legacy v2/strategies/ path
-    v2_strats = os.path.join(_root_dir, 'v2', 'strategies')
-    if os.path.isdir(v2_strats):
-        for fname in os.listdir(v2_strats):
-            if fname.startswith(strategy_arg) and fname.endswith('.py'):
-                return os.path.join(v2_strats, fname)
-
     raise FileNotFoundError(f"Cannot find strategy: {strategy_arg}\n"
                             f"Tried: {strategy_arg}, strategies/{strategy_arg}*.py")
 
@@ -710,6 +704,9 @@ def main():
                         help='Starting capital')
     parser.add_argument('--data-dir', type=str, default='data',
                         help='Data directory')
+    parser.add_argument('--market', type=str, default='spot',
+                        choices=['perp', 'spot'],
+                        help='Market type (perp or spot)')
     args = parser.parse_args()
 
     run_wf = not args.cpcv_only
@@ -730,6 +727,7 @@ def main():
         capital=args.capital,
         pbo_threshold=args.pbo_threshold,
         data_dir=args.data_dir,
+        market=args.market,
         workers=args.workers,
     )
 

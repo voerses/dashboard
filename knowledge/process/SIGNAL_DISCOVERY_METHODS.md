@@ -1,5 +1,13 @@
 # Signal Discovery, Testing, and Validation Methods
 
+> **TL;DR — IC testing and signal validation**
+> - IC > 0.02 is predictive; ICIR > 0.5 required for stability; t-stat > 2.0 (p < 0.05)
+> - Use Spearman rank IC on 20-day forward returns; reject signals with IC decay after 60 days
+> - Regime-conditional signals outperform standalone by 15-20% IC improvement
+> - Non-linear discovery via TreeShap/gradient boosting; causal analysis requires IV, not correlation
+> **When to read full file:** Engineering new factors, debugging weak signals, benchmarking signal quality
+> **Sections:** 1-IC Testing, 2-Overfitting Prevention, 3-Causal Analysis, 4-Factor Engineering, 5-Signal Combination, 6-Feature Importance, 7-Alpha Decay, 8-Regime-Conditional, 9-Non-Linear, 10-WF Signal Testing, 11-Books, 12-Crypto-Specific, 13-Signal Novelty
+
 > Comprehensive reference for discovering, evaluating, and validating trading signals
 > with emphasis on crypto markets. Compiled from academic literature, practitioner
 > research, and recent papers (2024-2025).

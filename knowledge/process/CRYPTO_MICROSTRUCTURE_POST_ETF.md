@@ -1,5 +1,13 @@
 # Crypto Market Microstructure Post-ETF: Comprehensive Research (2024-2026)
 
+> **TL;DR — What changed after the 2024 ETF approvals**
+> - BTC price now driven by ETF flows (IBIT = 96% of volume), not on-chain metrics or mining cycles
+> - Volatility compressed to 20-30% annualized (was 50-100%); reduces position sizing needs
+> - ETH ETF flows more volatile than BTC; basis trade collapsed Oct 2024 (premium evaporated)
+> - Alpha remaining: regime-conditional signals, micro-cap momentum, liquidation cascades, options skew
+> **When to read full file:** Understanding macro regime shifts, implementing regime filters, evaluating new alpha sources
+> **Sections:** 1-BTC ETF Impact, 2-ETH ETF, 3-Flows & Price, 4-Institutional vs Retail, 5-Microstructure, 6-Cross-Exchange, 7-Regime Detection, 8-On-Chain, 9-Alpha Sources, 10-Stablecoin Flows, 11-Derivatives, 12-Market Makers, 13-DeFi TVL, 14-Missing Data
+
 *Research compiled: 2026-03-01*
 
 ---

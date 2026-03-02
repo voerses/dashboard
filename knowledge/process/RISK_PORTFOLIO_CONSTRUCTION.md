@@ -1,6 +1,14 @@
 # Risk Management & Portfolio Construction for Multi-Strategy Crypto Trading Systems
 
-> Research compiled 2026-03-01. Covers portfolio construction, risk parity, position sizing, drawdown management, correlation-aware allocation, regime-conditional weighting, capacity constraints, tail risk hedging, volatility targeting, dynamic weighting, strategy decay, risk budgeting, crypto-specific risks, leverage management, and All Weather / risk parity applied to crypto.
+> **TL;DR — Portfolio risk, sizing, and allocation**
+> - Use 25% Kelly (not full) for position sizing; max drawdown constraint 25% per strategy
+> - Risk parity: equal risk contribution per strategy, not equal capital; crypto vol = 50-80% annualized
+> - Correlation-aware: recompute quarterly; crypto pairs typically 0.6-0.8 correlated
+> - Circuit breakers: -3% daily halt, -15% pull from production; cap leverage at 2x retail
+> **When to read full file:** Building multi-strategy portfolios, sizing positions, managing drawdowns, scaling capital
+> **Sections:** 1-Portfolio, 2-Risk Parity, 3-Kelly, 4-Drawdown, 5-Correlation, 6-Regime Allocation, 7-Capacity, 8-Tail Risk, 9-Vol Targeting, 10-Dynamic Weighting, 11-Decay, 12-Risk Budget, 13-Crypto Risks, 14-Leverage, 15-All Weather, 16-Checklist
+
+> Research compiled 2026-03-01.
 
 ---
 

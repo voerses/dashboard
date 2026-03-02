@@ -11,11 +11,13 @@
 |----------|------|------|-------------------|------|
 | s11 Momentum Burst | A | 75.5% | `ret_1 > 0.03` (momentum burst) | 18-720h |
 | s09 Optimized Trend | A | 73.5% | EMA stack + daily EMA50 + ADX > 30 | trend-follow |
-| s13 Volume Breakout | A | 67.3% | Volume-weighted cumulative returns | breakout |
+| s13 Vol-Weighted TSMOM | A | 67.3% | Volume-weighted cumulative returns | breakout |
 | s21 Skew Momentum | A | 63.3% | `rolling_skew > 0.3` + ret > 0 | momentum |
-| s17 ADX Directional | B | 55.1% | `ret_1 > 0.02` + ADX > 25 + +DI > -DI | trend |
-| s18 Acceleration | B | 51.0% | `ret_24h > ret_72h/3` (acceleration) | momentum |
+| s17 Trend Strength | A | 55.1% | `ret_1 > 0.02` + ADX > 25 + +DI > -DI | trend |
+| s18 Momentum Accel | A | 51.0% | `ret_24h > ret_72h/3` (acceleration) | momentum |
 | s22 Supertrend ADX | B | 46.9% | Supertrend + ADX filter | trend |
+| s20 Low Beta Quality | B | 46.9% | Low-beta quality factor | long-term |
+| s12 Quality Breakout | B | 32.7% | Quality + breakout combo | swing |
 
 > Deep dive: `knowledge/STRATEGY_CATALOG.md`
 
@@ -31,7 +33,7 @@
 | Already tried & failed? | Check Tier C list below |
 | Look-ahead bias risk | Signal must use only past data |
 
-**Tier C (Archived — Don't Repeat):** s02, s03, s04, s08, s14, s15, s16, s20
+**Tier C (Archived — Don't Repeat):** s02, s03, s04, s07, s08, s10, s12, s14, s15, s16, s19, s20
 
 > Deep dive: `knowledge/STRATEGY_LIFECYCLE.md`, `knowledge/process/SCOPE_AND_CONTEXT.md`
 
@@ -107,7 +109,7 @@ Layer 2: Trend alignment → ADX/EMA direction confirmation
 Layer 3: Entry signal    → The actual alpha signal
 Layer 4: Volume confirm  → vol_ratio > 1.0 or similar
 Layer 5: Exit logic      → ATR trail + regime exit + max hold
-Layer 6: Position sizing → Tier-based Kelly (engine handles this)
+Layer 6: Position sizing → ADV-based Kelly (engine computes from volume data)
 ```
 
 **Regime Constants:** 0=CRISIS, 1=QUIET, 2=UPTREND, 3=RANGE, 4=DOWNTREND
@@ -175,13 +177,19 @@ Layer 6: Position sizing → Tier-based Kelly (engine handles this)
 | 20-50% | B | Iterate (max 3 cycles, params only) |
 | < 20% | C | ARCHIVE immediately |
 
-**Transaction Costs (applied automatically by engine):**
+**Transaction Costs (dynamic ADV-based, applied automatically by engine):**
 
-| Tier | Tokens | Fee | Slippage | Per-side |
-|------|--------|-----|----------|----------|
-| 1 (>$50M ADV) | BTC, ETH, SOL, SUI | 0.22% | 8 bps | 0.30% |
-| 2 ($10-50M) | ADA, AVAX, DOT, LINK | 0.22% | 15 bps | 0.37% |
-| 3 ($5-10M) | BONK, FLOKI, PENGU | 0.25% | 35 bps | 0.60% |
+Costs are now continuous functions of actual ADV (computed from volume data):
+
+| ADV | Tier (label) | Fee | Slippage | Kelly | Cap% |
+|-----|-------------|-----|----------|-------|------|
+| $10B+ | 1 | 0.22% | 5 bps | 0.50 | 12% |
+| $100M | 1 | 0.22% | 5 bps | 0.36 | 8% |
+| $50M | 1 | 0.22% | 7 bps | 0.34 | 7.4% |
+| $10M | 2 | 0.22% | 16 bps | 0.29 | 6% |
+| $5M | 3 | 0.22% | 22 bps | 0.27 | 5.4% |
+| $1M | 3 | 0.22% | 50 bps | 0.22 | 4% |
+| <$0.1M | 3 | 0.22% | 50 bps | 0.15 | 2% |
 
 **Kill criteria:**
 - Validation rate < 20%
@@ -255,8 +263,8 @@ Layer 6: Position sizing → Tier-based Kelly (engine handles this)
 
 ```
 COSTS:
-[ ] Fee rate uses tier-based costs (not flat 0.10%)
-[ ] Slippage varies by token liquidity tier
+[ ] Fee rate and slippage computed from actual ADV (not flat/static)
+[ ] ADV derived from volume data (30-day median of close*volume)
 [ ] Costs applied on BOTH entry and exit
 
 LOOK-AHEAD:

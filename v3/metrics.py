@@ -5,7 +5,7 @@ V3 Full Quant Metrics Suite
 Takes a trade list + equity data and computes the standard quant validation metrics:
 Sharpe, Sortino, Calmar, Beta, Alpha, drawdown, trade quality, distribution stats.
 
-NEW file — does not exist in v2.
+Quant metrics: Sharpe, Sortino, Calmar, profit factor, etc.
 """
 
 import numpy as np
@@ -204,9 +204,9 @@ def compute_metrics(trades: list, equity_curve: pd.Series,
     return m
 
 
-def load_benchmark_returns(data_dir: str = 'data') -> Optional[pd.Series]:
+def load_benchmark_returns(data_dir: str = 'data', market: str = 'perp') -> Optional[pd.Series]:
     """Load BTC daily returns as market benchmark for beta/alpha."""
-    btc_path = os.path.join(data_dir, '1h_cache/BTC_1h.parquet')
+    btc_path = os.path.join(data_dir, market, '1h_cache/BTC_1h.parquet')
     if not os.path.exists(btc_path):
         return None
 
