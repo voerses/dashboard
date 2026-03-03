@@ -269,15 +269,17 @@ def _simulate_core_jit(close, high, low, atr, entry_mask, direction,
                        regime, exit_regime_mask, min_hold, max_hold,
                        rsi, rsi_exit_level, use_rsi,
                        fee_rate, adv_arr, base_spread_bps, impact_coeff,
-                       initial_capital, tier,
+                       initial_capital,
                        convex_exit, mean_target_vals, use_mean_target,
                        no_stop_bars, edge_override,
-                       kelly_mult_arr, cap_pct_arr,
-                       is_perp, leverage_arr, funding_1h):
+                       kelly_mult_arr, cap_pct_arr, max_trade_pct,
+                       is_perp, leverage_arr, funding_1h,
+                       burn_in_bars):
     """
     Numba-JIT compiled trade simulation loop.
     Slippage is position-size-aware: slip_bps = base_spread + impact * sqrt(pos_usd / adv)
     ADV, kelly_mult, cap_pct, leverage are per-bar arrays (rolling, point-in-time).
+    burn_in_bars: number of initial bars to skip (indicator warm-up period).
 
     Perp extensions (active when is_perp=True):
     - Funding accumulation: notional * per-hour rate, every bar while in position
@@ -312,7 +314,7 @@ def _simulate_core_jit(close, high, low, atr, entry_mask, direction,
     cumulative_funding = 0.0
     margin_usd = 0.0  # margin for this trade (pos_usd before leverage)
 
-    for i in range(200, n):
+    for i in range(burn_in_bars, n):
         # EXIT
         if position != 0.0:
             bars_held = i - entry_bar
@@ -491,8 +493,11 @@ def _simulate_core_jit(close, high, low, atr, entry_mask, direction,
             vol_adj = 0.02 / max(vol, 0.005) if vol > 0.0 else 1.0
             raw = equity * kelly_frac * vol_adj
             max_cap = equity * cap_pct_arr[i]
-            max_trade = equity * 0.05
-            pos_usd = min(raw, max_cap, max_trade)
+            if max_trade_pct > 0.0:
+                max_trade = equity * max_trade_pct
+                pos_usd = min(raw, max_cap, max_trade)
+            else:
+                pos_usd = min(raw, max_cap)
             if pos_usd < 0.0:
                 pos_usd = 0.0
             if pos_usd < 200.0:
@@ -580,10 +585,10 @@ def _simulate_combined_jit(
     stop_mult_1, trail_mult_1, target_mult_1,
     exit_regime_mask_1, min_hold_1, max_hold_1,
     rsi, rsi_exit_level_1, use_rsi_1,
-    adv, base_spread_bps, impact_coeff,
+    adv_arr, base_spread_bps, impact_coeff,
     no_stop_bars_1, edge_override_1,
     convex_exit_1, mean_target_vals_1, use_mean_target_1,
-    kelly_mult, cap_pct,
+    kelly_mult_arr, cap_pct_arr,
     is_perp_1, leverage_1, funding_1h_1,
     capital_frac_1,
     # Leg 2 (secondary — typically perp)
@@ -595,6 +600,7 @@ def _simulate_combined_jit(
     convex_exit_2, mean_target_vals_2, use_mean_target_2,
     is_perp_2, leverage_2, funding_1h_2,
     capital_frac_2,
+    burn_in_bars,
 ):
     """
     Two-leg combined simulation with shared equity pool.
@@ -641,7 +647,7 @@ def _simulate_combined_jit(
     cum_fund_2 = 0.0
     margin_2 = 0.0
 
-    for i in range(200, n):
+    for i in range(burn_in_bars, n):
         cur_atr = atr[i]
         if np.isnan(cur_atr):
             cur_atr = close[i] * 0.02
@@ -739,7 +745,7 @@ def _simulate_combined_jit(
 
             if exit_1:
                 ep_usd_1 = abs(pos_1 * eprice_1)
-                epart_1 = ep_usd_1 / max(adv, 1.0)
+                epart_1 = ep_usd_1 / max(adv_arr[i], 1.0)
                 eslip_1 = base_spread_bps + impact_coeff * np.sqrt(epart_1) * 10000.0
                 if eslip_1 > 100.0:
                     eslip_1 = 100.0
@@ -863,7 +869,7 @@ def _simulate_combined_jit(
 
             if exit_2:
                 ep_usd_2 = abs(pos_2 * eprice_2)
-                epart_2 = ep_usd_2 / max(adv, 1.0)
+                epart_2 = ep_usd_2 / max(adv_arr[i], 1.0)
                 eslip_2 = base_spread_bps + impact_coeff * np.sqrt(epart_2) * 10000.0
                 if eslip_2 > 100.0:
                     eslip_2 = 100.0
@@ -902,18 +908,17 @@ def _simulate_combined_jit(
             cae1 = cur_atr
             vol1 = cae1 / max(close[i], 1e-10)
             if edge_override_1 >= 0.10:
-                kf1 = kelly_mult * edge_override_1
+                kf1 = kelly_mult_arr[i] * edge_override_1
                 va1 = 0.02 / max(vol1, 0.005) if vol1 > 0.0 else 1.0
                 avail_1 = equity * capital_frac_1
                 raw1 = avail_1 * kf1 * va1
-                mc1 = avail_1 * cap_pct
-                mt1 = avail_1 * 0.05
-                pu1 = min(raw1, mc1, mt1)
+                mc1 = avail_1 * cap_pct_arr[i]
+                pu1 = min(raw1, mc1)
                 if pu1 >= 200.0:
                     margin_1 = pu1
                     if is_perp_1 and leverage_1 > 1.0:
                         pu1 = pu1 * leverage_1
-                    part1 = pu1 / max(adv, 1.0)
+                    part1 = pu1 / max(adv_arr[i], 1.0)
                     sb1 = base_spread_bps + impact_coeff * np.sqrt(part1) * 10000.0
                     if sb1 > 100.0:
                         sb1 = 100.0
@@ -939,18 +944,17 @@ def _simulate_combined_jit(
             cae2 = cur_atr
             vol2 = cae2 / max(close[i], 1e-10)
             if edge_override_2 >= 0.10:
-                kf2 = kelly_mult * edge_override_2
+                kf2 = kelly_mult_arr[i] * edge_override_2
                 va2 = 0.02 / max(vol2, 0.005) if vol2 > 0.0 else 1.0
                 avail_2 = equity * capital_frac_2
                 raw2 = avail_2 * kf2 * va2
-                mc2 = avail_2 * cap_pct
-                mt2 = avail_2 * 0.05
-                pu2 = min(raw2, mc2, mt2)
+                mc2 = avail_2 * cap_pct_arr[i]
+                pu2 = min(raw2, mc2)
                 if pu2 >= 200.0:
                     margin_2 = pu2
                     if is_perp_2 and leverage_2 > 1.0:
                         pu2 = pu2 * leverage_2
-                    part2 = pu2 / max(adv, 1.0)
+                    part2 = pu2 / max(adv_arr[i], 1.0)
                     sb2 = base_spread_bps + impact_coeff * np.sqrt(part2) * 10000.0
                     if sb2 > 100.0:
                         sb2 = 100.0
@@ -1027,10 +1031,12 @@ def _simulate_combined_jit(
 
 @dataclass
 class StrategyContext:
-    """Everything a strategy needs to make decisions. Read-only."""
+    """Everything a strategy needs to make decisions. Read-only.
+
+    Note: `adv` and `tier` were removed to prevent look-ahead bias.
+    Use `rolling_adv` (per-bar array, point-in-time) for any ADV-dependent logic.
+    """
     ticker: str
-    tier: int
-    adv: float  # Average Daily Volume in USD (computed from volume data)
 
     ind_1h: Dict[str, np.ndarray]
     ind_4h: Dict[str, np.ndarray]
@@ -1085,6 +1091,7 @@ class StrategyResult:
     mean_target_vals: Optional[np.ndarray] = None
 
     name: str = 'unnamed'
+    max_trade_pct: float = 0.0  # max position as % of equity (0 = use ADV-based cap only)
 
     # Futures support (defaults preserve backward compatibility)
     market_type: int = 0        # MarketType.SPOT
@@ -1325,9 +1332,9 @@ class Engine:
                 if len(token_enriched) < 10:
                     token_enriched = None
 
-        # Compute ADV from actual volume data, derive tier dynamically
-        adv = compute_adv(c1, v1, lookback_days=30, hours_per_bar=1)
-        tier = adv_to_tier(adv)
+        # Compute static ADV for reporting only (NOT exposed to strategies)
+        _adv_static = compute_adv(c1, v1, lookback_days=30, hours_per_bar=1)
+        _tier_static = adv_to_tier(_adv_static)
 
         # Compute point-in-time liquidity mask and rolling ADV
         from universe import compute_liquidity_mask, compute_rolling_adv, FALLBACK_ADV
@@ -1348,7 +1355,7 @@ class Engine:
                 funding_raw_arr = np.nan_to_num(funding_raw_arr, nan=0.0)
 
         ctx = StrategyContext(
-            ticker=ticker, tier=tier, adv=adv,
+            ticker=ticker,
             ind_1h=ind_1h, ind_4h=ind_4h, ind_d=ind_d,
             idx_1h=idx_1h, idx_4h=idx_4h, idx_d=idx_d,
             regime_1h=regime_1h,
@@ -1360,6 +1367,10 @@ class Engine:
             funding_raw=funding_raw_arr,
             market_type=effective_market,
         )
+
+        # Store static ADV/tier for engine reporting (NOT for strategy use)
+        ctx._adv_static = _adv_static
+        ctx._tier_static = _tier_static
 
         for plugin in _INDICATOR_PLUGINS:
             try:
@@ -1392,7 +1403,7 @@ class Engine:
         mean_target = result.mean_target_vals if use_mean_target else np.full(n, np.nan)
 
         # ADV-based sizing: per-bar arrays from rolling ADV (point-in-time)
-        adv_arr_rolling = ctx.rolling_adv if ctx.rolling_adv is not None else np.full(n, ctx.adv)
+        adv_arr_rolling = ctx.rolling_adv if ctx.rolling_adv is not None else np.full(n, FALLBACK_ADV, dtype=np.float64)
         kelly_mult_arr, cap_pct_arr = adv_to_sizing(adv_arr_rolling)
 
         # Fee routing: exchange-specific fees for both spot and perp
@@ -1437,11 +1448,12 @@ class Engine:
             ctx.regime_1h, exit_regime_mask, int(result.min_hold), int(result.max_hold),
             rsi, float(result.rsi_exit_level), use_rsi,
             float(fee_rate), adv_arr_rolling, float(base_spread_bps), float(impact_coeff),
-            float(self.capital), int(ctx.tier),
+            float(self.capital),
             result.convex_exit, mean_target, use_mean_target,
             int(result.no_stop_bars), float(result.edge),
-            kelly_mult_arr, cap_pct_arr,
+            kelly_mult_arr, cap_pct_arr, float(result.max_trade_pct),
             is_perp, leverage_arr, funding_1h,
+            200,  # burn_in_bars: indicator warm-up period
         )
 
         pnl_arr, ret_arr, hold_arr, exit_arr, pos_arr, entry_bars, exit_bars, final_equity, funding_arr = sim_result
@@ -1488,8 +1500,8 @@ class Engine:
 
         return {
             'ticker': ticker,
-            'tier': ctx.tier,
-            'adv': ctx.adv,
+            'tier': ctx._tier_static,
+            'adv': ctx._adv_static,
             'total_return': total_return,
             'n_trades': len(trades),
             'win_rate': len(wins) / max(len(trades), 1) * 100,
@@ -1568,17 +1580,23 @@ class Engine:
         exit_regime_mask_1 = np.isin(ctx_spot.regime_1h[:n], regime_vals)
         exit_regime_mask_2 = np.isin(ctx_perp.regime_1h[:n], regime_vals)
 
-        kelly_mult, cap_pct = adv_to_sizing(ctx_spot.adv)
+        # ADV-based sizing: per-bar arrays from rolling ADV (point-in-time)
+        adv_arr_rolling = ctx_spot.rolling_adv[:n] if ctx_spot.rolling_adv is not None else np.full(n, FALLBACK_ADV, dtype=np.float64)
+        kelly_mult_arr, cap_pct_arr = adv_to_sizing(adv_arr_rolling)
 
-        # Fee rates
-        fee_rate_1 = adv_to_costs(ctx_spot.adv) if result.market_type != MarketType.PERP else get_fee_rate(result.exchange, 'perp')
+        # Fee rates (exchange-specific, ADV-independent)
+        fee_rate_1 = get_fee_rate(result.exchange, 'spot' if result.market_type != MarketType.PERP else 'perp')
         sec_mt = result.secondary_market_type
-        fee_rate_2 = get_fee_rate(result.exchange, 'perp') if sec_mt == MarketType.PERP else adv_to_costs(ctx_spot.adv)
+        fee_rate_2 = get_fee_rate(result.exchange, 'perp' if sec_mt == MarketType.PERP else 'spot')
 
-        # Entry masks
+        # Entry masks — apply liquidity gate (same as main JIT)
         entry_mask_1 = np.asarray(result.entry_mask[:n], dtype=np.bool_)
+        if ctx_spot.liquidity_mask is not None:
+            entry_mask_1 = entry_mask_1 & ctx_spot.liquidity_mask[:n]
         direction_1 = np.asarray(result.direction[:n], dtype=np.int8)
         entry_mask_2 = np.asarray(result.secondary_entry_mask[:n], dtype=np.bool_) if result.secondary_entry_mask is not None else np.zeros(n, dtype=np.bool_)
+        if ctx_perp.liquidity_mask is not None and result.secondary_entry_mask is not None:
+            entry_mask_2 = entry_mask_2 & ctx_perp.liquidity_mask[:n]
         direction_2 = np.asarray(result.secondary_direction[:n], dtype=np.int8) if result.secondary_direction is not None else np.ones(n, dtype=np.int8)
 
         # Funding arrays
@@ -1621,10 +1639,10 @@ class Engine:
             float(result.stop_mult), float(result.trail_mult), float(result.target_mult),
             exit_regime_mask_1, int(result.min_hold), int(result.max_hold),
             rsi, float(result.rsi_exit_level), result.rsi_exit_level < 999,
-            float(ctx_spot.adv), float(base_spread_bps), float(impact_coeff_val),
+            adv_arr_rolling, float(base_spread_bps), float(impact_coeff_val),
             int(result.no_stop_bars), float(result.edge),
             result.convex_exit, mt_1, use_mt_1,
-            float(kelly_mult), float(cap_pct),
+            kelly_mult_arr, cap_pct_arr,
             is_perp_1, float(result.leverage), funding_1,
             float(capital_frac_1),
             # Leg 2
@@ -1636,6 +1654,7 @@ class Engine:
             s2_convex, mt_2, False,
             is_perp_2, float(result.secondary_leverage), funding_2,
             float(capital_frac_2),
+            200,  # burn_in_bars: indicator warm-up period
         )
 
         pnl_arr, ret_arr, hold_arr, exit_arr, pos_arr, entry_bars, exit_bars, final_equity, funding_arr, leg_arr = sim_result
@@ -1666,8 +1685,8 @@ class Engine:
 
         return {
             'ticker': ticker,
-            'tier': ctx_spot.tier,
-            'adv': ctx_spot.adv,
+            'tier': ctx_spot._tier_static,
+            'adv': ctx_spot._adv_static,
             'total_return': total_return,
             'n_trades': len(trades),
             'n_trades_leg1': len(leg1_trades),

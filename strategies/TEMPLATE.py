@@ -77,8 +77,8 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
     Available in ctx:
     ─────────────────
     ctx.ticker          # 'BTC', 'ETH', etc.
-    ctx.tier            # 1, 2, or 3 (derived from ADV, reporting only)
-    ctx.adv             # Average Daily Volume in USD (drives position sizing)
+    ctx.rolling_adv     # per-bar ADV array (point-in-time, no look-ahead)
+    ctx.liquidity_mask  # bool array: True = liquid enough to trade at this bar
 
     ctx.ind_1h          # dict of 1H numpy arrays:
                         #   close, high, low, volume, ema_10, ema_20, ema_50,

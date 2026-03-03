@@ -239,10 +239,17 @@ def simulate_portfolio(
     # Build event list: (time, event_type, token, trade)
     # event_type: 0=EXIT, 1=ENTRY (exits processed first at same timestamp)
     events = []
+    backtest_start = None
+    backtest_end = None
     for token, trades in all_token_trades.items():
         for t in trades:
             events.append((t['exit_time'], 0, token, t))   # EXIT
             events.append((t['entry_time'], 1, token, t))  # ENTRY
+            # Track the full date range for equity curve (B4 fix)
+            if backtest_start is None or t['entry_time'] < backtest_start:
+                backtest_start = t['entry_time']
+            if backtest_end is None or t['exit_time'] > backtest_end:
+                backtest_end = t['exit_time']
     events.sort(key=lambda e: (e[0], e[1]))  # time, then exits before entries
 
     # State
@@ -253,10 +260,11 @@ def simulate_portfolio(
     skipped = []
     skip_reasons = {'no_cash': 0, 'concentration': 0, 'too_small': 0}
 
-    # Track daily equity snapshots
-    equity_snapshots = {}  # date -> portfolio_value
+    # Track daily base equity snapshots (cash + locked, WITHOUT mtm)
+    base_snapshots = {}  # date -> cash + total_locked (no MTM)
     peak_concurrent = 0
     peak_exposure = 0.0
+    peak_exposure_equity = 0.0  # equity at time of peak exposure
     total_locked = 0.0  # Running sum of locked capital (avoids O(n) scans)
     token_exposure_map = {}  # token -> total locked capital (O(1) lookup)
 
@@ -273,26 +281,9 @@ def simulate_portfolio(
             return _current_equity() * max_token_pct
         return fixed_max_token_exposure
 
-    def _mtm_unrealized(timestamp):
-        """Sum of interpolated unrealized PnL for all open positions."""
-        if not mtm or not open_positions:
-            return 0.0
-        unrealized = 0.0
-        for pos in open_positions.values():
-            total_hold = (pos['exit_time'] - pos['entry_time']).total_seconds()
-            if total_hold <= 0:
-                continue
-            elapsed = (timestamp - pos['entry_time']).total_seconds()
-            frac = min(max(elapsed / total_hold, 0.0), 1.0)
-            unrealized += pos['pnl'] * frac
-        return unrealized
-
     def _snapshot(ts):
         date = ts.normalize()
-        base = cash + total_locked
-        if mtm:
-            base += _mtm_unrealized(ts)
-        equity_snapshots[date] = base
+        base_snapshots[date] = cash + total_locked
 
     for timestamp, event_type, token, trade in events:
         if event_type == 0:  # EXIT
@@ -371,20 +362,53 @@ def simulate_portfolio(
                 peak_concurrent = n_open
             if total_locked > peak_exposure:
                 peak_exposure = total_locked
+                peak_exposure_equity = _current_equity()
 
             _snapshot(timestamp)
 
-    # Build daily equity series
-    if not equity_snapshots:
+    # Build daily equity series for full backtest range (B4 + B5 fix)
+    if backtest_start is None:
         return pd.Series(dtype=float), accepted, skipped, {}
 
-    eq = pd.Series(equity_snapshots).sort_index()
+    # B4: equity starts from backtest_start with initial capital
+    # B5: daily MTM computed for every day, not just event days
+    full_idx = pd.date_range(
+        backtest_start.normalize(),
+        (backtest_end if backtest_end is not None else backtest_start).normalize(),
+        freq='D',
+    )
 
-    # Fill to complete daily range — set capital BEFORE ffill to avoid NaN gaps
-    full_idx = pd.date_range(eq.index[0], eq.index[-1], freq='D')
-    eq = eq.reindex(full_idx)
-    eq.iloc[0] = capital
-    eq = eq.ffill()
+    # Base equity (cash+locked) from event snapshots, ffilled between events
+    base_snapshots[full_idx[0]] = base_snapshots.get(full_idx[0], capital)
+    base_eq = pd.Series(base_snapshots).sort_index()
+    base_eq = base_eq.reindex(full_idx).ffill().fillna(capital)
+
+    # Daily MTM overlay: sum interpolated unrealized PnL for all open positions each day
+    if mtm and accepted:
+        daily_mtm = np.zeros(len(full_idx))
+        full_idx_arr = full_idx.values  # numpy datetime64 for fast comparison
+        for at in accepted:
+            entry_t = at['entry_time']
+            exit_t = at['exit_time']
+            total_secs = (exit_t - entry_t).total_seconds()
+            if total_secs <= 0:
+                continue
+            scale = at.get('portfolio_scale', 1.0)
+            net_pnl = at['pnl'] * scale
+            entry_np = np.datetime64(entry_t)
+            exit_np = np.datetime64(exit_t)
+            # Vectorized: find days where this trade is open
+            mask = (full_idx_arr >= entry_np) & (full_idx_arr < exit_np)
+            if not mask.any():
+                continue
+            days_open = full_idx_arr[mask]
+            elapsed_secs = (days_open - entry_np) / np.timedelta64(1, 's')
+            fracs = np.minimum(elapsed_secs / total_secs, 1.0)
+            daily_mtm[mask] += net_pnl * fracs
+        eq = base_eq.values + daily_mtm
+        eq = pd.Series(eq, index=full_idx)
+    else:
+        eq = base_eq
 
     total_trades = len(accepted) + len(skipped)
     info = {
@@ -396,7 +420,7 @@ def simulate_portfolio(
         'skip_reasons': skip_reasons,
         'peak_concurrent_positions': peak_concurrent,
         'peak_exposure_usd': peak_exposure,
-        'peak_exposure_pct': peak_exposure / capital * 100,
+        'peak_exposure_pct': peak_exposure / max(peak_exposure_equity, 1) * 100,
         'capital_utilization_pct': peak_exposure / capital * 100,
         'final_equity': float(eq.iloc[-1]),
         'final_cash': cash,
@@ -438,7 +462,8 @@ class PortfolioMetrics:
 
     # Capital utilization
     peak_concurrent_positions: int = 0
-    peak_exposure_pct: float = 0.0
+    peak_exposure_pct: float = 0.0       # % of equity at peak moment
+    capital_utilization_pct: float = 0.0  # % of initial capital (shows compounding)
 
     # Diversification (from accepted trades)
     n_tokens_traded: int = 0
@@ -521,6 +546,7 @@ def compute_portfolio_metrics(
     # --- Capital utilization ---
     m.peak_concurrent_positions = info.get('peak_concurrent_positions', 0)
     m.peak_exposure_pct = info.get('peak_exposure_pct', 0)
+    m.capital_utilization_pct = info.get('capital_utilization_pct', 0)
 
     # --- Diversification (from accepted trades) ---
     if accepted_trades:
@@ -598,7 +624,8 @@ def print_portfolio_report(
 
     print(f"\nCapital Utilization:")
     print(f"  Peak concurrent:  {metrics.peak_concurrent_positions} positions")
-    print(f"  Peak exposure:    {metrics.peak_exposure_pct:.1f}% of capital")
+    print(f"  Peak exposure:    {metrics.peak_exposure_pct:.1f}% of equity (at that moment)")
+    print(f"  Capital util:     {metrics.capital_utilization_pct:.1f}% of initial capital")
 
     print(f"\nDiversification:")
     print(f"  Tokens traded:    {metrics.n_tokens_traded}")
