@@ -64,6 +64,25 @@
 | 30d | +1.48 | +172.1% | -76.2% |
 | 60d | +1.10 | +85.3% | -79.1% |
 
+### Signal Agreement Gate: S11+S09 AND (Overlay)
+
+| Metric | S11 Solo | S11+S09 AND Gate |
+|--------|---------|-----------------|
+| Sharpe | +1.75 | +1.65 (-0.10) |
+| Sortino | +2.39 | +2.41 (+0.02) |
+| Calmar | +2.32 | +2.78 (+0.46) |
+| Max Drawdown | -18.0% | **-11.3%** (+6.7pp) |
+| DD Duration | 311 days | 215 days (-96d) |
+| Profit Factor | 1.39 | **1.63** (+0.24) |
+| Trades | 12,396 | 4,223 (-66%) |
+| Avg Trade PnL | $95 | **$160** (+68%) |
+
+**Entry logic:** Enter only when both S11 (momentum burst) AND S09 (optimized trend) trigger on the same 1H bar. Uses S11's trade parameters (stop, trail, hold times). Walk-forward masked identically to solo strategies.
+
+**Value:** Cuts trades by 66% while improving profit factor by 17%, reducing max drawdown by 6.7pp, and boosting avg PnL by 68%. Sharpe only drops 0.10 — excellent risk/return tradeoff. The gate filters out low-conviction entries where only one signal type fires.
+
+**Implementation:** `v3/signal_agreement.py` — standalone tool supporting AND, N-of-M, and ANY gating modes. Zero blast radius to existing code.
+
 ### V3 Liquidity Contrarian (Complement)
 
 | Metric | Value |
