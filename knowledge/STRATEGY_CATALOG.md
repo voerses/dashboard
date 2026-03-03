@@ -38,6 +38,32 @@
 
 **Entry logic:** Explosive hourly move (>3% in one bar) + trend context (ADX>20, price > EMA20). 24-bar protection window (no stop for 24hrs). Internal development, related to Jegadeesh & Titman (1993) momentum persistence.
 
+### Cross-Sectional Momentum (Diversifier)
+
+| Metric | Value |
+|--------|-------|
+| Annual PnL | +$189.7%/yr annualized (backtest 2021-2026) |
+| Sharpe / Sortino | +1.54 / +1.73 |
+| Max Drawdown | -75.2% (805 days) |
+| Basket size | ~10 tokens (top 20% of eligible universe) |
+| Rebalance | Weekly (7d), 14d trailing return lookback |
+| Correlation vs S11 | +0.25 (vs +0.62 among Tier A strategies) |
+| Tokens traded | 81 out of 102 eligible |
+
+**Entry logic:** Rank all eligible tokens by 14-day trailing return. Go long the top quintile, equal-weighted, rebalanced weekly. Eligibility: 365-day history + $500K ADV gate. Slippage + fees applied at each rebalance turnover.
+
+**Diversification value:** Structurally different from per-token time-series strategies. Daily return correlation +0.25 vs S11 (rolling 90d median +0.19, range -0.13 to +0.73). A 50/50 blend with S11 cuts max drawdown by 28.7pp (-75% → -46.5%) while maintaining Sharpe 1.74. Supported by Han, Kang & Ryu (2023): cross-sectional outperforms time-series momentum in crypto.
+
+**Implementation:** `v3/cross_sectional.py` — standalone engine, zero blast radius to existing code. Reuses `aggregate_to_timeframe()`, `compute_portfolio_metrics()`, `get_fee_rate()`, and the engine slippage model.
+
+**Parameter sweep (14d best):**
+| Lookback | Sharpe | Ann Return | Max DD |
+|----------|--------|-----------|--------|
+| 7d | +1.47 | +168.4% | -71.2% |
+| 14d | +1.54 | +189.7% | -75.2% |
+| 30d | +1.48 | +172.1% | -76.2% |
+| 60d | +1.10 | +85.3% | -79.1% |
+
 ### V3 Liquidity Contrarian (Complement)
 
 | Metric | Value |
@@ -66,8 +92,9 @@ Based on Hamilton (1989). Crypto-validated by Castellano & D'Ecclesia (2025).
 |---|----------|--------|------------|
 | 1 | S11 Momentum Burst | LIVE (#1) | +$170K |
 | 2 | S09 Dual Momentum Trend | LIVE (#2) | +$163K |
-| 3 | V3 Liquidity Contrarian | LIVE (complement) | +$8K |
-| 4 | HMM Regime Detection | LIVE (overlay) | Integrated |
+| 3 | Cross-Sectional Momentum | VALIDATED (diversifier) | +190%/yr ann. |
+| 4 | V3 Liquidity Contrarian | LIVE (complement) | +$8K |
+| 5 | HMM Regime Detection | LIVE (overlay) | Integrated |
 
 ### Tier B: High Priority — Next to Implement
 
@@ -104,7 +131,7 @@ Based on Hamilton (1989). Crypto-validated by Castellano & D'Ecclesia (2025).
 | TTM Squeeze | Volatility | Same problems as vol breakout; weak academic support | NOT TESTED |
 | Pairs trading | Cross-sectional | Requires shorting; crypto correlations unstable | N/A |
 | OU-based strategies | Mean reversion | Crypto is momentum-driven, fails OU model test | N/A |
-| Cross-sectional momentum | Cross-sectional | "Weak and unreliable" in crypto (Han 2023) | N/A |
+| ~~Cross-sectional momentum~~ | ~~Cross-sectional~~ | **PROMOTED to Tier A** — Sharpe +1.54, corr +0.25 vs S11. Earlier dismissal based on incomplete reading of Han 2023 (which actually favors XS over TS momentum). | VALIDATED |
 | Order book imbalance | Microstructure | Signal horizon minutes, too short for swing | N/A |
 | RSI-2 / Connors strategies | Mean reversion | Too short-term; RSI IC=0.004 in crypto | N/A |
 | Straddle-like (spot) | Volatility | Requires long+short; spot-only limitation | N/A |
@@ -196,6 +223,6 @@ Our HMM detects 5 regimes that drive all allocation decisions:
 2. **Harvey t-stat > 3.0** threshold for any new signal (multiple testing correction for 70+ strategies tested).
 3. **Simple dominates complex** at every validation level we have tested.
 4. **Features that survive costs** are always the same: momentum, volatility, volume, trend strength (ADX). Exotic features (sentiment, NLP, alternative data) rarely survive. (Gu et al. 2020)
-5. **Ensemble > single strategy.** S09 + S11 together diversify better than either alone. Target: 60% S11 + 40% S09 allocation.
+5. **Ensemble > single strategy.** S09 + S11 together diversify better than either alone. Cross-sectional momentum (corr +0.25 vs S11) adds genuine diversification vs the +0.62 pairwise correlation among time-series strategies.
 
 *Full strategy descriptions, parameter tables, and 67 academic citations archived in `knowledge/archive/STRATEGY_CATALOG_DETAILS.md`.*
