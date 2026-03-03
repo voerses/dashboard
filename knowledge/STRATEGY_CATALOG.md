@@ -129,6 +129,48 @@
 
 Based on Hamilton (1989). Crypto-validated by Castellano & D'Ecclesia (2025).
 
+### Sector / Narrative Rotation (Diversifier)
+
+| Metric | Value |
+|--------|-------|
+| Annual Return | +100.5% annualized (best config, 2021-2026) |
+| Sharpe / Sortino | +1.31 / +1.07 |
+| Calmar | +1.73 |
+| Max Drawdown | -57.9% (616 days) |
+| Basket size | ~5.8 tokens (top 2 sectors, hybrid mode) |
+| Rebalance | Weekly (7d), 7d trailing return lookback |
+| Regime filter | ON — BTC EMA20/50 crossover + vol (33% days risk-off) |
+| Correlation vs S11 | +0.20 (even lower than cross-sectional's +0.25) |
+| Tokens traded | 79 out of 102 eligible |
+
+**Entry logic:** Classify all tokens into 10 sectors (L1, DeFi, Meme, AI, Gaming, L2, Infra, Privacy, Payments, Emerging). Compute sector-level trailing returns (mean of eligible token returns). Rank sectors, go long top 2. In hybrid mode: within each selected sector, rank tokens by individual trailing return, pick top 5. BTC regime filter goes to cash during downtrends/crises.
+
+**Sector analysis (OOS 2021-2026):**
+| Sector | Ann Return | Sharpe | Max DD |
+|--------|-----------|--------|--------|
+| Meme | +101.3% | +0.91 | -90.8% |
+| AI | +29.7% | +0.84 | -94.2% |
+| Payments | +27.6% | +0.70 | -78.5% |
+| Privacy | +25.6% | +0.72 | -82.3% |
+| Gaming | +26.7% | +0.78 | -98.3% |
+| L1 | +18.3% | +0.62 | -83.8% |
+| DeFi | +4.0% | +0.53 | -87.7% |
+| L2 | -51.5% | -0.14 | -96.0% |
+
+**Diversification value:** Structurally different from both per-token time-series strategies AND individual cross-sectional momentum. Captures "narrative rotation" (AI season, meme season) that individual token strategies miss. Daily return correlation +0.20 vs S11. A 50/50 blend: Sharpe +1.65, DD -33.6%, Ann +77.0%.
+
+**Key insight:** Regime filter is essential — without it, DD is -78% to -83% (always invested through bear markets). With regime filter, 33% of days are risk-off (BTC downtrend), cutting DD from -78% to -58%.
+
+**Parameter sweep (regime filter ON):**
+| Config | Sharpe | Ann Return | Max DD |
+|--------|--------|-----------|--------|
+| lb=7 top=2 hybrid (best) | +1.31 | +100.5% | -57.9% |
+| lb=7 top=2 sector | +1.10 | +69.0% | -66.5% |
+| lb=14 top=2 hybrid | +1.12 | +73.0% | -59.2% |
+| lb=30 top=2 hybrid | +1.11 | +70.2% | -59.5% |
+
+**Implementation:** `v3/sector_rotation.py` — standalone engine with sector analysis, parameter sweep, and regime filter. Zero blast radius.
+
 ### Dynamic Universe — Point-in-Time Token Eligibility (Infrastructure)
 
 | Metric | Static Universe | Dynamic Universe | Bias |
@@ -157,9 +199,10 @@ Based on Hamilton (1989). Crypto-validated by Castellano & D'Ecclesia (2025).
 | 1 | S11 Momentum Burst | LIVE (#1) | +$170K |
 | 2 | S09 Dual Momentum Trend | LIVE (#2) | +$163K |
 | 3 | Cross-Sectional Momentum | VALIDATED (diversifier) | +190%/yr ann. |
-| 4 | Regime-Conditional Weighting | VALIDATED (overlay) | +0.29 Sharpe |
-| 5 | V3 Liquidity Contrarian | LIVE (complement) | +$8K |
-| 6 | HMM Regime Detection | LIVE (overlay) | Integrated |
+| 4 | Sector/Narrative Rotation | VALIDATED (diversifier) | +100%/yr ann. |
+| 5 | Regime-Conditional Weighting | VALIDATED (overlay) | +0.29 Sharpe |
+| 6 | V3 Liquidity Contrarian | LIVE (complement) | +$8K |
+| 7 | HMM Regime Detection | LIVE (overlay) | Integrated |
 
 ### Tier B: High Priority — Next to Implement
 
@@ -178,7 +221,7 @@ Based on Hamilton (1989). Crypto-validated by Castellano & D'Ecclesia (2025).
 |---|----------|-------------|---------------|------------|
 | 1 | Dynamic strategy allocation by regime | Allocation | +15-30% Sharpe | Medium |
 | 2 | RS-based token selection | Token filter | Better concentration | Low |
-| 3 | Sector rotation overlay | Allocation | Capture altseason | Medium |
+| ~~3~~ | ~~Sector rotation overlay~~ | ~~Allocation~~ | **PROMOTED to Tier A** — Sharpe +1.31, corr +0.20 vs S11 | ~~Medium~~ |
 | 4 | Pyramiding (Turtle-style adds) | Sizing | Larger trend capture | Medium |
 | 5 | Channel breakout (ATR-based) | Signal | Replace failed vol_breakout | Medium |
 | 6 | CUSUM structural break filter | Entry filter | Fewer noise trades | Medium |
