@@ -57,7 +57,8 @@ Status: EXPERIMENTAL
 """
 
 import numpy as np
-from engine import (StrategyContext, StrategyResult, CRISIS, DOWNTREND,
+from engine import (StrategyContext, StrategyResult, MarketType,
+                    CRISIS, DOWNTREND,
                     rolling_mean, rolling_std, rolling_max, rolling_min,
                     rolling_median, rolling_zscore, rolling_skew, rolling_corr)
 
@@ -103,6 +104,11 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
     ctx.df_1h           # raw 1H DataFrame (for custom aggregation)
     ctx.df_4h           # raw 4H DataFrame
     ctx.df_daily        # raw daily DataFrame
+
+    # Futures-only (None for spot strategies):
+    ctx.funding_1h      # per-hour funding rate array (for perp signal use)
+    ctx.funding_raw     # raw settlement-interval rate
+    ctx.market_type     # 'spot' or 'perp' — for strategy introspection
 
     Rolling helpers (vectorized, use INSTEAD of for-loops):
     ──────────────────────────────────────────────────────
@@ -153,4 +159,78 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
 
         exit_regimes={CRISIS, DOWNTREND},  # Force exit on regime shift
         name='my_strategy',
+
+        # ── FUTURES FIELDS (defaults = pure spot, no changes needed) ──
+        # market_type=MarketType.SPOT,  # 0=spot (default), 1=perp, 2=combined
+        # leverage=1.0,                 # notional multiplier (no hard cap)
+        # exchange='binance',           # for fee/funding lookup
     )
+
+
+# =============================================================================
+# PERP STRATEGY EXAMPLE (uncomment to use as perp template)
+# =============================================================================
+#
+# def strategy(ctx: StrategyContext) -> StrategyResult:
+#     """Pure perp strategy with funding as signal."""
+#     n = len(ctx.ind_1h['close'])
+#     close = ctx.ind_1h['close']
+#
+#     # Use funding rate as a signal — negative funding = shorts pay longs
+#     funding = ctx.funding_1h  # per-hour funding rate (None if spot)
+#     if funding is None:
+#         funding = np.zeros(n)
+#
+#     regime_ok = ctx.regime_1h != 0
+#     trend_ok = close > ctx.ind_1h['ema_20']
+#     core_signal = ctx.ind_1h['ret_1'] > 0.03
+#     vol_ok = ctx.ind_1h['vol_ratio'] > 1.0
+#
+#     entry = regime_ok & trend_ok & core_signal & vol_ok
+#     entry[:200] = False
+#
+#     return StrategyResult(
+#         entry_mask=entry,
+#         direction=np.ones(n, dtype=np.int8),
+#         market_type=MarketType.PERP,
+#         leverage=2.0,
+#         exchange='hyperliquid',
+#         name='perp_momentum',
+#         stop_mult=3.0, trail_mult=3.0, target_mult=999,
+#         no_stop_bars=24, min_hold=18, max_hold=720, edge=0.40,
+#         exit_regimes={CRISIS, DOWNTREND},
+#     )
+#
+#
+# =============================================================================
+# COMBINED (HEDGING) STRATEGY EXAMPLE
+# =============================================================================
+#
+# def strategy(ctx_spot: StrategyContext, ctx_perp: StrategyContext) -> StrategyResult:
+#     """Combined strategy: spot long + perp short hedge. Shared equity pool."""
+#     n = len(ctx_spot.ind_1h['close'])
+#
+#     # Spot leg: long momentum
+#     spot_entry = (ctx_spot.ind_1h['ret_1'] > 0.03) & (ctx_spot.regime_1h != 0)
+#     spot_entry[:200] = False
+#
+#     # Perp leg: short hedge in downtrends
+#     perp_entry = (ctx_perp.ind_1h['rsi'] > 60) & (ctx_perp.regime_1h == 4)
+#     perp_entry[:200] = False
+#
+#     return StrategyResult(
+#         entry_mask=spot_entry,
+#         direction=np.ones(n, dtype=np.int8),   # spot: long
+#         market_type=MarketType.COMBINED,
+#         # Secondary leg
+#         secondary_entry_mask=perp_entry,
+#         secondary_direction=-np.ones(n, dtype=np.int8),  # perp: short
+#         secondary_market_type=MarketType.PERP,
+#         secondary_leverage=2.0,
+#         capital_split=0.6,  # 60% spot, 40% perp
+#         exchange='hyperliquid',
+#         name='hedge_momentum',
+#         stop_mult=3.0, trail_mult=3.0, target_mult=999,
+#         no_stop_bars=24, min_hold=18, max_hold=720, edge=0.40,
+#         exit_regimes={CRISIS, DOWNTREND},
+#     )

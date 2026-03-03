@@ -247,6 +247,46 @@ def read_hyperliquid_funding(token):
 
 
 # ============================================================
+# Funding Rate Resampling
+# ============================================================
+
+def resample_funding_to_1h(funding_df):
+    """Resample funding rates to 1h grid.
+
+    Detects the settlement interval dynamically from median timestamp diffs
+    (typically 8h for Binance, 4h for Hyperliquid, 1h for some).
+    Computes per-hour rate and forward-fills to 1h grid.
+
+    Returns DataFrame with columns: funding_rate (raw ffilled), funding_1h (per-hour portion)
+    """
+    if funding_df is None or len(funding_df) < 2:
+        return None
+
+    # Detect interval from median timestamp diffs
+    diffs_hours = funding_df.index.to_series().diff().dt.total_seconds().dropna() / 3600
+    if len(diffs_hours) == 0:
+        return None
+
+    median_interval = float(diffs_hours.median())
+    # Round to nearest standard interval
+    if median_interval < 2:
+        interval_hours = 1
+    elif median_interval < 6:
+        interval_hours = 4
+    else:
+        interval_hours = 8
+
+    # Per-hour rate: divide settlement rate by interval hours
+    funding_df = funding_df.copy()
+    funding_df['funding_1h'] = funding_df['funding_rate'] / interval_hours
+
+    # Resample to 1h grid with forward-fill
+    funding_1h = funding_df.resample('1h').ffill()
+
+    return funding_1h
+
+
+# ============================================================
 # Multi-Exchange Merge
 # ============================================================
 
@@ -630,6 +670,28 @@ def process_token(token, force=False, verbose=False, market='perp', cache_dir=No
 
     # 3. Fix issues
     df = fix_issues(df, issues, token, verbose=verbose)
+
+    # 3b. For perp market: merge funding rates into OHLCV parquet
+    if market == 'perp':
+        funding_raw = merge_funding(token)
+        if funding_raw is not None and len(funding_raw) > 0:
+            funding_1h = resample_funding_to_1h(funding_raw)
+            if funding_1h is not None:
+                # Align funding to OHLCV index
+                funding_aligned = funding_1h.reindex(df.index, method='ffill')
+                df['funding_rate'] = funding_aligned['funding_rate'].fillna(0.0)
+                df['funding_1h'] = funding_aligned['funding_1h'].fillna(0.0)
+
+                # QC: funding sanity check
+                max_funding = df['funding_rate'].abs().max()
+                if max_funding > QC['funding_max']:
+                    issues['warnings'].append(
+                        f'Funding rate {max_funding:.4f} exceeds threshold {QC["funding_max"]}')
+
+                n_funding = (df['funding_rate'] != 0).sum()
+                if verbose:
+                    print(f'    Funding: {n_funding} bars with data, '
+                          f'max |rate|={max_funding:.6f}')
 
     # 4. Save 1h parquet
     df.to_parquet(out_path, engine='pyarrow')

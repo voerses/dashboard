@@ -16,9 +16,10 @@ _v3_dir = os.path.dirname(os.path.abspath(__file__))
 import numpy as np
 import pandas as pd
 import time
+import inspect
 import importlib.util
 from dataclasses import dataclass, field
-from typing import Callable, Optional, List, Dict, Tuple
+from typing import Callable, Optional, List, Dict, Tuple, Union
 from pathlib import Path
 
 # Explicit import from v3/universe.py using importlib
@@ -34,6 +35,7 @@ compute_adv = _universe.compute_adv
 adv_to_tier = _universe.adv_to_tier
 adv_to_sizing = _universe.adv_to_sizing
 adv_to_costs = _universe.adv_to_costs
+get_fee_rate = _universe.get_fee_rate
 FALLBACK_ADV = _universe.FALLBACK_ADV
 # Legacy — kept for backward compat of external imports
 LIQUID_TOKENS = _universe.LIQUID_TOKENS
@@ -50,6 +52,16 @@ except ImportError:
         if len(args) == 1 and callable(args[0]):
             return args[0]
         return decorator
+
+
+# =============================================================================
+# Market Type Constants (Numba-compatible integers)
+# =============================================================================
+
+class MarketType:
+    SPOT = 0
+    PERP = 1
+    COMBINED = 2
 
 
 # =============================================================================
@@ -247,7 +259,8 @@ def detect_daily_regime(ind_d):
 # =============================================================================
 
 _EXIT_REASONS = {0: 'stop', 1: 'target_5r', 2: 'target', 3: 'regime',
-                 4: 'overbought', 5: 'mean_reached', 6: 'max_hold'}
+                 4: 'overbought', 5: 'mean_reached', 6: 'max_hold',
+                 7: 'liquidation'}
 
 
 @njit(cache=True)
@@ -259,12 +272,21 @@ def _simulate_core_jit(close, high, low, atr, entry_mask, direction,
                        initial_capital, tier,
                        convex_exit, mean_target_vals, use_mean_target,
                        no_stop_bars, edge_override,
-                       kelly_mult, cap_pct):
+                       kelly_mult, cap_pct,
+                       is_perp, leverage, funding_1h):
     """
     Numba-JIT compiled trade simulation loop.
     Slippage is position-size-aware: slip_bps = base_spread + impact * sqrt(pos_usd / adv)
+
+    Perp extensions (active when is_perp=True):
+    - Funding accumulation: notional * per-hour rate, every bar while in position
+    - Leverage: amplifies notional exposure, margin = pos_usd (unchanged)
+    - Liquidation: full exit when unrealized loss exceeds margin minus maintenance (5%)
+
+    When is_perp=False: zero overhead — Numba compiles the False branch away.
+
     Returns: pnl[], ret_pct[], hold_hours[], exit_code[], pos_usd[],
-             entry_bar[], exit_bar[], final_equity
+             entry_bar[], exit_bar[], final_equity, cumulative_funding[]
     """
     n = len(close)
     max_trades = n // 2
@@ -275,6 +297,7 @@ def _simulate_core_jit(close, high, low, atr, entry_mask, direction,
     out_pos = np.empty(max_trades, dtype=np.float64)
     out_entry_bar = np.empty(max_trades, dtype=np.int64)
     out_exit_bar = np.empty(max_trades, dtype=np.int64)
+    out_funding = np.empty(max_trades, dtype=np.float64)
     trade_count = 0
 
     equity = initial_capital
@@ -285,6 +308,8 @@ def _simulate_core_jit(close, high, low, atr, entry_mask, direction,
     highest = 0.0
     lowest = 999999.0
     initial_risk = 0.0
+    cumulative_funding = 0.0
+    margin_usd = 0.0  # margin for this trade (pos_usd before leverage)
 
     for i in range(200, n):
         # EXIT
@@ -298,6 +323,60 @@ def _simulate_core_jit(close, high, low, atr, entry_mask, direction,
             else:
                 if low[i] < lowest:
                     lowest = low[i]
+
+            # Funding accumulation (perp only, every bar while in position)
+            if is_perp and position != 0.0:
+                # Funding = notional * per-hour funding rate
+                # Convention: positive funding → longs pay shorts
+                notional = abs(position * close[i])
+                d_sign = 1.0 if position > 0.0 else -1.0
+                funding_cost = notional * funding_1h[i] * d_sign
+                equity -= funding_cost
+                cumulative_funding += funding_cost
+
+            # Liquidation check (perp with leverage only)
+            if is_perp and leverage > 1.0 and position != 0.0:
+                # Simplified liquidation: if unrealized loss exceeds margin
+                if position > 0.0:
+                    unrealized = position * (close[i] - entry_price)
+                else:
+                    unrealized = abs(position) * (entry_price - close[i])
+                if margin_usd + unrealized - cumulative_funding < margin_usd * 0.05:
+                    # Liquidation: exit at current price
+                    exit_pos_usd = abs(position * close[i])
+                    exit_participation = exit_pos_usd / max(adv, 1.0)
+                    exit_slip_bps = base_spread_bps + impact_coeff * np.sqrt(exit_participation) * 10000.0
+                    if exit_slip_bps > 100.0:
+                        exit_slip_bps = 100.0
+                    exit_price_liq = close[i]
+                    slip = exit_price_liq * exit_slip_bps / 10000.0
+                    if d == 1:
+                        exit_price_liq -= slip
+                        pnl = position * (exit_price_liq - entry_price)
+                    else:
+                        exit_price_liq += slip
+                        pnl = position * (entry_price - exit_price_liq)
+                    fee = abs(position * exit_price_liq) * fee_rate
+                    # Equity: pnl - fee only (funding already deducted per-bar)
+                    net_pnl = pnl - fee
+                    equity += net_pnl
+
+                    pos_usd_rec = abs(position * entry_price)
+                    if trade_count < max_trades:
+                        # Trade record: include funding in reported PnL
+                        out_pnl[trade_count] = net_pnl - cumulative_funding
+                        out_ret[trade_count] = net_pnl / max(pos_usd_rec, 1.0) * 100.0
+                        out_hold[trade_count] = bars_held
+                        out_exit[trade_count] = 7  # liquidation
+                        out_pos[trade_count] = pos_usd_rec
+                        out_entry_bar[trade_count] = entry_bar
+                        out_exit_bar[trade_count] = i
+                        out_funding[trade_count] = cumulative_funding
+                        trade_count += 1
+                    position = 0.0
+                    cumulative_funding = 0.0
+                    margin_usd = 0.0
+                    continue  # skip normal exit/entry for this bar
 
             cur_atr = atr[i]
             if np.isnan(cur_atr):
@@ -375,20 +454,24 @@ def _simulate_core_jit(close, high, low, atr, entry_mask, direction,
                     exit_price += slip
                     pnl = position * (entry_price - exit_price)
                 fee = abs(position * exit_price) * fee_rate
+                # For perp: funding already deducted per-bar from equity
                 net_pnl = pnl - fee
                 equity += net_pnl
 
                 pos_usd = abs(position * entry_price)
                 if trade_count < max_trades:
-                    out_pnl[trade_count] = net_pnl
-                    out_ret[trade_count] = net_pnl / max(pos_usd, 1.0) * 100.0
+                    out_pnl[trade_count] = net_pnl - cumulative_funding  # include funding in trade PnL
+                    out_ret[trade_count] = (net_pnl - cumulative_funding) / max(pos_usd, 1.0) * 100.0
                     out_hold[trade_count] = bars_held
                     out_exit[trade_count] = exit_code
                     out_pos[trade_count] = pos_usd
                     out_entry_bar[trade_count] = entry_bar
                     out_exit_bar[trade_count] = i
+                    out_funding[trade_count] = cumulative_funding
                     trade_count += 1
                 position = 0.0
+                cumulative_funding = 0.0
+                margin_usd = 0.0
 
         # ENTRY
         if position == 0.0 and entry_mask[i]:
@@ -414,6 +497,11 @@ def _simulate_core_jit(close, high, low, atr, entry_mask, direction,
             if pos_usd < 200.0:
                 continue
 
+            # Leverage: amplify notional exposure; margin = pos_usd (unchanged)
+            margin_usd = pos_usd
+            if is_perp and leverage > 1.0:
+                pos_usd = pos_usd * leverage
+
             # Position-size-aware slippage: base spread + market impact
             participation = pos_usd / max(adv, 1.0)
             slip_bps = base_spread_bps + impact_coeff * np.sqrt(participation) * 10000.0
@@ -427,6 +515,7 @@ def _simulate_core_jit(close, high, low, atr, entry_mask, direction,
             lowest = low[i]
             fee = abs(position * entry_price) * fee_rate
             equity -= fee
+            cumulative_funding = 0.0
 
             initial_risk = stop_mult * cur_atr_e
             if d == 1:
@@ -434,7 +523,7 @@ def _simulate_core_jit(close, high, low, atr, entry_mask, direction,
             else:
                 stop_price = entry_price + initial_risk
 
-    # Close remaining position
+    # Close remaining position (record as trade so funding is tracked)
     if position != 0.0:
         d_final = 1 if position > 0.0 else -1
         if d_final == 1:
@@ -442,12 +531,26 @@ def _simulate_core_jit(close, high, low, atr, entry_mask, direction,
         else:
             pnl = abs(position) * (entry_price - close[n - 1])
         fee = abs(position * close[n - 1]) * fee_rate
-        equity += pnl - fee
+        net_pnl = pnl - fee
+        equity += net_pnl
+
+        bars_held_final = (n - 1) - entry_bar
+        pos_usd_final = abs(position * entry_price)
+        if trade_count < max_trades:
+            out_pnl[trade_count] = net_pnl - cumulative_funding
+            out_ret[trade_count] = (net_pnl - cumulative_funding) / max(pos_usd_final, 1.0) * 100.0
+            out_hold[trade_count] = bars_held_final
+            out_exit[trade_count] = 6  # max_hold (forced close)
+            out_pos[trade_count] = pos_usd_final
+            out_entry_bar[trade_count] = entry_bar
+            out_exit_bar[trade_count] = n - 1
+            out_funding[trade_count] = cumulative_funding
+            trade_count += 1
 
     return (out_pnl[:trade_count], out_ret[:trade_count], out_hold[:trade_count],
             out_exit[:trade_count], out_pos[:trade_count],
             out_entry_bar[:trade_count], out_exit_bar[:trade_count],
-            equity)
+            equity, out_funding[:trade_count])
 
 
 @njit(cache=False)
@@ -461,6 +564,460 @@ def _count_squeeze_bars_jit(in_squeeze):
         else:
             out[i] = 0
     return out
+
+
+# =============================================================================
+# Combined (Two-Leg) JIT Simulation — Shared Equity Pool
+# =============================================================================
+
+@njit(cache=True)
+def _simulate_combined_jit(
+    # Shared market data (same token, aligned 1h bars)
+    close, high, low, atr, regime, initial_capital,
+    # Leg 1 (primary — typically spot)
+    entry_mask_1, direction_1, fee_rate_1,
+    stop_mult_1, trail_mult_1, target_mult_1,
+    exit_regime_mask_1, min_hold_1, max_hold_1,
+    rsi, rsi_exit_level_1, use_rsi_1,
+    adv, base_spread_bps, impact_coeff,
+    no_stop_bars_1, edge_override_1,
+    convex_exit_1, mean_target_vals_1, use_mean_target_1,
+    kelly_mult, cap_pct,
+    is_perp_1, leverage_1, funding_1h_1,
+    capital_frac_1,
+    # Leg 2 (secondary — typically perp)
+    entry_mask_2, direction_2, fee_rate_2,
+    stop_mult_2, trail_mult_2, target_mult_2,
+    exit_regime_mask_2, min_hold_2, max_hold_2,
+    rsi_exit_level_2, use_rsi_2,
+    no_stop_bars_2, edge_override_2,
+    convex_exit_2, mean_target_vals_2, use_mean_target_2,
+    is_perp_2, leverage_2, funding_1h_2,
+    capital_frac_2,
+):
+    """
+    Two-leg combined simulation with shared equity pool.
+
+    Both legs draw from and contribute to the same equity variable.
+    Each leg has independent position tracking and trade parameters.
+    Strategy controls capital_frac_1/2 to allocate equity per leg.
+    """
+    n = len(close)
+    max_trades = n  # both legs can trade
+
+    out_pnl = np.empty(max_trades, dtype=np.float64)
+    out_ret = np.empty(max_trades, dtype=np.float64)
+    out_hold = np.empty(max_trades, dtype=np.int64)
+    out_exit = np.empty(max_trades, dtype=np.int8)
+    out_pos = np.empty(max_trades, dtype=np.float64)
+    out_entry_bar = np.empty(max_trades, dtype=np.int64)
+    out_exit_bar = np.empty(max_trades, dtype=np.int64)
+    out_funding = np.empty(max_trades, dtype=np.float64)
+    out_leg = np.empty(max_trades, dtype=np.int8)  # 1 or 2
+    trade_count = 0
+
+    equity = initial_capital
+
+    # Leg 1 state
+    pos_1 = 0.0
+    entry_price_1 = 0.0
+    entry_bar_1 = 0
+    stop_1 = 0.0
+    highest_1 = 0.0
+    lowest_1 = 999999.0
+    irisk_1 = 0.0
+    cum_fund_1 = 0.0
+    margin_1 = 0.0
+
+    # Leg 2 state
+    pos_2 = 0.0
+    entry_price_2 = 0.0
+    entry_bar_2 = 0
+    stop_2 = 0.0
+    highest_2 = 0.0
+    lowest_2 = 999999.0
+    irisk_2 = 0.0
+    cum_fund_2 = 0.0
+    margin_2 = 0.0
+
+    for i in range(200, n):
+        cur_atr = atr[i]
+        if np.isnan(cur_atr):
+            cur_atr = close[i] * 0.02
+
+        # ── LEG 1 EXIT ──
+        if pos_1 != 0.0:
+            bh_1 = i - entry_bar_1
+            d1 = direction_1[entry_bar_1] if entry_bar_1 < n else 1
+            if d1 == 1:
+                if high[i] > highest_1:
+                    highest_1 = high[i]
+            else:
+                if low[i] < lowest_1:
+                    lowest_1 = low[i]
+
+            # Funding
+            if is_perp_1 and pos_1 != 0.0:
+                not_1 = abs(pos_1 * close[i])
+                ds_1 = 1.0 if pos_1 > 0.0 else -1.0
+                fc_1 = not_1 * funding_1h_1[i] * ds_1
+                equity -= fc_1
+                cum_fund_1 += fc_1
+
+            # Liquidation
+            liq_1 = False
+            if is_perp_1 and leverage_1 > 1.0 and pos_1 != 0.0:
+                if pos_1 > 0.0:
+                    unreal_1 = pos_1 * (close[i] - entry_price_1)
+                else:
+                    unreal_1 = abs(pos_1) * (entry_price_1 - close[i])
+                if margin_1 + unreal_1 - cum_fund_1 < margin_1 * 0.05:
+                    liq_1 = True
+
+            exit_1 = False
+            ecode_1 = -1
+            eprice_1 = close[i]
+
+            if liq_1:
+                exit_1 = True
+                ecode_1 = 7
+            else:
+                sa_1 = bh_1 >= no_stop_bars_1 or convex_exit_1
+                # Trailing stop logic (matches _simulate_core_jit)
+                if convex_exit_1:
+                    if bh_1 >= 48 and d1 == 1:
+                        t1 = highest_1 - 2.0 * cur_atr
+                        if t1 > stop_1:
+                            stop_1 = t1
+                    elif bh_1 >= 12 and d1 == 1:
+                        if highest_1 > entry_price_1 + 1.5 * irisk_1:
+                            be_trail_1 = entry_price_1 + 0.3 * irisk_1
+                            if be_trail_1 > stop_1:
+                                stop_1 = be_trail_1
+                else:
+                    if bh_1 >= no_stop_bars_1:
+                        if d1 == 1:
+                            t1 = highest_1 - trail_mult_1 * cur_atr
+                            if t1 > stop_1:
+                                stop_1 = t1
+                        else:
+                            t1 = lowest_1 + trail_mult_1 * cur_atr
+                            if t1 < stop_1:
+                                stop_1 = t1
+
+                if sa_1 and d1 == 1 and low[i] <= stop_1:
+                    exit_1 = True
+                    ecode_1 = 0
+                    eprice_1 = stop_1
+                elif sa_1 and d1 == -1 and high[i] >= stop_1:
+                    exit_1 = True
+                    ecode_1 = 0
+                    eprice_1 = stop_1
+                elif convex_exit_1 and d1 == 1 and close[i] > entry_price_1 + target_mult_1 * irisk_1:
+                    exit_1 = True
+                    ecode_1 = 1
+                elif not convex_exit_1 and d1 == 1 and high[i] >= entry_price_1 + target_mult_1 * cur_atr:
+                    exit_1 = True
+                    ecode_1 = 2
+                    eprice_1 = entry_price_1 + target_mult_1 * cur_atr
+                elif exit_regime_mask_1[i] and bh_1 > 6:
+                    exit_1 = True
+                    ecode_1 = 3
+                elif use_rsi_1 and d1 == 1 and rsi[i] > rsi_exit_level_1 and bh_1 >= min_hold_1:
+                    exit_1 = True
+                    ecode_1 = 4
+                elif convex_exit_1 and use_mean_target_1:
+                    mt1_val = mean_target_vals_1[i]
+                    if not np.isnan(mt1_val) and d1 == 1 and close[i] >= mt1_val and bh_1 >= min_hold_1:
+                        if close[i] < entry_price_1 + 2.0 * irisk_1:
+                            exit_1 = True
+                            ecode_1 = 5
+                if not exit_1 and bh_1 >= max_hold_1:
+                    exit_1 = True
+                    ecode_1 = 6
+
+            if exit_1:
+                ep_usd_1 = abs(pos_1 * eprice_1)
+                epart_1 = ep_usd_1 / max(adv, 1.0)
+                eslip_1 = base_spread_bps + impact_coeff * np.sqrt(epart_1) * 10000.0
+                if eslip_1 > 100.0:
+                    eslip_1 = 100.0
+                sl1 = eprice_1 * eslip_1 / 10000.0
+                if d1 == 1:
+                    eprice_1 -= sl1
+                    pnl1 = pos_1 * (eprice_1 - entry_price_1)
+                else:
+                    eprice_1 += sl1
+                    pnl1 = pos_1 * (entry_price_1 - eprice_1)
+                fee1 = abs(pos_1 * eprice_1) * fee_rate_1
+                net1 = pnl1 - fee1
+                equity += net1
+
+                pu1 = abs(pos_1 * entry_price_1)
+                if trade_count < max_trades:
+                    out_pnl[trade_count] = net1 - cum_fund_1
+                    out_ret[trade_count] = (net1 - cum_fund_1) / max(pu1, 1.0) * 100.0
+                    out_hold[trade_count] = bh_1
+                    out_exit[trade_count] = ecode_1
+                    out_pos[trade_count] = pu1
+                    out_entry_bar[trade_count] = entry_bar_1
+                    out_exit_bar[trade_count] = i
+                    out_funding[trade_count] = cum_fund_1
+                    out_leg[trade_count] = 1
+                    trade_count += 1
+                pos_1 = 0.0
+                cum_fund_1 = 0.0
+                margin_1 = 0.0
+
+        # ── LEG 2 EXIT ──
+        if pos_2 != 0.0:
+            bh_2 = i - entry_bar_2
+            d2 = direction_2[entry_bar_2] if entry_bar_2 < n else 1
+            if d2 == 1:
+                if high[i] > highest_2:
+                    highest_2 = high[i]
+            else:
+                if low[i] < lowest_2:
+                    lowest_2 = low[i]
+
+            # Funding
+            if is_perp_2 and pos_2 != 0.0:
+                not_2 = abs(pos_2 * close[i])
+                ds_2 = 1.0 if pos_2 > 0.0 else -1.0
+                fc_2 = not_2 * funding_1h_2[i] * ds_2
+                equity -= fc_2
+                cum_fund_2 += fc_2
+
+            # Liquidation
+            liq_2 = False
+            if is_perp_2 and leverage_2 > 1.0 and pos_2 != 0.0:
+                if pos_2 > 0.0:
+                    unreal_2 = pos_2 * (close[i] - entry_price_2)
+                else:
+                    unreal_2 = abs(pos_2) * (entry_price_2 - close[i])
+                if margin_2 + unreal_2 - cum_fund_2 < margin_2 * 0.05:
+                    liq_2 = True
+
+            exit_2 = False
+            ecode_2 = -1
+            eprice_2 = close[i]
+
+            if liq_2:
+                exit_2 = True
+                ecode_2 = 7
+            else:
+                sa_2 = bh_2 >= no_stop_bars_2 or convex_exit_2
+                # Trailing stop logic (matches _simulate_core_jit)
+                if convex_exit_2:
+                    if bh_2 >= 48 and d2 == 1:
+                        t2 = highest_2 - 2.0 * cur_atr
+                        if t2 > stop_2:
+                            stop_2 = t2
+                    elif bh_2 >= 12 and d2 == 1:
+                        if highest_2 > entry_price_2 + 1.5 * irisk_2:
+                            be_trail_2 = entry_price_2 + 0.3 * irisk_2
+                            if be_trail_2 > stop_2:
+                                stop_2 = be_trail_2
+                else:
+                    if bh_2 >= no_stop_bars_2:
+                        if d2 == 1:
+                            t2 = highest_2 - trail_mult_2 * cur_atr
+                            if t2 > stop_2:
+                                stop_2 = t2
+                        else:
+                            t2 = lowest_2 + trail_mult_2 * cur_atr
+                            if t2 < stop_2:
+                                stop_2 = t2
+
+                if sa_2 and d2 == 1 and low[i] <= stop_2:
+                    exit_2 = True
+                    ecode_2 = 0
+                    eprice_2 = stop_2
+                elif sa_2 and d2 == -1 and high[i] >= stop_2:
+                    exit_2 = True
+                    ecode_2 = 0
+                    eprice_2 = stop_2
+                elif convex_exit_2 and d2 == 1 and close[i] > entry_price_2 + target_mult_2 * irisk_2:
+                    exit_2 = True
+                    ecode_2 = 1
+                elif not convex_exit_2 and d2 == 1 and high[i] >= entry_price_2 + target_mult_2 * cur_atr:
+                    exit_2 = True
+                    ecode_2 = 2
+                    eprice_2 = entry_price_2 + target_mult_2 * cur_atr
+                elif exit_regime_mask_2[i] and bh_2 > 6:
+                    exit_2 = True
+                    ecode_2 = 3
+                elif use_rsi_2 and d2 == 1 and rsi[i] > rsi_exit_level_2 and bh_2 >= min_hold_2:
+                    exit_2 = True
+                    ecode_2 = 4
+                elif convex_exit_2 and use_mean_target_2:
+                    mt2_val = mean_target_vals_2[i]
+                    if not np.isnan(mt2_val) and d2 == 1 and close[i] >= mt2_val and bh_2 >= min_hold_2:
+                        if close[i] < entry_price_2 + 2.0 * irisk_2:
+                            exit_2 = True
+                            ecode_2 = 5
+                if not exit_2 and bh_2 >= max_hold_2:
+                    exit_2 = True
+                    ecode_2 = 6
+
+            if exit_2:
+                ep_usd_2 = abs(pos_2 * eprice_2)
+                epart_2 = ep_usd_2 / max(adv, 1.0)
+                eslip_2 = base_spread_bps + impact_coeff * np.sqrt(epart_2) * 10000.0
+                if eslip_2 > 100.0:
+                    eslip_2 = 100.0
+                sl2 = eprice_2 * eslip_2 / 10000.0
+                if d2 == 1:
+                    eprice_2 -= sl2
+                    pnl2 = pos_2 * (eprice_2 - entry_price_2)
+                else:
+                    eprice_2 += sl2
+                    pnl2 = pos_2 * (entry_price_2 - eprice_2)
+                fee2 = abs(pos_2 * eprice_2) * fee_rate_2
+                net2 = pnl2 - fee2
+                equity += net2
+
+                pu2 = abs(pos_2 * entry_price_2)
+                if trade_count < max_trades:
+                    out_pnl[trade_count] = net2 - cum_fund_2
+                    out_ret[trade_count] = (net2 - cum_fund_2) / max(pu2, 1.0) * 100.0
+                    out_hold[trade_count] = bh_2
+                    out_exit[trade_count] = ecode_2
+                    out_pos[trade_count] = pu2
+                    out_entry_bar[trade_count] = entry_bar_2
+                    out_exit_bar[trade_count] = i
+                    out_funding[trade_count] = cum_fund_2
+                    out_leg[trade_count] = 2
+                    trade_count += 1
+                pos_2 = 0.0
+                cum_fund_2 = 0.0
+                margin_2 = 0.0
+
+        # ── LEG 1 ENTRY ──
+        if pos_1 == 0.0 and entry_mask_1[i]:
+            d1e = direction_1[i] if i < n else 1
+            if d1e == 0:
+                d1e = 1
+            cae1 = cur_atr
+            vol1 = cae1 / max(close[i], 1e-10)
+            if edge_override_1 >= 0.10:
+                kf1 = kelly_mult * edge_override_1
+                va1 = 0.02 / max(vol1, 0.005) if vol1 > 0.0 else 1.0
+                avail_1 = equity * capital_frac_1
+                raw1 = avail_1 * kf1 * va1
+                mc1 = avail_1 * cap_pct
+                mt1 = avail_1 * 0.05
+                pu1 = min(raw1, mc1, mt1)
+                if pu1 >= 200.0:
+                    margin_1 = pu1
+                    if is_perp_1 and leverage_1 > 1.0:
+                        pu1 = pu1 * leverage_1
+                    part1 = pu1 / max(adv, 1.0)
+                    sb1 = base_spread_bps + impact_coeff * np.sqrt(part1) * 10000.0
+                    if sb1 > 100.0:
+                        sb1 = 100.0
+                    entry_price_1 = close[i] + (close[i] * sb1 / 10000.0 * d1e)
+                    pos_1 = pu1 / max(entry_price_1, 1e-10) * d1e
+                    entry_bar_1 = i
+                    highest_1 = high[i]
+                    lowest_1 = low[i]
+                    f1 = abs(pos_1 * entry_price_1) * fee_rate_1
+                    equity -= f1
+                    cum_fund_1 = 0.0
+                    irisk_1 = stop_mult_1 * cae1
+                    if d1e == 1:
+                        stop_1 = entry_price_1 - irisk_1
+                    else:
+                        stop_1 = entry_price_1 + irisk_1
+
+        # ── LEG 2 ENTRY ──
+        if pos_2 == 0.0 and entry_mask_2[i]:
+            d2e = direction_2[i] if i < n else 1
+            if d2e == 0:
+                d2e = 1
+            cae2 = cur_atr
+            vol2 = cae2 / max(close[i], 1e-10)
+            if edge_override_2 >= 0.10:
+                kf2 = kelly_mult * edge_override_2
+                va2 = 0.02 / max(vol2, 0.005) if vol2 > 0.0 else 1.0
+                avail_2 = equity * capital_frac_2
+                raw2 = avail_2 * kf2 * va2
+                mc2 = avail_2 * cap_pct
+                mt2 = avail_2 * 0.05
+                pu2 = min(raw2, mc2, mt2)
+                if pu2 >= 200.0:
+                    margin_2 = pu2
+                    if is_perp_2 and leverage_2 > 1.0:
+                        pu2 = pu2 * leverage_2
+                    part2 = pu2 / max(adv, 1.0)
+                    sb2 = base_spread_bps + impact_coeff * np.sqrt(part2) * 10000.0
+                    if sb2 > 100.0:
+                        sb2 = 100.0
+                    entry_price_2 = close[i] + (close[i] * sb2 / 10000.0 * d2e)
+                    pos_2 = pu2 / max(entry_price_2, 1e-10) * d2e
+                    entry_bar_2 = i
+                    highest_2 = high[i]
+                    lowest_2 = low[i]
+                    f2 = abs(pos_2 * entry_price_2) * fee_rate_2
+                    equity -= f2
+                    cum_fund_2 = 0.0
+                    irisk_2 = stop_mult_2 * cae2
+                    if d2e == 1:
+                        stop_2 = entry_price_2 - irisk_2
+                    else:
+                        stop_2 = entry_price_2 + irisk_2
+
+    # Close remaining positions (record as trades so funding is tracked)
+    if pos_1 != 0.0:
+        df1 = 1 if pos_1 > 0.0 else -1
+        if df1 == 1:
+            pnl1 = pos_1 * (close[n - 1] - entry_price_1)
+        else:
+            pnl1 = abs(pos_1) * (entry_price_1 - close[n - 1])
+        fee1 = abs(pos_1 * close[n - 1]) * fee_rate_1
+        net1 = pnl1 - fee1
+        equity += net1
+
+        pu1_f = abs(pos_1 * entry_price_1)
+        if trade_count < max_trades:
+            out_pnl[trade_count] = net1 - cum_fund_1
+            out_ret[trade_count] = (net1 - cum_fund_1) / max(pu1_f, 1.0) * 100.0
+            out_hold[trade_count] = (n - 1) - entry_bar_1
+            out_exit[trade_count] = 6
+            out_pos[trade_count] = pu1_f
+            out_entry_bar[trade_count] = entry_bar_1
+            out_exit_bar[trade_count] = n - 1
+            out_funding[trade_count] = cum_fund_1
+            out_leg[trade_count] = 1
+            trade_count += 1
+
+    if pos_2 != 0.0:
+        df2 = 1 if pos_2 > 0.0 else -1
+        if df2 == 1:
+            pnl2 = pos_2 * (close[n - 1] - entry_price_2)
+        else:
+            pnl2 = abs(pos_2) * (entry_price_2 - close[n - 1])
+        fee2 = abs(pos_2 * close[n - 1]) * fee_rate_2
+        net2 = pnl2 - fee2
+        equity += net2
+
+        pu2_f = abs(pos_2 * entry_price_2)
+        if trade_count < max_trades:
+            out_pnl[trade_count] = net2 - cum_fund_2
+            out_ret[trade_count] = (net2 - cum_fund_2) / max(pu2_f, 1.0) * 100.0
+            out_hold[trade_count] = (n - 1) - entry_bar_2
+            out_exit[trade_count] = 6
+            out_pos[trade_count] = pu2_f
+            out_entry_bar[trade_count] = entry_bar_2
+            out_exit_bar[trade_count] = n - 1
+            out_funding[trade_count] = cum_fund_2
+            out_leg[trade_count] = 2
+            trade_count += 1
+
+    return (out_pnl[:trade_count], out_ret[:trade_count], out_hold[:trade_count],
+            out_exit[:trade_count], out_pos[:trade_count],
+            out_entry_bar[:trade_count], out_exit_bar[:trade_count],
+            equity, out_funding[:trade_count], out_leg[:trade_count])
 
 
 # =============================================================================
@@ -491,6 +1048,11 @@ class StrategyContext:
     enriched: Optional[pd.DataFrame] = None
     custom: Dict[str, np.ndarray] = field(default_factory=dict)
 
+    # Futures support
+    funding_1h: Optional[np.ndarray] = None   # per-hour funding rate aligned to 1h bars
+    funding_raw: Optional[np.ndarray] = None   # raw settlement-interval rate (for signal use)
+    market_type: str = 'spot'                  # 'spot' or 'perp' — for strategy introspection
+
     def align_daily_to_1h(self, daily_values):
         return _align_higher_to_lower(self.idx_d, daily_values, self.idx_1h)
 
@@ -519,8 +1081,31 @@ class StrategyResult:
 
     name: str = 'unnamed'
 
+    # Futures support (defaults preserve backward compatibility)
+    market_type: int = 0        # MarketType.SPOT
+    leverage: float = 1.0       # position notional multiplier (no hard cap)
+    exchange: str = 'binance'   # for fee/funding lookup
+
+    # Combined strategy fields (secondary leg)
+    secondary_entry_mask: Optional[np.ndarray] = None
+    secondary_direction: Optional[np.ndarray] = None
+    secondary_market_type: int = 1     # defaults to PERP
+    secondary_leverage: float = 1.0
+    capital_split: float = 0.5         # fraction of capital to primary leg
+    # Secondary leg trade management (defaults to primary leg values via None sentinel)
+    secondary_stop_mult: Optional[float] = None
+    secondary_trail_mult: Optional[float] = None
+    secondary_target_mult: Optional[float] = None
+    secondary_no_stop_bars: Optional[int] = None
+    secondary_min_hold: Optional[int] = None
+    secondary_max_hold: Optional[int] = None
+    secondary_edge: Optional[float] = None
+    secondary_rsi_exit_level: Optional[float] = None
+    secondary_convex_exit: Optional[bool] = None
+
 
 StrategyFn = Callable[[StrategyContext], StrategyResult]
+CombinedStrategyFn = Callable[[StrategyContext, StrategyContext], StrategyResult]
 
 
 # =============================================================================
@@ -677,12 +1262,15 @@ class Engine:
         return self._enriched
 
     def _build_context(self, ticker: str, df_1h: pd.DataFrame,
-                       use_cache: bool = False) -> Optional[StrategyContext]:
+                       use_cache: bool = False,
+                       market_override: Optional[str] = None) -> Optional[StrategyContext]:
         """Build a StrategyContext for one token.
-        
+
         Args:
             use_cache: If True, cache and reuse contexts for the same (ticker, len) pair.
                        Useful when running multiple strategies on the same token data.
+            market_override: If set, use this market type instead of self.market.
+                             Avoids mutating self.market (thread-safe).
         """
         if df_1h is None or len(df_1h) < 500:
             return None
@@ -735,6 +1323,17 @@ class Engine:
         adv = compute_adv(c1, v1, lookback_days=30, hours_per_bar=1)
         tier = adv_to_tier(adv)
 
+        # Funding data (perp parquets with funding_1h column)
+        effective_market = market_override if market_override is not None else self.market
+        funding_1h_arr = None
+        funding_raw_arr = None
+        if effective_market == 'perp' and 'funding_1h' in df_1h.columns:
+            funding_1h_arr = df_1h['funding_1h'].values.astype(np.float64)
+            funding_1h_arr = np.nan_to_num(funding_1h_arr, nan=0.0)
+            if 'funding_rate' in df_1h.columns:
+                funding_raw_arr = df_1h['funding_rate'].values.astype(np.float64)
+                funding_raw_arr = np.nan_to_num(funding_raw_arr, nan=0.0)
+
         ctx = StrategyContext(
             ticker=ticker, tier=tier, adv=adv,
             ind_1h=ind_1h, ind_4h=ind_4h, ind_d=ind_d,
@@ -742,6 +1341,9 @@ class Engine:
             regime_1h=regime_1h,
             df_1h=df_1h, df_4h=df_4h, df_daily=df_daily,
             enriched=token_enriched,
+            funding_1h=funding_1h_arr,
+            funding_raw=funding_raw_arr,
+            market_type=effective_market,
         )
 
         for plugin in _INDICATOR_PLUGINS:
@@ -757,6 +1359,7 @@ class Engine:
     def _simulate(self, ctx: StrategyContext, result: StrategyResult) -> Tuple[list, float]:
         """Run simulation. Returns (trades_list, final_equity).
         Trades include 'entry_bar' and 'exit_bar' keys for equity curve reconstruction.
+        Routes to perp path when market_type is PERP.
         """
         n = len(ctx.ind_1h['close'])
         close = ctx.ind_1h['close']
@@ -776,25 +1379,31 @@ class Engine:
         # ADV-based sizing: continuous functions of actual volume
         kelly_mult, cap_pct = adv_to_sizing(ctx.adv)
 
-        # Fee: flat override or ADV-based
+        # Fee routing: perp uses exchange-specific fees, spot uses ADV-based
+        is_perp = result.market_type == MarketType.PERP
         if self._fee_override is not None:
             fee_rate = self._fee_override
+        elif is_perp:
+            fee_rate = get_fee_rate(result.exchange, 'perp', 'taker')
         else:
             fee_rate = adv_to_costs(ctx.adv)
 
         # Slippage model: base_spread + impact * sqrt(pos/ADV)
-        # base_spread: half the typical bid-ask spread (~3bps for liquid, doesn't vary much)
-        # impact_coeff: market impact coefficient (~0.10 = 10% of sqrt participation)
         if self._slip_override is not None:
-            # Legacy: flat slippage override → set base=override, impact=0
             base_spread_bps = self._slip_override
             impact_coeff = 0.0
         else:
-            base_spread_bps = 3.0   # minimum spread cost
-            impact_coeff = 0.03     # sqrt market impact coefficient
+            base_spread_bps = 3.0
+            impact_coeff = 0.03
 
         entry_mask = np.asarray(result.entry_mask, dtype=np.bool_)
         direction = np.asarray(result.direction, dtype=np.int8)
+
+        # Funding array: use context funding if available, else zeros (graceful degradation)
+        if is_perp and ctx.funding_1h is not None:
+            funding_1h = ctx.funding_1h
+        else:
+            funding_1h = np.zeros(n, dtype=np.float64)
 
         sim_result = _simulate_core_jit(
             close, high, low, atr_arr, entry_mask, direction,
@@ -806,13 +1415,14 @@ class Engine:
             result.convex_exit, mean_target, use_mean_target,
             int(result.no_stop_bars), float(result.edge),
             float(kelly_mult), float(cap_pct),
+            is_perp, float(result.leverage), funding_1h,
         )
 
-        pnl_arr, ret_arr, hold_arr, exit_arr, pos_arr, entry_bars, exit_bars, final_equity = sim_result
+        pnl_arr, ret_arr, hold_arr, exit_arr, pos_arr, entry_bars, exit_bars, final_equity, funding_arr = sim_result
 
         trades = []
         for j in range(len(pnl_arr)):
-            trades.append({
+            trade = {
                 'pnl': float(pnl_arr[j]),
                 'return_pct': float(ret_arr[j]),
                 'hold_hours': int(hold_arr[j]),
@@ -821,7 +1431,10 @@ class Engine:
                 'entry_bar': int(entry_bars[j]),
                 'exit_bar': int(exit_bars[j]),
                 'strategy': result.name,
-            })
+            }
+            if is_perp:
+                trade['funding_cost'] = float(funding_arr[j])
+            trades.append(trade)
 
         return trades, final_equity
 
@@ -858,6 +1471,187 @@ class Engine:
             'equity': equity,
             'trades': trades,
             'strategy': result.name,
+        }
+
+    def backtest_token_combined(self, strategy_fn, ticker: str,
+                                df_1h_spot: Optional[pd.DataFrame] = None,
+                                df_1h_perp: Optional[pd.DataFrame] = None) -> Optional[Dict]:
+        """Backtest a combined (two-leg) strategy on a single token.
+
+        Loads both spot and perp data, builds two StrategyContexts,
+        and routes to _simulate_combined_jit() with shared equity.
+        """
+        # Load data
+        if df_1h_spot is None:
+            spot_dir = os.path.join(self.data_dir, 'spot', '1h_cache')
+            spot_path = os.path.join(spot_dir, f'{ticker}_1h.parquet')
+            if os.path.exists(spot_path):
+                df_1h_spot = pd.read_parquet(spot_path)
+        if df_1h_perp is None:
+            perp_dir = os.path.join(self.data_dir, 'perp', '1h_cache')
+            perp_path = os.path.join(perp_dir, f'{ticker}_1h.parquet')
+            if os.path.exists(perp_path):
+                df_1h_perp = pd.read_parquet(perp_path)
+
+        if df_1h_spot is None or df_1h_perp is None:
+            return None
+
+        # Align to common time range
+        common_start = max(df_1h_spot.index[0], df_1h_perp.index[0])
+        common_end = min(df_1h_spot.index[-1], df_1h_perp.index[-1])
+        df_1h_spot = df_1h_spot[common_start:common_end]
+        df_1h_perp = df_1h_perp[common_start:common_end]
+
+        if len(df_1h_spot) < 500 or len(df_1h_perp) < 500:
+            return None
+
+        # Build contexts (using market_override to avoid mutating self.market)
+        ctx_spot = self._build_context(ticker, df_1h_spot, market_override='spot')
+        ctx_perp = self._build_context(ticker, df_1h_perp, market_override='perp')
+
+        if ctx_spot is None or ctx_perp is None:
+            return None
+
+        # Guard: verify strategy accepts two arguments (combined signature)
+        try:
+            sig = inspect.signature(strategy_fn)
+            n_params = len([p for p in sig.parameters.values()
+                           if p.default is inspect.Parameter.empty])
+        except (ValueError, TypeError):
+            n_params = 1  # fallback: assume single-arg
+
+        if n_params < 2:
+            raise TypeError(
+                f"Combined strategy requires 2-argument signature: "
+                f"strategy(ctx_spot, ctx_perp). Got {n_params}-argument function "
+                f"'{getattr(strategy_fn, '__name__', '?')}'."
+            )
+
+        # Call strategy with both contexts
+        result = strategy_fn(ctx_spot, ctx_perp)
+
+        # Align arrays to common length
+        n = min(len(ctx_spot.ind_1h['close']), len(ctx_perp.ind_1h['close']))
+        close = ctx_spot.ind_1h['close'][:n]
+        high = ctx_spot.ind_1h['high'][:n]
+        low = ctx_spot.ind_1h['low'][:n]
+        atr_arr = ctx_spot.ind_1h['atr'][:n]
+        rsi = ctx_spot.ind_1h['rsi'][:n]
+
+        regime_vals = np.array(list(result.exit_regimes), dtype=np.int8)
+        exit_regime_mask_1 = np.isin(ctx_spot.regime_1h[:n], regime_vals)
+        exit_regime_mask_2 = np.isin(ctx_perp.regime_1h[:n], regime_vals)
+
+        kelly_mult, cap_pct = adv_to_sizing(ctx_spot.adv)
+
+        # Fee rates
+        fee_rate_1 = adv_to_costs(ctx_spot.adv) if result.market_type != MarketType.PERP else get_fee_rate(result.exchange, 'perp')
+        sec_mt = result.secondary_market_type
+        fee_rate_2 = get_fee_rate(result.exchange, 'perp') if sec_mt == MarketType.PERP else adv_to_costs(ctx_spot.adv)
+
+        # Entry masks
+        entry_mask_1 = np.asarray(result.entry_mask[:n], dtype=np.bool_)
+        direction_1 = np.asarray(result.direction[:n], dtype=np.int8)
+        entry_mask_2 = np.asarray(result.secondary_entry_mask[:n], dtype=np.bool_) if result.secondary_entry_mask is not None else np.zeros(n, dtype=np.bool_)
+        direction_2 = np.asarray(result.secondary_direction[:n], dtype=np.int8) if result.secondary_direction is not None else np.ones(n, dtype=np.int8)
+
+        # Funding arrays
+        funding_1 = ctx_spot.funding_1h[:n] if ctx_spot.funding_1h is not None else np.zeros(n, dtype=np.float64)
+        funding_2 = ctx_perp.funding_1h[:n] if ctx_perp.funding_1h is not None else np.zeros(n, dtype=np.float64)
+
+        # Mean target
+        use_mt_1 = result.mean_target_vals is not None
+        mt_1 = result.mean_target_vals[:n] if use_mt_1 else np.full(n, np.nan)
+        mt_2 = np.full(n, np.nan)
+
+        # Slippage
+        if self._slip_override is not None:
+            base_spread_bps = self._slip_override
+            impact_coeff_val = 0.0
+        else:
+            base_spread_bps = 3.0
+            impact_coeff_val = 0.03
+
+        is_perp_1 = result.market_type == MarketType.PERP
+        is_perp_2 = sec_mt == MarketType.PERP
+        capital_frac_1 = result.capital_split
+        capital_frac_2 = 1.0 - result.capital_split
+
+        # Secondary leg trade management: use secondary-specific or fall back to primary
+        s2_stop = result.secondary_stop_mult if result.secondary_stop_mult is not None else result.stop_mult
+        s2_trail = result.secondary_trail_mult if result.secondary_trail_mult is not None else result.trail_mult
+        s2_target = result.secondary_target_mult if result.secondary_target_mult is not None else result.target_mult
+        s2_no_stop = result.secondary_no_stop_bars if result.secondary_no_stop_bars is not None else result.no_stop_bars
+        s2_min_hold = result.secondary_min_hold if result.secondary_min_hold is not None else result.min_hold
+        s2_max_hold = result.secondary_max_hold if result.secondary_max_hold is not None else result.max_hold
+        s2_edge = result.secondary_edge if result.secondary_edge is not None else result.edge
+        s2_rsi = result.secondary_rsi_exit_level if result.secondary_rsi_exit_level is not None else result.rsi_exit_level
+        s2_convex = result.secondary_convex_exit if result.secondary_convex_exit is not None else result.convex_exit
+
+        sim_result = _simulate_combined_jit(
+            close, high, low, atr_arr, ctx_spot.regime_1h[:n], float(self.capital),
+            # Leg 1
+            entry_mask_1, direction_1, float(fee_rate_1),
+            float(result.stop_mult), float(result.trail_mult), float(result.target_mult),
+            exit_regime_mask_1, int(result.min_hold), int(result.max_hold),
+            rsi, float(result.rsi_exit_level), result.rsi_exit_level < 999,
+            float(ctx_spot.adv), float(base_spread_bps), float(impact_coeff_val),
+            int(result.no_stop_bars), float(result.edge),
+            result.convex_exit, mt_1, use_mt_1,
+            float(kelly_mult), float(cap_pct),
+            is_perp_1, float(result.leverage), funding_1,
+            float(capital_frac_1),
+            # Leg 2
+            entry_mask_2, direction_2, float(fee_rate_2),
+            float(s2_stop), float(s2_trail), float(s2_target),
+            exit_regime_mask_2, int(s2_min_hold), int(s2_max_hold),
+            float(s2_rsi), s2_rsi < 999,
+            int(s2_no_stop), float(s2_edge),
+            s2_convex, mt_2, False,
+            is_perp_2, float(result.secondary_leverage), funding_2,
+            float(capital_frac_2),
+        )
+
+        pnl_arr, ret_arr, hold_arr, exit_arr, pos_arr, entry_bars, exit_bars, final_equity, funding_arr, leg_arr = sim_result
+
+        trades = []
+        for j in range(len(pnl_arr)):
+            trade = {
+                'pnl': float(pnl_arr[j]),
+                'return_pct': float(ret_arr[j]),
+                'hold_hours': int(hold_arr[j]),
+                'exit_reason': _EXIT_REASONS.get(int(exit_arr[j]), 'unknown'),
+                'position_usd': float(pos_arr[j]),
+                'entry_bar': int(entry_bars[j]),
+                'exit_bar': int(exit_bars[j]),
+                'strategy': result.name,
+                'leg': int(leg_arr[j]),
+                'funding_cost': float(funding_arr[j]),
+            }
+            trades.append(trade)
+
+        total_return = (final_equity - self.capital) / self.capital * 100
+        wins = [t for t in trades if t['pnl'] > 0]
+        losers = [t for t in trades if t['pnl'] <= 0]
+        avg_win = np.mean([t['pnl'] for t in wins]) if wins else 0
+        avg_loss = abs(np.mean([t['pnl'] for t in losers])) if losers else 1
+        leg1_trades = [t for t in trades if t['leg'] == 1]
+        leg2_trades = [t for t in trades if t['leg'] == 2]
+
+        return {
+            'ticker': ticker,
+            'tier': ctx_spot.tier,
+            'adv': ctx_spot.adv,
+            'total_return': total_return,
+            'n_trades': len(trades),
+            'n_trades_leg1': len(leg1_trades),
+            'n_trades_leg2': len(leg2_trades),
+            'win_rate': len(wins) / max(len(trades), 1) * 100,
+            'payoff_ratio': avg_win / max(avg_loss, 1),
+            'equity': final_equity,
+            'trades': trades,
+            'strategy': result.name,
+            'total_funding_cost': sum(t.get('funding_cost', 0) for t in trades),
         }
 
     def run(self, strategy_fn: StrategyFn, tokens: Optional[List[str]] = None,

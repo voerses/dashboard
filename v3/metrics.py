@@ -50,6 +50,11 @@ class PerformanceMetrics:
     kurtosis: float = 0.0
     tail_ratio: float = 0.0
 
+    # Funding (futures/perp only — zero for spot)
+    total_funding_cost: float = 0.0
+    avg_funding_per_trade: float = 0.0
+    funding_drag_pct: float = 0.0  # funding cost as % of gross PnL (positive = net cost, negative = net earned)
+
 
 def build_equity_curve(trades: list, n_bars: int, capital: float,
                        index: Optional[pd.DatetimeIndex] = None) -> pd.Series:
@@ -200,6 +205,21 @@ def compute_metrics(trades: list, equity_curve: pd.Series,
         p5 = np.percentile(daily_returns, 5)
         if abs(p5) > 1e-10:
             m.tail_ratio = p95 / abs(p5)
+
+    # --- Funding metrics (perp/combined only) ---
+    if trades:
+        funding_costs = [t.get('funding_cost', 0) for t in trades]
+        total_funding = sum(funding_costs)
+        if total_funding != 0:
+            m.total_funding_cost = total_funding
+            trades_with_funding = [f for f in funding_costs if f != 0]
+            if trades_with_funding:
+                m.avg_funding_per_trade = total_funding / len(trades_with_funding)
+            # Use gross profit (sum of winning trades) as denominator for drag %
+            # This avoids sign ambiguity when total PnL is negative
+            gross_profit_all = sum(t['pnl'] for t in trades if t['pnl'] > 0)
+            if gross_profit_all > 0.01:
+                m.funding_drag_pct = total_funding / gross_profit_all * 100
 
     return m
 

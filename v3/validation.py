@@ -56,6 +56,7 @@ Engine = _engine_mod.Engine
 StrategyContext = _engine_mod.StrategyContext
 StrategyResult = _engine_mod.StrategyResult
 StrategyFn = _engine_mod.StrategyFn
+MarketType = _engine_mod.MarketType
 CRISIS = _engine_mod.CRISIS
 QUIET = _engine_mod.QUIET
 UPTREND = _engine_mod.UPTREND
@@ -190,7 +191,7 @@ def _run_walk_forward(engine: Engine, strategy_fn: StrategyFn, ticker: str,
         masked_entry[recal_point:purge_end] = False
         recal_point += recal_bars
 
-    # Create masked result
+    # Create masked result (preserves all fields including futures)
     masked_result = StrategyResult(
         entry_mask=masked_entry,
         direction=result.direction,
@@ -206,6 +207,10 @@ def _run_walk_forward(engine: Engine, strategy_fn: StrategyFn, ticker: str,
         convex_exit=result.convex_exit,
         mean_target_vals=result.mean_target_vals,
         name=result.name,
+        # Futures fields — must be carried through for perp validation
+        market_type=result.market_type,
+        leverage=result.leverage,
+        exchange=result.exchange,
     )
 
     trades, final_equity = engine._simulate(ctx, masked_result)
@@ -324,6 +329,7 @@ def _validate_token(ticker: str, strategy_module_path: str, config_dict: dict,
         capital=config_dict.get('capital', 200_000),
         pbo_threshold=config_dict.get('pbo_threshold', 0.40),
         data_dir=config_dict.get('data_dir', 'real_data'),
+        market=config_dict.get('market', 'spot'),
     )
 
     # Load strategy
@@ -335,8 +341,11 @@ def _validate_token(ticker: str, strategy_module_path: str, config_dict: dict,
     except Exception as e:
         return {'ticker': ticker, 'error': f'strategy_load: {e}'}
 
+    # Combined market: use spot data dir for discovery but engine handles both
+    effective_market = config.market if config.market != 'combined' else 'spot'
+
     # Load data
-    h1_path = os.path.join(config.data_dir, config.market, f'1h_cache/{ticker}_1h.parquet')
+    h1_path = os.path.join(config.data_dir, effective_market, f'1h_cache/{ticker}_1h.parquet')
     if not os.path.exists(h1_path):
         return {'ticker': ticker, 'error': 'no_data'}
 
@@ -344,13 +353,13 @@ def _validate_token(ticker: str, strategy_module_path: str, config_dict: dict,
     if len(df_1h) < 2000:
         return {'ticker': ticker, 'error': 'insufficient_data'}
 
-    engine = Engine(data_dir=config.data_dir, market=config.market, capital=config.capital)
+    engine = Engine(data_dir=config.data_dir, market=effective_market, capital=config.capital)
 
     result = TokenValidationResult(ticker=ticker)
 
     # Walk-Forward
     if run_wf:
-        benchmark = load_benchmark_returns(config.data_dir)
+        benchmark = load_benchmark_returns(config.data_dir, market=effective_market)
         wf_metrics, wf_pass, wf_trades = _run_walk_forward(
             engine, strategy_fn, ticker, df_1h, config.wf, benchmark, config.capital)
         result.wf_metrics = wf_metrics
@@ -366,6 +375,40 @@ def _validate_token(ticker: str, strategy_module_path: str, config_dict: dict,
         result.cpcv_total_folds = total_folds
         result.cpcv_deflated_sharpe = ds
         result.cpcv_pass = pbo < config.pbo_threshold
+
+    # Combined market: also run a quick backtest to get funding metrics
+    funding_metrics = {}
+    if config.market == 'combined':
+        try:
+            combo_result = engine.backtest_token_combined(strategy_fn, ticker)
+            if combo_result is not None:
+                funding_metrics = {
+                    'total_funding_cost': combo_result.get('total_funding_cost', 0),
+                    'n_trades_leg1': combo_result.get('n_trades_leg1', 0),
+                    'n_trades_leg2': combo_result.get('n_trades_leg2', 0),
+                }
+                trades_with_funding = [t for t in combo_result.get('trades', []) if t.get('funding_cost', 0) != 0]
+                if trades_with_funding:
+                    funding_metrics['avg_funding_per_trade'] = sum(t['funding_cost'] for t in trades_with_funding) / len(trades_with_funding)
+        except TypeError as e:
+            # Strategy doesn't have combined signature — report clearly
+            return {'ticker': ticker, 'error': f'combined_strategy_signature: {e}'}
+        except Exception:
+            pass
+    elif config.market == 'perp':
+        # For perp: run a backtest to get funding metrics
+        try:
+            perp_result = engine.backtest_token(strategy_fn, ticker, df_1h)
+            if perp_result is not None:
+                trades = perp_result.get('trades', [])
+                total_funding = sum(t.get('funding_cost', 0) for t in trades)
+                trades_with_funding = [t for t in trades if t.get('funding_cost', 0) != 0]
+                funding_metrics = {
+                    'total_funding_cost': total_funding,
+                    'avg_funding_per_trade': total_funding / max(len(trades_with_funding), 1) if trades_with_funding else 0,
+                }
+        except Exception:
+            pass
 
     # Dual gate
     if run_wf and run_cpcv:
@@ -389,6 +432,8 @@ def _validate_token(ticker: str, strategy_module_path: str, config_dict: dict,
     }
     if result.wf_metrics is not None:
         out['wf_metrics'] = asdict(result.wf_metrics)
+    if funding_metrics:
+        out['funding_metrics'] = funding_metrics
     return out
 
 
@@ -432,10 +477,17 @@ def validate_strategy(strategy_path: str, tokens: Optional[List[str]] = None,
 
     # Filter tokens with data
     valid_tokens = []
+    effective_market = config.market if config.market != 'combined' else 'spot'
     for tk in tokens:
-        h1_path = os.path.join(config.data_dir, config.market, f'1h_cache/{tk}_1h.parquet')
+        h1_path = os.path.join(config.data_dir, effective_market, f'1h_cache/{tk}_1h.parquet')
         if os.path.exists(h1_path):
-            valid_tokens.append(tk)
+            if config.market == 'combined':
+                # Combined requires both spot and perp data
+                perp_path = os.path.join(config.data_dir, 'perp', f'1h_cache/{tk}_1h.parquet')
+                if os.path.exists(perp_path):
+                    valid_tokens.append(tk)
+            else:
+                valid_tokens.append(tk)
 
     if not valid_tokens:
         print("No tokens with data found.")
@@ -452,6 +504,7 @@ def validate_strategy(strategy_path: str, tokens: Optional[List[str]] = None,
         'capital': config.capital,
         'pbo_threshold': config.pbo_threshold,
         'data_dir': config.data_dir,
+        'market': config.market,
     }
 
     # Header
@@ -705,8 +758,8 @@ def main():
     parser.add_argument('--data-dir', type=str, default='data',
                         help='Data directory')
     parser.add_argument('--market', type=str, default='spot',
-                        choices=['perp', 'spot'],
-                        help='Market type (perp or spot)')
+                        choices=['perp', 'spot', 'combined'],
+                        help='Market type (spot, perp, or combined)')
     args = parser.parse_args()
 
     run_wf = not args.cpcv_only

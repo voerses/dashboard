@@ -130,6 +130,34 @@ def adv_to_costs(adv):
 
 
 # ---------------------------------------------------------------------------
+# Exchange-Specific Fee Model (for futures/perp support)
+# ---------------------------------------------------------------------------
+
+EXCHANGE_FEES = {
+    # (maker, taker) fee rates per market type
+    'binance':     {'spot': (0.0010, 0.0010), 'perp': (0.0002, 0.0005)},
+    'kraken':      {'spot': (0.0012, 0.0022), 'perp': (0.000125, 0.000225)},
+    'hyperliquid': {'spot': (0.0010, 0.0010), 'perp': (0.00015, 0.00035)},
+}
+
+
+def get_fee_rate(exchange='binance', market='spot', order_type='taker'):
+    """Fee rate for exchange + market + order type.
+
+    Args:
+        exchange: Exchange name ('binance', 'kraken', 'hyperliquid')
+        market: Market type ('spot' or 'perp')
+        order_type: 'maker' or 'taker'
+
+    Returns:
+        Fee rate as a float (e.g. 0.0005 for Binance perp taker)
+    """
+    fees = EXCHANGE_FEES.get(exchange, EXCHANGE_FEES['binance'])
+    market_fees = fees.get(market, fees['spot'])
+    return market_fees[0 if order_type == 'maker' else 1]
+
+
+# ---------------------------------------------------------------------------
 # Token discovery — data-driven, no static lists
 # ---------------------------------------------------------------------------
 
