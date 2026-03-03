@@ -83,6 +83,34 @@
 
 **Implementation:** `v3/signal_agreement.py` — standalone tool supporting AND, N-of-M, and ANY gating modes. Zero blast radius to existing code.
 
+### Regime-Conditional Weighting (Overlay)
+
+| Metric | Baseline (S11+S09) | Regime-Weighted | Delta |
+|--------|-------------------|-----------------|-------|
+| Sharpe | +1.67 | **+1.96** | **+0.29** |
+| Sortino | +2.41 | **+2.79** | **+0.38** |
+| Calmar | +2.51 | **+3.47** | **+0.96** |
+| Max Drawdown | -22.2% | **-17.7%** | **+4.5pp** |
+| DD Duration | 417 days | **229 days** | **-188 days** |
+| Profit Factor | 1.32 | **1.58** | **+0.26** |
+| Trades | 33,498 | 25,528 | -24% |
+| Ann. Return | +55.8% | **+61.5%** | **+5.7pp** |
+
+**Mechanism:** Scales position sizes by market regime (detected from BTC daily bars). Full allocation in UPTREND, reduced in RANGE (68-92%), half in QUIET, minimal/zero in DOWNTREND/CRISIS. Weights derived empirically from per-regime profit factor analysis.
+
+**Key regime findings (BTC 2020-2026):**
+| Regime | Frequency | S11 PF | S09 PF | Weight |
+|--------|-----------|--------|--------|--------|
+| UPTREND | 39% | 1.94 | 1.46 | 1.00 |
+| RANGE | 21% | 1.31 | 1.35 | 0.68-0.92 |
+| QUIET | 12% | 1.15 | 1.17 | 0.50 |
+| DOWNTREND | 27% | 0.93 | 0.78 | 0.00-0.25 |
+| CRISIS | 0.4% | -- | -- | 0.00 |
+
+**Value:** Improves every risk metric while also boosting returns. The biggest win: avoiding DOWNTREND trades where both strategies lose money (PF < 1.0). Eliminates ~8K losing trades while keeping all winning regimes at full allocation.
+
+**Implementation:** `v3/regime_analysis.py` — standalone tool with empirical heatmap analysis + regime-weighted portfolio simulation. Zero blast radius.
+
 ### V3 Liquidity Contrarian (Complement)
 
 | Metric | Value |
@@ -112,8 +140,9 @@ Based on Hamilton (1989). Crypto-validated by Castellano & D'Ecclesia (2025).
 | 1 | S11 Momentum Burst | LIVE (#1) | +$170K |
 | 2 | S09 Dual Momentum Trend | LIVE (#2) | +$163K |
 | 3 | Cross-Sectional Momentum | VALIDATED (diversifier) | +190%/yr ann. |
-| 4 | V3 Liquidity Contrarian | LIVE (complement) | +$8K |
-| 5 | HMM Regime Detection | LIVE (overlay) | Integrated |
+| 4 | Regime-Conditional Weighting | VALIDATED (overlay) | +0.29 Sharpe |
+| 5 | V3 Liquidity Contrarian | LIVE (complement) | +$8K |
+| 6 | HMM Regime Detection | LIVE (overlay) | Integrated |
 
 ### Tier B: High Priority — Next to Implement
 
