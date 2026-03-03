@@ -129,6 +129,23 @@
 
 Based on Hamilton (1989). Crypto-validated by Castellano & D'Ecclesia (2025).
 
+### Dynamic Universe — Point-in-Time Token Eligibility (Infrastructure)
+
+| Metric | Static Universe | Dynamic Universe | Bias |
+|--------|----------------|-----------------|------|
+| Sharpe (liquid, 102 tokens) | +1.75 | +1.74 | +0.2% (minimal) |
+| Sharpe (all, 116 tokens) | +1.75 | +1.70 | +2.7% (modest) |
+| Ghost trades (liquid) | — | 36 trades, $7.8K PnL | |
+| Ghost trades (all) | — | 112 trades, $29.3K PnL | |
+
+**What it fixes:** Static universe locks the token list at backtest start using current ADV/quality. Dynamic universe re-evaluates eligibility every 90 days (matching walk-forward windows) using only data available at each point. Tokens that hadn't listed yet or lost liquidity are excluded from that window.
+
+**Key finding:** The existing per-bar liquidity mask in `engine.py` already handles most of the bias. The residual static-universe look-ahead is **+0.2% to +2.7%** Sharpe inflation depending on universe breadth. Not catastrophic but worth correcting for rigorous backtests.
+
+**Timeline insights (BTC-era 2020-2026):** Universe grew from 21 tokens (2020) to 101 tokens (2026). XMR lost eligibility in 2024 (Binance delisting). OM had intermittent eligibility (3 gaps).
+
+**Implementation:** `v3/dynamic_universe.py` — standalone tool. Zero blast radius.
+
 ---
 
 ## Priority Ranking — All Strategies
