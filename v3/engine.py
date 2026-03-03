@@ -268,15 +268,16 @@ def _simulate_core_jit(close, high, low, atr, entry_mask, direction,
                        stop_mult, trail_mult, target_mult,
                        regime, exit_regime_mask, min_hold, max_hold,
                        rsi, rsi_exit_level, use_rsi,
-                       fee_rate, adv, base_spread_bps, impact_coeff,
+                       fee_rate, adv_arr, base_spread_bps, impact_coeff,
                        initial_capital, tier,
                        convex_exit, mean_target_vals, use_mean_target,
                        no_stop_bars, edge_override,
-                       kelly_mult, cap_pct,
-                       is_perp, leverage, funding_1h):
+                       kelly_mult_arr, cap_pct_arr,
+                       is_perp, leverage_arr, funding_1h):
     """
     Numba-JIT compiled trade simulation loop.
     Slippage is position-size-aware: slip_bps = base_spread + impact * sqrt(pos_usd / adv)
+    ADV, kelly_mult, cap_pct, leverage are per-bar arrays (rolling, point-in-time).
 
     Perp extensions (active when is_perp=True):
     - Funding accumulation: notional * per-hour rate, every bar while in position
@@ -335,7 +336,7 @@ def _simulate_core_jit(close, high, low, atr, entry_mask, direction,
                 cumulative_funding += funding_cost
 
             # Liquidation check (perp with leverage only)
-            if is_perp and leverage > 1.0 and position != 0.0:
+            if is_perp and leverage_arr[entry_bar] > 1.0 and position != 0.0:
                 # Simplified liquidation: if unrealized loss exceeds margin
                 if position > 0.0:
                     unrealized = position * (close[i] - entry_price)
@@ -344,7 +345,7 @@ def _simulate_core_jit(close, high, low, atr, entry_mask, direction,
                 if margin_usd + unrealized - cumulative_funding < margin_usd * 0.05:
                     # Liquidation: exit at current price
                     exit_pos_usd = abs(position * close[i])
-                    exit_participation = exit_pos_usd / max(adv, 1.0)
+                    exit_participation = exit_pos_usd / max(adv_arr[i], 1.0)
                     exit_slip_bps = base_spread_bps + impact_coeff * np.sqrt(exit_participation) * 10000.0
                     if exit_slip_bps > 100.0:
                         exit_slip_bps = 100.0
@@ -355,7 +356,7 @@ def _simulate_core_jit(close, high, low, atr, entry_mask, direction,
                         pnl = position * (exit_price_liq - entry_price)
                     else:
                         exit_price_liq += slip
-                        pnl = position * (entry_price - exit_price_liq)
+                        pnl = abs(position) * (entry_price - exit_price_liq)
                     fee = abs(position * exit_price_liq) * fee_rate
                     # Equity: pnl - fee only (funding already deducted per-bar)
                     net_pnl = pnl - fee
@@ -365,7 +366,7 @@ def _simulate_core_jit(close, high, low, atr, entry_mask, direction,
                     if trade_count < max_trades:
                         # Trade record: include funding in reported PnL
                         out_pnl[trade_count] = net_pnl - cumulative_funding
-                        out_ret[trade_count] = net_pnl / max(pos_usd_rec, 1.0) * 100.0
+                        out_ret[trade_count] = (net_pnl - cumulative_funding) / max(pos_usd_rec, 1.0) * 100.0
                         out_hold[trade_count] = bars_held
                         out_exit[trade_count] = 7  # liquidation
                         out_pos[trade_count] = pos_usd_rec
@@ -442,7 +443,7 @@ def _simulate_core_jit(close, high, low, atr, entry_mask, direction,
 
             if exit_signal:
                 exit_pos_usd = abs(position * exit_price)
-                exit_participation = exit_pos_usd / max(adv, 1.0)
+                exit_participation = exit_pos_usd / max(adv_arr[i], 1.0)
                 exit_slip_bps = base_spread_bps + impact_coeff * np.sqrt(exit_participation) * 10000.0
                 if exit_slip_bps > 100.0:
                     exit_slip_bps = 100.0
@@ -452,7 +453,7 @@ def _simulate_core_jit(close, high, low, atr, entry_mask, direction,
                     pnl = position * (exit_price - entry_price)
                 else:
                     exit_price += slip
-                    pnl = position * (entry_price - exit_price)
+                    pnl = abs(position) * (entry_price - exit_price)
                 fee = abs(position * exit_price) * fee_rate
                 # For perp: funding already deducted per-bar from equity
                 net_pnl = pnl - fee
@@ -486,10 +487,10 @@ def _simulate_core_jit(close, high, low, atr, entry_mask, direction,
 
             if edge_override < 0.10:
                 continue
-            kelly_frac = kelly_mult * edge_override
+            kelly_frac = kelly_mult_arr[i] * edge_override
             vol_adj = 0.02 / max(vol, 0.005) if vol > 0.0 else 1.0
             raw = equity * kelly_frac * vol_adj
-            max_cap = equity * cap_pct
+            max_cap = equity * cap_pct_arr[i]
             max_trade = equity * 0.05
             pos_usd = min(raw, max_cap, max_trade)
             if pos_usd < 0.0:
@@ -499,11 +500,11 @@ def _simulate_core_jit(close, high, low, atr, entry_mask, direction,
 
             # Leverage: amplify notional exposure; margin = pos_usd (unchanged)
             margin_usd = pos_usd
-            if is_perp and leverage > 1.0:
-                pos_usd = pos_usd * leverage
+            if is_perp and leverage_arr[i] > 1.0:
+                pos_usd = pos_usd * leverage_arr[i]
 
             # Position-size-aware slippage: base spread + market impact
-            participation = pos_usd / max(adv, 1.0)
+            participation = pos_usd / max(adv_arr[i], 1.0)
             slip_bps = base_spread_bps + impact_coeff * np.sqrt(participation) * 10000.0
             if slip_bps > 100.0:
                 slip_bps = 100.0
@@ -748,7 +749,7 @@ def _simulate_combined_jit(
                     pnl1 = pos_1 * (eprice_1 - entry_price_1)
                 else:
                     eprice_1 += sl1
-                    pnl1 = pos_1 * (entry_price_1 - eprice_1)
+                    pnl1 = abs(pos_1) * (entry_price_1 - eprice_1)
                 fee1 = abs(pos_1 * eprice_1) * fee_rate_1
                 net1 = pnl1 - fee1
                 equity += net1
@@ -872,7 +873,7 @@ def _simulate_combined_jit(
                     pnl2 = pos_2 * (eprice_2 - entry_price_2)
                 else:
                     eprice_2 += sl2
-                    pnl2 = pos_2 * (entry_price_2 - eprice_2)
+                    pnl2 = abs(pos_2) * (entry_price_2 - eprice_2)
                 fee2 = abs(pos_2 * eprice_2) * fee_rate_2
                 net2 = pnl2 - fee2
                 equity += net2
@@ -1048,6 +1049,10 @@ class StrategyContext:
     enriched: Optional[pd.DataFrame] = None
     custom: Dict[str, np.ndarray] = field(default_factory=dict)
 
+    # Point-in-time liquidity data
+    liquidity_mask: Optional[np.ndarray] = None  # bool mask (True = liquid enough to trade)
+    rolling_adv: Optional[np.ndarray] = None     # per-bar ADV for sizing/slippage
+
     # Futures support
     funding_1h: Optional[np.ndarray] = None   # per-hour funding rate aligned to 1h bars
     funding_raw: Optional[np.ndarray] = None   # raw settlement-interval rate (for signal use)
@@ -1083,7 +1088,7 @@ class StrategyResult:
 
     # Futures support (defaults preserve backward compatibility)
     market_type: int = 0        # MarketType.SPOT
-    leverage: float = 1.0       # position notional multiplier (no hard cap)
+    leverage: object = 1.0      # float scalar or per-bar np.ndarray
     exchange: str = 'binance'   # for fee/funding lookup
 
     # Combined strategy fields (secondary leg)
@@ -1235,10 +1240,11 @@ class Engine:
     """Main backtesting engine."""
 
     def __init__(self, data_dir='data', market='spot', capital=200_000,
-                 fee_rate=None, slippage_bps=None):
+                 fee_rate=None, slippage_bps=None, exchange='binance'):
         self.data_dir = data_dir
         self.market = market  # 'perp' or 'spot'
         self.capital = capital
+        self.exchange = exchange
         self._fee_override = fee_rate
         self._slip_override = slippage_bps
         self._enriched = None
@@ -1323,6 +1329,13 @@ class Engine:
         adv = compute_adv(c1, v1, lookback_days=30, hours_per_bar=1)
         tier = adv_to_tier(adv)
 
+        # Compute point-in-time liquidity mask and rolling ADV
+        from universe import compute_liquidity_mask, compute_rolling_adv, FALLBACK_ADV
+        liq_mask = compute_liquidity_mask(c1, v1, hours_per_bar=1)
+        rolling_adv_arr = compute_rolling_adv(c1, v1, lookback_days=30, hours_per_bar=1)
+        # Fill NaN bars (before lookback period) with conservative fallback (no look-ahead)
+        rolling_adv_arr = np.where(np.isnan(rolling_adv_arr), FALLBACK_ADV, rolling_adv_arr)
+
         # Funding data (perp parquets with funding_1h column)
         effective_market = market_override if market_override is not None else self.market
         funding_1h_arr = None
@@ -1341,6 +1354,8 @@ class Engine:
             regime_1h=regime_1h,
             df_1h=df_1h, df_4h=df_4h, df_daily=df_daily,
             enriched=token_enriched,
+            liquidity_mask=liq_mask,
+            rolling_adv=rolling_adv_arr,
             funding_1h=funding_1h_arr,
             funding_raw=funding_raw_arr,
             market_type=effective_market,
@@ -1376,17 +1391,18 @@ class Engine:
         use_mean_target = result.mean_target_vals is not None
         mean_target = result.mean_target_vals if use_mean_target else np.full(n, np.nan)
 
-        # ADV-based sizing: continuous functions of actual volume
-        kelly_mult, cap_pct = adv_to_sizing(ctx.adv)
+        # ADV-based sizing: per-bar arrays from rolling ADV (point-in-time)
+        adv_arr_rolling = ctx.rolling_adv if ctx.rolling_adv is not None else np.full(n, ctx.adv)
+        kelly_mult_arr, cap_pct_arr = adv_to_sizing(adv_arr_rolling)
 
-        # Fee routing: perp uses exchange-specific fees, spot uses ADV-based
+        # Fee routing: exchange-specific fees for both spot and perp
         is_perp = result.market_type == MarketType.PERP
         if self._fee_override is not None:
             fee_rate = self._fee_override
-        elif is_perp:
-            fee_rate = get_fee_rate(result.exchange, 'perp', 'taker')
         else:
-            fee_rate = adv_to_costs(ctx.adv)
+            exchange = result.exchange or self.exchange
+            market_type = 'perp' if is_perp else 'spot'
+            fee_rate = get_fee_rate(exchange, market_type, 'taker')
 
         # Slippage model: base_spread + impact * sqrt(pos/ADV)
         if self._slip_override is not None:
@@ -1397,6 +1413,9 @@ class Engine:
             impact_coeff = 0.03
 
         entry_mask = np.asarray(result.entry_mask, dtype=np.bool_)
+        # Apply liquidity gate: block entries during illiquid periods
+        if ctx.liquidity_mask is not None:
+            entry_mask = entry_mask & ctx.liquidity_mask
         direction = np.asarray(result.direction, dtype=np.int8)
 
         # Funding array: use context funding if available, else zeros (graceful degradation)
@@ -1405,17 +1424,24 @@ class Engine:
         else:
             funding_1h = np.zeros(n, dtype=np.float64)
 
+        # Leverage: convert scalar to per-bar array
+        lev = result.leverage
+        if isinstance(lev, np.ndarray):
+            leverage_arr = lev.astype(np.float64)
+        else:
+            leverage_arr = np.full(n, float(lev), dtype=np.float64)
+
         sim_result = _simulate_core_jit(
             close, high, low, atr_arr, entry_mask, direction,
             float(result.stop_mult), float(result.trail_mult), float(result.target_mult),
             ctx.regime_1h, exit_regime_mask, int(result.min_hold), int(result.max_hold),
             rsi, float(result.rsi_exit_level), use_rsi,
-            float(fee_rate), float(ctx.adv), float(base_spread_bps), float(impact_coeff),
+            float(fee_rate), adv_arr_rolling, float(base_spread_bps), float(impact_coeff),
             float(self.capital), int(ctx.tier),
             result.convex_exit, mean_target, use_mean_target,
             int(result.no_stop_bars), float(result.edge),
-            float(kelly_mult), float(cap_pct),
-            is_perp, float(result.leverage), funding_1h,
+            kelly_mult_arr, cap_pct_arr,
+            is_perp, leverage_arr, funding_1h,
         )
 
         pnl_arr, ret_arr, hold_arr, exit_arr, pos_arr, entry_bars, exit_bars, final_equity, funding_arr = sim_result

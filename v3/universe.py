@@ -18,6 +18,7 @@ Tier labels (for reporting):
 
 import math
 import numpy as np
+import pandas as pd
 from pathlib import Path as _Path
 
 
@@ -30,8 +31,8 @@ ADV_TIER2_THRESHOLD = 10_000_000   # $10M-$50M
 # Hard cap: never take more than 2% of a token's daily volume
 MAX_ADV_PCT = 0.02
 
-# Exchange fee rate (fairly constant across major exchanges)
-BASE_FEE_RATE = 0.0022
+# Default exchange for fee lookups
+DEFAULT_EXCHANGE = 'binance'
 
 # Fallback ADV when volume data is unavailable (conservative: $5M)
 FALLBACK_ADV = 5_000_000
@@ -101,15 +102,22 @@ def adv_to_sizing(adv):
     cap_pct:    0.02 (micro) → 0.12 (mega liquid)
 
     Both scale with log10(ADV_millions), capped at $10B+ ADV.
+
+    Accepts scalar or array input.
     """
-    adv_m = max(adv, 1.0) / 1_000_000  # ADV in millions
-    # log10 scale: 0.1M → -1, 1M → 0, 10M → 1, 100M → 2, 10B → 4
-    log_adv = math.log10(max(adv_m, 0.1))
-    # Normalize to 0-1 range: -1 (0.1M) → 0, 4 (10B) → 1
-    frac = max(0.0, min(1.0, (log_adv + 1) / 5.0))
+    adv = np.asarray(adv, dtype=np.float64)
+    scalar = adv.ndim == 0
+    adv = np.atleast_1d(adv)
+
+    adv_m = np.maximum(adv, 1.0) / 1_000_000
+    log_adv = np.log10(np.maximum(adv_m, 0.1))
+    frac = np.clip((log_adv + 1) / 5.0, 0.0, 1.0)
 
     kelly_mult = 0.15 + 0.35 * frac
     cap_pct = 0.02 + 0.10 * frac
+
+    if scalar:
+        return float(kelly_mult[0]), float(cap_pct[0])
     return kelly_mult, cap_pct
 
 
@@ -117,16 +125,15 @@ def adv_to_sizing(adv):
 # ADV → Trading Costs (continuous)
 # ---------------------------------------------------------------------------
 
-def adv_to_costs(adv):
+def adv_to_costs(adv, exchange=None, market='spot', order_type='taker'):
     """Return fee_rate for a given ADV.
 
-    fee_rate: ~0.0022 (constant, exchange-dependent not token-dependent)
-
-    Slippage is no longer returned here — it's computed per-trade in the
-    engine JIT as: slip_bps = base_spread + impact_coeff * sqrt(pos_usd / adv)
-    This properly accounts for position size relative to liquidity.
+    Delegates to get_fee_rate() for exchange-specific fees.
+    Slippage is computed separately per-trade in the engine JIT.
     """
-    return BASE_FEE_RATE
+    if exchange is None:
+        exchange = DEFAULT_EXCHANGE
+    return get_fee_rate(exchange, market, order_type)
 
 
 # ---------------------------------------------------------------------------
@@ -134,10 +141,14 @@ def adv_to_costs(adv):
 # ---------------------------------------------------------------------------
 
 EXCHANGE_FEES = {
-    # (maker, taker) fee rates per market type
+    # (maker, taker) fee rates per market type — verified 2025-2026
+    # Sources:
+    #   Binance:     binance.com/en/fee (base tier, no BNB discount)
+    #   Kraken:      kraken.com/features/fee-schedule ($250k-500k/mo tier)
+    #   Hyperliquid: hyperliquid.gitbook.io/hyperliquid-docs/trading/fees (Tier 0)
     'binance':     {'spot': (0.0010, 0.0010), 'perp': (0.0002, 0.0005)},
-    'kraken':      {'spot': (0.0012, 0.0022), 'perp': (0.000125, 0.000225)},
-    'hyperliquid': {'spot': (0.0010, 0.0010), 'perp': (0.00015, 0.00035)},
+    'kraken':      {'spot': (0.0016, 0.0026), 'perp': (0.0002, 0.0005)},
+    'hyperliquid': {'spot': (0.0004, 0.0007), 'perp': (0.00015, 0.00045)},
 }
 
 
@@ -184,6 +195,192 @@ def max_position_usd(capital=200_000, adv=None):
 
 
 # ---------------------------------------------------------------------------
+# Dynamic Liquidity Gating — point-in-time, no look-ahead
+# ---------------------------------------------------------------------------
+
+# Defaults for liquidity gating
+DEFAULT_MIN_ADV_USD = 500_000   # $500k minimum ADV to be tradeable
+DEFAULT_BURN_IN_DAYS = 90       # New listings need 90 days before trading
+DEFAULT_ADV_LOOKBACK = 30       # Rolling 30-day ADV for evaluation
+
+
+def compute_rolling_adv(close, volume, lookback_days=30, hours_per_bar=1):
+    """Compute rolling ADV (point-in-time) for every bar in the series.
+
+    Returns array same length as close, where each element is the median
+    daily dollar volume over the trailing lookback window. NaN for bars
+    with insufficient history.
+
+    This is the time-series version of compute_adv() — used for
+    liquidity gating at arbitrary points in time.
+
+    Optimized: aggregates to daily, computes rolling median on daily series,
+    then expands back to hourly via forward-fill. O(n_days * lookback_days).
+    """
+    close = np.asarray(close, dtype=np.float64)
+    volume = np.asarray(volume, dtype=np.float64)
+    dollar_volume = close * volume
+    bars_per_day = max(1, 24 // hours_per_bar)
+    n = len(dollar_volume)
+
+    adv_hourly = np.full(n, np.nan)
+    if n < bars_per_day * 3:
+        return adv_hourly
+
+    # Step 1: Aggregate hourly dollar volume to daily totals
+    n_complete_days = n // bars_per_day
+    if n_complete_days < 3:
+        return adv_hourly
+
+    # Reshape complete days
+    trimmed = dollar_volume[:n_complete_days * bars_per_day]
+    daily_dv = np.nan_to_num(trimmed, 0.0).reshape(n_complete_days, bars_per_day).sum(axis=1)
+
+    # Step 2: Rolling median on daily series (O(n) via pandas)
+    daily_adv = pd.Series(daily_dv).rolling(lookback_days, min_periods=3).median().values
+
+    # Step 3: Expand daily ADV back to hourly, LAGGED BY ONE DAY
+    # Day d's ADV uses day d's full volume, so it can only be known at
+    # the end of day d. Apply it to day d+1's bars to avoid look-ahead.
+    for d in range(n_complete_days):
+        if not np.isnan(daily_adv[d]):
+            next_day_start = (d + 1) * bars_per_day
+            next_day_end = min(next_day_start + bars_per_day, n)
+            if next_day_start < n:
+                adv_hourly[next_day_start:next_day_end] = daily_adv[d]
+
+    return adv_hourly
+
+
+def compute_liquidity_mask(close, volume, min_adv_usd=DEFAULT_MIN_ADV_USD,
+                           burn_in_days=DEFAULT_BURN_IN_DAYS,
+                           adv_lookback_days=DEFAULT_ADV_LOOKBACK,
+                           hours_per_bar=1):
+    """Point-in-time liquidity gate for a single token.
+
+    Returns a boolean array (same length as close) where True means
+    the token is liquid enough to trade at that bar.
+
+    Rules (all must be true):
+        1. Token has >= burn_in_days of data before this bar
+        2. Rolling ADV >= min_adv_usd at this bar
+        3. No look-ahead: only uses data up to and including this bar
+    """
+    n = len(close)
+    bars_per_day = max(1, 24 // hours_per_bar)
+    burn_in_bars = burn_in_days * bars_per_day
+
+    # Burn-in: first burn_in_days are always False
+    if n <= burn_in_bars:
+        return np.zeros(n, dtype=np.bool_)
+
+    # Compute rolling ADV
+    rolling_adv = compute_rolling_adv(close, volume, adv_lookback_days, hours_per_bar)
+
+    # Vectorized: both gates at once
+    mask = np.zeros(n, dtype=np.bool_)
+    adv_ok = ~np.isnan(rolling_adv) & (rolling_adv >= min_adv_usd)
+    mask[burn_in_bars:] = adv_ok[burn_in_bars:]
+
+    return mask
+
+
+def get_liquid_universe(market='spot', min_adv_usd=DEFAULT_MIN_ADV_USD,
+                        burn_in_days=DEFAULT_BURN_IN_DAYS):
+    """Get tokens that currently pass liquidity gate.
+
+    Loads each token's data, computes ADV from the most recent 30 days,
+    and filters by min_adv_usd. Also requires burn_in_days of history.
+
+    Returns:
+        List of (token, adv_usd) tuples, sorted by ADV descending.
+    """
+    data_dir = _Path(__file__).resolve().parent.parent / 'data' / market / '1h_cache'
+    if not data_dir.exists():
+        return []
+
+    results = []
+    for f in sorted(data_dir.glob('*_1h.parquet')):
+        token = f.stem.replace('_1h', '')
+        try:
+            df = pd.read_parquet(f, columns=['close', 'volume'])
+            n_days = len(df) / 24
+            if n_days < burn_in_days:
+                continue
+            adv = compute_adv(
+                df['close'].values.astype(np.float64),
+                df['volume'].values.astype(np.float64),
+                lookback_days=30, hours_per_bar=1)
+            if adv >= min_adv_usd:
+                results.append((token, adv))
+        except Exception:
+            continue
+
+    results.sort(key=lambda x: -x[1])
+    return results
+
+
+def print_universe_report(market='spot', min_adv_usd=DEFAULT_MIN_ADV_USD,
+                          burn_in_days=DEFAULT_BURN_IN_DAYS):
+    """Print a summary of the liquid universe."""
+    all_tokens = get_all_tradeable(market)
+    liquid = get_liquid_universe(market, min_adv_usd, burn_in_days)
+    liquid_names = [t for t, _ in liquid]
+
+    excluded_burn_in = []
+    excluded_adv = []
+    data_dir = _Path(__file__).resolve().parent.parent / 'data' / market / '1h_cache'
+
+    for token in all_tokens:
+        if token in liquid_names:
+            continue
+        try:
+            f = data_dir / f'{token}_1h.parquet'
+            df = pd.read_parquet(f, columns=['close', 'volume'])
+            n_days = len(df) / 24
+            if n_days < burn_in_days:
+                excluded_burn_in.append((token, n_days))
+            else:
+                adv = compute_adv(
+                    df['close'].values.astype(np.float64),
+                    df['volume'].values.astype(np.float64))
+                excluded_adv.append((token, adv))
+        except Exception:
+            excluded_adv.append((token, 0))
+
+    print(f"\n{'='*70}")
+    print(f"UNIVERSE REPORT — {market.upper()}")
+    print(f"  Min ADV: ${min_adv_usd:,.0f} | Burn-in: {burn_in_days}d")
+    print(f"{'='*70}\n")
+
+    print(f"Total tokens with data: {len(all_tokens)}")
+    print(f"Pass liquidity gate:    {len(liquid)}")
+    print(f"Excluded (burn-in):     {len(excluded_burn_in)}")
+    print(f"Excluded (low ADV):     {len(excluded_adv)}")
+
+    print(f"\nLiquid tokens ({len(liquid)}):")
+    for i, (tk, adv) in enumerate(liquid):
+        tier = adv_to_tier(adv)
+        print(f"  {i+1:3d}. {tk:>8s}  ADV=${adv/1e6:7.1f}M  Tier {tier}")
+
+    if excluded_adv:
+        excluded_adv.sort(key=lambda x: -x[1])
+        print(f"\nExcluded — low ADV ({len(excluded_adv)}):")
+        for tk, adv in excluded_adv[:10]:
+            print(f"       {tk:>8s}  ADV=${adv/1e6:7.2f}M")
+        if len(excluded_adv) > 10:
+            print(f"       ... +{len(excluded_adv)-10} more")
+
+    if excluded_burn_in:
+        print(f"\nExcluded — insufficient history ({len(excluded_burn_in)}):")
+        for tk, days in excluded_burn_in:
+            print(f"       {tk:>8s}  {days:.0f} days (need {burn_in_days})")
+
+    print()
+    return liquid
+
+
+# ---------------------------------------------------------------------------
 # Legacy compatibility — kept so imports don't break, but not used for sizing
 # ---------------------------------------------------------------------------
 TIER1 = ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE', 'BNB', 'SUI']
@@ -207,4 +404,4 @@ def get_tier(ticker):
 
 def get_tier_costs(tier):
     """Legacy stub — returns conservative costs. Use adv_to_costs(adv) instead."""
-    return BASE_FEE_RATE, 35.0
+    return get_fee_rate(DEFAULT_EXCHANGE, 'spot', 'taker'), 35.0
