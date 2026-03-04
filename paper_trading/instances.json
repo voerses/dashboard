@@ -1,0 +1,14 @@
+{
+  "instances": [
+    {
+      "instance_id": "s11_binance",
+      "strategy": "s11",
+      "exchange": "binance",
+      "config_path": "runtime",
+      "status": "stopped",
+      "pid": null,
+      "started_at": "2026-03-01T22:15:58.893696+00:00"
+    }
+  ],
+  "updated_at": "2026-03-01T22:25:01.962788+00:00"
+}
