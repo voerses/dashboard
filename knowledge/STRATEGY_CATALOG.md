@@ -171,6 +171,48 @@ Based on Hamilton (1989). Crypto-validated by Castellano & D'Ecclesia (2025).
 
 **Implementation:** `v3/sector_rotation.py` — standalone engine with sector analysis, parameter sweep, and regime filter. Zero blast radius.
 
+### Pairs Trading — Statistical Arbitrage (Diversifier)
+
+| Metric | Value |
+|--------|-------|
+| Annual Return | +4.2% annualized (best config, 2021-2026) |
+| Sharpe / Sortino | +0.42 / +0.24 |
+| Calmar | +0.31 |
+| Max Drawdown | -13.6% (486 days) |
+| Trade count | 126 trades (5yr backtest) |
+| Win rate / PF | 57.9% / 1.31 |
+| Rebalance | Weekly (7d), 90d lookback |
+| Regime filter | ON — BTC EMA20/50 (33% days risk-off) |
+| Correlation vs S11 | **-0.06** (near-zero, essentially uncorrelated) |
+| Market | Perpetual futures (both legs) |
+
+**Entry logic:** Identify correlated token pairs via 90-day trailing correlation (>0.60) + half-life of mean reversion (3-60d). Compute rolling z-score of log price spread. Enter when |z| > 3.0 (long underperformer / short outperformer on perps). Exit on mean reversion (|z| < 0.5), stop loss (|z| > 4.0), or max hold (10 days). Max 5 concurrent pairs. BTC regime filter closes all pairs during downtrends.
+
+**Diversification value:** The key selling point. Correlation with S11 is **-0.06** — effectively uncorrelated. This is rare in crypto where everything typically correlates +0.5 to +0.8. Blend analysis:
+
+| Allocation (S11/Pairs) | Sharpe | Sortino | Calmar | Max DD | Ann% |
+|------------------------|--------|---------|--------|--------|------|
+| 100/0 (S11 only) | +1.89 | +3.11 | +2.21 | -18.2% | +40.2% |
+| 90/10 | +1.90 | +3.17 | +2.25 | -16.2% | +36.4% |
+| 85/15 | +1.91 | +3.20 | +2.27 | -15.2% | +34.5% |
+| 70/30 | +1.91 | +3.23 | +2.38 | -12.2% | +28.9% |
+| 50/50 | +1.83 | +2.96 | +2.70 | -8.0% | +21.6% |
+
+**Standalone is modest** (Sharpe +0.42, Calmar +0.31) — does not meet Tier A thresholds. But a 15-30% allocation to pairs improves the combined portfolio's Calmar by 0.06-0.17 while cutting drawdown by 3-6pp. This is pure diversification benefit from near-zero correlation.
+
+**Parameter sweep (regime filter ON):**
+| Config | Sharpe | Ann% | Max DD | Trades |
+|--------|--------|------|--------|--------|
+| lb=90 rb=7 ez=3.0 mh=10 mp=5 (best) | +0.42 | +4.2% | -13.6% | 126 |
+| lb=90 rb=7 ez=3.5 mh=10 mp=10 | +0.22 | +1.0% | -8.7% | 89 |
+| lb=90 rb=7 ez=3.0 mh=10 mp=10 | +0.25 | +1.7% | -11.3% | 232 |
+| lb=75 rb=7 ez=3.0 mh=10 mp=10 | +0.15 | +0.8% | -15.9% | 218 |
+| lb=60 rb=14 ez=3.0 mh=15 SS mp=10 | +0.05 | +0.1% | -11.4% | 206 |
+
+**Key finding:** Higher entry threshold (z=3.0+) is critical — lower thresholds (z=2.0) lose money. Shorter holding periods (10d) beat longer. Fewer max pairs (5) concentrates into highest-quality pairs.
+
+**Implementation:** `v3/pairs_trading.py` — standalone engine using perp futures data. Pair selection via correlation + half-life scoring. Funding rate costs loaded from parquet columns. Zero blast radius.
+
 ### Dynamic Universe — Point-in-Time Token Eligibility (Infrastructure)
 
 | Metric | Static Universe | Dynamic Universe | Bias |
@@ -204,10 +246,11 @@ Based on Hamilton (1989). Crypto-validated by Castellano & D'Ecclesia (2025).
 | 6 | V3 Liquidity Contrarian | LIVE (complement) | +$8K |
 | 7 | HMM Regime Detection | LIVE (overlay) | Integrated |
 
-### Tier B: High Priority — Next to Implement
+### Tier B: Validated / High Priority
 
 | # | Strategy | Signal type | Expected lift | Complexity |
 |---|----------|-------------|---------------|------------|
+| 0 | **Pairs Trading (Stat Arb)** | **VALIDATED (diversifier)** | **corr -0.06 vs S11, cuts DD -6pp** | **Medium** |
 | 1 | Vol scaling (Moreira & Muir 2017) | Sizing overlay | +0.3-0.5 Sharpe | Low |
 | 2 | Momentum crash protection (Barroso 2015) | Sizing overlay | Better drawdowns | Low |
 | 3 | DI crossover direction (Wilder 1978) | Entry filter | Higher win rate | Low |
@@ -237,7 +280,7 @@ Based on Hamilton (1989). Crypto-validated by Castellano & D'Ecclesia (2025).
 | RSI extremes (standalone) | Mean reversion | IC=0.004 standalone; MR loses at swing TF | FAILED |
 | Vol breakout (BB squeeze) | Volatility | -$4,220/yr; squeeze too frequent, 55% fakeout | FAILED |
 | TTM Squeeze | Volatility | Same problems as vol breakout; weak academic support | NOT TESTED |
-| Pairs trading | Cross-sectional | Requires shorting; crypto correlations unstable | N/A |
+| ~~Pairs trading~~ | ~~Cross-sectional~~ | **PROMOTED to Tier B** — Sharpe +0.42, corr -0.06 vs S11. Earlier dismissal was "requires shorting" but perp infrastructure now exists. Standalone is modest but diversification value is exceptional: 70/30 S11/Pairs blend cuts DD from -18.2% to -12.2% while maintaining Sharpe 1.91. | VALIDATED |
 | OU-based strategies | Mean reversion | Crypto is momentum-driven, fails OU model test | N/A |
 | ~~Cross-sectional momentum~~ | ~~Cross-sectional~~ | **PROMOTED to Tier A** — Sharpe +1.54, corr +0.25 vs S11. Earlier dismissal based on incomplete reading of Han 2023 (which actually favors XS over TS momentum). | VALIDATED |
 | Order book imbalance | Microstructure | Signal horizon minutes, too short for swing | N/A |
