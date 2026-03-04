@@ -25,6 +25,8 @@ data/4h_cache_2yr_backup/
 data/1m_test/
 data/*.csv
 data/*.parquet
+data/spot/
+data/perp/
 # Legacy paths (v2)
 v2/real_data/
 
@@ -36,9 +38,11 @@ v2/results/
 v1/outputs/
 
 # ======================
-# Validation results (re-runnable)
+# Results (re-runnable)
 # ======================
-results/validation_*.json
+results/
+data/quality_reports/
+data/s11_winter_analysis.json
 
 # ======================
 # Generated charts
@@ -81,7 +85,30 @@ freqtrade.log
 .specs/telemetry.jsonl
 .specs/retro-log.md
 .claude/.process-change-token
+.claude/.process-mode
+.claude/.strategy-gate
 .claude/settings.local.json
+.process-mode
+.strategy-gate
+
+# ======================
+# Paper trading runtime
+# ======================
+paper_trading/logs/
+paper_trading/*/runs/
+paper_trading/*/current
+paper_trading/*/report.json
+
+# ======================
+# Core dumps
+# ======================
+core
+core.*
+
+# ======================
+# Verification scripts (temporary)
+# ======================
+verify_changes.py
 
 # ======================
 # Node (if aidev UI is used)
