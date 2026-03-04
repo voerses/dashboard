@@ -18,6 +18,7 @@ Tier labels (for reporting):
 
 import json
 import math
+import warnings
 import numpy as np
 import pandas as pd
 from pathlib import Path as _Path
@@ -185,6 +186,12 @@ def get_fee_rate(exchange='binance', market='spot', order_type='taker'):
     Returns:
         Fee rate as a float (e.g. 0.0005 for Binance perp taker)
     """
+    if market not in ('spot', 'perp'):
+        warnings.warn(
+            f"get_fee_rate: invalid market '{market}', falling back to 'spot'",
+            stacklevel=2,
+        )
+        market = 'spot'
     fees = EXCHANGE_FEES.get(exchange, EXCHANGE_FEES['binance'])
     market_fees = fees.get(market, fees['spot'])
     return market_fees[0 if order_type == 'maker' else 1]

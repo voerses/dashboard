@@ -10,6 +10,7 @@ equity curve reconstruction and per-window stats.
 
 import sys
 import os
+import warnings
 
 _v3_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -63,6 +64,8 @@ class MarketType:
     SPOT = 0
     PERP = 1
     COMBINED = 2
+
+_MARKET_INT_TO_STR = {MarketType.SPOT: 'spot', MarketType.PERP: 'perp', MarketType.COMBINED: 'combined'}
 
 
 # =============================================================================
@@ -1261,6 +1264,7 @@ class Engine:
         self._enriched = None
         self._enriched_loaded = False
         self._context_cache = {}
+        self._warned_mismatches = set()
 
     def _cache_dir(self, timeframe='1h'):
         """Resolve cache directory: data/{market}/{timeframe}_cache/"""
@@ -1412,6 +1416,19 @@ class Engine:
 
         # Fee routing: exchange-specific fees for both spot and perp
         is_perp = result.market_type == MarketType.PERP
+
+        # Warn if strategy's declared market type doesn't match engine's market
+        if self.market != 'combined':
+            strategy_market = _MARKET_INT_TO_STR.get(result.market_type, 'spot')
+            if strategy_market != self.market and result.name not in self._warned_mismatches:
+                self._warned_mismatches.add(result.name)
+                warnings.warn(
+                    f"Market mismatch: strategy '{result.name}' declares "
+                    f"market_type={strategy_market} but engine is running "
+                    f"with market='{self.market}'",
+                    stacklevel=2,
+                )
+
         if self._fee_override is not None:
             fee_rate = self._fee_override
         else:
