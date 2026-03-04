@@ -348,28 +348,17 @@ def _simulate_core_jit(close, high, low, atr, entry_mask, direction,
                 else:
                     unrealized = abs(position) * (entry_price - close[i])
                 if margin_usd + unrealized - cumulative_funding < margin_usd * 0.05:
-                    # Liquidation: exit at current price
-                    exit_pos_usd = abs(position * close[i])
-                    exit_participation = exit_pos_usd / max(adv_arr[i], 1.0)
-                    exit_slip_bps = base_spread_bps + impact_coeff * np.sqrt(exit_participation) * 10000.0
-                    if exit_slip_bps > 100.0:
-                        exit_slip_bps = 100.0
-                    exit_price_liq = close[i]
-                    slip = exit_price_liq * exit_slip_bps / 10000.0
-                    if d == 1:
-                        exit_price_liq -= slip
-                        pnl = position * (exit_price_liq - entry_price)
-                    else:
-                        exit_price_liq += slip
-                        pnl = abs(position) * (entry_price - exit_price_liq)
-                    fee = abs(position * exit_price_liq) * fee_rate
-                    # Equity: pnl - fee only (funding already deducted per-bar)
-                    net_pnl = pnl - fee
+                    # Liquidation: loss capped at margin (exchange takes the position,
+                    # trader loses margin minus maintenance). On gap moves the price
+                    # may be far past the liquidation price, but the exchange/insurance
+                    # fund absorbs the difference — not the trader.
+                    max_loss = margin_usd * 0.95  # 5% maintenance margin retained
+                    fee = margin_usd * fee_rate  # fee on notional at liquidation
+                    net_pnl = -(max_loss + fee)
                     equity += net_pnl
 
                     pos_usd_rec = abs(position * entry_price)
                     if trade_count < max_trades:
-                        # Trade record: include funding in reported PnL
                         out_pnl[trade_count] = net_pnl - cumulative_funding
                         out_ret[trade_count] = (net_pnl - cumulative_funding) / max(pos_usd_rec, 1.0) * 100.0
                         out_hold[trade_count] = bars_held
@@ -747,20 +736,26 @@ def _simulate_combined_jit(
                     ecode_1 = 6
 
             if exit_1:
-                ep_usd_1 = abs(pos_1 * eprice_1)
-                epart_1 = ep_usd_1 / max(adv_arr[i], 1.0)
-                eslip_1 = base_spread_bps + impact_coeff * np.sqrt(epart_1) * 10000.0
-                if eslip_1 > 100.0:
-                    eslip_1 = 100.0
-                sl1 = eprice_1 * eslip_1 / 10000.0
-                if d1 == 1:
-                    eprice_1 -= sl1
-                    pnl1 = pos_1 * (eprice_1 - entry_price_1)
+                if ecode_1 == 7:
+                    # Liquidation: cap loss at margin
+                    max_loss_1 = margin_1 * 0.95
+                    fee1 = margin_1 * fee_rate_1
+                    net1 = -(max_loss_1 + fee1)
                 else:
-                    eprice_1 += sl1
-                    pnl1 = abs(pos_1) * (entry_price_1 - eprice_1)
-                fee1 = abs(pos_1 * eprice_1) * fee_rate_1
-                net1 = pnl1 - fee1
+                    ep_usd_1 = abs(pos_1 * eprice_1)
+                    epart_1 = ep_usd_1 / max(adv_arr[i], 1.0)
+                    eslip_1 = base_spread_bps + impact_coeff * np.sqrt(epart_1) * 10000.0
+                    if eslip_1 > 100.0:
+                        eslip_1 = 100.0
+                    sl1 = eprice_1 * eslip_1 / 10000.0
+                    if d1 == 1:
+                        eprice_1 -= sl1
+                        pnl1 = pos_1 * (eprice_1 - entry_price_1)
+                    else:
+                        eprice_1 += sl1
+                        pnl1 = abs(pos_1) * (entry_price_1 - eprice_1)
+                    fee1 = abs(pos_1 * eprice_1) * fee_rate_1
+                    net1 = pnl1 - fee1
                 equity += net1
 
                 pu1 = abs(pos_1 * entry_price_1)
@@ -871,20 +866,26 @@ def _simulate_combined_jit(
                     ecode_2 = 6
 
             if exit_2:
-                ep_usd_2 = abs(pos_2 * eprice_2)
-                epart_2 = ep_usd_2 / max(adv_arr[i], 1.0)
-                eslip_2 = base_spread_bps + impact_coeff * np.sqrt(epart_2) * 10000.0
-                if eslip_2 > 100.0:
-                    eslip_2 = 100.0
-                sl2 = eprice_2 * eslip_2 / 10000.0
-                if d2 == 1:
-                    eprice_2 -= sl2
-                    pnl2 = pos_2 * (eprice_2 - entry_price_2)
+                if ecode_2 == 7:
+                    # Liquidation: cap loss at margin
+                    max_loss_2 = margin_2 * 0.95
+                    fee2 = margin_2 * fee_rate_2
+                    net2 = -(max_loss_2 + fee2)
                 else:
-                    eprice_2 += sl2
-                    pnl2 = abs(pos_2) * (entry_price_2 - eprice_2)
-                fee2 = abs(pos_2 * eprice_2) * fee_rate_2
-                net2 = pnl2 - fee2
+                    ep_usd_2 = abs(pos_2 * eprice_2)
+                    epart_2 = ep_usd_2 / max(adv_arr[i], 1.0)
+                    eslip_2 = base_spread_bps + impact_coeff * np.sqrt(epart_2) * 10000.0
+                    if eslip_2 > 100.0:
+                        eslip_2 = 100.0
+                    sl2 = eprice_2 * eslip_2 / 10000.0
+                    if d2 == 1:
+                        eprice_2 -= sl2
+                        pnl2 = pos_2 * (eprice_2 - entry_price_2)
+                    else:
+                        eprice_2 += sl2
+                        pnl2 = abs(pos_2) * (entry_price_2 - eprice_2)
+                    fee2 = abs(pos_2 * eprice_2) * fee_rate_2
+                    net2 = pnl2 - fee2
                 equity += net2
 
                 pu2 = abs(pos_2 * entry_price_2)
