@@ -53,6 +53,7 @@ _universe_mod = _load_v3('universe')
 
 Engine = _engine_mod.Engine
 build_equity_curve = _metrics_mod.build_equity_curve
+resolve_universe = _universe_mod.resolve_universe
 
 
 # =============================================================================
@@ -761,7 +762,11 @@ def main():
     parser = argparse.ArgumentParser(description='V3 Portfolio Backtest (Trade-Level)')
     parser.add_argument('--strategy', required=True, help='Strategy name (e.g., s11)')
     parser.add_argument('--result', help='Path to validation result JSON (uses validated tokens)')
-    parser.add_argument('--tokens', nargs='+', help='Specific tokens to include')
+    parser.add_argument('--tokens', nargs='+', help='Specific tokens to include (overrides --universe)')
+    parser.add_argument('--universe', choices=['all', 'filtered', 'liquid'],
+                        default='filtered',
+                        help='Token universe: all=every token with data, '
+                             'filtered=quality-gated (default), liquid=filtered+ADV gate')
     parser.add_argument('--capital', type=float, default=200_000, help='Total capital (default: 200000)')
     parser.add_argument('--max-weight', type=float, default=0.15,
                         help='Max fraction per token (default: 0.15)')
@@ -812,6 +817,10 @@ def main():
         print(f"Using {len(validated_tokens)} validated tokens from {args.result}")
     elif args.tokens:
         validated_tokens = args.tokens
+    else:
+        # Neither --result nor --tokens: use --universe to resolve token list
+        validated_tokens = resolve_universe(args.universe, market=args.market, verbose=True)
+        print(f"Universe '{args.universe}': {len(validated_tokens)} tokens")
 
     config = PortfolioConfig(
         capital=args.capital,
