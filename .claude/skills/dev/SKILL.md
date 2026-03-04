@@ -25,7 +25,10 @@ Before starting any new feature, check for existing in-progress work:
 2. **Check for open draft PRs with pending feedback.** Run `gh pr list --draft --author @me` in the target repo. If any draft PRs exist for previous features:
    - "Draft PR #{number} (`{title}`) has unresolved review comments. Address the feedback first, or proceed with a new feature?"
 
-This prevents abandoned features and ensures feedback loops get closed.
+3. **Check `memory/PROJECT_STATUS.md` for known open items.** If the file exists, read the "Open / Outstanding" and "Blocked" sections. Present any open items to the user:
+   - "There are N known open items (e.g., AC8 credential fix, resource leak). Want to tackle one of these, or start something new?"
+
+This prevents abandoned features, surfaces known bugs/tasks, and ensures feedback loops get closed.
 
 ## Step 1: Tier Detection
 

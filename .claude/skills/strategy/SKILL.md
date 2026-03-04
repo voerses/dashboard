@@ -6,12 +6,12 @@ user_invocable: true
 
 # Strategy Development Mode
 
-Switch the process to strategy development mode. This is a gate-based workflow for building and validating trading strategies with explicit kill criteria at each stage.
+Gate-based workflow for building and validating trading strategies.
 
 **Core objective: Make more money. Don't lose big.**
 - Return is the primary goal (Calmar, Sortino, total return)
 - Max drawdown is the hard constraint (never blow up)
-- Sharpe is diagnostic only — don't penalize upside volatility
+- Sharpe is diagnostic only
 
 ## Instructions
 
@@ -29,9 +29,7 @@ echo "gate0" > "$CLAUDE_PROJECT_DIR/.strategy-gate"
 
 3. Confirm to the user:
 
-> **Switched to strategy mode.** Dev workflow hooks are paused. Strategy gate enforcement active.
->
-> **8-Gate Validation Pipeline** (return-first, kill losers fast):
+> **Switched to strategy mode.** Strategy gate enforcement active.
 >
 > | Gate | Name | Time | Kill Rate | Key Kill Criterion |
 > |------|------|------|-----------|-------------------|
@@ -44,166 +42,222 @@ echo "gate0" > "$CLAUDE_PROJECT_DIR/.strategy-gate"
 > | 6 | Paper Trade | 1-4 wks | ~50% | Returns <60% of backtest |
 > | 7 | Production + Decay | ongoing | ~30%/yr | Rolling Calmar < 0 |
 >
-> **~99.8% of ideas never reach production. This is normal and desired.**
->
-> Use `/dev` to switch to full dev workflow, `/free` to switch to freeflow.
+> **~99.8% of ideas never reach production. This is normal.**
 
-## Gate Process — Detailed Instructions
+## Knowledge Loading Strategy
 
-At each gate, you MUST:
-1. Read the required knowledge files listed for that gate
-2. Run the checks specified
-3. Output a gate report (format below)
-4. Update the gate state file before proceeding
+**Default at every gate:** Read `knowledge/STRATEGY_QUICK_REFERENCE.md` — the section for
+your current gate. This single file (~350 lines) contains all thresholds, kill criteria,
+dedup tables, cost tables, and the bias audit checklist.
+
+**Deep dive only when:** investigating a specific failure, debugging validation results,
+or the quick reference says "Deep dive: [file]".
+
+**Never load all knowledge files at once.** That's ~10K+ lines across 17 files and will degrade quality.
+
+## Strategy Classes
+
+Three strategy classes, each with its own gate path:
+
+| Class | Gate Path | When to Use |
+|-------|-----------|-------------|
+| A. Per-Token Signal | 0→1→2→3→4→5→6→7 | Single signal on individual tokens |
+| B. Portfolio Strategy | 0→2→3P→5P→6→7 | Cross-token ranking, sector rotation, pairs |
+| C. Overlay | 0→2→3O→5O→6→7 | Regime weighting, signal agreement, risk scaling |
+
+**Choose class at Gate 0.** The class determines which gates you hit.
+
+## Gate Process
+
+At each gate:
+1. Read `knowledge/STRATEGY_QUICK_REFERENCE.md` — your current gate's section
+2. Run the specified checks
+3. Run the bias audit checklist (bottom of quick reference)
+4. Output a gate report (format below)
+5. Capture findings to `findings/strategy-findings.jsonl`
+6. Update the gate state file
 
 ### Gate Report Format (mandatory at every transition)
 
 ```
 ## Gate N: [NAME] — [PASS / KILL / RECYCLE]
 
-**Knowledge files consulted:**
-- [x] file1.md
-- [x] file2.md
-
 | Metric | Value | Threshold | Status |
 |--------|-------|-----------|--------|
 | [metric] | [value] | [threshold] | PASS/FAIL |
 
+**Bias audit:** [CLEAN / issues found]
 **Decision:** [PROCEED to Gate N+1 / KILL: reason / RECYCLE: proposed modification]
+
+### Findings (for future sessions)
+- [SIGNAL] [one-line insight about the signal that future strategies should know]
+- [DATA] [any data gap or limitation discovered]
+- [PROCESS] [anything the gate process got right or wrong]
 ```
 
-After outputting the report, update the gate state:
+After outputting the report:
+
 ```bash
+# Update gate state
 echo "gateN" > "$CLAUDE_PROJECT_DIR/.strategy-gate"
+
+# Append finding to strategy-findings.jsonl (mandatory)
+echo '{"ts": "YYYY-MM-DDTHH:MM:SSZ", "strategy": "sNN_name", "gate": N, "outcome": "pass|kill|recycle", "metrics": {...}, "finding": "One-line insight", "category": "signal|capability|portfolio|data|infra|process|bug", "affects": ["file1", "file2"]}' >> findings/strategy-findings.jsonl
 ```
+
+After gate kills or passes, also update `memory/PROJECT_STATUS.md`:
+- **Kill:** Add to graveyard table, update Tier C if applicable
+- **Pass Gate 5/5P/5O:** Add to appropriate tier table
+- **New capability:** Add to capability inventory
+- **Bug found:** Add to open items
 
 ---
 
 ## GATE 0: Idea Screening (< 5 min)
 
-### Required Knowledge Consultation
+### Step 0: Load Project State
+
 ```
-READ: knowledge/process/STRATEGY_PIPELINE_GATES.md — Section "Gate 0"
-READ: knowledge/STRATEGY_LIFECYCLE.md — Tier C archived strategies (don't repeat failures)
-READ: knowledge/process/SCOPE_AND_CONTEXT.md — Objective hierarchy (return first)
+READ: memory/PROJECT_STATUS.md — open tasks, capability inventory, strategy tiers, key findings
+READ: knowledge/STRATEGY_QUICK_REFERENCE.md — "Available Capabilities" + "Gate 0" sections
 ```
 
-### What to Do
-1. Write a hypothesis: what signal, why it should work (economic mechanism), expected holding period
-2. Check if it was already tried and archived (Tier C list in STRATEGY_LIFECYCLE.md)
-3. Estimate expected trade count in available data (need >30)
-4. Score the idea on the rubric from STRATEGY_PIPELINE_GATES.md Gate 0
+This tells you what's been built, what's broken, and what tools you have.
 
-### Kill Criteria (kill if ANY fail)
-- No explainable economic mechanism for why the edge exists
+### Step 0.5: Curate Findings (if needed)
+
+If `findings/strategy-findings.jsonl` has >50 entries since last curation:
+1. Review findings grouped by category
+2. Promote undocumented insights to their target knowledge files
+3. Archive findings older than 6 months with zero references
+4. Update `memory/PROJECT_STATUS.md` with any changes
+
+### Step 1: Choose Strategy Class
+
+| Class | Gate Path | Hypothesis Template |
+|-------|-----------|---------------------|
+| A. Per-Token Signal | 0→1→2→3→4→5→6→7 | "[Signal] predicts [direction] on [token] over [hold] because [mechanism]" |
+| B. Portfolio Strategy | 0→2→3P→5P→6→7 | "[Ranking/selection] across [universe] produces alpha because [mechanism]" |
+| C. Overlay | 0→2→3O→5O→6→7 | "Applying [overlay] to [base strategy] improves [metric] because [mechanism]" |
+
+**Portfolio subtypes:** cross-sectional momentum, sector rotation, pairs/stat arb, dynamic factor
+**Overlay subtypes:** regime weighting, signal agreement, rebalancing rules, risk scaling
+
+### Step 2: Write Hypothesis
+
+Use the template for your class. Must include:
+- Signal/method description
+- Economic mechanism (why should this work?)
+- Expected holding period or rebalance frequency
+
+### Step 3: Check Graveyard + Tier C
+
+Read `strategies/GRAVEYARD.md` and Tier C list in Quick Reference.
+Kill if: already tried with no new evidence.
+
+### Step 4: Score the Idea
+
+| Criterion | Threshold |
+|-----------|-----------|
+| Economic mechanism | Must be explainable |
+| Expected trade count | > 30 in available data |
+| Idea score | >= 5/10 on rubric |
+| Already tried & failed? | Check Tier C list |
+| Look-ahead bias risk | Signal must use only past data |
+
+### Kill Criteria
+- No explainable economic mechanism
 - Signal requires data not available at decision time (look-ahead bias)
-- Already tested and failed (check Tier C list) with no new evidence
-- Expected trade count < 30 in available data
-- Idea score < 5/10 on the rubric
+- Already tested and failed with no new evidence
+- Expected trade count < 30
+- Idea score < 5/10
 
 ### On PASS
+
 ```bash
+# Per-token: proceed to Gate 1
 echo "gate1" > "$CLAUDE_PROJECT_DIR/.strategy-gate"
+# Portfolio or Overlay: skip Gate 1, proceed to Gate 2
+echo "gate2" > "$CLAUDE_PROJECT_DIR/.strategy-gate"
 ```
 
 ---
 
 ## GATE 1: Signal Lab IC Screen (< 30 min)
 
-### Required Knowledge Consultation
-```
-READ: knowledge/process/SIGNAL_DISCOVERY_METHODS.md — IC testing section
-READ: knowledge/process/STRATEGY_PIPELINE_GATES.md — Section "Gate 1"
-READ: knowledge/INDICATOR_ANALYSIS.md — existing signal IC results
-READ: knowledge/INDICATOR_CATALOG.md — check if indicator already exists in engine
-```
+**Per-token strategies only.** Portfolio and overlay strategies skip to Gate 2.
+
+**Read:** Quick Reference — "Gate 1" section (IC thresholds, top predictors, redundancy)
 
 ### What to Do
-1. Run the signal through `v2/signal_lab.py` (or compute IC manually)
-2. Record: Mean IC, IC t-statistic, ICIR, IC hit rate
-3. Test on post-ETF data (Jan 2024+) as primary window
-4. Check stability across 2+ forward horizons (1d, 5d, 10d)
-5. Check if signal flipped sign post-ETF
+1. Run `tools/signal_lab.py` or compute IC manually
+2. Record: Mean IC, t-stat, ICIR, hit rate
+3. Test post-ETF (Jan 2024+), check 2+ horizons
+4. Kill if: IC <0.02, t-stat <2.0, hit rate <55%, PF <1.3, trades <50
+5. Recycle: PF >1.1 but borderline → ONE retry
 
-### Kill Criteria
-| Metric | Kill Threshold |
-|--------|---------------|
-| Mean IC (post-ETF) | < +0.02 |
-| IC t-statistic | < 2.0 |
-| IC hit rate | < 55% |
-| Gross profit factor (quick check) | < 1.3 |
-| Trade count | < 50 |
+**Deep dive if needed:** `knowledge/process/SIGNAL_DISCOVERY_METHODS.md`,
+`knowledge/INDICATOR_CATALOG.md`
 
-### Recycle Rule
-If profit factor > 1.1 but other metrics borderline → ONE retry with modified parameters. Still fails → KILL.
-
-### On PASS
 ```bash
 echo "gate2" > "$CLAUDE_PROJECT_DIR/.strategy-gate"
 ```
 
 ---
 
-## GATE 2: Knowledge Base + Dedup Check (< 15 min)
+## GATE 2: Knowledge + Dedup (< 15 min)
 
-### Required Knowledge Consultation (ALL mandatory)
-```
-READ: knowledge/STRATEGY_LIFECYCLE.md — full pre-development checklist (Section 2)
-READ: knowledge/SIGNAL_DEVELOPMENT.md — signal structure requirements
-READ: knowledge/INDICATOR_CATALOG.md — check if indicator exists
-READ: knowledge/STRATEGY_CATALOG.md — check if strategy type already implemented
-READ: knowledge/PERFORMANCE_PATTERNS.md — vectorization requirements
-READ: knowledge/process/CRYPTO_MICROSTRUCTURE_POST_ETF.md — if using crypto-specific signals
-```
+**Read:** Quick Reference — "Gate 2" + "Existing Tier A/B" sections
 
 ### What to Do
-1. Read ALL files in the pre-development checklist
-2. Compare proposed entry signal against ALL existing Tier A/B entry signals:
+1. Compare against ALL existing strategies (table in quick ref)
+2. Document overlap assessment
+3. Check `results/sweep_summary_*.json`
 
-   | Strategy | Rate | Core Entry Signal |
-   |----------|------|-------------------|
-   | s11 | 75.5% | `ret_1 > 0.03` (momentum burst) |
-   | s09 | 73.5% | EMA stack + daily EMA50 + ADX > 30 |
-   | s13 | 67.3% | Volume-weighted cumulative returns |
-   | s21 | 63.3% | `rolling_skew > 0.3` + ret > 0 |
-   | s17 | 55.1% | `ret_1 > 0.02` + ADX > 25 + +DI > -DI |
-   | s18 | 51.0% | `ret_24h > ret_72h/3` (acceleration) |
+### Dedup Rules by Class
 
-3. Document overlap assessment with specific signal-level comparison
-4. Check `results/sweep_summary_*.json` for latest tier classifications
+**Per-token strategies:**
+- Entry signal overlaps >80% with existing Tier A/B → KILL
+- Already tried and failed (Tier C) with no new evidence → KILL
+- Signal type has 2+ strategies in Tier A → saturated, KILL
+- Overlap 30-80% → propose as FILTER to existing strategy, not new strategy
 
-### Kill Criteria
-- Entry signal overlaps > 80% with existing Tier A/B strategy
-- Knowledge base reveals approach was already tried and failed
-- Proposed signal type already has 2+ strategies in Tier A (saturation)
+**Portfolio strategies:**
+- Compare strategy CLASS, not entry signal (cross-sectional vs sector vs pairs)
+- Check correlation vs existing portfolio strategies: >0.7 → KILL
+- If same class exists: must show improvement on Calmar or DD, not just different parameters
 
-### Recycle
-- Overlap 30-80%: propose as a FILTER to existing strategy instead of new strategy
+**Overlays:**
+- Check if overlay already applied to base strategy
+- Multiple overlays on same base OK if targeting different aspects
+  (regime=allocation, agreement=entry, risk=sizing)
 
-### On PASS
+**Deep dive if needed:** `knowledge/STRATEGY_CATALOG.md`,
+`knowledge/process/CRYPTO_MICROSTRUCTURE_POST_ETF.md`
+
 ```bash
+# Per-token: proceed to Gate 3
 echo "gate3" > "$CLAUDE_PROJECT_DIR/.strategy-gate"
+# Portfolio: proceed to Gate 3P
+echo "gate3p" > "$CLAUDE_PROJECT_DIR/.strategy-gate"
+# Overlay: proceed to Gate 3O
+echo "gate3o" > "$CLAUDE_PROJECT_DIR/.strategy-gate"
 ```
 
 ---
 
-## GATE 3: Prototype + Performance Check (< 30 min)
+## GATE 3: Prototype — Per-Token (< 30 min)
 
-### Required Knowledge Consultation
-```
-READ: knowledge/SIGNAL_DEVELOPMENT.md — signal structure: Regime → Trend → Entry → Exit → Sizing
-READ: knowledge/PERFORMANCE_PATTERNS.md — vectorization patterns, no Python for-loops
-READ: strategies/TEMPLATE.py — template to copy
-```
+**Read:** Quick Reference — "Gate 3" section + `strategies/TEMPLATE.py`
 
 ### What to Do
 1. Copy `strategies/TEMPLATE.py` → `strategies/sNN_name.py`
-2. Implement following the signal structure (regime filter, trend, entry, exit, sizing)
-3. ALL code MUST be vectorized — no Python for-loops over bar arrays
-4. Run performance check:
+2. Implement 6-layer signal stack (regime, trend, entry, volume, exit, sizing)
+3. ALL code vectorized — no Python for-loops over bar arrays
+4. Performance check:
    ```bash
    python -c "
-   import sys; sys.path.insert(0, 'v3'); sys.path.insert(0, 'v2')
+   import sys; sys.path.insert(0, 'v3')
    from engine import Engine
    import pandas as pd, time
    eng = Engine(data_dir='data')
@@ -215,96 +269,191 @@ READ: strategies/TEMPLATE.py — template to copy
    print(f'{(time.perf_counter()-t0)/1000*1000:.3f}ms/call')
    "
    ```
+5. Kill if: >1ms/call, for-loops, missing regime/exit
 
-### Kill Criteria
-- Performance > 1ms per call on 40K bars
-- Cannot implement without Python for-loops over bar arrays
-- Missing mandatory components (no regime filter, no exit logic)
-- Strategy requires indicators not in engine AND adding them is a blast-radius change
+**Deep dive if needed:** `knowledge/SIGNAL_DEVELOPMENT.md`,
+`knowledge/PERFORMANCE_PATTERNS.md`
 
-### On PASS
 ```bash
 echo "gate4" > "$CLAUDE_PROJECT_DIR/.strategy-gate"
 ```
 
 ---
 
-## GATE 4: Quick Validation — BTC Only (< 5 min)
+## GATE 3P: Prototype — Portfolio Strategy (< 30 min)
 
-### Required Knowledge Consultation
-```
-READ: knowledge/process/STRATEGY_PIPELINE_GATES.md — Gate 4 section
-READ: knowledge/process/BACKTESTING_VALIDATION_BEST_PRACTICES.md — walk-forward basics (skim)
-```
+**Portfolio strategies only.** Uses `v3/` modules, not `strategies/sNN_*.py`.
+
+**Read:** Quick Reference — "Gate 3" + "Available Capabilities" sections
 
 ### What to Do
-1. Run V3 validation on BTC:
-   ```bash
-   cd /workspace/crypto_backtest
-   /workspace/venv/bin/python v3/validation.py --strategy sNN --tokens BTC --workers 1
-   ```
-2. Check: does BTC pass the dual WF+CPCV gate?
-3. If FAIL: tune parameters (NOT core logic), retry
+1. Extend existing module or create new one in `v3/`:
+   - Cross-sectional: `v3/cross_sectional.py`
+   - Sector rotation: `v3/sector_rotation.py`
+   - Pairs/stat arb: `v3/pairs_trading.py`
+   - New type: create `v3/new_type.py` (justify why existing modules don't fit)
+2. All code vectorized — no Python for-loops over bar arrays
+3. Check:
 
-### Kill Criteria
-- BTC fails dual gate after 3 tuning attempts
-- Tuning requires changing core signal logic (not just parameters)
+| Criterion | Threshold | Kill |
+|-----------|-----------|------|
+| Uses existing module? | Extend existing if possible | If new module, justify |
+| Rebalance frequency | Weekly or slower | Daily = too much turnover |
+| Universe coverage | >=20 tokens eligible | <20 = insufficient breadth |
+| Turnover | <50% per rebalance | >50% = fee drag kills edge |
+| Vectorized? | Yes | For-loops over bars = kill |
 
-### 3-Attempt Rule
-Max 3 parameter tuning attempts. If BTC still fails → hypothesis is wrong → KILL and archive.
+```bash
+echo "gate5p" > "$CLAUDE_PROJECT_DIR/.strategy-gate"
+```
 
-### On PASS
+---
+
+## GATE 3O: Prototype — Overlay (< 30 min)
+
+**Overlay strategies only.** Modifies allocation/entry of existing strategies.
+
+**Read:** Quick Reference — "Available Capabilities" (Overlays section)
+
+### What to Do
+1. Identify base strategy to overlay (must be Tier A/B)
+2. Use existing module or create new one:
+   - Regime weighting: `v3/regime_analysis.py`
+   - Signal agreement: `v3/signal_agreement.py`
+   - New overlay: create `v3/new_overlay.py`
+3. Check:
+
+| Criterion | Threshold | Kill |
+|-----------|-----------|------|
+| Base strategy identified? | Must specify which Tier A/B strategy | No base = kill |
+| Module exists? | Use existing if possible | Justify if new |
+| Hypothesis testable? | Can measure improvement on historical data | Untestable = kill |
+
+```bash
+echo "gate5o" > "$CLAUDE_PROJECT_DIR/.strategy-gate"
+```
+
+---
+
+## GATE 4: Quick Validate — BTC Only (< 5 min)
+
+**Per-token strategies only.** Portfolio/overlay strategies skip to Gate 5P/5O.
+
+**Read:** Quick Reference — "Gate 4" section
+
+1. Run: `/workspace/venv/bin/python v3/validation.py --strategy sNN --tokens BTC --workers 1`
+2. BTC must pass BOTH walk-forward AND CPCV (PBO < 40%)
+3. FAIL → tune parameters (NOT core logic), max 3 attempts
+4. 3 failures → KILL
+
 ```bash
 echo "gate5" > "$CLAUDE_PROJECT_DIR/.strategy-gate"
 ```
 
 ---
 
-## GATE 5: Full Validation — 49 Tokens + Statistics (< 10 min)
+## GATE 5: Full Validate — Per-Token, 49 Tokens (< 10 min)
 
-### Required Knowledge Consultation
+**Read:** Quick Reference — "Gate 5" section (metrics, tier assignment, costs)
+
+1. Run: `/workspace/venv/bin/python v3/validation.py --strategy sNN --workers 4`
+2. Tier assignment: A >50%, B 20-50%, C <20%
+3. Metrics: Calmar >0.5, Sortino >1.0, PF >1.5, MaxDD <25%
+4. Parameter sensitivity: +/-20% → Calmar shouldn't degrade >30%
+5. Kill if: rate <20%, Calmar <0.5, MaxDD >25%, WFE <50%
+
+**Deep dive if needed:** `knowledge/process/BACKTESTING_VALIDATION_BEST_PRACTICES.md`,
+`knowledge/process/RISK_PORTFOLIO_CONSTRUCTION.md`
+
+```bash
+echo "gate6" > "$CLAUDE_PROJECT_DIR/.strategy-gate"
 ```
-READ: knowledge/process/STRATEGY_PIPELINE_GATES.md — Gate 5 section (metrics, thresholds)
-READ: knowledge/process/BACKTESTING_VALIDATION_BEST_PRACTICES.md — DSR, parameter sensitivity
-READ: knowledge/process/RISK_PORTFOLIO_CONSTRUCTION.md — correlation checks (skim)
-```
+
+---
+
+## GATE 5P: Full Validate — Portfolio Strategy
+
+**Portfolio strategies only.** Produces a single portfolio equity curve, not per-token validation rates.
+
+**Read:** Quick Reference — "Gate 5" section for cost tables
 
 ### What to Do
-1. Run full validation:
-   ```bash
-   /workspace/venv/bin/python v3/validation.py --strategy sNN --workers 4
-   ```
-2. Record validation rate → tier assignment
-3. Check return-first metrics (from STRATEGY_PIPELINE_GATES.md):
+1. Run the portfolio strategy's own validation (module-specific CLI)
+2. Record portfolio-level metrics:
 
-   | Metric | Threshold | Priority |
-   |--------|-----------|----------|
-   | Calmar ratio | > 0.5 | PRIMARY |
-   | Sortino ratio | > 1.0 | PRIMARY |
-   | Profit factor | > 1.5 | PRIMARY |
-   | Max drawdown | < 25% | CONSTRAINT |
-   | Trade count | > 100 | VALIDITY |
-   | WFE | > 50% | VALIDITY |
+| Criterion | Threshold | Kill |
+|-----------|-----------|------|
+| Calmar ratio | >0.5 | <0.5 |
+| Max drawdown | <40% | >40% |
+| Annual return | >20% | <20% |
+| Trade count | >200 total | <200 |
+| **Corr vs best Tier A** | **<0.5** | **>0.7 = no diversification value** |
+| Turnover-adjusted Sharpe | >0.8 after costs | <0.8 |
 
-4. Run parameter sensitivity: +/- 20% on key parameters → Calmar shouldn't degrade > 30%
-5. Analyze which tokens fail and why
+3. Run `v3/correlation.py` to check correlation vs existing Tier A strategies
+4. Kill if: Calmar <0.5, DD >40%, corr >0.7 vs existing portfolio strategies
 
-### Tier Assignment
-| Rate | Tier | Action |
-|------|------|--------|
-| > 50% | A | Proceed to Gate 6 |
-| 20-50% | B | Iterate (max 3 cycles, parameters only). Time-box: 30 days max |
-| < 20% | C | ARCHIVE immediately |
+**Note:** Tier assignment uses portfolio metrics directly, not "validation rate across 49 tokens."
 
-### Kill Criteria
-- Validation rate < 20% (Tier C)
-- Calmar < 0.5 on passing tokens
-- Max drawdown > 25% on BTC
-- WFE < 50% (overfitting)
-- Parameter sensitivity > 30% Calmar degradation
-- Tier B after 3 iteration cycles without reaching 50%
+```bash
+echo "gate6" > "$CLAUDE_PROJECT_DIR/.strategy-gate"
+```
 
-### On PASS (Tier A)
+---
+
+## GATE 5O: Full Validate — Overlay
+
+**Overlay strategies only.** Measures improvement over base strategy.
+
+### What to Do
+1. Run base strategy WITHOUT overlay → record baseline metrics
+2. Run base strategy WITH overlay → record improved metrics
+3. Compare:
+
+| Criterion | Before Overlay | After Overlay | Kill If |
+|-----------|---------------|---------------|---------|
+| Calmar | baseline | must improve | Calmar degrades |
+| Max drawdown | baseline | must improve or hold | DD worsens >2pp |
+| Sharpe | baseline | should improve | Sharpe degrades >0.1 |
+| Trade count | baseline | may decrease | <50 trades remain |
+| Regime robustness | — | works in 2+ regimes | Only works in 1 regime |
+
+4. Kill if: overlay makes any primary metric worse
+
+```bash
+echo "gate6" > "$CLAUDE_PROJECT_DIR/.strategy-gate"
+```
+
+---
+
+## GATE 5.5: Portfolio Assembly (< 30 min)
+
+**Optional.** Run when you have 2+ strategies passing their respective Gate 5 and want to build an optimal combined portfolio.
+
+**Read:** Quick Reference — "Available Capabilities" (Portfolio Tools section)
+
+### What to Do
+1. Run `v3/correlation.py` on all candidate strategies
+2. Compute marginal Sharpe contribution of each
+3. Test allocation methods: equal-weight, risk parity, regime-weighted
+4. Simulate combined portfolio with shared cash pool (`v3/portfolio.py`)
+
+### Metrics
+
+| Metric | Target |
+|--------|--------|
+| Portfolio Calmar | > 1.0 |
+| Portfolio max DD | < 20% |
+| Effective N (strategies) | > 3.0 |
+| Max pairwise correlation | < 0.7 |
+| Worst regime (DOWNTREND) PnL | > -5% annualized |
+
+### Output
+- Allocation table: strategy → weight
+- Expected portfolio metrics (Calmar, Sortino, DD)
+- Regime performance heatmap
+- Recommended overlays (if any)
+
 ```bash
 echo "gate6" > "$CLAUDE_PROJECT_DIR/.strategy-gate"
 ```
@@ -313,103 +462,36 @@ echo "gate6" > "$CLAUDE_PROJECT_DIR/.strategy-gate"
 
 ## GATE 6: Paper Trading (1-4 weeks)
 
-### Required Knowledge Consultation
-```
-READ: knowledge/process/STRATEGY_PIPELINE_GATES.md — Gate 6 section
-READ: knowledge/PAPER_TRADING_PRO_FRAMEWORK.md — setup and monitoring
-READ: knowledge/PAPER_TRADING_ANTI_FRAMEWORK.md — what to avoid
-```
+**Read:** Quick Reference — "Gate 6" section
 
-### What to Do
-1. Deploy strategy on live data feed with simulated execution
-2. Track: net profit, profit factor, win ratio, max DD, slippage per trade, fill rate
-3. Minimum 50 trades before any go-live decision
-4. Compare live metrics against backtest metrics
+1. Deploy on live data, simulated execution
+2. Min 50 trades before go-live
+3. Kill if: returns <60% backtest, slippage >50% edge, MaxDD >1.5x, <10 trades
 
-### Acceptable Degradation
-| Metric | Maximum Degradation |
-|--------|-------------------|
-| Paper Sortino / Backtest Sortino | > 0.6x |
-| Slippage vs modeled | < 2x backtest assumption |
-| Max drawdown | < 1.5x backtest |
-| Fill rate | > 95% |
+**Deep dive if needed:** `knowledge/PAPER_TRADING_PRO_FRAMEWORK.md`
 
-### Kill Criteria
-- Paper returns < 60% of backtest returns
-- Slippage > 50% of expected edge per trade
-- Max drawdown > 1.5x worst backtest drawdown
-- < 10 trades generated (insufficient signal frequency)
-
-### On PASS
 ```bash
 echo "gate7" > "$CLAUDE_PROJECT_DIR/.strategy-gate"
 ```
 
 ---
 
-## GATE 7: Production Deployment + Decay Monitoring (ongoing)
+## GATE 7: Production + Decay (ongoing)
 
-### Required Knowledge Consultation
-```
-READ: knowledge/process/STRATEGY_PIPELINE_GATES.md — Gate 7 section (risk limits, decay)
-READ: knowledge/process/RISK_PORTFOLIO_CONSTRUCTION.md — position sizing, Kelly, drawdown mgmt
-READ: knowledge/KRAKEN_FEES.md — fee structure for sizing calculations
-```
+**Read:** Quick Reference — "Gate 7" section
 
-### Deployment Rules
-- Initial allocation: 1-5% of target for first 3-6 months
-- Per-trade risk: 1-2% of strategy allocation (use 1/4 Kelly for crypto)
-- Volume participation: < 5% of average daily volume per instrument
+1. Allocation: 1-5% target, 1/4 Kelly, <5% ADV
+2. Circuit breakers: -3% daily halt, -15% pull
+3. Monthly decay: Sortino <0, PF <0.8, no high 6mo → escalate
 
-### Circuit Breakers
-| Trigger | Action |
-|---------|--------|
-| Daily loss > 3% | Halt for remainder of day |
-| Rolling 5-day DD > Y% | Reduce allocation 50% |
-| Max DD from peak > 15% | Pull from production |
-| Portfolio daily loss > 5% | Reduce ALL positions 50% |
-
-### Decay Detection (monthly review)
-```
-ALERT if:
-  - Rolling 60d Sortino < 0.0 → flag
-  - Rolling 90d profit factor < 0.8 → flag
-  - No new equity high in 6 months → flag
-  - Correlation with another Tier A > 0.7 → flag
-  - V3 validation rate dropped > 10pp → flag
-
-ESCALATION:
-  - 1 flag: reduce allocation 25%
-  - 2 flags: reduce allocation 50%, intensive review
-  - 3+ flags: pull from production, post-mortem
-```
+**Deep dive if needed:** `knowledge/process/RISK_PORTFOLIO_CONSTRUCTION.md`,
+`knowledge/KRAKEN_FEES.md`
 
 ---
 
 ## Strategy Graveyard
 
-When a strategy is killed at any gate, log it:
-
+When killed at any gate:
 ```bash
-# Append to graveyard log
 echo "$(date -I) | sNN_name | Killed at Gate X | Reason: [specific reason]" >> "$CLAUDE_PROJECT_DIR/../strategies/GRAVEYARD.md"
 ```
-
-This prevents re-testing failed ideas without new evidence.
-
----
-
-## Knowledge Base Quick Reference
-
-| When | Read These |
-|------|-----------|
-| Starting any strategy work | `process/SCOPE_AND_CONTEXT.md`, `process/STRATEGY_PIPELINE_GATES.md` |
-| Ideation (Gate 0) | `STRATEGY_LIFECYCLE.md` (Tier C list) |
-| Signal testing (Gate 1) | `process/SIGNAL_DISCOVERY_METHODS.md`, `INDICATOR_ANALYSIS.md` |
-| Dedup (Gate 2) | `STRATEGY_CATALOG.md`, `INDICATOR_CATALOG.md`, `SIGNAL_DEVELOPMENT.md` |
-| Prototyping (Gate 3) | `PERFORMANCE_PATTERNS.md`, `SIGNAL_DEVELOPMENT.md`, `TEMPLATE.py` |
-| Validation (Gate 4-5) | `process/BACKTESTING_VALIDATION_BEST_PRACTICES.md` |
-| Paper trading (Gate 6) | `PAPER_TRADING_PRO_FRAMEWORK.md`, `PAPER_TRADING_ANTI_FRAMEWORK.md` |
-| Production (Gate 7) | `process/RISK_PORTFOLIO_CONSTRUCTION.md`, `KRAKEN_FEES.md` |
-| Looking for new signals | `process/CRYPTO_MICROSTRUCTURE_POST_ETF.md`, `process/DATA_GAP_ANALYSIS.md` |
-| Understanding quant best practices | `process/QUANT_FUND_PROCESSES.md`, `process/FAST_ITERATION_FRAMEWORK.md` |

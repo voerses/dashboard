@@ -79,6 +79,49 @@ done
 
 echo ""
 
+# --- Show open tasks from PROJECT_STATUS (if exists) ---
+STATUS_FILE="$PROJECT_DIR/memory/PROJECT_STATUS.md"
+if [ -f "$STATUS_FILE" ]; then
+  OPEN_SECTION=$(sed -n '/^### Open/,/^###/p' "$STATUS_FILE" | head -15)
+  if [ -n "$OPEN_SECTION" ]; then
+    echo "=== OPEN TASKS ==="
+    echo "$OPEN_SECTION"
+    echo ""
+  fi
+fi
+
+# --- Recent strategy findings (strategy mode only) ---
+if [[ "${MODE:-}" == "strategy" ]]; then
+  FINDINGS_FILE="$PROJECT_DIR/findings/strategy-findings.jsonl"
+  if [ -f "$FINDINGS_FILE" ]; then
+    echo "=== RECENT STRATEGY FINDINGS ==="
+    tail -5 "$FINDINGS_FILE" | /workspace/venv/bin/python3 -c "
+import sys, json
+for line in sys.stdin:
+    try:
+        f = json.loads(line.strip())
+        finding = f['finding'][:120]
+        print(f'  [{f[\"ts\"][:10]}] {f[\"strategy\"]} gate {f[\"gate\"]}: {finding}')
+    except: pass
+" 2>/dev/null
+    echo ""
+  fi
+fi
+
+# --- Knowledge freshness warnings ---
+for f in "$PROJECT_DIR"/knowledge/STRATEGY_LIFECYCLE.md \
+         "$PROJECT_DIR"/knowledge/STRATEGY_QUICK_REFERENCE.md \
+         "$PROJECT_DIR"/memory/PROJECT_STATUS.md; do
+  if [ -f "$f" ]; then
+    last_mod=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null || echo "0")
+    now=$(date +%s)
+    age_days=$(( (now - last_mod) / 86400 ))
+    if [ "$age_days" -gt 7 ]; then
+      echo "WARNING: $(basename "$f") last updated ${age_days}d ago. May be stale."
+    fi
+  fi
+done
+
 # Warn if relevant repo is on main with an active implement-phase feature
 if [[ "$PHASE" == "implement" || "$PHASE" == "complete" ]]; then
   if [[ "$ACTIVE_BRANCH" == "main" || "$ACTIVE_BRANCH" == "master" ]]; then
