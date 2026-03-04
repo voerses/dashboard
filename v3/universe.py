@@ -16,6 +16,7 @@ Tier labels (for reporting):
   Tier 3 (<$10M ADV): small position, conservative costs
 """
 
+import json
 import math
 import numpy as np
 import pandas as pd
@@ -151,6 +152,27 @@ EXCHANGE_FEES = {
     'hyperliquid': {'spot': (0.0004, 0.0007), 'perp': (0.00015, 0.00045)},
 }
 
+# Maintenance margin rates (MMR) per exchange — for liquidation threshold
+# Position < $50K bracket for simplicity (vast majority of backtest positions)
+# Sources:
+#   Binance: binance.com/en/support/faq/leverage-and-margin-of-usd-m-futures (Tier 1: 0.40%)
+#   Kraken:  support.kraken.com/hc/en-us/articles/margin-schedule (1.00% for <$2M)
+#   Hyperliquid: conservative default (5.00%)
+EXCHANGE_MMR = {
+    'binance':     0.004,   # 0.40% — Tier 1 (<$50K notional)
+    'kraken':      0.01,    # 1.00% — Tier 1 (<$2M notional)
+    'hyperliquid': 0.05,    # 5.00% — conservative default
+}
+
+
+def get_maint_margin_rate(exchange='binance'):
+    """Maintenance margin rate for an exchange.
+
+    Returns the fraction of margin that must be maintained before liquidation.
+    E.g. 0.004 means position is liquidated when remaining margin < 0.4% of notional.
+    """
+    return EXCHANGE_MMR.get(exchange, EXCHANGE_MMR['binance'])
+
 
 def get_fee_rate(exchange='binance', market='spot', order_type='taker'):
     """Fee rate for exchange + market + order type.
@@ -242,12 +264,13 @@ def compute_rolling_adv(close, volume, lookback_days=30, hours_per_bar=1):
     # Step 3: Expand daily ADV back to hourly, LAGGED BY ONE DAY
     # Day d's ADV uses day d's full volume, so it can only be known at
     # the end of day d. Apply it to day d+1's bars to avoid look-ahead.
-    for d in range(n_complete_days):
-        if not np.isnan(daily_adv[d]):
-            next_day_start = (d + 1) * bars_per_day
-            next_day_end = min(next_day_start + bars_per_day, n)
-            if next_day_start < n:
-                adv_hourly[next_day_start:next_day_end] = daily_adv[d]
+    # Vectorized: repeat each daily value across bars_per_day, shifted by 1 day.
+    if n_complete_days > 0:
+        # Lag by 1 day: day d's ADV applies to day d+1's bars (and partial tail)
+        expanded = np.repeat(daily_adv, bars_per_day)
+        start = bars_per_day  # first bar of day 1
+        end = min(start + len(expanded), n)
+        adv_hourly[start:end] = expanded[:end - start]
 
     return adv_hourly
 
@@ -318,6 +341,149 @@ def get_liquid_universe(market='spot', min_adv_usd=DEFAULT_MIN_ADV_USD,
 
     results.sort(key=lambda x: -x[1])
     return results
+
+
+# ---------------------------------------------------------------------------
+# Quality-Based Filtering
+# ---------------------------------------------------------------------------
+
+_GRADE_ORDER = {'A': 0, 'B': 1, 'C': 2, 'D': 3, 'F': 4}
+
+
+def load_quality_grades(quality_dir=None):
+    """Load token quality grades from the latest quality report.
+
+    Returns:
+        Dict[str, dict] — {token: {grade, total_bars, completeness_pct, n_critical}}
+        Empty dict if no quality reports found.
+    """
+    if quality_dir is None:
+        quality_dir = _Path(__file__).resolve().parent.parent / 'data' / 'quality_reports'
+    else:
+        quality_dir = _Path(quality_dir)
+
+    if not quality_dir.exists():
+        return {}
+
+    reports = sorted(quality_dir.glob('quality_*.json'))
+    if not reports:
+        return {}
+
+    with open(reports[-1]) as f:
+        raw = json.load(f)
+
+    grades = {}
+    for token, info in raw.items():
+        summary = info.get('checks', {}).get('summary', {})
+        grades[token] = {
+            'grade': summary.get('grade', 'C'),
+            'total_bars': info.get('total_bars', 0),
+            'completeness_pct': summary.get('completeness_pct', 0.0),
+            'n_critical': summary.get('n_critical', 0),
+        }
+    return grades
+
+
+def get_filtered_universe(market='spot', min_bars=2000, min_grade='B',
+                          min_adv_usd=None, burn_in_days=None,
+                          quality_dir=None, verbose=False):
+    """Get tokens filtered by data quality and optionally by liquidity.
+
+    Filter layers (in order):
+        1. Data existence — get_all_tradeable(market)
+        2. Bar count — total_bars >= min_bars (from quality report)
+        3. Quality grade — grade must meet min_grade threshold
+        4. Liquidity (optional) — ADV check via get_liquid_universe()
+
+    Tokens missing from the quality report are INCLUDED (don't penalize
+    missing data). A warning is printed when verbose=True.
+
+    Args:
+        market: 'spot' or 'perp'
+        min_bars: Minimum bar count to include (default 2000)
+        min_grade: Minimum quality grade, 'A' or 'B' (default 'B')
+        min_adv_usd: If set, apply liquidity gate (e.g. 500_000)
+        burn_in_days: Burn-in requirement for liquidity gate
+        quality_dir: Override quality report directory
+        verbose: Print filter details
+
+    Returns:
+        List[str] — sorted token list passing all filters.
+    """
+    all_tokens = get_all_tradeable(market)
+    if not all_tokens:
+        return []
+
+    grades = load_quality_grades(quality_dir)
+    min_grade_rank = _GRADE_ORDER.get(min_grade, 1)
+
+    # Filter by bar count and grade
+    filtered = []
+    excluded_bars = []
+    excluded_grade = []
+    missing_quality = []
+
+    for token in all_tokens:
+        if token not in grades:
+            missing_quality.append(token)
+            filtered.append(token)  # Include tokens missing from report
+            continue
+
+        info = grades[token]
+        if info['total_bars'] < min_bars:
+            excluded_bars.append((token, info['total_bars']))
+            continue
+        grade_rank = _GRADE_ORDER.get(info['grade'], 4)
+        if grade_rank > min_grade_rank:
+            excluded_grade.append((token, info['grade']))
+            continue
+        filtered.append(token)
+
+    # Optional liquidity gate
+    if min_adv_usd is not None:
+        liq_kwargs = {'market': market, 'min_adv_usd': min_adv_usd}
+        if burn_in_days is not None:
+            liq_kwargs['burn_in_days'] = burn_in_days
+        liquid_pairs = get_liquid_universe(**liq_kwargs)
+        liquid_set = {tk for tk, _ in liquid_pairs}
+        excluded_adv = [tk for tk in filtered if tk not in liquid_set]
+        filtered = [tk for tk in filtered if tk in liquid_set]
+    else:
+        excluded_adv = []
+
+    if verbose:
+        print(f"Universe filter ({market}): {len(all_tokens)} total → {len(filtered)} passed")
+        if excluded_bars:
+            print(f"  Excluded (< {min_bars} bars): {', '.join(t for t,_ in excluded_bars)}")
+        if excluded_grade:
+            print(f"  Excluded (grade < {min_grade}): {', '.join(f'{t}({g})' for t,g in excluded_grade)}")
+        if excluded_adv:
+            print(f"  Excluded (low ADV): {', '.join(excluded_adv)}")
+        if missing_quality:
+            print(f"  Warning: no quality data for: {', '.join(missing_quality)} (included anyway)")
+
+    return sorted(filtered)
+
+
+def resolve_universe(universe_mode, market='spot', verbose=False):
+    """Resolve a --universe flag value to a token list.
+
+    Args:
+        universe_mode: 'all', 'filtered', or 'liquid'
+        market: 'spot' or 'perp'
+        verbose: Print filter details
+
+    Returns:
+        List[str] — sorted token list.
+    """
+    if universe_mode == 'all':
+        return get_all_tradeable(market)
+    elif universe_mode == 'liquid':
+        return get_filtered_universe(market=market, min_bars=2000, min_grade='B',
+                                     min_adv_usd=500_000, verbose=verbose)
+    else:  # 'filtered' (default)
+        return get_filtered_universe(market=market, min_bars=2000, min_grade='B',
+                                     verbose=verbose)
 
 
 def print_universe_report(market='spot', min_adv_usd=DEFAULT_MIN_ADV_USD,

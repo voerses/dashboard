@@ -36,6 +36,7 @@ adv_to_tier = _universe.adv_to_tier
 adv_to_sizing = _universe.adv_to_sizing
 adv_to_costs = _universe.adv_to_costs
 get_fee_rate = _universe.get_fee_rate
+get_maint_margin_rate = _universe.get_maint_margin_rate
 FALLBACK_ADV = _universe.FALLBACK_ADV
 # Legacy — kept for backward compat of external imports
 LIQUID_TOKENS = _universe.LIQUID_TOKENS
@@ -274,7 +275,7 @@ def _simulate_core_jit(close, high, low, atr, entry_mask, direction,
                        no_stop_bars, edge_override,
                        kelly_mult_arr, cap_pct_arr, max_trade_pct,
                        is_perp, leverage_arr, funding_1h,
-                       burn_in_bars):
+                       burn_in_bars, maint_margin_rate):
     """
     Numba-JIT compiled trade simulation loop.
     Slippage is position-size-aware: slip_bps = base_spread + impact * sqrt(pos_usd / adv)
@@ -284,7 +285,8 @@ def _simulate_core_jit(close, high, low, atr, entry_mask, direction,
     Perp extensions (active when is_perp=True):
     - Funding accumulation: notional * per-hour rate, every bar while in position
     - Leverage: amplifies notional exposure, margin = pos_usd (unchanged)
-    - Liquidation: full exit when unrealized loss exceeds margin minus maintenance (5%)
+    - Liquidation: full exit when remaining margin < maint_margin_rate * margin
+    - maint_margin_rate: exchange-specific (Binance 0.4%, Kraken 1.0%)
 
     When is_perp=False: zero overhead — Numba compiles the False branch away.
 
@@ -347,20 +349,21 @@ def _simulate_core_jit(close, high, low, atr, entry_mask, direction,
                     unrealized = position * (close[i] - entry_price)
                 else:
                     unrealized = abs(position) * (entry_price - close[i])
-                if margin_usd + unrealized - cumulative_funding < margin_usd * 0.05:
-                    # Liquidation: loss capped at margin (exchange takes the position,
-                    # trader loses margin minus maintenance). On gap moves the price
-                    # may be far past the liquidation price, but the exchange/insurance
-                    # fund absorbs the difference — not the trader.
-                    max_loss = margin_usd * 0.95  # 5% maintenance margin retained
-                    fee = margin_usd * fee_rate  # fee on notional at liquidation
-                    net_pnl = -(max_loss + fee)
+                if margin_usd + unrealized - cumulative_funding < margin_usd * maint_margin_rate:
+                    # Liquidation: total trade loss = margin (exchange takes position).
+                    # Funding already deducted from equity bar-by-bar, so add it back
+                    # to avoid double-counting: equity impact = -(margin*(1-MMR) + fee).
+                    max_loss = margin_usd * (1.0 - maint_margin_rate)
+                    fee = margin_usd * fee_rate
+                    net_pnl = -(max_loss + fee) + cumulative_funding
                     equity += net_pnl
 
                     pos_usd_rec = abs(position * entry_price)
+                    # Recorded PnL: total trade loss including funding
+                    total_trade_pnl = -(max_loss + fee)
                     if trade_count < max_trades:
-                        out_pnl[trade_count] = net_pnl - cumulative_funding
-                        out_ret[trade_count] = (net_pnl - cumulative_funding) / max(pos_usd_rec, 1.0) * 100.0
+                        out_pnl[trade_count] = total_trade_pnl
+                        out_ret[trade_count] = total_trade_pnl / max(pos_usd_rec, 1.0) * 100.0
                         out_hold[trade_count] = bars_held
                         out_exit[trade_count] = 7  # liquidation
                         out_pos[trade_count] = pos_usd_rec
@@ -593,6 +596,7 @@ def _simulate_combined_jit(
     is_perp_2, leverage_2, funding_1h_2,
     capital_frac_2,
     burn_in_bars,
+    maint_margin_rate_1, maint_margin_rate_2,
 ):
     """
     Two-leg combined simulation with shared equity pool.
@@ -670,7 +674,7 @@ def _simulate_combined_jit(
                     unreal_1 = pos_1 * (close[i] - entry_price_1)
                 else:
                     unreal_1 = abs(pos_1) * (entry_price_1 - close[i])
-                if margin_1 + unreal_1 - cum_fund_1 < margin_1 * 0.05:
+                if margin_1 + unreal_1 - cum_fund_1 < margin_1 * maint_margin_rate_1:
                     liq_1 = True
 
             exit_1 = False
@@ -737,10 +741,11 @@ def _simulate_combined_jit(
 
             if exit_1:
                 if ecode_1 == 7:
-                    # Liquidation: cap loss at margin
-                    max_loss_1 = margin_1 * 0.95
+                    # Liquidation: total trade loss = margin. Funding already
+                    # deducted bar-by-bar, add back to avoid double-counting.
+                    max_loss_1 = margin_1 * (1.0 - maint_margin_rate_1)
                     fee1 = margin_1 * fee_rate_1
-                    net1 = -(max_loss_1 + fee1)
+                    net1 = -(max_loss_1 + fee1) + cum_fund_1
                 else:
                     ep_usd_1 = abs(pos_1 * eprice_1)
                     epart_1 = ep_usd_1 / max(adv_arr[i], 1.0)
@@ -800,7 +805,7 @@ def _simulate_combined_jit(
                     unreal_2 = pos_2 * (close[i] - entry_price_2)
                 else:
                     unreal_2 = abs(pos_2) * (entry_price_2 - close[i])
-                if margin_2 + unreal_2 - cum_fund_2 < margin_2 * 0.05:
+                if margin_2 + unreal_2 - cum_fund_2 < margin_2 * maint_margin_rate_2:
                     liq_2 = True
 
             exit_2 = False
@@ -867,10 +872,11 @@ def _simulate_combined_jit(
 
             if exit_2:
                 if ecode_2 == 7:
-                    # Liquidation: cap loss at margin
-                    max_loss_2 = margin_2 * 0.95
+                    # Liquidation: total trade loss = margin. Funding already
+                    # deducted bar-by-bar, add back to avoid double-counting.
+                    max_loss_2 = margin_2 * (1.0 - maint_margin_rate_2)
                     fee2 = margin_2 * fee_rate_2
-                    net2 = -(max_loss_2 + fee2)
+                    net2 = -(max_loss_2 + fee2) + cum_fund_2
                 else:
                     ep_usd_2 = abs(pos_2 * eprice_2)
                     epart_2 = ep_usd_2 / max(adv_arr[i], 1.0)
@@ -1433,6 +1439,10 @@ class Engine:
         else:
             funding_1h = np.zeros(n, dtype=np.float64)
 
+        # Maintenance margin rate (exchange-specific, for liquidation threshold)
+        exchange = result.exchange or self.exchange
+        mmr = get_maint_margin_rate(exchange)
+
         # Leverage: convert scalar to per-bar array
         lev = result.leverage
         if isinstance(lev, np.ndarray):
@@ -1452,6 +1462,7 @@ class Engine:
             kelly_mult_arr, cap_pct_arr, float(result.max_trade_pct),
             is_perp, leverage_arr, funding_1h,
             200,  # burn_in_bars: indicator warm-up period
+            float(mmr),  # maint_margin_rate: exchange-specific liquidation threshold
         )
 
         pnl_arr, ret_arr, hold_arr, exit_arr, pos_arr, entry_bars, exit_bars, final_equity, funding_arr = sim_result
@@ -1619,6 +1630,11 @@ class Engine:
         capital_frac_1 = result.capital_split
         capital_frac_2 = 1.0 - result.capital_split
 
+        # Maintenance margin rates (exchange-specific)
+        exchange = result.exchange or self.exchange
+        mmr_1 = get_maint_margin_rate(exchange)
+        mmr_2 = get_maint_margin_rate(exchange)
+
         # Secondary leg trade management: use secondary-specific or fall back to primary
         s2_stop = result.secondary_stop_mult if result.secondary_stop_mult is not None else result.stop_mult
         s2_trail = result.secondary_trail_mult if result.secondary_trail_mult is not None else result.trail_mult
@@ -1653,6 +1669,7 @@ class Engine:
             is_perp_2, float(result.secondary_leverage), funding_2,
             float(capital_frac_2),
             200,  # burn_in_bars: indicator warm-up period
+            float(mmr_1), float(mmr_2),  # exchange-specific liquidation thresholds
         )
 
         pnl_arr, ret_arr, hold_arr, exit_arr, pos_arr, entry_bars, exit_bars, final_equity, funding_arr, leg_arr = sim_result
