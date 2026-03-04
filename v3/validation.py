@@ -74,6 +74,7 @@ deflated_sharpe = _cpcv_mod.deflated_sharpe
 LIQUID_TOKENS = _universe_mod.LIQUID_TOKENS
 get_tier = _universe_mod.get_tier
 get_all_tradeable = _universe_mod.get_all_tradeable
+resolve_universe = _universe_mod.resolve_universe
 
 
 # =============================================================================
@@ -738,7 +739,11 @@ def main():
     parser.add_argument('--strategy', nargs='+', required=True,
                         help='Strategy names or paths (e.g., s11 s09 or path/to/strat.py)')
     parser.add_argument('--tokens', nargs='+', default=None,
-                        help='Tokens to validate (default: all liquid)')
+                        help='Tokens to validate (overrides --universe)')
+    parser.add_argument('--universe', choices=['all', 'filtered', 'liquid'],
+                        default='filtered',
+                        help='Token universe: all=every token with data, '
+                             'filtered=quality-gated (default), liquid=filtered+ADV gate')
     parser.add_argument('--workers', type=int, default=4,
                         help='Parallel workers')
     parser.add_argument('--wf-only', action='store_true',
@@ -786,7 +791,11 @@ def main():
         workers=args.workers,
     )
 
-    tokens = args.tokens if args.tokens else None
+    if args.tokens:
+        tokens = args.tokens
+    else:
+        tokens = resolve_universe(args.universe, market=args.market, verbose=True)
+        print(f"Universe '{args.universe}': {len(tokens)} tokens")
 
     for strat_arg in args.strategy:
         try:
