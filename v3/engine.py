@@ -337,8 +337,11 @@ def _simulate_core_jit(close, high, low, atr, entry_mask, direction,
                 equity -= funding_cost
                 cumulative_funding += funding_cost
 
-            # Liquidation check (perp with leverage only)
-            if is_perp and leverage_arr[entry_bar] > 1.0 and position != 0.0:
+            # Liquidation check (perp: leveraged positions or shorts at any leverage)
+            # Shorts at 1x can lose >100% of margin (price rise is unlimited),
+            # so exchanges liquidate when margin is consumed.
+            # Longs at 1x cap at -100% naturally (price can't go below 0).
+            if is_perp and (leverage_arr[entry_bar] > 1.0 or position < 0.0) and position != 0.0:
                 # Simplified liquidation: if unrealized loss exceeds margin
                 if position > 0.0:
                     unrealized = position * (close[i] - entry_price)
@@ -671,9 +674,9 @@ def _simulate_combined_jit(
                 equity -= fc_1
                 cum_fund_1 += fc_1
 
-            # Liquidation
+            # Liquidation (leveraged or short at any leverage)
             liq_1 = False
-            if is_perp_1 and leverage_1 > 1.0 and pos_1 != 0.0:
+            if is_perp_1 and (leverage_1 > 1.0 or pos_1 < 0.0) and pos_1 != 0.0:
                 if pos_1 > 0.0:
                     unreal_1 = pos_1 * (close[i] - entry_price_1)
                 else:
@@ -795,9 +798,9 @@ def _simulate_combined_jit(
                 equity -= fc_2
                 cum_fund_2 += fc_2
 
-            # Liquidation
+            # Liquidation (leveraged or short at any leverage)
             liq_2 = False
-            if is_perp_2 and leverage_2 > 1.0 and pos_2 != 0.0:
+            if is_perp_2 and (leverage_2 > 1.0 or pos_2 < 0.0) and pos_2 != 0.0:
                 if pos_2 > 0.0:
                     unreal_2 = pos_2 * (close[i] - entry_price_2)
                 else:
@@ -1137,17 +1140,11 @@ def register_indicator(fn):
 def _compute_obv(ctx: StrategyContext):
     close = ctx.ind_1h['close']
     volume = ctx.ind_1h['volume']
-    n = len(close)
-    obv = np.zeros(n)
-    for i in range(1, n):
-        if close[i] > close[i - 1]:
-            obv[i] = obv[i - 1] + volume[i]
-        elif close[i] < close[i - 1]:
-            obv[i] = obv[i - 1] - volume[i]
-        else:
-            obv[i] = obv[i - 1]
+    # Vectorized OBV: sign of price change * volume, then cumsum
+    sign = np.sign(np.diff(close, prepend=close[0]))
+    obv = np.cumsum(sign * volume)
     ctx.custom['obv'] = obv
-    obv_slope = np.zeros(n)
+    obv_slope = np.zeros(len(close))
     obv_slope[10:] = obv[10:] - obv[:-10]
     ctx.custom['obv_slope'] = obv_slope
 
