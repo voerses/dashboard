@@ -91,7 +91,7 @@ GATE 4: QUICK VALIDATION — SINGLE TOKEN (< 5 min)
 
 GATE 5: FULL VALIDATION — STATISTICAL (< 10 min)
   Required:
-    - Run v3/validation.py --strategy sNN --workers 4 (all 49 tokens)
+    - Run v3/validation.py --strategy sNN --workers 4 (filtered universe, ~111 tokens)
     - Record validation rate
     - Compute Deflated Sharpe Ratio (DSR) corrected for number of strategies tested
     - Run parameter sensitivity analysis (+/- 20% on key parameters)
@@ -179,7 +179,7 @@ echo "strategy" > "$CLAUDE_PROJECT_DIR/.process-mode"
 > 2. **Knowledge + Dedup** — consult KB, compare against existing strategies (kill: > 80% overlap)
 > 3. **Prototype** — write vectorized strategy from template (kill: > 1ms/call)
 > 4. **Quick Validate** — BTC-only dual gate (kill: fails after 3 attempts)
-> 5. **Full Validate** — 49 tokens + DSR + parameter sensitivity (kill: rate < 20%, DSR p > 0.05)
+> 5. **Full Validate** — filtered universe + DSR + parameter sensitivity (kill: rate < 20%, DSR p > 0.05)
 > 6. **Paper Trade** — live data, simulated execution, 50+ trades (kill: Sharpe < 60% of backtest)
 > 7. **Production** — deploy with risk limits + decay monitoring (kill: rolling Sharpe < 0)
 >
@@ -226,7 +226,7 @@ Current process allows unlimited iteration on Tier B strategies. New rules:
 
 - Maximum 3 iteration cycles per Tier B strategy.
 - Each cycle must change parameters only (not core signal logic).
-- Each cycle must include a full 49-token validation run.
+- Each cycle must include a full filtered-universe validation run.
 - If rate does not exceed 50% after 3 cycles, archive immediately.
 - Time-box: if a Tier B strategy has not been promoted within 30 days of creation, archive it.
 

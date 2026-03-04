@@ -5,6 +5,62 @@
 
 ---
 
+## Available Capabilities (Read Before Ideating)
+
+Before proposing a strategy, know what tools and strategy types exist.
+
+### Strategy Types
+
+| Type | Module | Example | Validated? |
+|------|--------|---------|------------|
+| Per-token signal | `strategies/sNN_*.py` | s11 momentum burst (Sharpe 2.58) | Yes — 6 Tier A |
+| Cross-sectional ranking | `v3/cross_sectional.py` | Long top quintile by 14d return (Sharpe 1.54, corr +0.25 vs S11) | Yes — Tier A diversifier |
+| Sector rotation | `v3/sector_rotation.py` | Long top 2 of 10 sectors by category momentum (Sharpe 1.31, corr +0.20) | Yes — Tier A diversifier |
+| Pairs / stat arb | `v3/pairs_trading.py` | Cointegrated pairs on perps, z-score entry (Sharpe 0.42, corr -0.06) | Yes — Tier B diversifier |
+
+### Overlays (Improve Existing Strategies)
+
+| Overlay | Module | Effect |
+|---------|--------|--------|
+| Regime weighting | `v3/regime_analysis.py` | Scale allocation by BTC regime. S11+S09: Sharpe +0.29, DD +4.5pp |
+| Signal agreement | `v3/signal_agreement.py` | AND/N-of-M gating. S11+S09 AND: trades -66%, Calmar +0.46, DD +6.7pp |
+
+### Portfolio Tools
+
+| Tool | Module | Purpose |
+|------|--------|---------|
+| Portfolio simulation | `v3/portfolio.py` | Shared cash pool, realistic capital, concentration caps |
+| Correlation analysis | `v3/correlation.py` | Pairwise strategy corr, marginal Sharpe, greedy portfolio selection |
+| Dynamic universe | `v3/dynamic_universe.py` | Point-in-time token eligibility at each WF window |
+
+### Market Capabilities
+
+| Capability | Details |
+|-----------|---------|
+| Spot trading | Long only, Binance 116 tokens |
+| Perpetual futures | Long AND short, leverage, funding rates |
+| Exchanges | Binance, Kraken, Hyperliquid (different fee tiers) |
+| Data | 1H candles, 2020-2026, merged in `data/1h_cache/` |
+
+### Key Constraints
+
+- **All 6 Tier A per-token strategies are momentum variants** (median pairwise r=+0.62, effective N=2.02)
+- To improve portfolio, need **different strategy families**, not more momentum
+- Cross-sectional (+0.25), sector rotation (+0.20), pairs (-0.06) provide genuine diversification
+- Mean reversion consistently fails at 18-720hr holds in crypto — don't retry
+
+### Strategy Classes (Gate 0 Routing)
+
+| Class | Gate Path | When to Use |
+|-------|-----------|-------------|
+| A. Per-Token Signal | 0→1→2→3→4→5→6→7 | Single signal on individual tokens |
+| B. Portfolio Strategy | 0→2→3P→5P→6→7 | Cross-token ranking, sector rotation, pairs |
+| C. Overlay | 0→2→3O→5O→6→7 | Regime weighting, signal agreement, risk scaling |
+
+> Deep dive: `memory/PROJECT_STATUS.md` (full capability inventory + open tasks)
+
+---
+
 ## Existing Tier A/B Strategies (Dedup Check)
 
 | Strategy | Tier | Rate | Core Entry Signal | Hold |
@@ -83,12 +139,20 @@
 
 ## Gate 2: Knowledge + Dedup — Overlap Rules
 
-**Kill criteria:**
+**Per-token strategies:**
 - Entry signal overlaps > 80% with existing Tier A/B → KILL
 - Already tried and failed (Tier C) with no new evidence → KILL
 - Signal type has 2+ strategies in Tier A → saturated, KILL
+- **Recycle:** Overlap 30-80% → propose as FILTER to existing strategy, not new strategy
 
-**Recycle:** Overlap 30-80% → propose as FILTER to existing strategy, not new strategy
+**Portfolio strategies:**
+- Compare strategy CLASS, not entry signal (cross-sectional vs sector vs pairs)
+- Check correlation vs existing portfolio strategies: >0.7 → KILL
+- If same class exists: must show improvement on Calmar or DD, not just different parameters
+
+**Overlays:**
+- Check if overlay already applied to base strategy
+- Multiple overlays on same base OK if targeting different aspects (regime=allocation, agreement=entry, risk=sizing)
 
 **Post-ETF Regime Shifts (Jan 2024+):**
 - BTC price driven by ETF flows, not on-chain metrics

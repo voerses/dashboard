@@ -59,8 +59,8 @@ PRODUCTION
 |------|-------------|----------------|
 | 0: Idea Screening | 5 minutes | None |
 | 1: Signal Lab | 2-4 hours | Signal Lab IC run |
-| 2: Single-Instrument | 1-2 days | BTC-only V3 validation (~20 sec) |
-| 3: Multi-Instrument | 1-2 days | Full 49-token V3 sweep (~20 sec/strategy) |
+| 2: Single-Instrument | 1-2 days | BTC-only V3 validation (~5 sec) |
+| 3: Multi-Instrument | 1-2 days | Full 111-token V3 sweep (~32 sec/strategy, 4 workers) |
 | 4: Paper Trading | 1-4 weeks | Live data feed, simulated execution |
 | 5: Live Deployment | Ongoing | Real capital at risk |
 
@@ -294,7 +294,7 @@ Note: We do NOT kill on low Sharpe alone — a strategy with Sharpe 0.6 but Calm
 
 **Time budget:** 1-2 days.
 
-**Tool:** V3 validation on all 49 tokens (`v3/validation.py --strategy sNN --workers 4`)
+**Tool:** V3 validation on filtered universe (`v3/validation.py --strategy sNN --workers 4`, default `--universe filtered` = 111 tokens)
 
 ### CPCV Requirements
 
@@ -315,7 +315,7 @@ The V3 validation engine runs a dual gate: Walk-Forward Analysis + Combinatorial
 
 ### Token Pass Rate Threshold (Tier System)
 
-The validation rate = % of 49 tokens passing the dual WF+CPCV gate.
+The validation rate = % of filtered-universe tokens passing the dual WF+CPCV gate.
 
 | Tier | Validation Rate | Status | Action |
 |------|----------------|--------|--------|

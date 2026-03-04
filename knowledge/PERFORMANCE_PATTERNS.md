@@ -1,7 +1,7 @@
 # V3 Performance Patterns — Strategy & Engine Best Practices
 
 > **TL;DR — Vectorize everything; <1ms target**
-> - 0.04ms (s11 vectorized) vs 1,864ms (s16 loops) — 46,600x difference; total 49-token: 18s vs 64 min
+> - 0.04ms (s11 vectorized) vs 1,864ms (s16 loops) — 46,600x difference; total 111-token: 32s vs hours
 > - Never `for i in range(n)` on bars; use `rolling_mean/std/max/min` helpers (137x faster)
 > - Use pre-computed `ctx.ind_1h` (23+ indicators) and `ctx.custom` — never recompute
 > - Boolean vectorization: `(close > sma) & (rsi < 30) & (adx > 25)` not per-bar if-else
@@ -16,16 +16,30 @@
 Total time ≈ Σ tokens × (1 WF + 15 CPCV) × (T_build_context + T_strategy + T_simulate)
 ```
 
-Measured per-component timings (BTC, 44,554 bars):
+Measured per-component timings (BTC, 54,044 bars — updated 2026-03-03):
 
 | Component | Time | Notes |
 |-----------|------|-------|
-| `_build_context` | 26-54ms | Indicators + timeframe aggregation |
+| `_build_context` | 35-65ms | Indicators + aggregation + plugins + liquidity arrays |
 | `strategy()` (s11, vectorized) | 0.04ms | Pure numpy, no loops |
 | `strategy()` (s16, loops) | 1,864ms | 10+ Python for-loops |
-| `_simulate()` (JIT, cached) | 0.3ms | Numba JIT simulation |
+| `_simulate()` (JIT, warm) | 7-8ms | Numba JIT loop over all bars (scales with bar count) |
 
-**The strategy function dominates.** Everything else is sub-millisecond after warmup.
+Breakdown of `_build_context` (BTC, 54K bars):
+
+| Sub-component | Time | Notes |
+|---------------|------|-------|
+| `compute_indicators_fast` (1h) | 21ms | Core indicators on 54K bars |
+| `aggregate_to_timeframe` (4h + daily) | 9ms | pandas resample |
+| `compute_indicators_fast` (4h + daily) | 5ms | Indicators on smaller frames |
+| `_compute_obv` plugin | 2ms | Vectorized via `np.cumsum` |
+| `_compute_momentum_signals` plugin | 3ms | 5 hourly + 4 daily returns |
+| `compute_liquidity_mask` + `compute_rolling_adv` | 4ms | Point-in-time liquidity arrays |
+| `detect_daily_regime` + alignment | 2ms | Regime detection |
+| `_load_enriched` | 0ms | Cached after first call (~34ms cold) |
+
+**For fast strategies, `_build_context` dominates.** The JIT simulation is the second cost center at 7-8ms.
+CPCV multiplies both: 15 folds × (build + strategy + simulate) per token.
 
 ---
 
@@ -85,9 +99,9 @@ ret_6h, ret_12h, ret_24h, ret_48h, ret_120h,
 ret_5d, ret_10d, ret_20d, ret_60d
 ```
 
-**BAD:**
+**BAD** (was 30ms on 54K bars — fixed 2026-03-03):
 ```python
-# Recomputing OBV from scratch — 44K iterations
+# Python for-loop OBV — O(n) with Python overhead
 obv = np.zeros(n)
 for i in range(1, n):
     if close[i] > close[i-1]:
@@ -95,7 +109,14 @@ for i in range(1, n):
     ...
 ```
 
-**GOOD:**
+**GOOD** (vectorized — 1.7ms, 18x faster):
+```python
+# Vectorized OBV via sign + cumsum (now used in engine.py)
+sign = np.sign(np.diff(close, prepend=close[0]))
+obv = np.cumsum(sign * volume)
+```
+
+**BEST** (use pre-computed):
 ```python
 obv = ctx.custom['obv']
 obv_slope = ctx.custom['obv_slope']
@@ -127,9 +148,9 @@ When testing multiple strategies on the same tokens, use `use_cache=True`:
 
 ```python
 engine = Engine(data_dir='data')
-df = pd.read_parquet('data/1h_cache/BTC_1h.parquet')
+df = pd.read_parquet('data/spot/1h_cache/BTC_1h.parquet')
 
-# First call computes indicators (~54ms)
+# First call computes indicators (~65ms)
 ctx = engine._build_context('BTC', df, use_cache=True)
 
 # Second call returns cached context (~0.01ms)
@@ -156,6 +177,60 @@ result = rolling_mean(data, window)
 
 ---
 
+## Rule 6: Never Introduce Look-Ahead Bias
+
+Every optimization, refactor, or new feature in the engine/strategy code must preserve causal ordering.
+**Speed is worthless if it leaks future data into past decisions.**
+
+### What constitutes look-ahead bias
+
+- Using bar `i+1` (or later) data to compute a value at bar `i`
+- Rolling windows that include the current or future bar in their output (off-by-one)
+- Daily aggregations applied to the same day's hourly bars instead of the next day's
+- Sorting/ranking across the full array then using the rank at bar `i` (survivorship/full-sample bias)
+- Filling NaN backward (`bfill`) instead of forward (`ffill`)
+
+### Mandatory bias checks when modifying engine code
+
+1. **Causal trace**: For every array operation, verify `output[i]` depends only on inputs at indices `<= i`
+   (or `< i` for lagged quantities like daily ADV applied to next-day bars).
+2. **NaN boundary check**: Confirm that the first non-NaN output bar is no earlier than expected.
+   Example: a 30-day rolling median should have NaN for the first 30 days.
+3. **Before/after diff**: Run validation on at least one strategy before and after the change.
+   Same tokens, same results = no behavioral change. Any difference requires investigation.
+
+### Common safe patterns
+
+```python
+# SAFE: np.diff looks backward
+np.diff(close, prepend=close[0])  # result[i] = close[i] - close[i-1]
+
+# SAFE: cumsum is causal
+np.cumsum(arr)  # output[i] = sum(arr[0:i+1])
+
+# SAFE: rolling with min_periods forward-fills NaN at the start
+pd.Series(arr).rolling(window, min_periods=3).mean()
+
+# SAFE: np.repeat for expanding daily to hourly (with lag offset)
+adv_hourly[bars_per_day:] = np.repeat(daily_adv, bars_per_day)  # 1-day lag
+```
+
+### Dangerous patterns (require extra scrutiny)
+
+```python
+# DANGEROUS: scipy/sklearn operations that see the whole array
+from sklearn.preprocessing import StandardScaler
+scaled = scaler.fit_transform(arr)  # fit() sees ALL data including future
+
+# DANGEROUS: pandas operations that can fill backward
+df.fillna(method='bfill')  # leaks future into past
+
+# DANGEROUS: sorting + ranking on full series
+ranks = arr.argsort().argsort()  # rank uses future values
+```
+
+---
+
 ## Performance Checklist for New Strategies
 
 Before committing a new strategy, verify:
@@ -165,6 +240,7 @@ Before committing a new strategy, verify:
 3. [ ] **Uses pre-computed indicators** from `ctx.ind_1h` where available
 4. [ ] **Vectorized boolean logic** — no per-bar if/else
 5. [ ] **Profile it**: should be < 1ms per call on 40K bars
+6. [ ] **No look-ahead bias**: every output[i] depends only on inputs at index <= i (see Rule 6)
 
 Quick timing test:
 ```python
@@ -182,21 +258,29 @@ print(f"{(t1-t0)/100*1000:.2f}ms per call")
 
 ## Strategy Speed Tiers
 
-| Tier | Time/call | 49-token validation | Example |
-|------|-----------|---------------------|---------|
-| Fast | < 1ms | ~18s | s11, s09 (vectorized) |
-| Medium | 1-10ms | ~2 min | s12, s18 |
-| Slow | 10-100ms | ~20 min | s14, s15 (some loops) |
-| Broken | > 100ms | > 1 hour | s16 (all loops) |
+Validation times measured with `--universe filtered` (111 tokens), 4 workers.
+Per-token cost = 16 calls × (build_context + strategy + simulate).
+
+| Tier | Strategy time/call | Validation (111 tok, 4w) | Example |
+|------|-------------------|--------------------------|---------|
+| Fast | < 1ms | ~32s | s11, s09 (vectorized) |
+| Medium | 1-10ms | ~3 min | s12, s18 |
+| Slow | 10-100ms | ~25 min | s14, s15 (some loops) |
+| Broken | > 100ms | > 2 hours | s16 (all loops) |
+
+Note: `_build_context` (~50ms avg) and `_simulate` (~8ms) are fixed costs per call.
+A fast strategy adds negligible time; a slow strategy multiplies by 16 calls/token.
 
 ---
 
 ## Engine Internals: What's Already Optimized
 
-- **JIT simulation**: `_simulate_core_jit` is Numba-compiled, cached, ~0.1ms
-- **Exit regime mask**: Vectorized with `np.isin` (~0.1ms vs 7.5ms for Python loop)
-- **Indicator computation**: Pure numpy, ~9ms for 44K bars
+- **JIT simulation**: `_simulate_core_jit` is Numba-compiled, cached, ~7ms on 54K bars (scales linearly with bar count)
+- **Exit regime mask**: Vectorized with `np.isin` (~0.3ms)
+- **Indicator computation**: Pure numpy, ~21ms for 54K bars (1h), ~5ms for 4h+daily combined
+- **OBV plugin**: Vectorized via `np.sign` + `np.cumsum` (~2ms for 54K bars)
 - **Context caching**: Available via `use_cache=True` parameter
+- **Liquidity arrays**: `compute_rolling_adv` vectorized via `np.repeat` (~1ms)
 
 ---
 
@@ -222,19 +306,22 @@ print(f"{(t1-t0)/100*1000:.2f}ms per call")
 When running the V3 validation sweep:
 
 ```bash
-# Single strategy, fast
-python v3/validation.py --strategy s11 --workers 4 --data-dir data
-# Expected: ~17s for 49 tokens
+# Single strategy, filtered universe (default)
+python v3/validation.py --strategy s11_momentum_burst --workers 4
+# Expected: ~32s for 111 filtered tokens
+
+# Full universe (all 116 tokens including noise)
+python v3/validation.py --strategy s11_momentum_burst --universe all --workers 4
 
 # Multi-strategy sweep (runs sequentially, indicators cached per-worker)
-python v3/validation.py --strategy s11 s09 s17 --workers 4 --data-dir data
+python v3/validation.py --strategy s11 s09 s17 --workers 4
 
 # Profile a specific strategy
 python -c "
 from engine import Engine
 import pandas as pd, time
 eng = Engine(data_dir='data')
-df = pd.read_parquet('data/1h_cache/BTC_1h.parquet')
+df = pd.read_parquet('data/spot/1h_cache/BTC_1h.parquet')
 ctx = eng._build_context('BTC', df)
 from strategies.s11_momentum_burst import strategy
 t0 = time.perf_counter()

@@ -172,28 +172,36 @@ Immediate steps:
 
 Ranked by expected impact on risk-adjusted returns and implementation feasibility:
 
-| Priority | Improvement | Expected Impact | Effort | Rationale |
-|----------|-------------|-----------------|--------|-----------|
-| **1** | Portfolio-level backtest (Gap 1) | **Critical** | Medium | Without this, all other improvements lack a proper evaluation framework. Needed to measure aggregate risk, drawdown, and real Sharpe. |
-| **2** | Strategy correlation matrix & combination (Gap 5) | **High** | Low | Low-effort, high-insight. Reveals whether existing strategies are redundant or complementary. Required before any allocation decisions. |
-| **3** | Dynamic liquidity-gated universe (Gap 2) | **High** | Medium | Addresses survivorship bias and execution realism. Directly improves the trustworthiness of all validation results. |
-| **4** | Token selection as alpha / pre-filtering (Gap 4) | **Medium-High** | Low | Simple quality/liquidity pre-filter. May significantly improve validation rates and concentrate capital in tradeable tokens. |
-| **5** | Cross-sectional momentum strategy (Gap 3) | **Medium-High** | High | New strategy type with strong academic support in crypto. Requires architectural changes to support cross-token comparisons. |
-| **6** | Pairs trading / statistical arbitrage (Gap 3) | **Medium** | High | Proven alpha source but requires cointegration analysis infrastructure and perp capabilities for shorting. |
-| **7** | Sector/narrative rotation (Gap 3) | **Medium** | Medium | Exploits crypto-specific sector dynamics. Requires token classification system. Can start simple (manual categories, category-level momentum). |
-| **8** | Survivorship-bias-free historical dataset (Gap 2) | **Medium** | Medium | Improves all backtest validity. Can be built incrementally using CoinMarketCap/CoinGecko APIs for delisted token data. |
-| **9** | Signal agreement gating across strategies (Gap 5) | **Medium** | Low | For tokens where multiple strategies validate, test whether agreement improves hit rate. Quick experiment on existing data. |
-| **10** | Regime-conditional strategy weighting (Gap 5) | **Low-Medium** | High | Advanced combination technique. Requires regime detection model. Defer until simpler combinations are proven. |
+| Priority | Improvement | Expected Impact | Effort | Status |
+|----------|-------------|-----------------|--------|--------|
+| **1** | Portfolio-level backtest (Gap 1) | **Critical** | Medium | **Done** — `v3/portfolio.py` (shared cash pool, MTM equity, concentration caps) |
+| **2** | Strategy correlation matrix & combination (Gap 5) | **High** | Low | **Done** — `v3/correlation.py` (pairwise corr, marginal Sharpe, greedy selection). Finding: all 6 Tier A strategies are momentum variants with median r=+0.62, 3 pairs >0.7. s11 alone (Sharpe 1.74) beats any equal-weight combo (1.22). Use as a gate when building portfolio strategies. |
+| **3** | Dynamic liquidity-gated universe (Gap 2) | **High** | Medium | **Done** — `v3/dynamic_universe.py` (point-in-time eligibility at each WF window, ADV-based filtering). Static gate in `get_filtered_universe()` also retained. |
+| **4** | Token selection as alpha / pre-filtering (Gap 4) | **Medium-High** | Low | **Done** — `universe.py` quality/bar-count/ADV filters, `--universe` CLI flag |
+| **5** | Cross-sectional momentum strategy (Gap 3) | **Medium-High** | High | **Done** — `v3/cross_sectional.py` (long top quintile by 14d return, Sharpe 1.54, corr +0.25 vs S11). Tier A diversifier. |
+| **6** | Pairs trading / statistical arbitrage (Gap 3) | **Medium** | High | **Done** — `v3/pairs_trading.py` (cointegrated pairs on perps, z-score entry, Sharpe 0.42, corr -0.06). Tier B diversifier. |
+| **7** | Sector/narrative rotation (Gap 3) | **Medium** | Medium | **Done** — `v3/sector_rotation.py` (long top 2 of 10 sectors by category momentum, Sharpe 1.31, corr +0.20). Tier A diversifier. |
+| **8** | Survivorship-bias-free historical dataset (Gap 2) | **Medium** | Medium | Not started. Improves all backtest validity. Can be built incrementally using CoinMarketCap/CoinGecko APIs for delisted token data. |
+| **9** | Signal agreement gating across strategies (Gap 5) | **Medium** | Low | **Done** — `v3/signal_agreement.py` (AND/N-of-M gating. S11+S09 AND: trades -66%, Calmar +0.46, DD +6.7pp). |
+| **10** | Regime-conditional strategy weighting (Gap 5) | **Low-Medium** | High | **Done** — `v3/regime_analysis.py` (scale allocation by BTC regime. S11+S09: Sharpe +0.29, DD +4.5pp). |
 
 ### Critical Path
 
-The first three priorities form a critical path:
+**9 of 10 improvements complete.** P1-P7, P9, P10 all done. Only P8 (survivorship-bias-free dataset) remains.
 
-1. **Strategy correlation matrix** (Priority 2) -- can be done immediately with existing per-token equity curves. Reveals whether we have 6 independent strategies or 1 strategy measured 6 ways.
-2. **Portfolio-level backtest** (Priority 1) -- requires building a simulation layer. Use correlation insights from step 1 to inform allocation method.
-3. **Dynamic universe** (Priority 3) -- feeds cleaner data into both per-token validation and portfolio-level testing.
+**Key finding from P2:** All 6 Tier A per-token strategies are momentum/trend variants (median pairwise r=+0.62, effective N=2.02). This drove P5-P7 (new strategy families for diversification).
 
-Everything else builds on this foundation.
+**Key results from P5-P7 (portfolio strategies):**
+- Cross-sectional momentum (`v3/cross_sectional.py`): Sharpe 1.54, corr +0.25 vs S11 — genuine diversifier
+- Sector rotation (`v3/sector_rotation.py`): Sharpe 1.31, corr +0.20 vs S11 — genuine diversifier
+- Pairs trading (`v3/pairs_trading.py`): Sharpe 0.42, corr -0.06 vs S11 — weak standalone, excellent diversifier
+
+**Key results from P9-P10 (overlays):**
+- Signal agreement (`v3/signal_agreement.py`): S11+S09 AND gate → trades -66%, Calmar +0.46, DD +6.7pp
+- Regime weighting (`v3/regime_analysis.py`): S11+S09 regime scale → Sharpe +0.29, DD +4.5pp
+
+**Remaining:**
+1. **P8** — Survivorship-bias-free dataset (not started, requires exchange API work)
 
 ---
 
