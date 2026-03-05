@@ -86,7 +86,7 @@ tr.trade-row { cursor:pointer; }
 
 <div class="header">
     <h1>Trading Dashboard</h1>
-    <div class="meta">Updated: 2026-03-05 22:48 UTC</div>
+    <div class="meta">Updated: 2026-03-05 22:49 UTC</div>
 </div>
 <div class="sim-tabs" id="sim-tabs"></div>
 <div id="app"></div>
@@ -239,6 +239,9 @@ function render() {
                 </tr></thead>
                 <tbody id="tb-trades"></tbody>
             </table>
+            <div id="show-more-wrap" style="text-align:center;padding:8px;display:none">
+                <span class="fb" onclick="showMore()" style="cursor:pointer">Show more trades...</span>
+            </div>
         </div>
     </div>`;
 
@@ -267,19 +270,23 @@ function render() {
 let curFilter = 'all';
 function setF(el, f) {
     curFilter = f;
+    _tradeLimit = 50;
     el.parentElement.querySelectorAll('.fb').forEach(b=>b.classList.remove('active'));
     el.classList.add('active');
     renderTrades(SIMS[activeSim].all_trades||[], f);
 }
 
-/* ---- Trade table with expandable signal details ---- */
+/* ---- Trade table — detail panels rendered on click, not upfront ---- */
+let _visibleTrades = [];
+let _allFiltered = [];
+let _tradeLimit = 50;
 function renderTrades(trades, filter) {
     const ft = filter==='all' ? trades : trades.filter(t=>t.status===filter);
-    const sorted = [...ft].sort((a,b)=>(b.exit_time||b.entry_time||'').localeCompare(a.exit_time||a.entry_time||''));
-    const show = sorted.slice(0, 300);
+    _allFiltered = [...ft].sort((a,b)=>(b.exit_time||b.entry_time||'').localeCompare(a.exit_time||a.entry_time||''));
+    _visibleTrades = _allFiltered.slice(0, _tradeLimit);
     const tbody = document.getElementById('tb-trades');
     let rows = '';
-    show.forEach((t,i) => {
+    _visibleTrades.forEach((t,i) => {
         const pnl = t.pnl||0;
         const dir = t.direction===-1||t.direction==='-1'?'SHORT':'LONG';
         const st = t.status==='open';
@@ -304,19 +311,31 @@ function renderTrades(trades, filter) {
             <td>$${fmt(t.position_usd||0)}</td>
             <td class="r">$${totalFee.toFixed(0)}</td>
             <td style="color:#484f58">${t.exit_reason||'-'}</td>
-        </tr>`;
-
-        // Expandable signal detail row
-        rows += `<tr class="detail-row" id="det-${i}" style="display:none">
-            <td colspan="15">${renderSignalPanel(sig, t)}</td>
-        </tr>`;
+        </tr>
+        <tr class="detail-row" id="det-${i}" style="display:none"><td colspan="15"></td></tr>`;
     });
     tbody.innerHTML = rows;
+    const sm = document.getElementById('show-more-wrap');
+    if(sm) sm.style.display = _allFiltered.length > _tradeLimit ? 'block' : 'none';
+}
+
+function showMore() {
+    _tradeLimit += 100;
+    renderTrades(SIMS[activeSim].all_trades||[], curFilter);
 }
 
 function toggleDetail(i) {
     const el = document.getElementById('det-'+i);
-    el.style.display = el.style.display==='none'?'table-row':'none';
+    if (el.style.display==='none') {
+        // Render on first open
+        if (!el.firstChild.innerHTML) {
+            const t = _visibleTrades[i];
+            el.firstChild.innerHTML = renderSignalPanel(t.signal||{}, t);
+        }
+        el.style.display = 'table-row';
+    } else {
+        el.style.display = 'none';
+    }
 }
 
 function renderSignalPanel(sig, t) {
