@@ -86,7 +86,7 @@ tr.trade-row { cursor:pointer; }
 
 <div class="header">
     <h1>Trading Dashboard</h1>
-    <div class="meta">Updated: 2026-03-05 22:26 UTC</div>
+    <div class="meta">Updated: 2026-03-05 22:34 UTC</div>
 </div>
 <div class="sim-tabs" id="sim-tabs"></div>
 <div id="app"></div>
@@ -122,26 +122,80 @@ function render() {
     const trades = s.all_trades||[];
     const strats = s.strategies||[];
     const nT = trades.length;
-    const nO = trades.filter(t=>t.status==='open').length;
+    const openTrades = trades.filter(t=>t.status==='open');
+    const closedTrades = trades.filter(t=>t.status!=='open');
+    const nO = openTrades.length;
     const nW = trades.filter(t=>(t.pnl||0)>0).length;
     const wr = nT>0?(nW/nT*100):0;
     const ef = trades.reduce((a,t)=>a+(t.exchange_fee||0),0);
     const ff = trades.reduce((a,t)=>a+Math.abs(t.funding_cost||0),0);
     const ah = nT>0?trades.reduce((a,t)=>a+(t.hold_hours||0),0)/nT:0;
 
+    // Compute peak & drawdown
+    const allDates = new Set();
+    trades.forEach(t => { const d=(t.exit_time||t.entry_time||'').substring(0,10); if(d) allDates.add(d); });
+    const dates = [...allDates].sort();
+    const dayPnl = {};
+    trades.forEach(t => { const d=(t.exit_time||t.entry_time||'').substring(0,10); if(d) dayPnl[d]=(dayPnl[d]||0)+(t.pnl||0); });
+    let cum=0, peak=0, maxDD=0;
+    dates.forEach(d => { cum+=(dayPnl[d]||0); if(cum>peak) peak=cum; const dd=peak>0?(cum-peak)/s.capital*100:0; if(dd<maxDD) maxDD=dd; });
+
+    // Best/worst day
+    const dayVals = Object.values(dayPnl);
+    const bestDay = dayVals.length>0 ? Math.max(...dayVals) : 0;
+    const worstDay = dayVals.length>0 ? Math.min(...dayVals) : 0;
+
     let h = `
     <div class="kpi-row">
         <div class="kpi"><div class="lbl">Capital</div><div class="val b">$${fmt(s.capital)}</div></div>
         <div class="kpi"><div class="lbl">Current Value</div><div class="val ${pc(s.pnl)}">$${fmt(s.final_equity)}</div></div>
         <div class="kpi"><div class="lbl">P&L</div><div class="val ${pc(s.pnl)}">$${fmt(s.pnl)} (${fmtPct(s.return_pct)})</div></div>
-        <div class="kpi"><div class="lbl">Trades</div><div class="val b">${nT}</div></div>
-        <div class="kpi"><div class="lbl">Open</div><div class="val ${nO>0?'g':'b'}">${nO}</div></div>
+        <div class="kpi"><div class="lbl">Max Drawdown</div><div class="val r">${maxDD.toFixed(1)}%</div></div>
+        <div class="kpi"><div class="lbl">Trades</div><div class="val b">${nT} <span style="font-size:0.6em;color:${nO>0?'#3fb950':'#484f58'}">(${nO} open)</span></div></div>
         <div class="kpi"><div class="lbl">Win Rate</div><div class="val ${wr>=50?'g':'y'}">${wr.toFixed(1)}%</div></div>
-        <div class="kpi"><div class="lbl">Fees Paid</div><div class="val r">$${fmt(ef+ff)}</div></div>
-        <div class="kpi"><div class="lbl">Avg Hold</div><div class="val b">${ah.toFixed(0)}h</div></div>
-    </div>
+        <div class="kpi"><div class="lbl">Best / Worst Day</div><div class="val"><span class="g">$${fmt(bestDay)}</span> / <span class="r">$${fmt(worstDay)}</span></div></div>
+        <div class="kpi"><div class="lbl">Total Fees</div><div class="val r">$${fmt(ef+ff)}</div></div>
+    </div>`;
 
-    <div class="sec">
+    // --- OPEN POSITIONS (prominent, always visible if any) ---
+    if (nO > 0) {
+        const openSorted = [...openTrades].sort((a,b) => (b.pnl||0)-(a.pnl||0));
+        const openPnl = openTrades.reduce((a,t)=>a+(t.pnl||0),0);
+        h += `<div class="sec">
+        <h2 style="color:#3fb950">Open Positions (${nO}) &mdash; Unrealized P&L: <span class="${pc(openPnl)}">$${fmt(openPnl)}</span></h2>
+        <div class="card tbl-wrap" style="max-height:400px;border-color:#238636">
+            <table>
+                <thead><tr>
+                    <th>Strategy</th><th>Token</th><th>Dir</th><th>Regime</th>
+                    <th>Entry Signal</th><th>Entry Time</th><th>Hold</th><th>Lev</th>
+                    <th>Size</th><th>P&L</th><th>Return</th>
+                </tr></thead>
+                <tbody>${openSorted.map(t => {
+                    const pnl = t.pnl||0;
+                    const dir = t.direction===-1||t.direction==='-1'?'SHORT':'LONG';
+                    const sig = t.signal||{};
+                    const regime = sig.regime||'?';
+                    const lev = sig.leverage||'-';
+                    return `<tr>
+                        <td style="color:#8b949e">${t.strategy||''}</td>
+                        <td><b>${t.token||''}</b></td>
+                        <td><span class="pill ${dir.toLowerCase()}">${dir}</span></td>
+                        <td><span class="chip regime ${regime}">${regime}</span></td>
+                        <td style="font-size:0.75em;max-width:250px;white-space:nowrap;overflow:visible">${sig.signal_short||'-'}</td>
+                        <td>${(t.entry_time||'').substring(5,16)}</td>
+                        <td>${t.hold_hours||0}h</td>
+                        <td>${lev}x</td>
+                        <td>$${fmt(t.position_usd||0)}</td>
+                        <td class="${pc(pnl)}" style="font-weight:700">$${fmt(pnl)}</td>
+                        <td class="${pc(pnl)}">${(t.return_pct||0).toFixed(1)}%</td>
+                    </tr>`;
+                }).join('')}</tbody>
+            </table>
+        </div></div>`;
+    }
+
+    // --- Strategy cards ---
+    h += `<div class="sec">
         <h2>Strategies</h2>
         <div class="strat-row">${strats.map(st => `
             <div class="card sc">
@@ -155,20 +209,32 @@ function render() {
                 <div class="row"><span class="k">Funding</span><span class="r">$${fmt(st.funding_fees)}</span></div>
             </div>`).join('')}
         </div>
-    </div>
+    </div>`;
 
-    <div class="sec">
-        <h2>Equity Curve</h2>
-        <div class="card chart"><div id="ch-equity" style="height:300px;"></div></div>
-    </div>
+    // --- Charts: Equity + Drawdown side by side ---
+    h += `<div class="sec">
+        <h2>Equity & Drawdown</h2>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+            <div class="card chart"><div id="ch-equity" style="height:280px;"></div></div>
+            <div class="card chart"><div id="ch-drawdown" style="height:280px;"></div></div>
+        </div>
+    </div>`;
 
-    <div class="sec">
+    // --- Daily P&L ---
+    h += `<div class="sec">
         <h2>Daily P&L (Last 28 Days)</h2>
-        <div class="card chart"><div id="ch-daily" style="height:280px;"></div></div>
-    </div>
+        <div class="card chart"><div id="ch-daily" style="height:250px;"></div></div>
+    </div>`;
 
-    <div class="sec">
-        <h2>Trades</h2>
+    // --- Hourly Activity Heatmap ---
+    h += `<div class="sec">
+        <h2>Trade Activity by Hour & Day</h2>
+        <div class="card chart"><div id="ch-heatmap" style="height:220px;"></div></div>
+    </div>`;
+
+    // --- Trade Log ---
+    h += `<div class="sec">
+        <h2>Trade Log</h2>
         <div class="frow">
             <div class="fb active" onclick="setF(this,'all')">All (${nT})</div>
             <div class="fb" onclick="setF(this,'open')">Open (${nO})</div>
@@ -178,21 +244,22 @@ function render() {
             <table>
                 <thead><tr>
                     <th></th><th>Status</th><th>Strategy</th><th>Token</th><th>Dir</th>
-                    <th>Entry Signal</th><th>Entry</th><th>Exit</th><th>Hold</th>
-                    <th>P&L</th><th>Return</th><th>Size</th><th>Fees</th><th>Exit Reason</th>
+                    <th style="min-width:200px">Entry Signal</th><th>Regime</th><th>Entry</th><th>Exit</th><th>Hold</th>
+                    <th>P&L</th><th>Return</th><th>Size</th><th>Fees</th><th>Exit</th>
                 </tr></thead>
                 <tbody id="tb-trades"></tbody>
             </table>
         </div>
-    </div>
+    </div>`;
 
-    <div class="sec">
+    // --- Per-Token Summary ---
+    h += `<div class="sec">
         <h2>Per-Token Summary</h2>
         <div class="card tbl-wrap">
             <table>
                 <thead><tr>
                     <th>Token</th><th>Trades</th><th>Open</th><th>Win Rate</th>
-                    <th>P&L</th><th>Fees</th>
+                    <th>P&L</th><th>Best</th><th>Worst</th><th>Fees</th>
                 </tr></thead>
                 <tbody id="tb-tokens"></tbody>
             </table>
@@ -201,7 +268,9 @@ function render() {
 
     document.getElementById('app').innerHTML = h;
     drawEquity(trades, strats);
+    drawDrawdown(trades, s.capital);
     drawDaily(trades);
+    drawHeatmap(trades);
     renderTrades(trades, 'all');
     renderTokens(trades);
 }
@@ -225,19 +294,20 @@ function renderTrades(trades, filter) {
     show.forEach((t,i) => {
         const pnl = t.pnl||0;
         const dir = t.direction===-1||t.direction==='-1'?'SHORT':'LONG';
-        const mkt = t.market_type==='perp'?'perp':'spot';
         const st = t.status==='open';
         const sig = t.signal||{};
         const sigText = sig.signal_short||'-';
+        const regime = sig.regime||'?';
         const totalFee = (t.exchange_fee||0)+Math.abs(t.funding_cost||0);
 
         rows += `<tr class="trade-row" onclick="toggleDetail(${i})">
             <td style="color:#30363d;font-size:0.7em">&#9660;</td>
             <td>${st?'<span class="pill open">OPEN</span>':'<span class="pill closed">CLOSED</span>'}</td>
-            <td style="color:#8b949e">${t.strategy||''}</td>
+            <td style="color:#8b949e;font-size:0.7em">${t.strategy||''}</td>
             <td><b>${t.token||''}</b></td>
             <td><span class="pill ${dir.toLowerCase()}">${dir}</span></td>
-            <td style="font-size:0.75em;color:#8b949e">${sigText}</td>
+            <td style="font-size:0.75em;white-space:nowrap">${sigText}</td>
+            <td><span class="chip regime ${regime}" style="font-size:0.7em">${regime}</span></td>
             <td>${(t.entry_time||'').substring(5,16)}</td>
             <td>${(t.exit_time||'').substring(5,16)}</td>
             <td>${t.hold_hours||0}h</td>
@@ -250,7 +320,7 @@ function renderTrades(trades, filter) {
 
         // Expandable signal detail row
         rows += `<tr class="detail-row" id="det-${i}" style="display:none">
-            <td colspan="14">${renderSignalPanel(sig, t)}</td>
+            <td colspan="15">${renderSignalPanel(sig, t)}</td>
         </tr>`;
     });
     tbody.innerHTML = rows;
@@ -299,70 +369,100 @@ function renderTokens(trades) {
     const m = {};
     trades.forEach(t => {
         const tk = t.token||'?';
-        if(!m[tk]) m[tk]={pnl:0,n:0,open:0,wins:0,fees:0};
-        m[tk].pnl += t.pnl||0;
+        if(!m[tk]) m[tk]={pnl:0,n:0,open:0,wins:0,fees:0,best:-Infinity,worst:Infinity};
+        const p = t.pnl||0;
+        m[tk].pnl += p;
         m[tk].n++;
         if(t.status==='open') m[tk].open++;
-        if((t.pnl||0)>0) m[tk].wins++;
+        if(p>0) m[tk].wins++;
         m[tk].fees += (t.exchange_fee||0)+Math.abs(t.funding_cost||0);
+        if(p>m[tk].best) m[tk].best=p;
+        if(p<m[tk].worst) m[tk].worst=p;
     });
     const tks = Object.keys(m).sort((a,b)=>m[b].pnl-m[a].pnl);
     document.getElementById('tb-tokens').innerHTML = tks.map(tk => {
         const d=m[tk]; const wr=d.n>0?(d.wins/d.n*100).toFixed(1):'0';
         return `<tr><td><b>${tk}</b></td><td>${d.n}</td><td>${d.open}</td>
-            <td>${wr}%</td><td class="${pc(d.pnl)}">$${fmt(d.pnl)}</td>
+            <td>${wr}%</td><td class="${pc(d.pnl)}" style="font-weight:600">$${fmt(d.pnl)}</td>
+            <td class="g">$${fmt(d.best===-Infinity?0:d.best)}</td>
+            <td class="r">$${fmt(d.worst===Infinity?0:d.worst)}</td>
             <td class="r">$${fmt(d.fees)}</td></tr>`;
     }).join('');
 }
 
 /* ---- Charts ---- */
 function drawEquity(trades, strats) {
-    // Build a proper time-series: for each calendar day, sum all P&L realized up to that day
     const sNames = [...new Set(trades.map(t=>t.strategy))];
     const colors = ['#58a6ff','#3fb950','#d29922','#bc8cff','#f85149','#39d353'];
 
-    // Collect all unique dates and sort
     const allDates = new Set();
-    trades.forEach(t => {
-        const d = (t.exit_time||t.entry_time||'').substring(0,10);
-        if(d) allDates.add(d);
-    });
+    trades.forEach(t => { const d=(t.exit_time||t.entry_time||'').substring(0,10); if(d) allDates.add(d); });
     const dates = [...allDates].sort();
 
     const traces = sNames.map((sn,i) => {
-        // Group P&L by date for this strategy
         const dayPnl = {};
         trades.filter(t=>t.strategy===sn).forEach(t => {
             const d = (t.exit_time||t.entry_time||'').substring(0,10);
             if(d) dayPnl[d] = (dayPnl[d]||0) + (t.pnl||0);
         });
-        // Cumulative over calendar days
         let cum = 0;
-        const y = dates.map(d => { cum += (dayPnl[d]||0); return cum; });
         return {
-            x: dates, y: y,
+            x: dates, y: dates.map(d => { cum += (dayPnl[d]||0); return cum; }),
             name: sn, type:'scatter', mode:'lines',
             line:{color:colors[i%6],width:2},
         };
     });
 
-    // Total line
-    const totalDayPnl = {};
-    trades.forEach(t => {
-        const d = (t.exit_time||t.entry_time||'').substring(0,10);
-        if(d) totalDayPnl[d] = (totalDayPnl[d]||0) + (t.pnl||0);
-    });
-    let tc = 0;
-    traces.push({
-        x: dates, y: dates.map(d => { tc += (totalDayPnl[d]||0); return tc; }),
-        name:'Total', type:'scatter', mode:'lines',
-        line:{color:'#e0e0e0',width:2,dash:'dot'},
-    });
+    // Only show Total line when multiple strategies
+    if (sNames.length > 1) {
+        const totalDayPnl = {};
+        trades.forEach(t => { const d=(t.exit_time||t.entry_time||'').substring(0,10); if(d) totalDayPnl[d]=(totalDayPnl[d]||0)+(t.pnl||0); });
+        let tc = 0;
+        traces.push({
+            x: dates, y: dates.map(d => { tc += (totalDayPnl[d]||0); return tc; }),
+            name:'Total', type:'scatter', mode:'lines',
+            line:{color:'#e0e0e0',width:2,dash:'dot'},
+        });
+    }
 
     Plotly.newPlot('ch-equity', traces, {
-        ...DK, title:'Cumulative P&L (by date)',
+        ...DK, title:'Cumulative P&L',
         xaxis:{...DK.xaxis, type:'date'},
         yaxis:{...DK.yaxis,title:'USD',tickprefix:'$'},
+    }, {responsive:true});
+}
+
+/* ---- Drawdown chart ---- */
+function drawDrawdown(trades, capital) {
+    const sNames = [...new Set(trades.map(t=>t.strategy))];
+    const colors = ['#58a6ff','#3fb950','#d29922','#bc8cff','#f85149','#39d353'];
+
+    const allDates = new Set();
+    trades.forEach(t => { const d=(t.exit_time||t.entry_time||'').substring(0,10); if(d) allDates.add(d); });
+    const dates = [...allDates].sort();
+
+    // Total drawdown
+    const totalDayPnl = {};
+    trades.forEach(t => { const d=(t.exit_time||t.entry_time||'').substring(0,10); if(d) totalDayPnl[d]=(totalDayPnl[d]||0)+(t.pnl||0); });
+    let cum=0, peak=0;
+    const ddPct = dates.map(d => {
+        cum += (totalDayPnl[d]||0);
+        if(cum>peak) peak=cum;
+        return peak>0 ? (cum-peak)/capital*100 : 0;
+    });
+
+    const traces = [{
+        x: dates, y: ddPct,
+        name:'Drawdown', type:'scatter', mode:'lines',
+        fill:'tozeroy', fillcolor:'rgba(248,81,73,0.15)',
+        line:{color:'#f85149',width:1.5},
+    }];
+
+    Plotly.newPlot('ch-drawdown', traces, {
+        ...DK, title:'Drawdown from Peak',
+        xaxis:{...DK.xaxis, type:'date'},
+        yaxis:{...DK.yaxis,title:'%',ticksuffix:'%',rangemode:'nonpositive'},
+        showlegend:false,
     }, {responsive:true});
 }
 
@@ -395,6 +495,44 @@ function drawDaily(trades) {
         ...DK, barmode:'stack', title:'Daily P&L',
         yaxis:{...DK.yaxis,title:'Daily ($)',tickprefix:'$'},
         yaxis2:{title:'Cum ($)',overlaying:'y',side:'right',gridcolor:'transparent',tickprefix:'$'},
+    }, {responsive:true});
+}
+
+/* ---- Hourly Activity Heatmap ---- */
+function drawHeatmap(trades) {
+    // 7 rows (days of week) x 24 cols (hours)
+    const dayNames = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    // Count entries per (day-of-week, hour)
+    const counts = Array.from({length:7}, ()=>Array(24).fill(0));
+    const pnls = Array.from({length:7}, ()=>Array(24).fill(0));
+    trades.forEach(t => {
+        const et = t.entry_time;
+        if (!et) return;
+        const dt = new Date(et);
+        const dow = (dt.getUTCDay()+6)%7; // Mon=0
+        const hr = dt.getUTCHours();
+        counts[dow][hr]++;
+        pnls[dow][hr] += (t.pnl||0);
+    });
+
+    // Hovertext
+    const hovertext = counts.map((row,d) => row.map((c,h) =>
+        `${dayNames[d]} ${h}:00 UTC<br>${c} trades<br>P&L: $${pnls[d][h].toFixed(0)}`
+    ));
+
+    const trace = {
+        z: counts, x: Array.from({length:24},(_,i)=>i+':00'),
+        y: dayNames, type:'heatmap',
+        colorscale:[[0,'#0d1117'],[0.25,'#0d2744'],[0.5,'#1158a6'],[0.75,'#58a6ff'],[1,'#79c0ff']],
+        hoverinfo:'text', text:hovertext,
+        showscale:false,
+    };
+
+    Plotly.newPlot('ch-heatmap', [trace], {
+        ...DK, title:'Trade Entries by Hour (UTC)',
+        xaxis:{...DK.xaxis,title:'Hour (UTC)',dtick:1},
+        yaxis:{...DK.yaxis,autorange:'reversed'},
+        margin:{t:30,b:40,l:40,r:10},
     }, {responsive:true});
 }
 
