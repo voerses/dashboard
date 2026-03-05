@@ -203,6 +203,11 @@ def get_fee_rate(exchange='binance', market='spot', order_type='taker'):
 
 def get_all_tradeable(market='spot'):
     """Discover all tokens that have parquet data."""
+    if market == 'combined':
+        # Combined requires both spot AND perp data
+        spot_tokens = set(get_all_tradeable('spot'))
+        perp_tokens = set(get_all_tradeable('perp'))
+        return sorted(spot_tokens & perp_tokens)
     data_dir = _Path(__file__).resolve().parent.parent / 'data' / market / '1h_cache'
     if not data_dir.exists():
         return []

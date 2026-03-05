@@ -371,10 +371,20 @@ def print_weights(rw: RegimeWeights):
 # Phase 3: Regime-Weighted Portfolio Simulation
 # ---------------------------------------------------------------------------
 
+def _is_combined_strategy_from_path(strategy_path):
+    """Detect combined strategy by checking for MarketType.COMBINED in source."""
+    try:
+        with open(strategy_path, 'r') as f:
+            source = f.read()
+        return 'MarketType.COMBINED' in source
+    except (OSError, IOError):
+        return False
+
+
 def _get_token_trades_with_regime(args):
     """Extract trades for one token from one strategy, tagged with regime.
 
-    Worker function for parallel execution.
+    Worker function for parallel execution. Supports combined strategies.
     """
     ticker, strategy_path, data_dir, market, capital, exchange = args
 
@@ -385,28 +395,62 @@ def _get_token_trades_with_regime(args):
     eng_mod = _load_v3('engine')
     EngineLocal = eng_mod.Engine
 
-    effective_market = market if market != 'combined' else 'spot'
-    h1_path = os.path.join(data_dir, effective_market, f'1h_cache/{ticker}_1h.parquet')
-    if not os.path.exists(h1_path):
-        return ticker, None
-
-    df_1h = pd.read_parquet(h1_path)
-    if len(df_1h) < 2000:
-        return ticker, None
-
-    engine = EngineLocal(data_dir=data_dir, market=effective_market,
-                         capital=capital, exchange=exchange)
-    ctx = engine._build_context(ticker, df_1h)
-    if ctx is None:
-        return ticker, None
-
     # Load strategy
     spec = importlib.util.spec_from_file_location('strat', strategy_path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    result = mod.strategy(ctx)
+    strategy_fn = mod.strategy
 
-    n = len(ctx.ind_1h['close'])
+    is_combined = market == 'combined' or _is_combined_strategy_from_path(strategy_path)
+
+    if is_combined:
+        # Load both spot and perp data
+        spot_path = os.path.join(data_dir, 'spot', f'1h_cache/{ticker}_1h.parquet')
+        perp_path = os.path.join(data_dir, 'perp', f'1h_cache/{ticker}_1h.parquet')
+        if not os.path.exists(spot_path) or not os.path.exists(perp_path):
+            return ticker, None
+
+        df_spot = pd.read_parquet(spot_path)
+        df_perp = pd.read_parquet(perp_path)
+        if len(df_spot) < 2000 or len(df_perp) < 2000:
+            return ticker, None
+
+        common_start = max(df_spot.index.min(), df_perp.index.min())
+        common_end = min(df_spot.index.max(), df_perp.index.max())
+        df_spot = df_spot.loc[common_start:common_end]
+        df_perp = df_perp.loc[common_start:common_end]
+        if len(df_spot) < 2000 or len(df_perp) < 2000:
+            return ticker, None
+
+        engine_spot = EngineLocal(data_dir=data_dir, market='spot', capital=capital, exchange=exchange)
+        engine_perp = EngineLocal(data_dir=data_dir, market='perp', capital=capital, exchange=exchange)
+        ctx_spot = engine_spot._build_context(ticker, df_spot)
+        ctx_perp = engine_perp._build_context(ticker, df_perp)
+        if ctx_spot is None or ctx_perp is None:
+            return ticker, None
+
+        result = strategy_fn(ctx_spot, ctx_perp)
+        n = min(len(ctx_spot.ind_1h['close']), len(ctx_perp.ind_1h['close']))
+        ctx_ref = ctx_spot  # reference context for regime/timestamps
+    else:
+        effective_market = market if market != 'combined' else 'spot'
+        h1_path = os.path.join(data_dir, effective_market, f'1h_cache/{ticker}_1h.parquet')
+        if not os.path.exists(h1_path):
+            return ticker, None
+
+        df_1h = pd.read_parquet(h1_path)
+        if len(df_1h) < 2000:
+            return ticker, None
+
+        engine = EngineLocal(data_dir=data_dir, market=effective_market,
+                             capital=capital, exchange=exchange)
+        ctx = engine._build_context(ticker, df_1h)
+        if ctx is None:
+            return ticker, None
+
+        result = strategy_fn(ctx)
+        n = len(ctx.ind_1h['close'])
+        ctx_ref = ctx
 
     # Walk-forward masking
     train_bars = 365 * 24
@@ -423,14 +467,28 @@ def _get_token_trades_with_regime(args):
         purge_end = min(recal_point + purge_bars, n)
         masked_entry[recal_point:purge_end] = False
         recal_point += recal_bars
-
     result.entry_mask = masked_entry
-    trades, final_equity = engine._simulate(ctx, result)
+
+    # Mask secondary leg for combined
+    if is_combined and result.secondary_entry_mask is not None:
+        masked_secondary = result.secondary_entry_mask.copy()
+        masked_secondary[:train_bars] = False
+        recal_point = train_bars
+        while recal_point < n:
+            purge_end = min(recal_point + purge_bars, n)
+            masked_secondary[recal_point:purge_end] = False
+            recal_point += recal_bars
+        result.secondary_entry_mask = masked_secondary
+
+    if is_combined:
+        trades, final_equity = engine_perp._simulate_combined(ctx_spot, ctx_perp, result)
+    else:
+        trades, final_equity = engine._simulate(ctx, result)
 
     if not trades:
         return ticker, None
 
-    idx = ctx.idx_1h
+    idx = ctx_ref.idx_1h
     for t in trades:
         eb = t['entry_bar']
         xb = t['exit_bar']
@@ -438,7 +496,7 @@ def _get_token_trades_with_regime(args):
         t['entry_time'] = idx[min(eb, len(idx) - 1)]
         t['exit_time'] = idx[min(xb, len(idx) - 1)]
         # Tag with per-token regime (from context)
-        t['regime_at_entry'] = int(ctx.regime_1h[min(eb, len(ctx.regime_1h) - 1)])
+        t['regime_at_entry'] = int(ctx_ref.regime_1h[min(eb, len(ctx_ref.regime_1h) - 1)])
 
     return ticker, trades
 
@@ -666,7 +724,8 @@ def run_regime_analysis(
     # Step 1: Compute global regime from BTC
     if verbose:
         print("Computing global regime from BTC daily bars...")
-    regime_series = compute_global_regime(config.data_dir, config.market)
+    regime_market = 'spot' if config.market == 'combined' else config.market
+    regime_series = compute_global_regime(config.data_dir, regime_market)
 
     # Print regime distribution
     regime_dist = regime_series.value_counts().sort_index()
@@ -770,7 +829,7 @@ def main():
     parser.add_argument('--universe', default='liquid',
                         choices=['all', 'filtered', 'liquid'])
     parser.add_argument('--tokens', nargs='+', help='Specific tokens')
-    parser.add_argument('--market', default='spot', choices=['spot', 'perp'])
+    parser.add_argument('--market', default='spot', choices=['spot', 'perp', 'combined'])
     parser.add_argument('--exchange', default='binance')
     parser.add_argument('--workers', type=int, default=4)
     args = parser.parse_args()

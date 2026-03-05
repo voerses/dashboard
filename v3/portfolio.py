@@ -77,6 +77,18 @@ class PortfolioConfig:
 # Trade Extraction (Walk-Forward Masked)
 # =============================================================================
 
+def _is_combined_strategy(strategy_fn) -> bool:
+    """Check if a strategy function expects two arguments (combined signature)."""
+    import inspect
+    try:
+        sig = inspect.signature(strategy_fn)
+        n_required = len([p for p in sig.parameters.values()
+                         if p.default is inspect.Parameter.empty])
+        return n_required >= 2
+    except (ValueError, TypeError):
+        return False
+
+
 def _get_token_trades(ticker, strategy_path, data_dir, market, capital, exchange='binance'):
     """Get timestamped trades for a single token via walk-forward simulation.
 
@@ -85,11 +97,34 @@ def _get_token_trades(ticker, strategy_path, data_dir, market, capital, exchange
         - entry_time: datetime of entry
         - exit_time: datetime of exit
     Returns None if token has no valid trades.
+
+    Supports combined (spot+perp) strategies that take two contexts.
     """
     v3_dir = os.path.dirname(os.path.abspath(__file__))
     if v3_dir not in sys.path:
         sys.path.insert(0, v3_dir)
 
+    _eng = _load_v3('engine')
+    EngineLocal = _eng.Engine
+
+    # Load strategy
+    spec = importlib.util.spec_from_file_location('strat', strategy_path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    strategy_fn = mod.strategy
+
+    is_combined = market == 'combined' and _is_combined_strategy(strategy_fn)
+
+    if is_combined:
+        return _get_token_trades_combined(
+            ticker, strategy_fn, data_dir, capital, exchange)
+    else:
+        return _get_token_trades_single(
+            ticker, strategy_fn, data_dir, market, capital, exchange)
+
+
+def _get_token_trades_single(ticker, strategy_fn, data_dir, market, capital, exchange):
+    """Single-market trade extraction (original path)."""
     _eng = _load_v3('engine')
     EngineLocal = _eng.Engine
 
@@ -106,12 +141,6 @@ def _get_token_trades(ticker, strategy_path, data_dir, market, capital, exchange
     ctx = engine._build_context(ticker, df_1h)
     if ctx is None:
         return None
-
-    # Load strategy
-    spec = importlib.util.spec_from_file_location('strat', strategy_path)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    strategy_fn = mod.strategy
 
     result = strategy_fn(ctx)
     n = len(ctx.ind_1h['close'])
@@ -139,8 +168,88 @@ def _get_token_trades(ticker, strategy_path, data_dir, market, capital, exchange
     if not trades:
         return None
 
-    # Add timestamps and token name
     idx = ctx.idx_1h
+    for t in trades:
+        eb = t['entry_bar']
+        xb = t['exit_bar']
+        t['token'] = ticker
+        t['entry_time'] = idx[min(eb, len(idx) - 1)]
+        t['exit_time'] = idx[min(xb, len(idx) - 1)]
+
+    return trades
+
+
+def _get_token_trades_combined(ticker, strategy_fn, data_dir, capital, exchange):
+    """Combined (spot+perp) trade extraction for dual-leg strategies."""
+    _eng = _load_v3('engine')
+    EngineLocal = _eng.Engine
+
+    # Load both spot and perp data
+    spot_path = os.path.join(data_dir, 'spot', f'1h_cache/{ticker}_1h.parquet')
+    perp_path = os.path.join(data_dir, 'perp', f'1h_cache/{ticker}_1h.parquet')
+    if not os.path.exists(spot_path) or not os.path.exists(perp_path):
+        return None
+
+    df_spot = pd.read_parquet(spot_path)
+    df_perp = pd.read_parquet(perp_path)
+    if len(df_spot) < 2000 or len(df_perp) < 2000:
+        return None
+
+    # Align to common time range
+    common_start = max(df_spot.index.min(), df_perp.index.min())
+    common_end = min(df_spot.index.max(), df_perp.index.max())
+    df_spot = df_spot.loc[common_start:common_end]
+    df_perp = df_perp.loc[common_start:common_end]
+    if len(df_spot) < 2000 or len(df_perp) < 2000:
+        return None
+
+    engine_spot = EngineLocal(data_dir=data_dir, market='spot', capital=capital, exchange=exchange)
+    engine_perp = EngineLocal(data_dir=data_dir, market='perp', capital=capital, exchange=exchange)
+
+    ctx_spot = engine_spot._build_context(ticker, df_spot)
+    ctx_perp = engine_perp._build_context(ticker, df_perp)
+    if ctx_spot is None or ctx_perp is None:
+        return None
+
+    result = strategy_fn(ctx_spot, ctx_perp)
+    n = min(len(ctx_spot.ind_1h['close']), len(ctx_perp.ind_1h['close']))
+
+    # Apply walk-forward masking to both legs
+    train_bars = 365 * 24
+    recal_bars = 90 * 24
+    purge_bars = 5 * 24
+
+    if n <= train_bars + purge_bars:
+        return None
+
+    # Mask primary leg
+    masked_entry = result.entry_mask.copy()
+    masked_entry[:train_bars] = False
+    recal_point = train_bars
+    while recal_point < n:
+        purge_end = min(recal_point + purge_bars, n)
+        masked_entry[recal_point:purge_end] = False
+        recal_point += recal_bars
+    result.entry_mask = masked_entry
+
+    # Mask secondary leg
+    if result.secondary_entry_mask is not None:
+        masked_secondary = result.secondary_entry_mask.copy()
+        masked_secondary[:train_bars] = False
+        recal_point = train_bars
+        while recal_point < n:
+            purge_end = min(recal_point + purge_bars, n)
+            masked_secondary[recal_point:purge_end] = False
+            recal_point += recal_bars
+        result.secondary_entry_mask = masked_secondary
+
+    trades, final_equity = engine_perp._simulate_combined(ctx_spot, ctx_perp, result)
+
+    if not trades:
+        return None
+
+    # Add timestamps and token name (use spot index as reference)
+    idx = ctx_spot.idx_1h
     for t in trades:
         eb = t['entry_bar']
         xb = t['exit_bar']

@@ -56,6 +56,7 @@ Engine = _engine_mod.Engine
 StrategyContext = _engine_mod.StrategyContext
 StrategyResult = _engine_mod.StrategyResult
 StrategyFn = _engine_mod.StrategyFn
+CombinedStrategyFn = _engine_mod.CombinedStrategyFn
 MarketType = _engine_mod.MarketType
 CRISIS = _engine_mod.CRISIS
 QUIET = _engine_mod.QUIET
@@ -301,6 +302,186 @@ def _run_cpcv(engine: Engine, strategy_fn: StrategyFn, ticker: str,
 
 
 # =============================================================================
+# Combined (Spot+Perp) Walk-Forward Validation
+# =============================================================================
+
+def _run_walk_forward_combined(engine: Engine, strategy_fn, ticker: str,
+                               df_1h_spot: pd.DataFrame, df_1h_perp: pd.DataFrame,
+                               config: WalkForwardConfig,
+                               benchmark_returns: Optional[pd.Series] = None,
+                               capital: float = 200_000) -> Tuple[Optional[PerformanceMetrics], bool, list]:
+    """
+    Walk-forward validation for combined (spot+perp) strategies.
+
+    Same algorithm as _run_walk_forward but builds two StrategyContexts,
+    calls strategy(ctx_spot, ctx_perp), masks BOTH primary and secondary
+    entry masks, then simulates via engine._simulate_combined.
+    """
+    ctx_spot = engine._build_context(ticker, df_1h_spot, market_override='spot')
+    ctx_perp = engine._build_context(ticker, df_1h_perp, market_override='perp')
+    if ctx_spot is None or ctx_perp is None:
+        return None, False, []
+
+    result = strategy_fn(ctx_spot, ctx_perp)
+    n = min(len(ctx_spot.ind_1h['close']), len(ctx_perp.ind_1h['close']))
+
+    train_bars = config.train_days * 24
+    recal_bars = config.recalibrate_every * 24
+    purge_bars = config.purge_days * 24
+
+    if n <= train_bars + purge_bars:
+        return None, False, []
+
+    # Build OOS mask (same logic as single-leg WF)
+    oos_mask = np.ones(n, dtype=np.bool_)
+    oos_mask[:train_bars] = False
+    recal_point = train_bars
+    while recal_point < n:
+        purge_end = min(recal_point + purge_bars, n)
+        oos_mask[recal_point:purge_end] = False
+        recal_point += recal_bars
+
+    # Mask primary entries
+    masked_entry_1 = result.entry_mask[:n].copy()
+    masked_entry_1 &= oos_mask
+
+    # Mask secondary entries
+    if result.secondary_entry_mask is not None:
+        masked_entry_2 = result.secondary_entry_mask[:n].copy()
+        masked_entry_2 &= oos_mask
+    else:
+        masked_entry_2 = None
+
+    # Build masked result preserving all combined fields
+    masked_result = StrategyResult(
+        entry_mask=masked_entry_1,
+        direction=result.direction,
+        stop_mult=result.stop_mult,
+        trail_mult=result.trail_mult,
+        target_mult=result.target_mult,
+        no_stop_bars=result.no_stop_bars,
+        min_hold=result.min_hold,
+        max_hold=result.max_hold,
+        edge=result.edge,
+        exit_regimes=result.exit_regimes,
+        rsi_exit_level=result.rsi_exit_level,
+        convex_exit=result.convex_exit,
+        mean_target_vals=result.mean_target_vals,
+        name=result.name,
+        market_type=result.market_type,
+        leverage=result.leverage,
+        exchange=result.exchange,
+        # Combined fields
+        secondary_entry_mask=masked_entry_2,
+        secondary_direction=result.secondary_direction,
+        secondary_market_type=result.secondary_market_type,
+        secondary_leverage=result.secondary_leverage,
+        capital_split=result.capital_split,
+        secondary_stop_mult=result.secondary_stop_mult,
+        secondary_trail_mult=result.secondary_trail_mult,
+        secondary_target_mult=result.secondary_target_mult,
+        secondary_no_stop_bars=result.secondary_no_stop_bars,
+        secondary_min_hold=result.secondary_min_hold,
+        secondary_max_hold=result.secondary_max_hold,
+        secondary_edge=result.secondary_edge,
+        secondary_rsi_exit_level=result.secondary_rsi_exit_level,
+        secondary_convex_exit=result.secondary_convex_exit,
+    )
+
+    trades, final_equity = engine._simulate_combined(ctx_spot, ctx_perp, masked_result)
+
+    if not trades:
+        return PerformanceMetrics(), False, []
+
+    eq_curve = build_equity_curve(trades, n, capital, index=ctx_spot.idx_1h[:n])
+    metrics = compute_metrics(trades, eq_curve, benchmark_returns, capital)
+
+    oos_pnl = final_equity - capital
+    wf_pass = oos_pnl > 0
+
+    return metrics, wf_pass, trades
+
+
+# =============================================================================
+# Combined (Spot+Perp) CPCV Validation
+# =============================================================================
+
+def _run_cpcv_combined(engine: Engine, strategy_fn, ticker: str,
+                       df_1h_spot: pd.DataFrame, df_1h_perp: pd.DataFrame,
+                       config: CPCVConfig,
+                       capital: float = 200_000) -> Tuple[float, float, int, int, float]:
+    """
+    CPCV validation for combined (spot+perp) strategies.
+
+    For each fold: slice both spot and perp data, build two fresh contexts,
+    call strategy with both, mask entries to test bars only, simulate combined.
+    """
+    n = min(len(df_1h_spot), len(df_1h_perp))
+    if n < 2000:
+        return 1.0, 0.0, 0, 0, 0.0
+
+    splits = generate_cpcv_splits(n, config.n_groups, config.n_test_groups, config.purge_pct)
+
+    fold_returns = []
+
+    for train_idx, test_idx in splits:
+        test_start = int(test_idx.min())
+        test_end = int(test_idx.max())
+
+        data_start = max(0, test_start - config.warmup_bars)
+        df_fold_spot = df_1h_spot.iloc[data_start:test_end + 1]
+        df_fold_perp = df_1h_perp.iloc[data_start:test_end + 1]
+
+        if len(df_fold_spot) < 500 or len(df_fold_perp) < 500:
+            continue
+
+        ctx_spot = engine._build_context(ticker, df_fold_spot, market_override='spot')
+        ctx_perp = engine._build_context(ticker, df_fold_perp, market_override='perp')
+        if ctx_spot is None or ctx_perp is None:
+            continue
+
+        result = strategy_fn(ctx_spot, ctx_perp)
+
+        # Build test-only mask (same logic as single-leg CPCV)
+        fold_len = min(len(df_fold_spot), len(df_fold_perp))
+        fold_indices = np.arange(data_start, data_start + fold_len)
+        test_only_mask = np.isin(fold_indices, test_idx)
+
+        # Mask both legs
+        result.entry_mask = result.entry_mask[:fold_len].copy() & test_only_mask
+        if result.secondary_entry_mask is not None:
+            result.secondary_entry_mask = result.secondary_entry_mask[:fold_len].copy() & test_only_mask
+
+        trades, final_equity = engine._simulate_combined(ctx_spot, ctx_perp, result)
+        fold_pnl = final_equity - capital
+        fold_return = fold_pnl / capital * 100
+        fold_returns.append(fold_return)
+
+    if not fold_returns:
+        return 1.0, 0.0, 0, 0, 0.0
+
+    folds_profitable = sum(1 for r in fold_returns if r > 0)
+    total_folds = len(fold_returns)
+    pbo = 1.0 - (folds_profitable / total_folds)
+    avg_return = float(np.mean(fold_returns))
+    ds = deflated_sharpe(fold_returns)
+
+    return pbo, avg_return, folds_profitable, total_folds, ds
+
+
+def _is_combined_strategy(strategy_fn) -> bool:
+    """Check if a strategy function expects two arguments (combined signature)."""
+    import inspect
+    try:
+        sig = inspect.signature(strategy_fn)
+        n_required = len([p for p in sig.parameters.values()
+                         if p.default is inspect.Parameter.empty])
+        return n_required >= 2
+    except (ValueError, TypeError):
+        return False
+
+
+# =============================================================================
 # Single Token Validation (used by parallel workers)
 # =============================================================================
 
@@ -344,15 +525,34 @@ def _validate_token(ticker: str, strategy_module_path: str, config_dict: dict,
 
     # Combined market: use spot data dir for discovery but engine handles both
     effective_market = config.market if config.market != 'combined' else 'spot'
+    is_combined = config.market == 'combined' and _is_combined_strategy(strategy_fn)
 
     # Load data
     h1_path = os.path.join(config.data_dir, effective_market, f'1h_cache/{ticker}_1h.parquet')
     if not os.path.exists(h1_path):
         return {'ticker': ticker, 'error': 'no_data'}
 
-    df_1h = pd.read_parquet(h1_path)
-    if len(df_1h) < 2000:
+    df_1h_spot = pd.read_parquet(h1_path)
+    if len(df_1h_spot) < 2000:
         return {'ticker': ticker, 'error': 'insufficient_data'}
+
+    # For combined strategies: load perp data and align time ranges
+    df_1h_perp = None
+    if is_combined:
+        perp_path = os.path.join(config.data_dir, 'perp', f'1h_cache/{ticker}_1h.parquet')
+        if not os.path.exists(perp_path):
+            return {'ticker': ticker, 'error': 'no_perp_data'}
+        df_1h_perp = pd.read_parquet(perp_path)
+        if len(df_1h_perp) < 2000:
+            return {'ticker': ticker, 'error': 'insufficient_perp_data'}
+
+        # Align to common time range
+        common_start = max(df_1h_spot.index[0], df_1h_perp.index[0])
+        common_end = min(df_1h_spot.index[-1], df_1h_perp.index[-1])
+        df_1h_spot = df_1h_spot[common_start:common_end]
+        df_1h_perp = df_1h_perp[common_start:common_end]
+        if len(df_1h_spot) < 2000 or len(df_1h_perp) < 2000:
+            return {'ticker': ticker, 'error': 'insufficient_overlap'}
 
     engine = Engine(data_dir=config.data_dir, market=effective_market, capital=config.capital)
 
@@ -361,15 +561,25 @@ def _validate_token(ticker: str, strategy_module_path: str, config_dict: dict,
     # Walk-Forward
     if run_wf:
         benchmark = load_benchmark_returns(config.data_dir, market=effective_market)
-        wf_metrics, wf_pass, wf_trades = _run_walk_forward(
-            engine, strategy_fn, ticker, df_1h, config.wf, benchmark, config.capital)
+        if is_combined:
+            wf_metrics, wf_pass, wf_trades = _run_walk_forward_combined(
+                engine, strategy_fn, ticker, df_1h_spot, df_1h_perp,
+                config.wf, benchmark, config.capital)
+        else:
+            wf_metrics, wf_pass, wf_trades = _run_walk_forward(
+                engine, strategy_fn, ticker, df_1h_spot, config.wf, benchmark, config.capital)
         result.wf_metrics = wf_metrics
         result.wf_pass = wf_pass
 
     # CPCV
     if run_cpcv:
-        pbo, avg_ret, folds_prof, total_folds, ds = _run_cpcv(
-            engine, strategy_fn, ticker, df_1h, config.cpcv, config.capital)
+        if is_combined:
+            pbo, avg_ret, folds_prof, total_folds, ds = _run_cpcv_combined(
+                engine, strategy_fn, ticker, df_1h_spot, df_1h_perp,
+                config.cpcv, config.capital)
+        else:
+            pbo, avg_ret, folds_prof, total_folds, ds = _run_cpcv(
+                engine, strategy_fn, ticker, df_1h_spot, config.cpcv, config.capital)
         result.cpcv_pbo = pbo
         result.cpcv_avg_return = avg_ret
         result.cpcv_folds_profitable = folds_prof
@@ -379,7 +589,7 @@ def _validate_token(ticker: str, strategy_module_path: str, config_dict: dict,
 
     # Combined market: also run a quick backtest to get funding metrics
     funding_metrics = {}
-    if config.market == 'combined':
+    if is_combined:
         try:
             combo_result = engine.backtest_token_combined(strategy_fn, ticker)
             if combo_result is not None:
@@ -391,9 +601,6 @@ def _validate_token(ticker: str, strategy_module_path: str, config_dict: dict,
                 trades_with_funding = [t for t in combo_result.get('trades', []) if t.get('funding_cost', 0) != 0]
                 if trades_with_funding:
                     funding_metrics['avg_funding_per_trade'] = sum(t['funding_cost'] for t in trades_with_funding) / len(trades_with_funding)
-        except TypeError as e:
-            # Strategy doesn't have combined signature — report clearly
-            return {'ticker': ticker, 'error': f'combined_strategy_signature: {e}'}
         except Exception:
             pass
     elif config.market == 'perp':

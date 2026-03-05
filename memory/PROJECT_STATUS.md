@@ -1,7 +1,8 @@
 # Project Status — crypto_backtest
 
-> **Last updated:** 2026-03-04
-> **Process mode:** strategy (gate6 — s29_funding_carry passed Gate 5)
+> **Last updated:** 2026-03-05
+> **Process mode:** strategy (gate5.5 — portfolio assembly complete, paused before Gate 6)
+> **Next step:** Accumulate more strategies, then batch paper trade all candidates in parallel
 
 ---
 
@@ -24,6 +25,9 @@
 | Freqtrade Bridge | `freqtrade_bridge/` | strategy_shell, config_generator, cost_model, exchange_registry, export_params, parity_check |
 | Paper Trading System | `paper_trading/` | instance_manager, equity_tracker, monitor, gate4_engine, compare_instances, setup |
 | Paper Trade Launcher | `run_paper_trade.py` | CLI with 7 subcommands: setup/start/stop/status/list/monitor/compare. 51 tests passing. |
+| Combined Engine Validation | `v3/engine.py`, `v3/validation.py`, `v3/universe.py` | WF+CPCV dual-gate validation for combined spot+perp strategies. `_simulate_combined` extracted as reusable method. Three patterns: simultaneous, conditional, alternating. |
+| Combined Portfolio Tools | `v3/portfolio.py`, `v3/correlation.py`, `v3/regime_analysis.py` | All three tools updated to support combined market: detect 2-arg strategy signature, load both spot+perp data, align timeframes, mask both legs, call `_simulate_combined`. |
+| Gate 5.5 Portfolio Assembly | `results/correlation_*.json`, `results/regime_analysis_*.json` | 3-strategy and 5-strategy correlation, marginal Sharpe, regime analysis. Recommended 4-strat allocation: s30(40%)+s32(25%)+s29(20%)+s11(15%). |
 | Data Infrastructure | `data/1h_cache/` | Spot: Binance 116 tokens. Perp: Binance 165, Kraken 314, Hyperliquid 52. 1H candles 2020-2026. |
 
 ### Open / Outstanding
@@ -38,7 +42,7 @@
 
 | Item | Dependency |
 |------|------------|
-| Paper trading deployment (Gate 6) | AC8 credential fix |
+| Paper trading deployment (Gate 6) | AC8 credential fix + decision to batch paper trade when enough strategies accumulated |
 | Survivorship-bias-free dataset (P8) | External data: CoinMarketCap/CoinGecko APIs for delisted tokens |
 
 ---
@@ -55,6 +59,14 @@
 | s21 skew_momentum | 63.3% | — | Per-token skew |
 | s17 trend_strength_filter | 55.1% | 1.81 | Per-token trend |
 | s18 momentum_accel | 51.0% | 0.63 | Per-token acceleration |
+
+### Tier A Combined (spot+perp strategies — validated through Gate 5)
+
+| Strategy | Rate | Sharpe | Calmar | MaxDD | Type |
+|----------|------|--------|--------|-------|------|
+| s30 basis_carry | 77.1% | 2.63 | 12.76 | -0.4% | Delta-neutral arb (long spot + short perp) |
+| s32 regime_spot_perp | 78.9% | 1.37 | 2.86 | -0.8% | Regime-adaptive instrument selection |
+| s31 funding_hedged_momentum | 55.0% | 0.64 | 0.94 | -1.7% | Momentum + funding hedge |
 
 ### Tier A Diversifiers (different strategy families — validated but outside gate system)
 
@@ -96,6 +108,7 @@
 | 2026-03-01 | s19 mean_reversion_filtered | 5 | 0% validation |
 | 2026-03-01 | s08 obv_divergence | 5 | 6.1% rate |
 | 2026-03-01 | s07 rsi_bounce | 5 | 10.2% rate |
+| 2026-03-03 | s25 vol_spike_reversal | 5 | BTC failed Gate 4 3x; altcoins didn't save at Gate 5 |
 | 2026-03-03 | s26 rsi_extreme_reversal | 5 | 14.3% rate |
 | 2026-03-03 | s27 funding_mean_reversion | 5 | 11.6% rate |
 | 2026-03-03 | s28 momentum_burst_perp | 5 | 6.7% rate |
@@ -113,6 +126,12 @@
 4. **New capabilities not in process:** Portfolio strategies, overlays, and diversifiers exist as validated code with results but are **not integrated into the 8-gate pipeline**. The skill, quick reference, and sweep system don't know about them.
 
 5. **Market-neutral carry unlocked:** s29 funding carry is the first genuinely market-neutral strategy (beta=0.0000, corr=+0.002). Harvests structural funding payments from retail long bias. 66/328 tokens validated (20.1%), but 91.2% pass rate among tokens with sufficient funding data. Mean MaxDD only -1.26%.
+
+6. **Combined spot+perp engine works:** Three combined strategies validated end-to-end through Gate 5. s30 basis carry has highest Calmar ever (12.76 mean, max DD -0.4%). s32 regime selection has highest validation rate (78.9%) with negative beta. Combined WF+CPCV validation pipeline fully operational for all three engine patterns (simultaneous, conditional, alternating legs).
+
+7. **Portfolio assembly (Gate 5.5):** 3-strategy combined portfolio (s30+s31+s32): Sharpe 4.41, Calmar 14.29, MaxDD -7.1%. s30 basis carry has highest marginal Sharpe (+0.95) and is regime-stable (PF 2.50-2.68 in all regimes). s31 redundant with s11 (r=+0.71). Recommended 4-strat allocation: s30(40%)+s32(25%)+s29(20%)+s11(15%). Effective N=3.03 with 5 strategies. Regime weighting unnecessary — s30 already works in all regimes.
+
+8. **Process decision: pause at Gate 5.5, batch paper trade later.** Paper trading (Gate 6) deferred until enough strategies accumulated. All validated strategies will be paper traded in parallel to maximize signal-to-wall-clock-time. Knowledge bases fully updated through Gate 5.5 — no information loss risk.
 
 ---
 
@@ -132,5 +151,8 @@ These modules are built, tested, and have results. They expand what's possible b
 | **Correlation analysis** | `v3/correlation.py` | Pairwise strategy correlation, marginal Sharpe, greedy portfolio construction |
 | **Dynamic universe** | `v3/dynamic_universe.py` | Point-in-time token eligibility at each WF window |
 | **Perpetual futures** | `v3/engine.py` | Long and short, funding rates, leverage, perp-specific fees |
+| **Combined spot+perp** | `v3/engine.py` (`_simulate_combined`) | Dual-leg strategies: simultaneous, conditional, alternating. Handles funding, fees, leverage per leg. |
+| **Combined validation** | `v3/validation.py` | WF+CPCV for combined strategies. `_run_walk_forward_combined`, `_run_cpcv_combined`. |
+| **Combined portfolio tools** | `v3/portfolio.py`, `v3/correlation.py`, `v3/regime_analysis.py` | All support `--market combined`: 2-arg detection, dual data loading, both-leg masking |
 | **Multi-exchange** | `freqtrade_bridge/exchange_registry.py` | Binance, Kraken, Hyperliquid with exchange-specific fees/slippage |
 | **Paper trading** | `paper_trading/` | Full infra: instance management, equity tracking, monitoring, Gate 4 SPRT |

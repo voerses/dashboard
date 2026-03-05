@@ -396,11 +396,11 @@ def _simulate_core_jit(close, high, low, atr, entry_mask, direction,
             else:
                 if bars_held >= no_stop_bars:
                     if d == 1:
-                        trail = highest - trail_mult * cur_atr
+                        trail = highest - trail_mult[entry_bar] * cur_atr
                         if trail > stop_price:
                             stop_price = trail
                     else:
-                        trail = lowest + trail_mult * cur_atr
+                        trail = lowest + trail_mult[entry_bar] * cur_atr
                         if trail < stop_price:
                             stop_price = trail
 
@@ -521,7 +521,7 @@ def _simulate_core_jit(close, high, low, atr, entry_mask, direction,
             equity -= fee
             cumulative_funding = 0.0
 
-            initial_risk = stop_mult * cur_atr_e
+            initial_risk = stop_mult[i] * cur_atr_e
             if d == 1:
                 stop_price = entry_price - initial_risk
             else:
@@ -1090,8 +1090,8 @@ class StrategyResult:
     entry_mask: np.ndarray
     direction: np.ndarray
 
-    stop_mult: float = 3.0
-    trail_mult: float = 3.0
+    stop_mult: object = 3.0      # float scalar or per-bar np.ndarray
+    trail_mult: object = 3.0     # float scalar or per-bar np.ndarray
     target_mult: float = 999.0
     no_stop_bars: int = 0
     min_hold: int = 6
@@ -1467,9 +1467,22 @@ class Engine:
         else:
             leverage_arr = np.full(n, float(lev), dtype=np.float64)
 
+        # Stop/trail multipliers: convert scalar to per-bar array
+        sm = result.stop_mult
+        if isinstance(sm, np.ndarray):
+            stop_mult_arr = sm.astype(np.float64)
+        else:
+            stop_mult_arr = np.full(n, float(sm), dtype=np.float64)
+
+        tm = result.trail_mult
+        if isinstance(tm, np.ndarray):
+            trail_mult_arr = tm.astype(np.float64)
+        else:
+            trail_mult_arr = np.full(n, float(tm), dtype=np.float64)
+
         sim_result = _simulate_core_jit(
             close, high, low, atr_arr, entry_mask, direction,
-            float(result.stop_mult), float(result.trail_mult), float(result.target_mult),
+            stop_mult_arr, trail_mult_arr, float(result.target_mult),
             ctx.regime_1h, exit_regime_mask, int(result.min_hold), int(result.max_hold),
             rsi, float(result.rsi_exit_level), use_rsi,
             float(fee_rate), adv_arr_rolling, float(base_spread_bps), float(impact_coeff),
@@ -1594,7 +1607,38 @@ class Engine:
         # Call strategy with both contexts
         result = strategy_fn(ctx_spot, ctx_perp)
 
-        # Align arrays to common length
+        trades, final_equity = self._simulate_combined(ctx_spot, ctx_perp, result)
+
+        total_return = (final_equity - self.capital) / self.capital * 100
+        wins = [t for t in trades if t['pnl'] > 0]
+        losers = [t for t in trades if t['pnl'] <= 0]
+        avg_win = np.mean([t['pnl'] for t in wins]) if wins else 0
+        avg_loss = abs(np.mean([t['pnl'] for t in losers])) if losers else 1
+        leg1_trades = [t for t in trades if t['leg'] == 1]
+        leg2_trades = [t for t in trades if t['leg'] == 2]
+
+        return {
+            'ticker': ticker,
+            'tier': ctx_spot._tier_static,
+            'adv': ctx_spot._adv_static,
+            'total_return': total_return,
+            'n_trades': len(trades),
+            'n_trades_leg1': len(leg1_trades),
+            'n_trades_leg2': len(leg2_trades),
+            'win_rate': len(wins) / max(len(trades), 1) * 100,
+            'payoff_ratio': avg_win / max(avg_loss, 1),
+            'equity': final_equity,
+            'trades': trades,
+            'strategy': result.name,
+            'total_funding_cost': sum(t.get('funding_cost', 0) for t in trades),
+        }
+
+    def _simulate_combined(self, ctx_spot, ctx_perp, result):
+        """Run combined two-leg simulation. Returns (trades_list, final_equity).
+
+        Extracted from backtest_token_combined so validation can call it
+        with pre-masked StrategyResults.
+        """
         n = min(len(ctx_spot.ind_1h['close']), len(ctx_perp.ind_1h['close']))
         close = ctx_spot.ind_1h['close'][:n]
         high = ctx_spot.ind_1h['high'][:n]
@@ -1707,29 +1751,7 @@ class Engine:
             }
             trades.append(trade)
 
-        total_return = (final_equity - self.capital) / self.capital * 100
-        wins = [t for t in trades if t['pnl'] > 0]
-        losers = [t for t in trades if t['pnl'] <= 0]
-        avg_win = np.mean([t['pnl'] for t in wins]) if wins else 0
-        avg_loss = abs(np.mean([t['pnl'] for t in losers])) if losers else 1
-        leg1_trades = [t for t in trades if t['leg'] == 1]
-        leg2_trades = [t for t in trades if t['leg'] == 2]
-
-        return {
-            'ticker': ticker,
-            'tier': ctx_spot._tier_static,
-            'adv': ctx_spot._adv_static,
-            'total_return': total_return,
-            'n_trades': len(trades),
-            'n_trades_leg1': len(leg1_trades),
-            'n_trades_leg2': len(leg2_trades),
-            'win_rate': len(wins) / max(len(trades), 1) * 100,
-            'payoff_ratio': avg_win / max(avg_loss, 1),
-            'equity': final_equity,
-            'trades': trades,
-            'strategy': result.name,
-            'total_funding_cost': sum(t.get('funding_cost', 0) for t in trades),
-        }
+        return trades, final_equity
 
     def run(self, strategy_fn: StrategyFn, tokens: Optional[List[str]] = None,
             verbose: bool = True) -> Dict[str, Dict]:

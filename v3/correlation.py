@@ -93,14 +93,16 @@ def get_tier_strategies(tier: str = 'A') -> List[str]:
 # =============================================================================
 
 def _detect_strategy_market(strategy_path: str) -> str:
-    """Detect whether a strategy targets 'perp' or 'spot' by reading its source.
+    """Detect whether a strategy targets 'combined', 'perp', or 'spot'.
 
-    Checks for MarketType.PERP assignment in the strategy file.
-    Returns 'perp' if found, else 'spot' (the default).
+    Checks for MarketType.COMBINED or PERP assignment in the strategy file.
+    Returns 'combined' if found, then 'perp', else 'spot' (the default).
     """
     try:
         with open(strategy_path, 'r') as f:
             source = f.read()
+        if re.search(r'MarketType\.COMBINED', source):
+            return 'combined'
         if re.search(r'market_type\s*=\s*MarketType\.PERP', source):
             return 'perp'
     except (OSError, IOError):
@@ -547,7 +549,7 @@ def main():
     parser.add_argument('--universe', choices=['all', 'filtered', 'liquid'],
                         default='filtered', help='Token universe (default: filtered)')
     parser.add_argument('--capital', type=float, default=200_000, help='Capital per strategy')
-    parser.add_argument('--market', default='auto', choices=['auto', 'spot', 'perp'])
+    parser.add_argument('--market', default='auto', choices=['auto', 'spot', 'perp', 'combined'])
     parser.add_argument('--exchange', default='binance',
                         choices=['binance', 'kraken', 'hyperliquid'])
     parser.add_argument('--workers', type=int, default=4, help='Parallel workers')

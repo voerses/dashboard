@@ -14,6 +14,8 @@ Before proposing a strategy, know what tools and strategy types exist.
 | Type | Module | Example | Validated? |
 |------|--------|---------|------------|
 | Per-token signal | `strategies/sNN_*.py` | s11 momentum burst (Sharpe 2.58) | Yes — 6 Tier A |
+| Per-token perp | `strategies/sNN_*.py` | s29 funding carry (Sharpe 0.81, market-neutral) | Yes — Tier B |
+| Combined spot+perp | `strategies/sNN_*.py` | s30 basis carry (Sharpe 2.63, Calmar 12.76) | Yes — 3 Tier A |
 | Cross-sectional ranking | `v3/cross_sectional.py` | Long top quintile by 14d return (Sharpe 1.54, corr +0.25 vs S11) | Yes — Tier A diversifier |
 | Sector rotation | `v3/sector_rotation.py` | Long top 2 of 10 sectors by category momentum (Sharpe 1.31, corr +0.20) | Yes — Tier A diversifier |
 | Pairs / stat arb | `v3/pairs_trading.py` | Cointegrated pairs on perps, z-score entry (Sharpe 0.42, corr -0.06) | Yes — Tier B diversifier |
@@ -39,29 +41,42 @@ Before proposing a strategy, know what tools and strategy types exist.
 |-----------|---------|
 | Spot trading | Long only, Binance 116 tokens |
 | Perpetual futures | Long AND short, leverage, funding rates |
+| Combined spot+perp | Dual-leg strategies: simultaneous, conditional, alternating. 111 tokens with both spot+perp data |
 | Exchanges | Binance, Kraken, Hyperliquid (different fee tiers) |
-| Data | 1H candles, 2020-2026, merged in `data/1h_cache/` |
+| Data | 1H candles, 2020-2026. Spot: `data/spot/1h_cache/`. Perp: `data/perp/1h_cache/` |
 
 ### Key Constraints
 
 - **All 6 Tier A per-token strategies are momentum variants** (median pairwise r=+0.62, effective N=2.02)
 - To improve portfolio, need **different strategy families**, not more momentum
 - Cross-sectional (+0.25), sector rotation (+0.20), pairs (-0.06) provide genuine diversification
+- **Combined strategies unlocked diversification:** s30 basis carry (corr +0.21 vs s11), s29 funding carry (corr -0.16 vs s11) are different families
 - Mean reversion consistently fails at 18-720hr holds in crypto — don't retry
+- **s31 hedged momentum is redundant with s11** (corr +0.71) — don't run both
 
 ### Strategy Classes (Gate 0 Routing)
 
 | Class | Gate Path | When to Use |
 |-------|-----------|-------------|
-| A. Per-Token Signal | 0→1→2→3→4→5→6→7 | Single signal on individual tokens |
+| A. Per-Token Signal | 0→1→2→3→4→5→6→7 | Single signal on individual tokens (spot or perp) |
+| A2. Combined Spot+Perp | 0→1→2→3→4→5→5.5→6→7 | Dual-leg: long spot + short perp, or regime-adaptive instrument selection |
 | B. Portfolio Strategy | 0→2→3P→5P→6→7 | Cross-token ranking, sector rotation, pairs |
 | C. Overlay | 0→2→3O→5O→6→7 | Regime weighting, signal agreement, risk scaling |
+
+**Combined strategy patterns (Class A2):**
+- **Simultaneous:** Both legs enter/exit together (e.g., s30 basis carry)
+- **Conditional secondary:** Primary always, secondary only when condition met (e.g., s31 hedged momentum)
+- **Alternating:** One or the other based on regime (e.g., s32 regime spot/perp)
+
+**Combined validation:** `python v3/validation.py --strategy sNN --market combined --workers 4`
 
 > Deep dive: `memory/PROJECT_STATUS.md` (full capability inventory + open tasks)
 
 ---
 
 ## Existing Tier A/B Strategies (Dedup Check)
+
+### Per-Token (Spot)
 
 | Strategy | Tier | Rate | Core Entry Signal | Hold |
 |----------|------|------|-------------------|------|
@@ -71,9 +86,41 @@ Before proposing a strategy, know what tools and strategy types exist.
 | s21 Skew Momentum | A | 63.3% | `rolling_skew > 0.3` + ret > 0 | momentum |
 | s17 Trend Strength | A | 55.1% | `ret_1 > 0.02` + ADX > 25 + +DI > -DI | trend |
 | s18 Momentum Accel | A | 51.0% | `ret_24h > ret_72h/3` (acceleration) | momentum |
+
+### Combined Spot+Perp
+
+| Strategy | Tier | Rate | Core Entry Signal | Market | Hold |
+|----------|------|------|-------------------|--------|------|
+| s32 Regime Spot/Perp | A | 78.9% | Regime-gated: spot long uptrend, perp short downtrend | combined | 18-720h |
+| s30 Basis Carry | A | 77.1% | Basis z-score > 1.5 (long spot + short perp) | combined | 504h |
+| s31 Hedged Momentum | A | 55.0% | Momentum burst + funding hedge (perp short when funding extreme) | combined | 120-720h |
+
+### Per-Token (Perp)
+
+| Strategy | Tier | Rate | Core Entry Signal | Market | Hold |
+|----------|------|------|-------------------|--------|------|
+| s29 Funding Carry | B | 20.1% | Funding rate z-score (short when positive, long when negative) | perp | 168h |
+
+### Per-Token (Spot, Tier B)
+
+| Strategy | Tier | Rate | Core Entry Signal | Hold |
+|----------|------|------|-------------------|------|
 | s22 Supertrend ADX | B | 46.9% | Supertrend + ADX filter | trend |
 | s20 Low Beta Quality | B | 46.9% | Low-beta quality factor | long-term |
 | s12 Quality Breakout | B | 32.7% | Quality + breakout combo | swing |
+
+### Portfolio Assembly (Gate 5.5 Result)
+
+**Recommended 4-strategy allocation (Sharpe ~4.7, MaxDD ~-4%):**
+
+| Strategy | Weight | Solo Sharpe | Marginal Sharpe | Corr vs S11 | Role |
+|----------|--------|-------------|-----------------|-------------|------|
+| s30 Basis Carry | 40% | 5.47 | +0.95 | +0.21 | Core — delta-neutral arb, regime-stable |
+| s32 Regime Spot/Perp | 25% | 3.01 | +0.41 | +0.25 | Complementary — negative beta hedge |
+| s29 Funding Carry | 20% | 1.70 | +0.61 | -0.16 | Diversifier — market-neutral, negative corr |
+| s11 Momentum Burst | 15% | 1.74 | -0.49 | 1.00 | Directional momentum exposure |
+
+**Do NOT run s31 + s11 together** (corr +0.71, both negative marginal Sharpe when combined)
 
 > Deep dive: `knowledge/STRATEGY_CATALOG.md`
 
@@ -89,7 +136,7 @@ Before proposing a strategy, know what tools and strategy types exist.
 | Already tried & failed? | Check Tier C list below |
 | Look-ahead bias risk | Signal must use only past data |
 
-**Tier C (Archived — Don't Repeat):** s02, s03, s04, s07, s08, s10, s12, s14, s15, s16, s19, s20
+**Tier C (Archived — Don't Repeat):** s02, s03, s04, s07, s08, s10, s12, s14, s15, s16, s19, s20, s26, s27, s28
 
 > Deep dive: `knowledge/STRATEGY_LIFECYCLE.md`, `knowledge/process/SCOPE_AND_CONTEXT.md`
 
@@ -150,9 +197,16 @@ Before proposing a strategy, know what tools and strategy types exist.
 - Check correlation vs existing portfolio strategies: >0.7 → KILL
 - If same class exists: must show improvement on Calmar or DD, not just different parameters
 
+**Combined spot+perp strategies:**
+- Check if the spot leg signal overlaps with existing per-token strategies (s31↔s11 = +0.71, redundant)
+- Basis arb (s30) is unique — no overlap with momentum/trend family
+- New combined strategies must show corr <0.5 vs s30 to add value
+- Funding-based strategies: s27 (mean reversion) and s28 (perp momentum) both killed. s29 (carry) works because it harvests the payment, not predicting direction
+
 **Overlays:**
 - Check if overlay already applied to base strategy
 - Multiple overlays on same base OK if targeting different aspects (regime=allocation, agreement=entry, risk=sizing)
+- Regime weighting not needed for combined portfolio (s30 already regime-stable, PF 2.50-2.68 across all regimes)
 
 **Post-ETF Regime Shifts (Jan 2024+):**
 - BTC price driven by ETF flows, not on-chain metrics
@@ -201,6 +255,31 @@ Layer 6: Position sizing → ADV-based Kelly (engine computes from volume data)
 - Use `ctx.ind_1h['rsi']` — never recompute indicators
 - Use `rolling_mean(arr, window)` — never `for i in range()` over bars
 - Vectorized: 0.04ms/call. Looped: 1,864ms/call (46,600x slower)
+- **Combined strategies:** Use `_fast_rolling_zscore` (numpy cumsum) instead of `rolling_zscore` (pandas) — saves ~1ms on 54K bars
+
+**Combined Strategy Template (Class A2):**
+```python
+def strategy(ctx_spot: StrategyContext, ctx_perp: StrategyContext) -> StrategyResult:
+    # Primary leg (spot or perp)
+    entry_mask = ...      # When to enter primary leg
+    direction = ...       # 1=long, -1=short
+    market_type = MarketType.SPOT  # or PERP
+
+    # Secondary leg (optional, different from primary)
+    secondary_entry_mask = ...
+    secondary_direction = ...
+    secondary_market_type = MarketType.PERP  # must differ from primary
+
+    return StrategyResult(
+        entry_mask=entry_mask, direction=direction, market_type=MarketType.COMBINED,
+        capital_split=0.5,  # fraction of capital for primary leg
+        secondary_entry_mask=secondary_entry_mask, secondary_direction=secondary_direction,
+        secondary_market_type=secondary_market_type,
+        # separate trade management params for each leg
+        stop_mult=3.0, secondary_stop_mult=3.0,
+        max_hold=720, secondary_max_hold=504,
+    )
+```
 
 > Deep dive: `knowledge/SIGNAL_DEVELOPMENT.md`, `knowledge/PERFORMANCE_PATTERNS.md`
 
@@ -209,6 +288,7 @@ Layer 6: Position sizing → ADV-based Kelly (engine computes from volume data)
 ## Gate 4: Quick Validate (BTC) — Dual Gate
 
 **Run:** `python v3/validation.py --strategy sNN --tokens BTC --workers 1`
+**Combined:** `python v3/validation.py --strategy sNN --tokens BTC --market combined --workers 1`
 
 **BTC must pass BOTH:**
 1. Walk-Forward: positive OOS PnL
@@ -216,11 +296,17 @@ Layer 6: Position sizing → ADV-based Kelly (engine computes from volume data)
 
 **3-attempt rule:** Max 3 parameter tuning attempts. Core logic changes = KILL.
 
+**Combined strategy notes:**
+- Validation automatically detects 2-arg signature and routes to `_run_walk_forward_combined` / `_run_cpcv_combined`
+- Both primary AND secondary entry masks are walk-forward masked (OOS only)
+- Engine `_simulate_combined` handles both legs with per-leg fees, funding, slippage
+
 ---
 
-## Gate 5: Full Validate (49 Tokens) — Tier Assignment
+## Gate 5: Full Validate (111 Tokens) — Tier Assignment
 
 **Run:** `python v3/validation.py --strategy sNN --workers 4`
+**Combined:** `python v3/validation.py --strategy sNN --market combined --workers 4` (111 tokens with both spot+perp)
 
 **Return-First Metrics:**
 
@@ -344,6 +430,12 @@ CPCV:
 DATA:
 [ ] Point-in-time universe (no survivorship bias)
 [ ] No forward-fill with current bar's data
+
+COMBINED (if spot+perp strategy):
+[ ] Both spot and perp data aligned to common time range
+[ ] Both entry_mask AND secondary_entry_mask walk-forward masked
+[ ] Funding costs applied to perp leg (engine handles automatically)
+[ ] capital_split correctly divides capital between legs
 ```
 
 > Deep dive: `knowledge/process/BACKTESTING_VALIDATION_BEST_PRACTICES.md` Section 16

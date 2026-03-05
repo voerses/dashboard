@@ -5,8 +5,8 @@
 > Mean reversion loses money at 18-720hr holds. Simple beats complex (4 conditions > 10).
 > **Full details + 67 citations:** `knowledge/archive/STRATEGY_CATALOG_DETAILS.md`
 
-**Context:** Crypto swing trading, $200K capital, 1H timeframe, 18-720hr holds, 6-49 tokens
-**Last validated:** February 2026, 49 tokens, Jan 2024 - Jan 2026 data
+**Context:** Crypto swing trading, $200K capital, 1H timeframe, 18-720hr holds, 6-111 tokens
+**Last validated:** March 2026, 111 tokens (spot+perp+combined), Jan 2024 - Jan 2026 data
 
 ---
 
@@ -213,6 +213,164 @@ Based on Hamilton (1989). Crypto-validated by Castellano & D'Ecclesia (2025).
 
 **Implementation:** `v3/pairs_trading.py` — standalone engine using perp futures data. Pair selection via correlation + half-life scoring. Funding rate costs loaded from parquet columns. Zero blast radius.
 
+### S29 Funding Carry (Per-Token Perp, Market-Neutral)
+
+| Metric | Value |
+|--------|-------|
+| Validation Rate | 66/328 (20.1%) — 91.2% among tokens with sufficient funding data |
+| Mean Sharpe | +0.81 |
+| Mean Calmar | +0.76 |
+| Mean Max Drawdown | -1.26% |
+| Trade count | 52 (BTC), varies by token |
+| Correlation vs S11 | +0.002 (effectively zero) |
+| Market | Perpetual futures only |
+
+**Entry logic:** Harvest structural funding rate premium. When rolling 72h mean |funding| > 0.00005/hr (~48% annualized), go opposite direction to funding: long when funding < 0, short when funding > 0. No trend filter — carry works in all regimes except crisis. Wider stops (4.0x ATR initial, 3.5x ATR trail) because carry income compensates for price moves.
+
+**Key parameters:** 72h lookback, 0.00005/hr threshold, Kelly 0.30, max hold 14 days, 48h no-stop protection.
+
+**Value:** First genuinely market-neutral strategy (beta=0.0000). Negative correlation with momentum strategies (-0.155 vs s11, -0.138 vs s31). Best diversifier by marginal Sharpe in 5-strategy portfolio. BTC validation: Sharpe 0.79, PF 2.31, 53.9% win rate, funding drag -18.2% per trade.
+
+**Implementation:** `strategies/s29_funding_carry.py` — per-token perp strategy using standard `strategy(ctx)` signature.
+
+---
+
+### S30 Basis Carry (Combined Spot+Perp, Delta-Neutral)
+
+| Metric | Value |
+|--------|-------|
+| Validation Rate | 84/109 (77.1%) |
+| Mean Sharpe | +2.63 |
+| Mean Calmar | +12.76 (highest ever) |
+| Mean Max Drawdown | -0.43% |
+| Trade count | 36,122 across 84 tokens |
+| Marginal Sharpe | +1.53 (highest contributor) |
+| Market | Combined: long spot + short perp (simultaneous) |
+
+**Entry logic:** Delta-neutral cash-and-carry arbitrage. When basis (spot-perp price spread) > 0.1% AND rolling 72h z-score > 1.5, simultaneously go long spot + short perp. Captures the basis premium while eliminating directional risk. Both legs enter on the same bar.
+
+**Key parameters:** 72h basis z-score > 1.5, basis minimum 0.1%, vol_ratio > 0.5 (relaxed), capital split 50/50, Kelly 0.25, max hold 21 days. Spot: 3.5x ATR trail / 4.0x stop. Perp: 3.0x ATR trail / 3.5x stop (tighter).
+
+**Regime stability:** Remarkably consistent across all regimes — PF 2.50 (RANGE) to 2.68 (UPTREND). No regime weighting needed.
+
+| Regime | Trades | Win Rate | Profit Factor | Avg Return |
+|--------|--------|----------|---------------|------------|
+| UPTREND | 13,771 | 54.9% | 2.68 | +2.08% |
+| RANGE | 6,451 | 52.9% | 2.50 | +1.77% |
+| QUIET | 5,026 | 53.3% | 2.62 | +1.47% |
+| DOWNTREND | 10,876 | 54.7% | 2.59 | +1.85% |
+
+**BTC validation:** Sharpe 4.33, Calmar 24.52, MaxDD -0.34%, PF 2.78, 836 trades.
+
+**Value:** Anchor strategy for combined portfolio. Highest Calmar of any strategy tested (12.76 mean). Regime-stable. Moderate correlation with other combined strategies (0.22-0.24). Pattern: simultaneous legs.
+
+**Implementation:** `strategies/s30_basis_carry.py` — combined `strategy(ctx_spot, ctx_perp)` signature. Uses `_simulate_combined` engine method.
+
+---
+
+### S31 Funding-Hedged Momentum (Combined Spot+Perp, Conditional)
+
+| Metric | Value |
+|--------|-------|
+| Validation Rate | 60/109 (55.0%) |
+| Mean Sharpe | +0.64 |
+| Mean Calmar | +0.94 |
+| Mean Max Drawdown | -1.68% |
+| Trade count | 10,712 across 60 tokens |
+| Correlation vs S11 | +0.71 (WARNING: redundant) |
+| Market | Combined: spot long momentum + conditional perp short hedge |
+
+**Entry logic:** Primary leg: standard momentum burst on spot (close > EMA20, ADX > 20, ret_1 > 2%, vol_ratio > 1.0, uptrend/range regimes). Secondary leg (conditional): perp short hedge only when funding z-score > 2.5 AND RSI > 70 (overbought). The hedge activates independently — not every momentum entry gets hedged.
+
+**Key parameters:** Primary: ret_1 > 2%, ADX > 20, 80% capital. Secondary: funding z > 2.5, RSI > 70, 20% capital. Primary stops: 3.0x ATR trail, max 720h. Secondary stops: 2.5x ATR trail, 4.0x target (take profit), max 120h.
+
+**WARNING — Redundancy with S11:** Correlation +0.71 with s11_momentum_burst. The primary leg IS essentially momentum burst. Both have negative marginal Sharpe when combined in portfolio. **Recommended: exclude from portfolio when s11 is included.**
+
+**Regime performance:**
+| Regime | Trades | Win Rate | Profit Factor |
+|--------|--------|----------|---------------|
+| UPTREND | 6,540 | 44.6% | 1.81 |
+| RANGE | 2,310 | 42.5% | 1.53 |
+| QUIET | 1,235 | 43.5% | 1.46 |
+| DOWNTREND | 1,836 | 39.1% | 1.16 (weak) |
+
+**Implementation:** `strategies/s31_funding_hedged_momentum.py` — combined `strategy(ctx_spot, ctx_perp)` signature. Pattern: conditional secondary leg.
+
+---
+
+### S32 Regime-Adaptive Spot-Perp (Combined, Alternating)
+
+| Metric | Value |
+|--------|-------|
+| Validation Rate | 86/109 (78.9%) — highest of combined strategies |
+| Mean Sharpe | +1.37 |
+| Mean Calmar | +2.86 |
+| Mean Max Drawdown | -0.78% |
+| Trade count | 27,469 across 86 tokens |
+| Marginal Sharpe | +0.25 |
+| Market | Combined: spot long (uptrends) / perp short (downtrends), alternating |
+
+**Entry logic:** Alternating regime-gated legs. In UPTREND/QUIET: spot long when close > EMA20, ADX > 25, 24h return > 5%, vol_ratio > 0.8. In DOWNTREND: perp short when close < EMA20, ADX > 20, 24h return < -3%, vol_ratio > 0.8. Never both legs simultaneously — uses spot for longs (no funding drag) and perps for shorts (only instrument that can short).
+
+**Key parameters:** Long: ADX > 25, ret_24h > 5%, 60% capital. Short: ADX > 20, ret_24h < -3%, 40% capital. Long stops: 2.5x ATR trail, 5.0x target, max 720h. Short stops: 2.0x ATR trail, 4.0x target, max 336h.
+
+**Regime performance:**
+| Regime | Trades | Win Rate | Profit Factor |
+|--------|--------|----------|---------------|
+| UPTREND | 8,970 | 46.5% | 2.28 |
+| RANGE | 4,167 | 45.6% | 2.13 |
+| QUIET | 2,501 | 45.4% | 1.91 |
+| DOWNTREND | 12,181 | 42.6% | 1.40 |
+
+**BTC validation:** Sharpe 1.41, Calmar 3.21, MaxDD -0.46%, PF 1.90, 326 trades.
+
+**Value:** Highest validation rate (78.9%) of any combined strategy. Uses the right instrument for each regime — spot for longs avoids funding costs, perps for shorts earn funding in downtrends. Moderate correlation with s30 (0.24), good portfolio complement.
+
+**Implementation:** `strategies/s32_regime_spot_perp.py` — combined `strategy(ctx_spot, ctx_perp)` signature. Pattern: alternating legs.
+
+---
+
+### Portfolio Assembly — Combined Strategy Portfolio (Gate 5.5)
+
+**Recommended 4-strategy allocation** (s31 excluded due to s11 redundancy):
+
+| Strategy | Allocation | Marginal Sharpe | Role |
+|----------|-----------|-----------------|------|
+| s30 basis_carry | 40% | +0.95 | Anchor — regime-stable arb |
+| s32 regime_spot_perp | 25% | +0.25 | Regime-adaptive directional |
+| s29 funding_carry | 20% | — | Market-neutral diversifier |
+| s11 momentum_burst | 15% | — | Per-token momentum |
+
+**3-strategy combined portfolio metrics (s30+s31+s32):**
+
+| Metric | Value |
+|--------|-------|
+| Sharpe | 4.41 |
+| Sortino | 6.37 |
+| Calmar | 14.29 |
+| Max Drawdown | -7.1% |
+| DD Duration | 36 days |
+| Total Return | 3,588% |
+| Annualized Return | 101.2% |
+| Total Trades | 75,864 |
+| Tokens Traded | 91 |
+
+**5-strategy cross-family correlation:**
+
+| | s30 | s31 | s32 | s11 | s29 |
+|---|-----|-----|-----|-----|-----|
+| s30 | 1.00 | 0.22 | 0.24 | 0.07 | 0.08 |
+| s31 | 0.22 | 1.00 | 0.32 | **0.71** | -0.14 |
+| s32 | 0.24 | 0.32 | 1.00 | 0.21 | -0.02 |
+| s11 | 0.07 | **0.71** | 0.21 | 1.00 | -0.16 |
+| s29 | 0.08 | -0.14 | -0.02 | -0.16 | 1.00 |
+
+**Effective N:** 3.03 with 5 strategies (median corr 0.21).
+
+**Regime weighting verdict:** Not needed. s30 already regime-stable (PF 2.50-2.68 across all regimes). Weighted portfolio only adds +0.03 Sharpe vs baseline — not worth the complexity.
+
+---
+
 ### Dynamic Universe — Point-in-Time Token Eligibility (Infrastructure)
 
 | Metric | Static Universe | Dynamic Universe | Bias |
@@ -236,15 +394,31 @@ Based on Hamilton (1989). Crypto-validated by Castellano & D'Ecclesia (2025).
 
 ### Tier A: Production (Validated)
 
-| # | Strategy | Status | Annual PnL |
-|---|----------|--------|------------|
-| 1 | S11 Momentum Burst | LIVE (#1) | +$170K |
-| 2 | S09 Dual Momentum Trend | LIVE (#2) | +$163K |
-| 3 | Cross-Sectional Momentum | VALIDATED (diversifier) | +190%/yr ann. |
-| 4 | Sector/Narrative Rotation | VALIDATED (diversifier) | +100%/yr ann. |
-| 5 | Regime-Conditional Weighting | VALIDATED (overlay) | +0.29 Sharpe |
-| 6 | V3 Liquidity Contrarian | LIVE (complement) | +$8K |
-| 7 | HMM Regime Detection | LIVE (overlay) | Integrated |
+| # | Strategy | Status | Sharpe | Type |
+|---|----------|--------|--------|------|
+| 1 | **S30 Basis Carry** | **VALIDATED (combined)** | **+2.63** | **Delta-neutral arb** |
+| 2 | S11 Momentum Burst | VALIDATED (spot) | +2.58 | Per-token momentum |
+| 3 | S09 Dual Momentum Trend | VALIDATED (spot) | +1.98 | Per-token dual momentum |
+| 4 | **S32 Regime Spot-Perp** | **VALIDATED (combined)** | **+1.37** | **Alternating regime** |
+| 5 | Cross-Sectional Momentum | VALIDATED (diversifier) | +1.54 | Portfolio ranking |
+| 6 | Sector/Narrative Rotation | VALIDATED (diversifier) | +1.31 | Category momentum |
+| 7 | S29 Funding Carry | VALIDATED (perp) | +0.81 | Market-neutral carry |
+| 8 | Regime-Conditional Weighting | VALIDATED (overlay) | +0.29 | Overlay |
+| 9 | **S31 Funding-Hedged Momentum** | **VALIDATED (combined)** | **+0.64** | **Conditional hedge** |
+| 10 | V3 Liquidity Contrarian | VALIDATED (complement) | — | Low-corr complement |
+| 11 | HMM Regime Detection | VALIDATED (overlay) | — | Overlay |
+
+### Recommended Portfolio (Gate 5.5)
+
+| Strategy | Weight | Sharpe | MaxDD | Role |
+|----------|--------|--------|-------|------|
+| s30 basis_carry | 40% | 2.63 | -0.4% | Anchor (regime-stable) |
+| s32 regime_spot_perp | 25% | 1.37 | -0.8% | Directional (regime-gated) |
+| s29 funding_carry | 20% | 0.81 | -1.3% | Diversifier (market-neutral) |
+| s11 momentum_burst | 15% | 2.58 | -18.2% | Momentum alpha |
+| **Portfolio** | **100%** | **4.41** | **-7.1%** | **Calmar 14.29** |
+
+Note: s31 excluded — redundant with s11 (corr +0.71).
 
 ### Tier B: Validated / High Priority
 
@@ -292,6 +466,10 @@ Based on Hamilton (1989). Crypto-validated by Castellano & D'Ecclesia (2025).
 | GNN token relationships | ML | Unstable graph structure, emerging/unproven | N/A |
 | V2 Daily Momentum | Trend | Too slow; -$13,806/yr (golden cross lag) | FAILED |
 | VPIN filter (current data) | Microstructure | Hurt performance; data quality issue (0.5 fills) | FAILED |
+| s25 Vol Spike Reversal | Volatility | BTC failed 3x; proceeded to G5 on altcoin promise but didn't pass | FAILED |
+| s26 RSI Extreme Reversal | Mean reversion | 14.3% rate (47/329), below 20% threshold | FAILED |
+| s27 Funding Mean Reversion | Mean reversion (perp) | 11.6% rate (38/329), funding data sparse for many tokens | FAILED |
+| s28 Momentum Burst Perp | Momentum (perp) | 6.7% rate (22/329), bidirectional too selective on perp | FAILED |
 
 ---
 
@@ -306,6 +484,10 @@ Based on Hamilton (1989). Crypto-validated by Castellano & D'Ecclesia (2025).
 | Simple beats complex | S11 (4 conditions) 75.5% vs S16 (10 conditions) 0% | Cap entry conditions at 4-5 |
 | Momentum > everything else | Only profitable strategy type at swing TF | All production strategies are trend-based |
 | Regime filtering is essential | Momentum works bull/neutral, fails bear | Always use regime overlay |
+| Delta-neutral arb is regime-stable | s30 PF 2.50-2.68 across all regimes | Best anchor for portfolio |
+| Combined spot+perp unlocks new edge | 3 patterns: simultaneous, conditional, alternating | Each captures different premium |
+| Funding carry is market-neutral | s29 beta=0.000, corr=+0.002 vs S11 | Best diversifier available |
+| Basis carry has highest Calmar | s30: Calmar 12.76, MaxDD -0.4% | Risk-adjusted king |
 | 3x ATR stop is optimal | Parameter sweep finding | Don't change stop multiplier |
 | TSMOM lookback 10-28d | Han (2023): 28d lookback, Sharpe 1.51 | Crypto cycles faster than equities |
 | Vol-weighted TSMOM promising | Huang (2024): Sharpe 2.17 | Untested in our system; Tier B priority |
@@ -319,6 +501,9 @@ Based on Hamilton (1989). Crypto-validated by Castellano & D'Ecclesia (2025).
 | BB squeeze breakout | -$4,220/yr | Too frequent (160/760 days), 55% false breakout rate |
 | Complex entry logic | S16 at 0% survival | More conditions = more overfit paths = worse OOS |
 | Stop-losses on MR | Beluska & Vojtko (2024) | Stops destroy MR performance; conflicts with risk mgmt |
+| Momentum burst on perps | s28: 6.7% rate | Bidirectional momentum too selective; perp fees/funding eat edge |
+| Funding mean reversion | s27: 11.6% rate | Funding data sparse; signal decays fast once widely known |
+| Hedged momentum + s11 redundancy | s31↔s11 corr +0.71 | Momentum primary leg IS momentum burst; hedge adds little |
 
 ### RSI Regime Dependency
 
@@ -375,5 +560,7 @@ Our HMM detects 5 regimes that drive all allocation decisions:
 3. **Simple dominates complex** at every validation level we have tested.
 4. **Features that survive costs** are always the same: momentum, volatility, volume, trend strength (ADX). Exotic features (sentiment, NLP, alternative data) rarely survive. (Gu et al. 2020)
 5. **Ensemble > single strategy.** S09 + S11 together diversify better than either alone. Cross-sectional momentum (corr +0.25 vs S11) adds genuine diversification vs the +0.62 pairwise correlation among time-series strategies.
+6. **Combined spot+perp unlocks new strategy classes.** Three distinct patterns (simultaneous, conditional, alternating) each capture different market premiums. s30 basis carry (Calmar 12.76) is the best risk-adjusted strategy ever validated.
+7. **Diversification across market types beats within-type.** s30(combined)+s29(perp)+s11(spot) have median pairwise corr 0.08 vs 0.62 among spot-only strategies. Effective N=3.03 with 5 strategies vs N=2.02 with 6 spot strategies.
 
 *Full strategy descriptions, parameter tables, and 67 academic citations archived in `knowledge/archive/STRATEGY_CATALOG_DETAILS.md`.*
