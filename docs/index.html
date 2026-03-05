@@ -86,7 +86,7 @@ tr.trade-row { cursor:pointer; }
 
 <div class="header">
     <h1>Trading Dashboard</h1>
-    <div class="meta">Updated: 2026-03-05 22:11 UTC</div>
+    <div class="meta">Updated: 2026-03-05 22:26 UTC</div>
 </div>
 <div class="sim-tabs" id="sim-tabs"></div>
 <div id="app"></div>
@@ -317,29 +317,51 @@ function renderTokens(trades) {
 
 /* ---- Charts ---- */
 function drawEquity(trades, strats) {
+    // Build a proper time-series: for each calendar day, sum all P&L realized up to that day
     const sNames = [...new Set(trades.map(t=>t.strategy))];
     const colors = ['#58a6ff','#3fb950','#d29922','#bc8cff','#f85149','#39d353'];
+
+    // Collect all unique dates and sort
+    const allDates = new Set();
+    trades.forEach(t => {
+        const d = (t.exit_time||t.entry_time||'').substring(0,10);
+        if(d) allDates.add(d);
+    });
+    const dates = [...allDates].sort();
+
     const traces = sNames.map((sn,i) => {
-        const st = trades.filter(t=>t.strategy===sn).sort((a,b)=>(a.entry_bar||0)-(b.entry_bar||0));
-        let c=0;
+        // Group P&L by date for this strategy
+        const dayPnl = {};
+        trades.filter(t=>t.strategy===sn).forEach(t => {
+            const d = (t.exit_time||t.entry_time||'').substring(0,10);
+            if(d) dayPnl[d] = (dayPnl[d]||0) + (t.pnl||0);
+        });
+        // Cumulative over calendar days
+        let cum = 0;
+        const y = dates.map(d => { cum += (dayPnl[d]||0); return cum; });
         return {
-            x: st.map(t=>t.exit_time||t.entry_time||''),
-            y: st.map(t=>{c+=t.pnl||0;return c;}),
+            x: dates, y: y,
             name: sn, type:'scatter', mode:'lines',
             line:{color:colors[i%6],width:2},
         };
     });
+
     // Total line
-    const all = [...trades].sort((a,b)=>(a.exit_time||'').localeCompare(b.exit_time||''));
-    let tc=0;
+    const totalDayPnl = {};
+    trades.forEach(t => {
+        const d = (t.exit_time||t.entry_time||'').substring(0,10);
+        if(d) totalDayPnl[d] = (totalDayPnl[d]||0) + (t.pnl||0);
+    });
+    let tc = 0;
     traces.push({
-        x:all.map(t=>t.exit_time||t.entry_time||''),
-        y:all.map(t=>{tc+=t.pnl||0;return tc;}),
+        x: dates, y: dates.map(d => { tc += (totalDayPnl[d]||0); return tc; }),
         name:'Total', type:'scatter', mode:'lines',
         line:{color:'#e0e0e0',width:2,dash:'dot'},
     });
+
     Plotly.newPlot('ch-equity', traces, {
-        ...DK, title:'Cumulative P&L',
+        ...DK, title:'Cumulative P&L (by date)',
+        xaxis:{...DK.xaxis, type:'date'},
         yaxis:{...DK.yaxis,title:'USD',tickprefix:'$'},
     }, {responsive:true});
 }
