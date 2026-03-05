@@ -86,7 +86,7 @@ tr.trade-row { cursor:pointer; }
 
 <div class="header">
     <h1>Trading Dashboard</h1>
-    <div class="meta">Updated: 2026-03-05 22:44 UTC</div>
+    <div class="meta">Updated: 2026-03-05 22:46 UTC</div>
 </div>
 <div class="sim-tabs" id="sim-tabs"></div>
 <div id="app"></div>
@@ -211,25 +211,15 @@ function render() {
         </div>
     </div>`;
 
-    // --- Charts: Equity + Drawdown side by side ---
+    // --- Charts: Equity + Daily P&L ---
     h += `<div class="sec">
-        <h2>Equity & Drawdown</h2>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-            <div class="card chart"><div id="ch-equity" style="height:280px;"></div></div>
-            <div class="card chart"><div id="ch-drawdown" style="height:280px;"></div></div>
-        </div>
+        <h2>Equity Curve</h2>
+        <div class="card chart"><div id="ch-equity" style="height:300px;"></div></div>
     </div>`;
 
-    // --- Daily P&L ---
     h += `<div class="sec">
         <h2>Daily P&L (Last 28 Days)</h2>
         <div class="card chart"><div id="ch-daily" style="height:250px;"></div></div>
-    </div>`;
-
-    // --- Hourly Activity Heatmap ---
-    h += `<div class="sec">
-        <h2>Trade Activity by Hour & Day</h2>
-        <div class="card chart"><div id="ch-heatmap" style="height:220px;"></div></div>
     </div>`;
 
     // --- Trade Log ---
@@ -267,12 +257,10 @@ function render() {
     </div>`;
 
     document.getElementById('app').innerHTML = h;
-    drawEquity(trades, strats);
-    drawDrawdown(trades, s.capital);
-    drawDaily(trades);
-    drawHeatmap(trades);
     renderTrades(trades, 'all');
     renderTokens(trades);
+    // Defer chart rendering so tables paint first
+    setTimeout(() => { drawEquity(trades, strats); drawDaily(trades); }, 0);
 }
 
 /* ---- Filter ---- */
@@ -432,39 +420,6 @@ function drawEquity(trades, strats) {
     }, {responsive:true});
 }
 
-/* ---- Drawdown chart ---- */
-function drawDrawdown(trades, capital) {
-    const sNames = [...new Set(trades.map(t=>t.strategy))];
-    const colors = ['#58a6ff','#3fb950','#d29922','#bc8cff','#f85149','#39d353'];
-
-    const allDates = new Set();
-    trades.forEach(t => { const d=(t.exit_time||t.entry_time||'').substring(0,10); if(d) allDates.add(d); });
-    const dates = [...allDates].sort();
-
-    // Total drawdown
-    const totalDayPnl = {};
-    trades.forEach(t => { const d=(t.exit_time||t.entry_time||'').substring(0,10); if(d) totalDayPnl[d]=(totalDayPnl[d]||0)+(t.pnl||0); });
-    let cum=0, peak=0;
-    const ddPct = dates.map(d => {
-        cum += (totalDayPnl[d]||0);
-        if(cum>peak) peak=cum;
-        return peak>0 ? (cum-peak)/capital*100 : 0;
-    });
-
-    const traces = [{
-        x: dates, y: ddPct,
-        name:'Drawdown', type:'scatter', mode:'lines',
-        fill:'tozeroy', fillcolor:'rgba(248,81,73,0.15)',
-        line:{color:'#f85149',width:1.5},
-    }];
-
-    Plotly.newPlot('ch-drawdown', traces, {
-        ...DK, title:'Drawdown from Peak',
-        xaxis:{...DK.xaxis, type:'date'},
-        yaxis:{...DK.yaxis,title:'%',ticksuffix:'%',rangemode:'nonpositive'},
-        showlegend:false,
-    }, {responsive:true});
-}
 
 function drawDaily(trades) {
     const daily = {};
@@ -495,44 +450,6 @@ function drawDaily(trades) {
         ...DK, barmode:'stack', title:'Daily P&L',
         yaxis:{...DK.yaxis,title:'Daily ($)',tickprefix:'$'},
         yaxis2:{title:'Cum ($)',overlaying:'y',side:'right',gridcolor:'transparent',tickprefix:'$'},
-    }, {responsive:true});
-}
-
-/* ---- Hourly Activity Heatmap ---- */
-function drawHeatmap(trades) {
-    // 7 rows (days of week) x 24 cols (hours)
-    const dayNames = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-    // Count entries per (day-of-week, hour)
-    const counts = Array.from({length:7}, ()=>Array(24).fill(0));
-    const pnls = Array.from({length:7}, ()=>Array(24).fill(0));
-    trades.forEach(t => {
-        const et = t.entry_time;
-        if (!et) return;
-        const dt = new Date(et);
-        const dow = (dt.getUTCDay()+6)%7; // Mon=0
-        const hr = dt.getUTCHours();
-        counts[dow][hr]++;
-        pnls[dow][hr] += (t.pnl||0);
-    });
-
-    // Hovertext
-    const hovertext = counts.map((row,d) => row.map((c,h) =>
-        `${dayNames[d]} ${h}:00 UTC<br>${c} trades<br>P&L: $${pnls[d][h].toFixed(0)}`
-    ));
-
-    const trace = {
-        z: counts, x: Array.from({length:24},(_,i)=>i+':00'),
-        y: dayNames, type:'heatmap',
-        colorscale:[[0,'#0d1117'],[0.25,'#0d2744'],[0.5,'#1158a6'],[0.75,'#58a6ff'],[1,'#79c0ff']],
-        hoverinfo:'text', text:hovertext,
-        showscale:false,
-    };
-
-    Plotly.newPlot('ch-heatmap', [trace], {
-        ...DK, title:'Trade Entries by Hour (UTC)',
-        xaxis:{...DK.xaxis,title:'Hour (UTC)',dtick:1},
-        yaxis:{...DK.yaxis,autorange:'reversed'},
-        margin:{t:30,b:40,l:40,r:10},
     }, {responsive:true});
 }
 
