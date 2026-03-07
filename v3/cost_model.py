@@ -2,7 +2,6 @@
 Cost Model — Exchange-specific fee, slippage, and latency simulation.
 
 Provides realistic cost modeling for paper trading and backtesting.
-Applied via Freqtrade's custom_entry_price() and custom_exit_price() callbacks.
 """
 
 

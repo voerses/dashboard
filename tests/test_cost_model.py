@@ -12,7 +12,7 @@ Tests verify:
 
 import pytest
 
-from freqtrade_bridge.cost_model import CostModel
+from v3.cost_model import CostModel
 
 
 class TestKrakenBaseTierFees:

@@ -1,6 +1,9 @@
 """Shared fixtures for paper trading system acceptance tests."""
 
 import json
+import os
+import time
+
 import pytest
 
 
@@ -246,3 +249,190 @@ def sample_insufficient_trades():
     import random
     random.seed(42)
     return [random.gauss(0.005, 0.02) for _ in range(30)]
+
+
+# ---------------------------------------------------------------------------
+# Live paper engine fixtures (live-paper-engine feature)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def sample_live_ohlcv_rows():
+    """OHLCV rows as dicts mimicking CCXT REST response for 1H candles."""
+    base_ts = 1700000000000  # ms timestamp
+    return [
+        {
+            "timestamp": base_ts + i * 3_600_000,
+            "open": 100.0 + i * 0.5,
+            "high": 101.0 + i * 0.5,
+            "low": 99.0 + i * 0.5,
+            "close": 100.5 + i * 0.5,
+            "volume": 1000.0 + i * 100,
+        }
+        for i in range(10)
+    ]
+
+
+@pytest.fixture
+def sample_funding_rates():
+    """Perpetual funding rate records as returned by CCXT."""
+    base_ts = 1700000000000
+    return [
+        {"timestamp": base_ts, "symbol": "BTC/USDT:USDT", "fundingRate": 0.0001, "datetime": "2023-11-14T22:13:20.000Z"},
+        {"timestamp": base_ts + 8 * 3_600_000, "symbol": "BTC/USDT:USDT", "fundingRate": 0.00015, "datetime": "2023-11-15T06:13:20.000Z"},
+        {"timestamp": base_ts + 16 * 3_600_000, "symbol": "BTC/USDT:USDT", "fundingRate": -0.00005, "datetime": "2023-11-15T14:13:20.000Z"},
+    ]
+
+
+@pytest.fixture
+def sample_jsonl_wal(tmp_path, sample_live_ohlcv_rows):
+    """Write sample live OHLCV rows to a JSONL WAL file and return the path."""
+    wal_dir = tmp_path / "data" / "live" / "spot"
+    wal_dir.mkdir(parents=True)
+    wal_path = wal_dir / "BTC_live.jsonl"
+    with open(wal_path, "w") as f:
+        for row in sample_live_ohlcv_rows:
+            f.write(json.dumps(row) + "\n")
+    return str(wal_path)
+
+
+@pytest.fixture
+def sample_frozen_backtest_data():
+    """Frozen OHLCV + indicator data for signal-identity testing.
+
+    300 bars (200 burn-in + 100 test), deterministic seed for reproducibility.
+    """
+    import random
+    random.seed(12345)
+    base_ts = 1700000000
+    bars = []
+    price = 40000.0
+    for i in range(300):
+        change = random.gauss(0, 0.005)
+        price *= (1 + change)
+        bars.append({
+            "timestamp": base_ts + i * 3600,
+            "open": round(price * (1 + random.gauss(0, 0.001)), 2),
+            "high": round(price * (1 + abs(random.gauss(0, 0.005))), 2),
+            "low": round(price * (1 - abs(random.gauss(0, 0.005))), 2),
+            "close": round(price, 2),
+            "volume": round(random.uniform(500, 5000), 2),
+        })
+    return bars
+
+
+@pytest.fixture
+def sample_position():
+    """A single open position dict for position manager tests."""
+    return {
+        "token": "BTC/USDT",
+        "market": "perp",
+        "side": "long",
+        "entry_price": 40000.0,
+        "size_usd": 10000.0,
+        "size_units": 0.25,
+        "stop_price": 38800.0,
+        "trail_price": 39500.0,
+        "funding_accrued": 0.0,
+        "last_funding_time": 1700000000,
+        "entry_bar": 205,
+        "strategy_id": "s11",
+    }
+
+
+@pytest.fixture
+def sample_position_state(tmp_path, sample_position):
+    """Write a position state JSON file using atomic write (for resume tests)."""
+    state_dir = tmp_path / "state"
+    state_dir.mkdir()
+    state = {
+        "positions": [sample_position],
+        "last_tick_time": 1700010800,
+        "equity": 200150.0,
+    }
+    state_path = state_dir / "positions.json"
+    # Simulate atomic write: write to tmp then rename
+    tmp_file = state_dir / "positions.json.tmp"
+    with open(tmp_file, "w") as f:
+        json.dump(state, f)
+    os.rename(str(tmp_file), str(state_path))
+    return str(state_path)
+
+
+@pytest.fixture
+def sample_portfolio_group_config():
+    """Configuration for a portfolio group with multiple strategies."""
+    return {
+        "group_id": "momentum_group",
+        "capital": 100000.0,
+        "max_token_pct": 0.15,
+        "strategies": [
+            {"strategy_id": "s11", "weight": 0.5, "type": "momentum"},
+            {"strategy_id": "s09", "weight": 0.3, "type": "mean_reversion"},
+            {"strategy_id": "s21", "weight": 0.2, "type": "trend"},
+        ],
+    }
+
+
+@pytest.fixture
+def sample_portfolio_group_config_b():
+    """A second independent portfolio group for multi-group tests."""
+    return {
+        "group_id": "carry_group",
+        "capital": 50000.0,
+        "max_token_pct": 0.20,
+        "strategies": [
+            {"strategy_id": "s30", "weight": 0.6, "type": "basis_carry"},
+            {"strategy_id": "s15", "weight": 0.4, "type": "funding_arb"},
+        ],
+    }
+
+
+@pytest.fixture
+def sample_paper_engine_config(tmp_path):
+    """Minimal paper engine configuration dict."""
+    state_dir = tmp_path / "engine_state"
+    state_dir.mkdir()
+    return {
+        "strategy_id": "s11",
+        "tokens": ["BTC/USDT", "ETH/USDT", "SOL/USDT"],
+        "market": "spot",
+        "exchange": "binance",
+        "timeframe": "1h",
+        "capital": 200000.0,
+        "state_dir": str(state_dir),
+        "data_dir": str(tmp_path / "data"),
+    }
+
+
+@pytest.fixture
+def sample_combined_engine_config(tmp_path):
+    """Config for combined spot+perp strategy (s30 basis_carry)."""
+    state_dir = tmp_path / "combined_state"
+    state_dir.mkdir()
+    return {
+        "strategy_id": "s30",
+        "strategy_type": "basis_carry",
+        "tokens": ["BTC/USDT", "ETH/USDT"],
+        "markets": ["spot", "perp"],
+        "exchange": "binance",
+        "timeframe": "1h",
+        "capital": 100000.0,
+        "state_dir": str(state_dir),
+        "data_dir": str(tmp_path / "data"),
+    }
+
+
+@pytest.fixture
+def sample_equity_append_dir(tmp_path):
+    """Directory pre-populated with a partial equity CSV (for crash-resume tests)."""
+    eq_dir = tmp_path / "equity_output"
+    eq_dir.mkdir()
+    eq_path = eq_dir / "equity.csv"
+    # Write header + 3 rows
+    with open(eq_path, "w") as f:
+        f.write("timestamp,equity,cash,exposure\n")
+        f.write("2024-01-15T00:00:00Z,200000.0,192000.0,8000.0\n")
+        f.write("2024-01-16T00:00:00Z,200300.0,200300.0,0.0\n")
+        f.write("2024-01-17T00:00:00Z,200300.0,195300.0,5000.0\n")
+    return str(eq_dir)
