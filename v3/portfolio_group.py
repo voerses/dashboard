@@ -80,7 +80,7 @@ class PortfolioGroup:
         self, strategy_id: str, token: str, amount: float,
     ) -> None:
         """Release capital from a closed position back to the pool."""
-        self._allocated -= amount
+        self._allocated = max(0.0, self._allocated - amount)
         self._allocations = [
             a for a in self._allocations
             if not (a["strategy_id"] == strategy_id and a["token"] == token)

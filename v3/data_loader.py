@@ -176,8 +176,13 @@ class DataLoader:
                     pass
                 kept.append(stripped)
 
-        with open(wal_path, "w") as f:
+        # Atomic write: tmp file then rename to avoid data loss on crash.
+        tmp_path = wal_path + ".tmp"
+        with open(tmp_path, "w") as f:
             for entry in kept:
                 f.write(entry + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, wal_path)
 
         return removed

@@ -10,9 +10,7 @@ strategy logic is executed identically in both paths.
 
 from __future__ import annotations
 
-import importlib.util
 import os
-import sys
 from typing import Dict, List, Optional
 
 import numpy as np
@@ -20,37 +18,9 @@ import pandas as pd
 
 
 def _load_strategy_fn(strategy_id: str):
-    """Dynamically load a strategy function by its ID (e.g. 's11').
-
-    Looks in the ``strategies/`` directory for a file matching the pattern
-    ``{strategy_id}_*.py`` and imports the ``strategy`` callable from it.
-    """
-    strategies_dir = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "strategies",
-    )
-
-    # Find the strategy file
-    for fname in os.listdir(strategies_dir):
-        if fname.startswith(strategy_id + "_") and fname.endswith(".py"):
-            fpath = os.path.join(strategies_dir, fname)
-            break
-    else:
-        raise FileNotFoundError(
-            f"No strategy file found for '{strategy_id}' in {strategies_dir}"
-        )
-
-    # Ensure the engine module is importable as plain ``engine``
-    v3_dir = os.path.dirname(os.path.abspath(__file__))
-    if v3_dir not in sys.path:
-        sys.path.insert(0, v3_dir)
-
-    spec = importlib.util.spec_from_file_location(
-        f"strategy_{strategy_id}", fpath,
-    )
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod.strategy
+    """Load a strategy function by ID — delegates to BacktestEngine helper."""
+    from v3.engine import BacktestEngine
+    return BacktestEngine._load_strategy(strategy_id)
 
 
 def _bars_to_dataframe(bars: list[dict]) -> pd.DataFrame:
@@ -131,8 +101,20 @@ class PaperEngine:
         self._load_state()
 
     def tick(self) -> None:
-        """Process one hourly bar (placeholder for live loop)."""
-        pass
+        """Process one hourly bar: fetch, compute signals, update state."""
+        import time as _time
+
+        from v3.live_fetcher import LiveFetcher
+
+        fetcher = LiveFetcher(exchange=self.exchange, data_dir=self.data_dir)
+        for token in self.tokens:
+            bars = fetcher.fetch_ohlcv(
+                token=token, market=self.market, timeframe="1h",
+            )
+            closed = fetcher.filter_closed_bars(bars, timeframe="1h")
+            if closed:
+                fetcher.append_to_wal(token=token, market=self.market, bars=closed)
+        self._last_tick_time = int(_time.time())
 
     # ------------------------------------------------------------------
     # State persistence / resume
