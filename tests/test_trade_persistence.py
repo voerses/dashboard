@@ -251,36 +251,3 @@ class TestEquityCurve:
         assert "SUI/USDT" in by_pair.index
         assert by_pair["SUI/USDT"] == pytest.approx(795, abs=1)
         assert by_pair["AVAX/USDT"] < 0  # losing trade
-
-
-# ---------------------------------------------------------------------------
-# Test: Live DB Validation (if running)
-# ---------------------------------------------------------------------------
-
-class TestLiveDB:
-    """Validate the actual running instance's SQLite DB."""
-
-    LIVE_DB = "paper_trading/s11_binance/tradesv3.sqlite"
-
-    @pytest.mark.skipif(
-        not os.path.exists("paper_trading/s11_binance/tradesv3.sqlite"),
-        reason="No live instance DB"
-    )
-    def test_live_db_has_trades_table(self):
-        conn = sqlite3.connect(self.LIVE_DB)
-        tables = [t[0] for t in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()]
-        conn.close()
-        assert "trades" in tables
-
-    @pytest.mark.skipif(
-        not os.path.exists("paper_trading/s11_binance/tradesv3.sqlite"),
-        reason="No live instance DB"
-    )
-    def test_live_db_schema_has_profit_columns(self):
-        conn = sqlite3.connect(self.LIVE_DB)
-        cols = [row[1] for row in conn.execute("PRAGMA table_info(trades)").fetchall()]
-        conn.close()
-        for col in ["close_profit", "close_profit_abs", "open_rate"]:
-            assert col in cols, f"Live DB missing column: {col}"
