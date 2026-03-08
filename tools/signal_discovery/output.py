@@ -132,6 +132,176 @@ def save_regime_signals(regime_signals, cfg):
     print(f'  Saved regime signals: {path}')
 
 
+def save_analysis(analysis, cfg, token=None):
+    """Save full temporal analysis results.
+
+    Parameters
+    ----------
+    analysis : dict
+        Output of run_full_analysis with keys:
+        temporal_ics, decay_curves, rolling_ic, lead_lag.
+    cfg : DiscoveryConfig
+        Configuration.
+    token : str, optional
+        If per-token mode, the token name.
+    """
+    out_dir = cfg.output_dir
+    os.makedirs(out_dir, exist_ok=True)
+    suffix = f'_{token}' if token else ''
+
+    # 1. Temporal ICs
+    path = os.path.join(out_dir, f'temporal_ics{suffix}.json')
+    with open(path, 'w') as f:
+        json.dump(_make_serializable(analysis['temporal_ics']), f, indent=2)
+    print(f'  Saved temporal ICs: {path}')
+
+    # 2. IC Decay Curves
+    path = os.path.join(out_dir, f'ic_decay_curves{suffix}.json')
+    with open(path, 'w') as f:
+        json.dump(_make_serializable(analysis['decay_curves']), f, indent=2)
+    print(f'  Saved IC decay curves: {path}')
+
+    # 3. Decay curves as CSV for quick analysis
+    rows = []
+    for dc in analysis['decay_curves']:
+        for h, ic, t in zip(dc['horizons'], dc['ics'], dc['t_stats']):
+            rows.append({
+                'feature': dc['feature'],
+                'horizon': h,
+                'ic': ic,
+                't_stat': t,
+                'peak_horizon': dc['peak_horizon'],
+                'half_life_horizon': dc['half_life_horizon'],
+                'sign_consistent': dc['sign_consistent'],
+            })
+    if rows:
+        df = pd.DataFrame(rows)
+        path = os.path.join(out_dir, f'ic_decay_curves{suffix}.csv')
+        df.to_csv(path, index=False, float_format='%.6f')
+
+    # 4. Rolling IC
+    path = os.path.join(out_dir, f'rolling_ic{suffix}.json')
+    with open(path, 'w') as f:
+        json.dump(_make_serializable(analysis['rolling_ic']), f, indent=2)
+    print(f'  Saved rolling IC: {path} ({len(analysis["rolling_ic"])} signals)')
+
+    # 5. Rolling IC summary CSV
+    rows = []
+    for ri in analysis['rolling_ic']:
+        rows.append({
+            'feature': ri['feature'],
+            'horizon': ri['horizon'],
+            'early_ic': ri['early_ic'],
+            'late_ic': ri['late_ic'],
+            'ic_shift': ri['ic_shift'],
+            'annual_drift': ri['annual_drift'],
+            'status': ri['status'],
+        })
+    if rows:
+        df = pd.DataFrame(rows)
+        path = os.path.join(out_dir, f'rolling_ic_summary{suffix}.csv')
+        df.to_csv(path, index=False, float_format='%.6f')
+        print(f'  Saved rolling IC summary: {path}')
+
+    # 6. Lead/Lag analysis
+    path = os.path.join(out_dir, f'lead_lag{suffix}.json')
+    with open(path, 'w') as f:
+        json.dump(_make_serializable(analysis['lead_lag']), f, indent=2)
+    print(f'  Saved lead/lag analysis: {path} ({len(analysis["lead_lag"])} tests)')
+
+    # 7. Lead/Lag CSV
+    if analysis['lead_lag']:
+        df = pd.DataFrame(analysis['lead_lag'])
+        path = os.path.join(out_dir, f'lead_lag{suffix}.csv')
+        df.to_csv(path, index=False, float_format='%.6f')
+
+
+def print_analysis_summary(analysis):
+    """Print human-readable analysis summary."""
+    print('\n' + '=' * 70)
+    print('TEMPORAL ANALYSIS')
+    print('=' * 70)
+
+    # Decay curves
+    curves = analysis.get('decay_curves', [])
+    if curves:
+        print(f'\nIC Decay Curves ({len(curves)} features):')
+        print(f'{"Feature":<40} {"Peak Hz":>8} {"Peak IC":>9} {"Half-life":>10} {"Consistent":>11}')
+        print('-' * 80)
+        for dc in curves[:15]:
+            hl = str(dc['half_life_horizon']) + 'h' if dc['half_life_horizon'] else 'none'
+            cons = 'yes' if dc['sign_consistent'] else 'NO'
+            print(f'{dc["feature"]:<40} {dc["peak_horizon"]:>7}h '
+                  f'{dc["peak_ic"]:>+9.4f} {hl:>10} {cons:>11}')
+
+    # Rolling IC — signal health
+    rolling = analysis.get('rolling_ic', [])
+    if rolling:
+        print(f'\nSignal Health (Rolling IC, {len(rolling)} signals):')
+        print(f'{"Feature":<40} {"Hz":>4} {"Early IC":>9} {"Late IC":>9} {"Drift/yr":>9} {"Status":>14}')
+        print('-' * 88)
+        for ri in rolling[:20]:
+            print(f'{ri["feature"]:<40} {ri["horizon"]:>4} '
+                  f'{ri["early_ic"]:>+9.4f} {ri["late_ic"]:>+9.4f} '
+                  f'{ri["annual_drift"]:>+9.5f} {ri["status"]:>14}')
+
+        # Summary counts
+        statuses = [ri['status'] for ri in rolling]
+        for s in ['STABLE', 'STRENGTHENING', 'DECAYING', 'DEAD']:
+            count = statuses.count(s)
+            if count:
+                print(f'  {s}: {count}')
+
+    # Lead/lag — causal direction
+    lead_lag = analysis.get('lead_lag', [])
+    if lead_lag:
+        leading = [ll for ll in lead_lag if ll['direction'] == 'LEADING']
+        symmetric = [ll for ll in lead_lag if ll['direction'] == 'SYMMETRIC']
+        lagging = [ll for ll in lead_lag if ll['direction'] == 'LAGGING']
+
+        print(f'\nCausal Direction ({len(lead_lag)} tests):')
+        print(f'  LEADING (feature predicts returns): {len(leading)}')
+        print(f'  SYMMETRIC (concurrent):             {len(symmetric)}')
+        print(f'  LAGGING (feature reacts to returns): {len(lagging)}')
+
+        if leading:
+            print(f'\n  Top LEADING signals (true predictors):')
+            print(f'  {"Feature":<38} {"Hz":>4} {"IC_fwd":>8} {"IC_rev":>8} {"Ratio":>7} {"Conf":>6}')
+            print('  ' + '-' * 74)
+            for ll in leading[:10]:
+                print(f'  {ll["feature"]:<38} {ll["horizon"]:>4} '
+                      f'{ll["ic_forward"]:>+8.4f} {ll["ic_reverse"]:>+8.4f} '
+                      f'{ll["asymmetry_ratio"]:>7.2f} {ll["confidence"]:>6}')
+
+        if lagging:
+            print(f'\n  LAGGING signals (reactive, not predictive):')
+            for ll in lagging[:5]:
+                print(f'  {ll["feature"]:<38} {ll["horizon"]:>4} '
+                      f'fwd={ll["ic_forward"]:+.4f} rev={ll["ic_reverse"]:+.4f}')
+
+    # Time-indexed splits — flag signals that died in recent windows
+    temporal = analysis.get('temporal_ics', [])
+    if temporal:
+        dead_recently = []
+        for t in temporal:
+            splits = t.get('temporal_splits', [])
+            if len(splits) >= 4:
+                last_2 = [s['ic'] for s in splits[-2:]]
+                first_half = [s['ic'] for s in splits[:len(splits) // 2]]
+                if abs(np.mean(last_2)) < abs(np.mean(first_half)) * 0.3:
+                    dead_recently.append(t)
+
+        if dead_recently:
+            print(f'\n  WARNING: {len(dead_recently)} signals with IC collapse in recent windows:')
+            for t in dead_recently[:5]:
+                splits = t['temporal_splits']
+                last = splits[-1]
+                print(f'    {t["feature"]} (h={t["horizon"]}): '
+                      f'IC dropped to {last["ic"]:+.4f} in {last["start_date"]}→{last["end_date"]}')
+
+    print('=' * 70)
+
+
 def print_summary(results, regime_signals, n_tokens, n_total_features):
     """Print human-readable summary to stdout."""
     print('\n' + '=' * 60)

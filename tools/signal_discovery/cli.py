@@ -27,8 +27,9 @@ from .clustering import (
 )
 from .output import (
     save_signal_catalog, save_rankings_csv, save_regime_signals,
-    print_summary,
+    print_summary, save_analysis, print_analysis_summary,
 )
+from .analysis import run_full_analysis
 
 
 # ---------------------------------------------------------------------------
@@ -151,6 +152,9 @@ def process_single_token(token, cfg, data_dir):
         'n_features': n_features,
         'significant_results': significant,
         'features': features,
+        'close': close,
+        'regime_1h': regime_1h,
+        'idx_1h': idx_1h,
     }
 
 
@@ -213,6 +217,7 @@ def run_discovery(cfg):
     # Process tokens
     all_significant = []
     all_features = {}  # Merged feature arrays (from last token processed for clustering)
+    best_result = None  # longest token's full result (for analysis)
     n_tokens_processed = 0
     n_total_features = 0
 
@@ -230,6 +235,13 @@ def run_discovery(cfg):
             if result['significant_results']:
                 save_signal_catalog(result['significant_results'], cfg, token=token)
                 save_rankings_csv(result['significant_results'], cfg, token=token)
+
+                if cfg.analyze:
+                    analysis = run_full_analysis(
+                        result['features'], result['close'], result['regime_1h'],
+                        result['idx_1h'], result['significant_results'], cfg)
+                    save_analysis(analysis, cfg, token=token)
+                    print_analysis_summary(analysis)
             else:
                 print(f'  No significant signals found')
     else:
@@ -248,7 +260,7 @@ def run_discovery(cfg):
                 'max_corr': cfg.max_corr, 'top_per_regime': cfg.top_per_regime,
                 'workers': 1, 'quick': cfg.quick,
                 'per_token': False, 'primary_horizon': cfg.primary_horizon,
-                'output_dir': cfg.output_dir,
+                'analyze': cfg.analyze, 'output_dir': cfg.output_dir,
             }
             args_list = [(t, cfg_dict, data_dir) for t in tokens]
 
@@ -269,6 +281,8 @@ def run_discovery(cfg):
                     n_total_features = max(n_total_features, result['n_features'])
                     all_significant.extend(result['significant_results'])
                     all_features.update(result['features'])
+                    if best_result is None or result['n_bars'] > best_result['n_bars']:
+                        best_result = result
                     print(f'  {token}: {result["n_bars"]} bars, '
                           f'{result["n_features"]} features, '
                           f'{len(result["significant_results"])} significant')
@@ -284,6 +298,8 @@ def run_discovery(cfg):
                 n_total_features = max(n_total_features, result['n_features'])
                 all_significant.extend(result['significant_results'])
                 all_features.update(result['features'])
+                if best_result is None or result['n_bars'] > best_result['n_bars']:
+                    best_result = result
                 print(f'  {token}: {result["n_bars"]} bars, '
                       f'{result["n_features"]} features, '
                       f'{len(result["significant_results"])} significant')
@@ -335,6 +351,15 @@ def run_discovery(cfg):
         # Print summary
         print_summary(deduped, regime_signals, n_tokens_processed, n_total_features)
 
+        # Temporal analysis (uses longest token's data for feature arrays)
+        if cfg.analyze and best_result is not None and deduped:
+            analysis = run_full_analysis(
+                best_result['features'], best_result['close'],
+                best_result['regime_1h'], best_result['idx_1h'],
+                deduped, cfg)
+            save_analysis(analysis, cfg)
+            print_analysis_summary(analysis)
+
     elapsed = time.time() - t0
     print(f'\nCompleted in {elapsed:.1f}s ({n_tokens_processed} tokens processed)')
 
@@ -365,6 +390,8 @@ def main():
                         help='FDR alpha level (default: 0.05)')
     parser.add_argument('--max-corr', type=float, default=0.7,
                         help='Max correlation for dedup (default: 0.7)')
+    parser.add_argument('--no-analyze', action='store_true',
+                        help='Skip temporal analysis (faster)')
     parser.add_argument('--output-dir', default='outputs/signal_discovery',
                         help='Output directory')
 
@@ -381,6 +408,7 @@ def main():
         primary_horizon=args.primary_horizon,
         fdr_alpha=args.fdr_alpha,
         max_corr=args.max_corr,
+        analyze=not args.no_analyze,
         output_dir=args.output_dir,
     )
 

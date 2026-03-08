@@ -134,5 +134,8 @@ class DiscoveryConfig:
     per_token: bool = False
     primary_horizon: int = 24  # primary horizon for per-token mode
 
+    # Analysis
+    analyze: bool = True  # run temporal analysis by default
+
     # Output
     output_dir: str = 'outputs/signal_discovery'

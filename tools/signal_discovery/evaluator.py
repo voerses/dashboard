@@ -102,6 +102,7 @@ def evaluate_single_feature(feature_values, close, regime_1h, horizon, cfg):
     n = len(close)
 
     split_ics = []
+    split_ranges = []  # (test_start, test_end) for each valid split
     # Per-regime IC accumulators: {regime_id: [ic_values]}
     regime_ics = {rid: [] for rid in REGIME_NAMES}
 
@@ -114,6 +115,7 @@ def evaluate_single_feature(feature_values, close, regime_1h, horizon, cfg):
         ic, _ = _spearman_ic(feat_test, fwd_test)
         if np.isfinite(ic):
             split_ics.append(ic)
+            split_ranges.append((test_start, test_end))
 
         # Per-regime IC within this test window
         for rid in REGIME_NAMES:
@@ -128,6 +130,7 @@ def evaluate_single_feature(feature_values, close, regime_1h, horizon, cfg):
         return {
             'mean_ic': np.nan, 'std_ic': np.nan, 't_stat': np.nan,
             'n_splits': 0, 'per_regime_ic': {}, 'split_ics': [],
+            'split_ranges': [],
         }
 
     mean_ic = np.mean(split_ics)
@@ -146,6 +149,7 @@ def evaluate_single_feature(feature_values, close, regime_1h, horizon, cfg):
         'n_splits': len(split_ics),
         'per_regime_ic': per_regime_ic,
         'split_ics': [float(x) for x in split_ics],
+        'split_ranges': split_ranges,
     }
 
 
