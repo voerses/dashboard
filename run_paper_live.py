@@ -30,7 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from v3.data_loader import DataLoader
 from v3.live_fetcher import LiveFetcher
 from v3.paper_engine import CombinedPaperEngine
-from v3.universe import get_fee_rate
+from v3.universe import get_fee_rate, get_maint_margin_rate, adv_to_sizing
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -58,6 +58,12 @@ RUNS = [
     {"strategy_id": "s32", "capital": 200_000.0, "label": "s32_regime_spot_perp"},
     {"strategy_id": "s54", "capital": 200_000.0, "label": "s54_turbo_carry",
      "tokens": S54_ELITE_TOKENS},
+    {"strategy_id": "s58", "capital": 200_000.0, "label": "s58_multi_strategy_portfolio",
+     "max_positions": 25,
+     "sub_strategies": [
+         {"strategy_id": "s56", "market": "perp", "tag": "mom"},
+         {"strategy_id": "s57", "market": "combined", "tag": "carry"},
+     ]},
 ]
 
 EXCHANGE = "binance"
@@ -94,9 +100,10 @@ class PaperPositionTracker:
         self.data_dir = data_dir
         self.exchange = exchange
         self.max_positions = max_positions
-        # Per-market taker fees from validated exchange config
+        # Per-market taker fees and maintenance margin from validated exchange config
         self.spot_fee = get_fee_rate(exchange, "spot", "taker")
         self.perp_fee = get_fee_rate(exchange, "perp", "taker")
+        self.maint_margin_rate = get_maint_margin_rate(exchange)
         self.open_positions: dict[str, dict] = {}
         self.closed_trades: list[dict] = []
         self._load()
@@ -132,49 +139,97 @@ class PaperPositionTracker:
         os.replace(tmp, self._trades_path())
 
     def _position_size(self, sig: dict | None = None) -> float:
-        """Compute position size with ATR-inverse-vol adjustment (O1 parity fix).
+        """Compute position size matching backtest engine sizing logic.
 
-        Matches backtest engine vol_adj logic (engine.py:491):
-        high-vol tokens get smaller positions, low-vol tokens get larger.
-        This is a parity fix — the backtest engine already does this.
+        Identical formula to engine.py _simulate_core_jit:
+            kelly_frac = kelly_mult(ADV) * size_multiplier * edge
+            vol_adj = 0.02 / max(vol, 0.005)
+            raw = equity * kelly_frac * vol_adj
+            cap = equity * cap_pct(ADV) * cap_multiplier
+            pos_usd = min(raw, cap)
         """
-        flat_size = self.equity / self.max_positions
+        fallback = self.equity / self.max_positions
         if sig is None:
-            return flat_size
+            return fallback
 
-        atr = sig.get("spot_atr", 0)
-        close = sig.get("spot_close", 0)
+        sizing = sig.get("sizing", {})
+
+        # 1. ADV-based kelly_mult and cap_pct (matches engine adv_to_sizing)
+        adv = sig.get("spot_adv", 0) or sig.get("perp_adv", 0) or 5_000_000.0
+        kelly_mult, cap_pct = adv_to_sizing(adv)
+
+        # 2. Strategy size_multiplier overlay (matches engine kelly_mult *= sm)
+        size_mult = sizing.get("size_multiplier", 1.0)
+        kelly_mult *= size_mult
+
+        # 3. Edge (matches engine: kelly_frac = kelly_mult * edge)
+        edge = sizing.get("edge", 0.3)
+        kelly_frac = kelly_mult * edge
+
+        # 4. ATR vol-adjustment (matches engine vol_adj)
+        atr = sig.get("spot_atr", 0) or sig.get("perp_atr", 0)
+        close = sig.get("spot_close", 0) or sig.get("perp_close", 0)
         if atr > 0 and close > 0:
             vol = atr / close
             vol_adj = 0.02 / max(vol, 0.005)
-            sized = flat_size * min(vol_adj, 2.0)
-            sized = max(min(sized, flat_size * 2.0), flat_size * 0.2)
         else:
-            sized = flat_size
+            vol_adj = 1.0
 
-        return sized
+        # 5. Raw position = equity * kelly_frac * vol_adj
+        raw = self.equity * kelly_frac * vol_adj
+
+        # 6. Cap = equity * cap_pct * cap_multiplier
+        cap_mult = sizing.get("cap_multiplier", 1.0)
+        cap = self.equity * cap_pct * cap_mult
+
+        # 7. max_trade_pct ceiling (if strategy provides one)
+        max_trade_pct = sizing.get("max_trade_pct", 0.0)
+        if max_trade_pct > 0:
+            pos_usd = min(raw, cap, self.equity * max_trade_pct)
+        else:
+            pos_usd = min(raw, cap)
+
+        # Minimum viable trade size
+        if pos_usd < 200.0:
+            return 0.0
+
+        return pos_usd
 
     def process_signals(
         self, all_signals: dict[str, dict], tick_time: str,
     ) -> dict:
-        """Process signals: close exits, open entries. Returns summary."""
+        """Process signals: update P&L, close exits, open entries. Returns summary."""
         opened = []
         closed = []
+        liquidated = []
 
-        # 1. Check exits for open positions
+        # 1. Update mark-to-market and check trade management exits
+        self._update_open_pnl(all_signals)
+
+        # 2. Close positions: trade management exits, regime exits, signal lost
         for token in list(self.open_positions.keys()):
+            pos = self.open_positions[token]
             sig = all_signals.get(token, {})
-            # Exit if: in exit regime, or token no longer scanned (no signal)
-            should_exit = (
-                sig.get("in_exit_regime", True)
-                or "error" in sig
-                or not sig  # token not in scan results
-            )
-            if should_exit:
-                self._close_position(token, sig, tick_time)
-                closed.append(token)
 
-        # 2. Check entries for new positions
+            exit_reason = pos.get("_exit_reason")
+            if exit_reason:
+                # Trade management exit (stop, trail, target, max_hold, liquidation)
+                if exit_reason == "liquidation":
+                    liquidated.append(token)
+                self._close_position(token, sig, tick_time, exit_reason=exit_reason)
+                closed.append(token)
+            elif not sig or "error" in sig:
+                # Token not in scan results or errored
+                self._close_position(token, sig, tick_time, exit_reason="signal_lost")
+                closed.append(token)
+            elif sig.get("in_exit_regime", False):
+                # Regime exit — but only after 6 bars (matching backtest)
+                bars_held = pos.get("bars_held", 0)
+                if bars_held > 6:
+                    self._close_position(token, sig, tick_time, exit_reason="regime")
+                    closed.append(token)
+
+        # 3. Check entries for new positions
         for token, sig in all_signals.items():
             if token in self.open_positions:
                 continue
@@ -183,61 +238,144 @@ class PaperPositionTracker:
             if "error" in sig:
                 continue
 
+            # Edge threshold: skip entries with very low edge (matching backtest)
+            sizing = sig.get("sizing", {})
+            if sizing.get("edge", 0.3) < 0.10:
+                continue
+
             has_entry = sig.get("spot_entry", False) or sig.get("perp_entry", False)
             if has_entry and not sig.get("in_exit_regime", False):
                 self._open_position(token, sig, tick_time)
-                opened.append(token)
+                if token in self.open_positions:  # may not open if size too small
+                    opened.append(token)
 
-        # 3. Update mark-to-market for remaining open positions
-        self._update_open_pnl(all_signals)
         self.save()
 
-        return {"opened": opened, "closed": closed}
+        return {"opened": opened, "closed": closed, "liquidated": liquidated}
 
     def _open_position(self, token: str, sig: dict, tick_time: str):
         size = self._position_size(sig)
-        # Entry fee charged per leg (size split across legs)
-        n_legs = int(sig.get("spot_entry", False)) + int(sig.get("perp_entry", False))
-        size_per_leg = size / max(n_legs, 1)
+        if size <= 0:
+            return  # below minimum viable trade size
+
+        sizing = sig.get("sizing", {})
+        spot_lev = sizing.get("leverage", 1.0)
+        perp_lev = sizing.get("secondary_leverage", sizing.get("leverage", 1.0))
+
+        # Capital split between legs (matches backtest capital_split)
+        has_spot = sig.get("spot_entry", False)
+        has_perp = sig.get("perp_entry", False)
+        capital_split = sig.get("capital_split", 0.5)
+        if has_spot and has_perp:
+            spot_size = size * capital_split
+            perp_size = size * (1.0 - capital_split)
+        elif has_spot:
+            spot_size = size
+            perp_size = 0.0
+        else:
+            spot_size = 0.0
+            perp_size = size
+
+        # Apply slippage to entry prices (worsens entry for the trader)
+        spot_close = sig.get("spot_close", 0)
+        perp_close = sig.get("perp_close", 0)
+        spot_dir = sig.get("spot_dir", 1)
+        perp_dir = sig.get("perp_dir", -1)
+        spot_adv = sig.get("spot_adv", 5_000_000)
+        perp_adv = sig.get("perp_adv", 5_000_000)
+
+        spot_entry_price = self._compute_slippage(
+            spot_close, spot_size * spot_lev, spot_adv, spot_dir,
+        ) if has_spot else spot_close
+        perp_entry_price = self._compute_slippage(
+            perp_close, perp_size * perp_lev, perp_adv, perp_dir,
+        ) if has_perp else perp_close
+
+        # Entry fees on leveraged notional
         entry_fee = 0.0
-        if sig.get("spot_entry", False):
-            entry_fee += size_per_leg * self.spot_fee
-        if sig.get("perp_entry", False):
-            entry_fee += size_per_leg * self.perp_fee
+        if has_spot:
+            entry_fee += spot_size * spot_lev * self.spot_fee
+        if has_perp:
+            entry_fee += perp_size * perp_lev * self.perp_fee
         self.equity -= entry_fee
 
+        # Trade management params (primary for spot leg, secondary for perp leg)
+        tp = sig.get("trade_params", {})
+        stp = sig.get("sec_trade_params", tp)
+        spot_atr = sig.get("spot_atr", 0)
+        perp_atr = sig.get("perp_atr", 0)
+
         self.open_positions[token] = {
-            "token": token,
+            "token": self._real_token(token),
             "strategy": self.label,
             "entry_time": tick_time,
-            "spot_entry_price": sig.get("spot_close", 0),
-            "perp_entry_price": sig.get("perp_close", 0),
-            "spot_entry": sig.get("spot_entry", False),
-            "perp_entry": sig.get("perp_entry", False),
-            "spot_dir": sig.get("spot_dir", 1),
-            "perp_dir": sig.get("perp_dir", -1),
+            "spot_entry_price": round(spot_entry_price, 8),
+            "perp_entry_price": round(perp_entry_price, 8),
+            "spot_entry": has_spot,
+            "perp_entry": has_perp,
+            "spot_dir": spot_dir,
+            "perp_dir": perp_dir,
             "regime_at_entry": sig.get("regime", "?"),
             "basis_bps_at_entry": sig.get("basis_bps", 0),
             "position_usd": round(size, 2),
+            "spot_size": round(spot_size, 2),
+            "perp_size": round(perp_size, 2),
             "entry_fee": round(entry_fee, 2),
             "accrued_funding": 0.0,
             "last_funding_ts": 0,
+            "leverage": spot_lev,
+            "secondary_leverage": perp_lev,
+            "size_multiplier": sizing.get("size_multiplier", 1.0),
+            "cap_multiplier": sizing.get("cap_multiplier", 1.0),
+            # Trade management — stored per leg
+            "spot_trade_params": tp,
+            "perp_trade_params": stp,
+            "trail_schedule": sig.get("trail_schedule"),
+            "spot_entry_atr": spot_atr,
+            "perp_entry_atr": perp_atr,
+            # Watermarks for trailing stop
+            "spot_highest": spot_entry_price,
+            "spot_lowest": spot_entry_price,
+            "perp_highest": perp_entry_price,
+            "perp_lowest": perp_entry_price,
+            "bars_held": 0,
+            # ADV for slippage on exit
+            "spot_adv": spot_adv,
+            "perp_adv": perp_adv,
             "signal": {
                 "regime": sig.get("regime", "?"),
                 "basis_bps": sig.get("basis_bps", 0),
-                "spot_close": sig.get("spot_close", 0),
-                "perp_close": sig.get("perp_close", 0),
+                "spot_close": spot_close,
+                "perp_close": perp_close,
+                "leverage": spot_lev,
+                "size_multiplier": sizing.get("size_multiplier", 1.0),
             },
         }
 
-    def _close_position(self, token: str, sig: dict, tick_time: str):
+    def _close_position(self, token: str, sig: dict, tick_time: str, exit_reason: str | None = None):
         pos = self.open_positions.pop(token)
+        real_token = self._real_token(token)
 
-        spot_exit = sig.get("spot_close", pos["spot_entry_price"])
-        perp_exit = sig.get("perp_close", pos["perp_entry_price"])
-        n_legs = int(pos["spot_entry"]) + int(pos["perp_entry"])
-        size_per_leg = pos["position_usd"] / max(n_legs, 1)
-        exit_reason = "regime" if sig.get("in_exit_regime") else "signal_lost"
+        # Apply slippage to exit prices (worsens exit for the trader)
+        spot_close = sig.get("spot_close", pos["spot_entry_price"])
+        perp_close = sig.get("perp_close", pos["perp_entry_price"])
+        spot_size = pos.get("spot_size", pos["position_usd"] / 2)
+        perp_size = pos.get("perp_size", pos["position_usd"] / 2)
+        spot_lev = pos.get("leverage", 1.0)
+        perp_lev = pos.get("secondary_leverage", pos.get("leverage", 1.0))
+
+        # Exit slippage: direction flipped (selling long = -1, covering short = +1)
+        spot_exit = self._compute_slippage(
+            spot_close, spot_size * spot_lev,
+            pos.get("spot_adv", 5_000_000), -pos.get("spot_dir", 1),
+        ) if pos["spot_entry"] else spot_close
+        perp_exit = self._compute_slippage(
+            perp_close, perp_size * perp_lev,
+            pos.get("perp_adv", 5_000_000), -pos.get("perp_dir", -1),
+        ) if pos["perp_entry"] else perp_close
+
+        if exit_reason is None:
+            exit_reason = "regime" if sig.get("in_exit_regime") else "signal_lost"
         accrued_funding = pos.get("accrued_funding", 0.0)
 
         # Hold duration
@@ -250,77 +388,108 @@ class PaperPositionTracker:
         except Exception:
             hold_hours = 0
 
-        # Entry fee was already deducted from equity at open.
-        # At close we only deduct exit fees + attribute funding.
         total_exit_cost = 0.0
 
         if pos["spot_entry"] and pos["spot_entry_price"] > 0:
+            spot_notional = spot_size * spot_lev
             spot_ret = (spot_exit - pos["spot_entry_price"]) / pos["spot_entry_price"]
             spot_ret *= pos["spot_dir"]
-            spot_gross = size_per_leg * spot_ret
-            entry_fee = size_per_leg * self.spot_fee
-            exit_fee = size_per_leg * self.spot_fee
+            spot_gross = spot_notional * spot_ret
+            entry_fee = spot_notional * self.spot_fee
+            exit_fee = spot_notional * self.spot_fee
             total_exit_cost += exit_fee
             spot_net = spot_gross - entry_fee - exit_fee
             self.closed_trades.append({
-                "token": token, "strategy": self.label, "leg": "spot",
+                "token": real_token, "strategy": self.label, "leg": "spot",
                 "entry_time": pos["entry_time"], "exit_time": tick_time,
-                "entry_price": pos["spot_entry_price"], "exit_price": spot_exit,
+                "entry_price": pos["spot_entry_price"], "exit_price": round(spot_exit, 8),
                 "direction": pos["spot_dir"],
                 "regime_at_entry": pos["regime_at_entry"],
                 "regime_at_exit": sig.get("regime", "?"),
                 "basis_bps_at_entry": pos.get("basis_bps_at_entry", 0),
-                "position_usd": round(size_per_leg, 2),
+                "position_usd": round(spot_size, 2),
+                "notional_usd": round(spot_notional, 2),
                 "return_pct": round(spot_ret * 100, 4),
                 "pnl": round(spot_net, 2),
                 "exchange_fee": round(entry_fee + exit_fee, 2),
                 "funding_cost": 0,
                 "hold_hours": hold_hours,
                 "status": "closed", "exit_reason": exit_reason,
+                "leverage": spot_lev,
+                "size_multiplier": pos.get("size_multiplier", 1.0),
             })
 
         if pos["perp_entry"] and pos["perp_entry_price"] > 0:
+            perp_notional = perp_size * perp_lev
             perp_ret = (perp_exit - pos["perp_entry_price"]) / pos["perp_entry_price"]
             perp_ret *= pos["perp_dir"]
-            perp_gross = size_per_leg * perp_ret
-            entry_fee = size_per_leg * self.perp_fee
-            exit_fee = size_per_leg * self.perp_fee
+            perp_gross = perp_notional * perp_ret
+            entry_fee = perp_notional * self.perp_fee
+            exit_fee = perp_notional * self.perp_fee
             total_exit_cost += exit_fee
-            # Funding attributed to perp leg
             perp_funding = accrued_funding
-            perp_net = perp_gross - entry_fee - exit_fee - perp_funding
+            if exit_reason == "liquidation":
+                max_loss = perp_size * (1.0 - self.maint_margin_rate)
+                perp_net = -(max_loss + entry_fee)
+            else:
+                perp_net = perp_gross - entry_fee - exit_fee - perp_funding
             self.closed_trades.append({
-                "token": token, "strategy": self.label, "leg": "perp",
+                "token": real_token, "strategy": self.label, "leg": "perp",
                 "entry_time": pos["entry_time"], "exit_time": tick_time,
-                "entry_price": pos["perp_entry_price"], "exit_price": perp_exit,
+                "entry_price": pos["perp_entry_price"], "exit_price": round(perp_exit, 8),
                 "direction": pos["perp_dir"],
                 "regime_at_entry": pos["regime_at_entry"],
                 "regime_at_exit": sig.get("regime", "?"),
                 "basis_bps_at_entry": pos.get("basis_bps_at_entry", 0),
-                "position_usd": round(size_per_leg, 2),
+                "position_usd": round(perp_size, 2),
+                "notional_usd": round(perp_notional, 2),
                 "return_pct": round(perp_ret * 100, 4),
                 "pnl": round(perp_net, 2),
                 "exchange_fee": round(entry_fee + exit_fee, 2),
                 "funding_cost": round(perp_funding, 2),
                 "hold_hours": hold_hours,
                 "status": "closed", "exit_reason": exit_reason,
+                "leverage": perp_lev,
+                "size_multiplier": pos.get("size_multiplier", 1.0),
             })
 
-        # Re-credit entry fee (was pre-deducted) and deduct actual close costs
-        # Net P&L on close = sum of leg pnls (which already include entry+exit fees+funding)
-        # But entry fee was already deducted from equity at open, so we add it back
-        # and let the per-leg pnl (which includes entry fee) drive equity.
+        # Re-credit entry fee (was pre-deducted) and apply closed P&L
         entry_fee_total = pos.get("entry_fee", 0)
         self.equity += entry_fee_total  # undo the pre-deduction
         closed_pnl = sum(
             t["pnl"] for t in self.closed_trades
-            if t["token"] == token and t["exit_time"] == tick_time
+            if t["token"] == real_token and t["exit_time"] == tick_time
         )
         self.equity += closed_pnl
 
+    @staticmethod
+    def _compute_slippage(price: float, pos_usd: float, adv: float, direction: int) -> float:
+        """Position-size-aware slippage matching backtest engine.
+
+        slip_bps = base_spread + impact_coeff * sqrt(pos_usd / adv)
+        Returns adjusted price (worse for the trader).
+        """
+        base_spread_bps = 3.0
+        impact_coeff = 0.03
+        if adv > 0:
+            participation = pos_usd / adv
+            slip_bps = base_spread_bps + impact_coeff * (participation ** 0.5) * 10000.0
+        else:
+            slip_bps = base_spread_bps
+        slip_bps = min(slip_bps, 100.0)  # cap at 100bps
+        slip = price * slip_bps / 10000.0
+        # direction: +1 long (entry worse = higher), -1 short (entry worse = lower)
+        return price + slip * direction
+
+    @staticmethod
+    def _real_token(key: str) -> str:
+        """Strip sub-strategy suffix from compound position key (e.g. 'BTC:mom' -> 'BTC')."""
+        return key.split(":")[0] if ":" in key else key
+
     def _read_latest_funding_rate(self, token: str) -> float:
         """Read the latest funding rate from WAL for a token."""
-        path = os.path.join(self.data_dir, "live", "funding", f"{token}_funding.jsonl")
+        real = self._real_token(token)
+        path = os.path.join(self.data_dir, "live", "funding", f"{real}_funding.jsonl")
         if not os.path.exists(path):
             return 0.0001  # default 0.01%
         try:
@@ -335,6 +504,81 @@ class PaperPositionTracker:
             pass
         return 0.0001
 
+    def _check_leg_exit(self, price_now: float, entry_price: float,
+                        direction: int, atr_entry: float, leg_size: float,
+                        leverage: float, tp: dict, trail_schedule,
+                        highest: float, lowest: float, bars_held: int,
+                        accrued_funding: float = 0.0) -> str | None:
+        """Check trade management exits for a single leg. Returns exit reason or None."""
+        if atr_entry <= 0 or entry_price <= 0:
+            return None
+
+        no_stop_bars = tp.get("no_stop_bars", 0)
+        stop_mult = tp.get("stop_mult", 3.0)
+        trail_mult = tp.get("trail_mult", 3.0)
+        target_mult = tp.get("target_mult", 999.0)
+        min_hold = tp.get("min_hold", 6)
+        max_hold = tp.get("max_hold", 720)
+
+        # Progressive trail schedule: [[profit_atr_threshold, trail_mult], ...]
+        if trail_schedule and bars_held >= no_stop_bars:
+            profit = (price_now - entry_price) / atr_entry * direction
+            eff_trail = trail_mult
+            for threshold, tm in trail_schedule:
+                if profit >= threshold:
+                    eff_trail = tm
+            trail_mult = eff_trail
+
+        is_long = direction == 1
+
+        # 1. Stop loss (after no_stop_bars)
+        if bars_held >= no_stop_bars:
+            if is_long:
+                stop_price = entry_price - stop_mult * atr_entry
+                if price_now <= stop_price:
+                    return "stop"
+            else:
+                stop_price = entry_price + stop_mult * atr_entry
+                if price_now >= stop_price:
+                    return "stop"
+
+        # 2. Trailing stop (after no_stop_bars)
+        if bars_held >= no_stop_bars:
+            if is_long:
+                trail_price = highest - trail_mult * atr_entry
+                if price_now <= trail_price and trail_price > entry_price - stop_mult * atr_entry:
+                    return "trail"
+            else:
+                trail_price = lowest + trail_mult * atr_entry
+                if price_now >= trail_price and trail_price < entry_price + stop_mult * atr_entry:
+                    return "trail"
+
+        # 3. Target (after min_hold)
+        if bars_held >= min_hold and target_mult < 900:
+            if is_long:
+                target_price = entry_price + target_mult * atr_entry
+                if price_now >= target_price:
+                    return "target"
+            else:
+                target_price = entry_price - target_mult * atr_entry
+                if price_now <= target_price:
+                    return "target"
+
+        # 4. Max hold
+        if bars_held >= max_hold:
+            return "max_hold"
+
+        # 5. Liquidation (perp with any leverage, or shorts at any leverage)
+        if leverage > 1.0 or not is_long:
+            notional = leg_size * leverage
+            ret = (price_now - entry_price) / entry_price * direction
+            unrealized = notional * ret
+            remaining_margin = leg_size + unrealized - accrued_funding
+            if remaining_margin < leg_size * self.maint_margin_rate:
+                return "liquidation"
+
+        return None
+
     def _update_open_pnl(self, all_signals: dict[str, dict]):
         now_ms = int(time.time() * 1000)
         funding_interval_ms = 8 * 3600 * 1000  # 8 hours
@@ -343,14 +587,33 @@ class PaperPositionTracker:
             sig = all_signals.get(token, {})
             spot_now = sig.get("spot_close", pos["spot_entry_price"])
             perp_now = sig.get("perp_close", pos["perp_entry_price"])
-            n_legs = int(pos["spot_entry"]) + int(pos["perp_entry"])
-            size_per_leg = pos["position_usd"] / max(n_legs, 1)
 
-            # --- Accrue funding for perp leg ---
+            # Per-leg sizes (backward compat with old positions)
+            spot_size = pos.get("spot_size", pos["position_usd"] / 2)
+            perp_size = pos.get("perp_size", pos["position_usd"] / 2)
+
+            spot_lev = pos.get("leverage", 1.0)
+            perp_lev = pos.get("secondary_leverage", pos.get("leverage", 1.0))
+            spot_notional = spot_size * spot_lev
+            perp_notional = perp_size * perp_lev
+
+            # --- Increment bars held ---
+            pos["bars_held"] = pos.get("bars_held", 0) + 1
+            bars_held = pos["bars_held"]
+
+            # --- Update watermarks ---
+            if pos.get("spot_entry"):
+                pos["spot_highest"] = max(pos.get("spot_highest", spot_now), spot_now)
+                pos["spot_lowest"] = min(pos.get("spot_lowest", spot_now), spot_now)
+            if pos.get("perp_entry"):
+                pos["perp_highest"] = max(pos.get("perp_highest", perp_now), perp_now)
+                pos["perp_lowest"] = min(pos.get("perp_lowest", perp_now), perp_now)
+
+            # --- Accrue funding for perp leg (on leveraged notional) ---
+            # Sign convention: longs pay positive rate, shorts receive positive rate
             if pos.get("perp_entry"):
                 last_ts = pos.get("last_funding_ts", 0)
                 if last_ts == 0:
-                    # First time — set to entry time
                     try:
                         entry_dt = datetime.strptime(
                             pos["entry_time"], "%Y-%m-%d %H:%M UTC",
@@ -360,38 +623,35 @@ class PaperPositionTracker:
                         last_ts = now_ms
                     pos["last_funding_ts"] = last_ts
 
-                # How many 8h periods have elapsed since last accrual?
                 elapsed_ms = now_ms - last_ts
                 periods = int(elapsed_ms // funding_interval_ms)
                 if periods > 0:
                     rate = self._read_latest_funding_rate(token)
-                    # Short pays funding when rate < 0, receives when rate > 0
-                    # For simplicity: cost = |rate| * periods * size (always a cost)
-                    funding_cost = rate * periods * size_per_leg
+                    # Funding sign: d_sign = +1 for long, -1 for short
+                    # cost = notional * rate * d_sign (positive = cost, negative = income)
+                    d_sign = 1.0 if pos["perp_dir"] == 1 else -1.0
+                    funding_cost = rate * periods * perp_notional * d_sign
                     pos["accrued_funding"] = round(
                         pos.get("accrued_funding", 0) + funding_cost, 4,
                     )
                     pos["last_funding_ts"] = last_ts + periods * funding_interval_ms
-                    # Funding is a realized cash flow — deduct from equity
                     self.equity -= funding_cost
 
-            # --- Gross P&L per leg (before fees) ---
+            # --- Gross P&L per leg on leveraged notional ---
             spot_gross = 0.0
             perp_gross = 0.0
             spot_ret_pct = 0.0
             perp_ret_pct = 0.0
             if pos["spot_entry"] and pos["spot_entry_price"] > 0:
                 spot_ret_pct = (spot_now - pos["spot_entry_price"]) / pos["spot_entry_price"] * pos["spot_dir"]
-                spot_gross = size_per_leg * spot_ret_pct
+                spot_gross = spot_notional * spot_ret_pct
             if pos["perp_entry"] and pos["perp_entry_price"] > 0:
                 perp_ret_pct = (perp_now - pos["perp_entry_price"]) / pos["perp_entry_price"] * pos["perp_dir"]
-                perp_gross = size_per_leg * perp_ret_pct
+                perp_gross = perp_notional * perp_ret_pct
 
-            # --- Unrealized P&L = gross (price movement only, no fees) ---
-            # Fees shown separately. No estimated exit fees per quant standard.
             perp_funding = pos.get("accrued_funding", 0)
-            spot_entry_fee = size_per_leg * self.spot_fee if pos["spot_entry"] else 0
-            perp_entry_fee = size_per_leg * self.perp_fee if pos["perp_entry"] else 0
+            spot_entry_fee = spot_notional * self.spot_fee if pos["spot_entry"] else 0
+            perp_entry_fee = perp_notional * self.perp_fee if pos["perp_entry"] else 0
 
             pos["spot_unrealized_pnl"] = round(spot_gross, 2)
             pos["perp_unrealized_pnl"] = round(perp_gross, 2)
@@ -400,10 +660,34 @@ class PaperPositionTracker:
             pos["perp_return_pct"] = round(perp_ret_pct * 100, 4) if pos["perp_entry"] else 0
             pos["current_spot"] = spot_now
             pos["current_perp"] = perp_now
-            # Fees paid so far (entry only — exit fees unknown until trade closes)
             pos["spot_fees"] = round(spot_entry_fee, 2)
             pos["perp_fees"] = round(perp_entry_fee, 2)
             pos["perp_funding_cost"] = round(perp_funding, 2)
+
+            # --- Trade management exit checks ---
+            tp_spot = pos.get("spot_trade_params", {})
+            tp_perp = pos.get("perp_trade_params", tp_spot)
+            trail_sched = pos.get("trail_schedule")
+
+            exit_reason = None
+            if pos.get("spot_entry"):
+                exit_reason = self._check_leg_exit(
+                    spot_now, pos["spot_entry_price"], pos["spot_dir"],
+                    pos.get("spot_entry_atr", 0), spot_size, spot_lev,
+                    tp_spot, trail_sched,
+                    pos.get("spot_highest", spot_now), pos.get("spot_lowest", spot_now),
+                    bars_held,
+                )
+            if exit_reason is None and pos.get("perp_entry"):
+                exit_reason = self._check_leg_exit(
+                    perp_now, pos["perp_entry_price"], pos["perp_dir"],
+                    pos.get("perp_entry_atr", 0), perp_size, perp_lev,
+                    tp_perp, trail_sched,
+                    pos.get("perp_highest", perp_now), pos.get("perp_lowest", perp_now),
+                    bars_held, accrued_funding=perp_funding,
+                )
+            if exit_reason:
+                pos["_exit_reason"] = exit_reason
 
     def to_dashboard_sim(self) -> dict:
         """Convert to dashboard-compatible simulation data.
@@ -419,6 +703,7 @@ class PaperPositionTracker:
             direction = t.get("direction", 1)
             dir_label = "SHORT" if direction == -1 else "LONG"
 
+            lev = t.get("leverage", 1.0)
             all_trades.append({
                 "token": t["token"],
                 "strategy": self.label,
@@ -439,12 +724,15 @@ class PaperPositionTracker:
                 "signal": {
                     "regime": t.get("regime_at_entry", "?"),
                     "basis_bps": t.get("basis_bps_at_entry", 0),
-                    "signal_short": f"{mtype.upper()} {dir_label} | basis={t.get('basis_bps_at_entry', 0):+.1f}bps",
+                    "leverage": lev,
+                    "size_multiplier": t.get("size_multiplier", 1.0),
+                    "signal_short": f"{mtype.upper()} {dir_label} {lev}x | basis={t.get('basis_bps_at_entry', 0):+.1f}bps",
                 },
             })
 
         # Open positions — split into legs
-        for token, pos in self.open_positions.items():
+        for pos_key, pos in self.open_positions.items():
+            token = self._real_token(pos_key)
             try:
                 entry_dt = datetime.strptime(pos["entry_time"], "%Y-%m-%d %H:%M UTC")
                 entry_dt = entry_dt.replace(tzinfo=timezone.utc)
@@ -454,8 +742,12 @@ class PaperPositionTracker:
             except Exception:
                 hold_hours = 0
 
-            n_legs = int(pos.get("spot_entry", False)) + int(pos.get("perp_entry", False))
-            size_per_leg = pos.get("position_usd", 0) / max(n_legs, 1)
+            spot_size = pos.get("spot_size", pos.get("position_usd", 0) / 2)
+            perp_size = pos.get("perp_size", pos.get("position_usd", 0) / 2)
+
+            spot_lev = pos.get("leverage", 1.0)
+            perp_lev = pos.get("secondary_leverage", pos.get("leverage", 1.0))
+            sm = pos.get("size_multiplier", 1.0)
 
             if pos.get("spot_entry"):
                 dir_val = pos.get("spot_dir", 1)
@@ -470,14 +762,16 @@ class PaperPositionTracker:
                     "current_price": pos.get("current_spot", pos.get("spot_entry_price", 0)),
                     "pnl": pos.get("spot_unrealized_pnl", 0),
                     "return_pct": pos.get("spot_return_pct", 0),
-                    "position_usd": round(size_per_leg, 2),
+                    "position_usd": round(spot_size, 2),
                     "exchange_fee": pos.get("spot_fees", 0),
                     "funding_cost": 0,
                     "hold_hours": hold_hours, "exit_reason": "",
                     "signal": {
                         "regime": pos.get("regime_at_entry", "?"),
                         "basis_bps": pos.get("basis_bps_at_entry", 0),
-                        "signal_short": f"SPOT {dir_label} | basis={pos.get('basis_bps_at_entry', 0):+.1f}bps",
+                        "leverage": spot_lev,
+                        "size_multiplier": sm,
+                        "signal_short": f"SPOT {dir_label} {spot_lev}x sm={sm:.1f} | basis={pos.get('basis_bps_at_entry', 0):+.1f}bps",
                     },
                 })
 
@@ -494,14 +788,16 @@ class PaperPositionTracker:
                     "current_price": pos.get("current_perp", pos.get("perp_entry_price", 0)),
                     "pnl": pos.get("perp_unrealized_pnl", 0),
                     "return_pct": pos.get("perp_return_pct", 0),
-                    "position_usd": round(size_per_leg, 2),
+                    "position_usd": round(perp_size, 2),
                     "exchange_fee": pos.get("perp_fees", 0),
                     "funding_cost": pos.get("perp_funding_cost", 0),
                     "hold_hours": hold_hours, "exit_reason": "",
                     "signal": {
                         "regime": pos.get("regime_at_entry", "?"),
                         "basis_bps": pos.get("basis_bps_at_entry", 0),
-                        "signal_short": f"PERP {dir_label} | basis={pos.get('basis_bps_at_entry', 0):+.1f}bps",
+                        "leverage": perp_lev,
+                        "size_multiplier": sm,
+                        "signal_short": f"PERP {dir_label} {perp_lev}x sm={sm:.1f} | basis={pos.get('basis_bps_at_entry', 0):+.1f}bps",
                     },
                 })
 
@@ -693,6 +989,13 @@ def scan_strategy(
                 "perp_close": sig["perp_close"],
                 "spot_atr": sig.get("spot_atr", 0),
                 "perp_atr": sig.get("perp_atr", 0),
+                "sizing": sig.get("sizing", {}),
+                "trade_params": sig.get("trade_params", {}),
+                "sec_trade_params": sig.get("sec_trade_params", {}),
+                "trail_schedule": sig.get("trail_schedule"),
+                "spot_adv": sig.get("spot_adv", 5_000_000),
+                "perp_adv": sig.get("perp_adv", 5_000_000),
+                "capital_split": sig.get("capital_split", 0.5),
             }
         except Exception as e:
             results["signals"][token] = {"error": str(e)}
@@ -820,14 +1123,14 @@ def print_status() -> None:
         )
         if tracker.open_positions:
             print(f"  Open positions ({len(tracker.open_positions)}):")
-            for token, pos in tracker.open_positions.items():
+            for pos_key, pos in tracker.open_positions.items():
                 legs = []
                 if pos.get("spot_entry"):
                     legs.append("SPOT")
                 if pos.get("perp_entry"):
                     legs.append("PERP")
                 pnl = pos.get("unrealized_pnl", 0)
-                print(f"    {token}: {'+'.join(legs)} | "
+                print(f"    {pos_key}: {'+'.join(legs)} | "
                       f"entry={pos.get('entry_time', '?')} | "
                       f"P&L=${pnl:+,.0f}")
 
@@ -872,11 +1175,32 @@ def run_tick(
     print("\n[2/4] Running strategy scans...")
     for run_cfg in RUNS:
         label = run_cfg["label"]
-        engine = engines[label]
         tracker = trackers[label]
-
         strategy_tokens = run_cfg.get("tokens", tokens)
-        results = scan_strategy(engine, loader, strategy_tokens)
+
+        if "sub_strategies" in run_cfg:
+            # Multi-strategy: scan each sub-strategy, merge signals
+            merged_signals = {}
+            total_scanned = 0
+            total_entries = 0
+            for sub in run_cfg["sub_strategies"]:
+                sub_label = f"{label}_{sub['tag']}"
+                sub_engine = engines[sub_label]
+                sub_results = scan_strategy(sub_engine, loader, strategy_tokens)
+                for token, sig in sub_results.get("signals", {}).items():
+                    merged_signals[f"{token}:{sub['tag']}"] = sig
+                total_scanned = max(total_scanned, sub_results["tokens_scanned"])
+                total_entries += sub_results.get("tokens_with_entry", 0)
+            results = {
+                "strategy_id": run_cfg["strategy_id"],
+                "tokens_scanned": total_scanned,
+                "tokens_with_entry": total_entries,
+                "signals": merged_signals,
+            }
+        else:
+            engine = engines[label]
+            results = scan_strategy(engine, loader, strategy_tokens)
+
         print_scan_results(results)
 
         # 3) Process positions (open/close based on signals)
@@ -951,7 +1275,7 @@ def run_tick(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Continuous paper trading: s30 + s32 + s54 with shared data feed",
+        description="Continuous paper trading: s30 + s32 + s54 + s56 + s57 with shared data feed",
     )
     parser.add_argument("--once", action="store_true", help="Run one tick and exit")
     parser.add_argument("--status", action="store_true", help="Print last state")
@@ -983,14 +1307,27 @@ def main():
     trackers: dict[str, PaperPositionTracker] = {}
     for run_cfg in RUNS:
         label = run_cfg["label"]
-        engine = CombinedPaperEngine(config={
-            "strategy_id": run_cfg["strategy_id"],
-            "capital": run_cfg["capital"],
-            "exchange": EXCHANGE,
-            "data_dir": DATA_DIR,
-            "state_dir": os.path.join(STATE_DIR, label),
-        })
-        engines[label] = engine
+        if "sub_strategies" in run_cfg:
+            # Multi-strategy: create an engine per sub-strategy
+            for sub in run_cfg["sub_strategies"]:
+                sub_label = f"{label}_{sub['tag']}"
+                engines[sub_label] = CombinedPaperEngine(config={
+                    "strategy_id": sub["strategy_id"],
+                    "capital": run_cfg["capital"],
+                    "exchange": EXCHANGE,
+                    "data_dir": DATA_DIR,
+                    "state_dir": os.path.join(STATE_DIR, sub_label),
+                    "market": sub.get("market", "combined"),
+                })
+        else:
+            engines[label] = CombinedPaperEngine(config={
+                "strategy_id": run_cfg["strategy_id"],
+                "capital": run_cfg["capital"],
+                "exchange": EXCHANGE,
+                "data_dir": DATA_DIR,
+                "state_dir": os.path.join(STATE_DIR, label),
+                "market": run_cfg.get("market", "combined"),
+            })
         trackers[label] = PaperPositionTracker(
             strategy_id=run_cfg["strategy_id"],
             label=label,
@@ -998,7 +1335,7 @@ def main():
             state_dir=STATE_DIR,
             data_dir=DATA_DIR,
             exchange=EXCHANGE,
-            max_positions=15,
+            max_positions=run_cfg.get("max_positions", 15),
         )
 
     if args.once:

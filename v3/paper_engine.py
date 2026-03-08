@@ -10,6 +10,7 @@ strategy logic is executed identically in both paths.
 
 from __future__ import annotations
 
+import inspect
 import os
 from typing import Dict, List, Optional
 
@@ -366,7 +367,18 @@ class CombinedPaperEngine:
         ctx_spot.liquidity_mask = None
         ctx_perp.liquidity_mask = None
 
-        result = strategy_fn(ctx_spot, ctx_perp)
+        # Detect single-context vs combined strategy by signature
+        n_params = len(inspect.signature(strategy_fn).parameters)
+        is_single_ctx = n_params == 1
+
+        if is_single_ctx:
+            # Single-context strategy — use the configured market context
+            # Default to perp for momentum strategies
+            market = self.config.get("market", "perp")
+            ctx = ctx_perp if market == "perp" else ctx_spot
+            result = strategy_fn(ctx)
+        else:
+            result = strategy_fn(ctx_spot, ctx_perp)
 
         last = len(ctx_spot.ind_1h["close"]) - 1
         spot_close = float(ctx_spot.ind_1h["close"][last])
@@ -376,31 +388,110 @@ class CombinedPaperEngine:
         regime = int(ctx_spot.regime_1h[last])
         in_exit = regime in result.exit_regimes
 
-        return {
-            "spot_entry": bool(result.entry_mask[last]),
-            "perp_entry": bool(
-                result.secondary_entry_mask[last]
-                if result.secondary_entry_mask is not None
-                else False
-            ),
-            "spot_direction": int(result.direction[last]),
-            "perp_direction": int(
-                result.secondary_direction[last]
-                if result.secondary_direction is not None
-                else 1
-            ),
+        # Extract sizing fields from StrategyResult at current bar
+        sm = result.size_multiplier
+        if isinstance(sm, np.ndarray):
+            size_mult = float(sm[min(last, len(sm) - 1)])
+        else:
+            size_mult = float(sm)
+
+        cap_mult = float(result.cap_multiplier)
+
+        lev = result.leverage
+        if isinstance(lev, np.ndarray):
+            leverage = float(lev[min(last, len(lev) - 1)])
+        else:
+            leverage = float(lev)
+
+        sec_lev = float(getattr(result, 'secondary_leverage', 1.0))
+
+        sizing = {
+            "size_multiplier": round(size_mult, 2),
+            "cap_multiplier": round(cap_mult, 2),
+            "leverage": round(leverage, 2),
+            "secondary_leverage": round(sec_lev, 2),
+            "edge": float(result.edge) if hasattr(result, 'edge') else 0.3,
+        }
+
+        def _extract_scalar(val, idx):
+            if hasattr(val, '__len__'):
+                return float(val[min(idx, len(val) - 1)])
+            return float(val) if val is not None else None
+
+        # Primary leg trade params
+        trade_params = {
+            "stop_mult": _extract_scalar(result.stop_mult, last),
+            "trail_mult": _extract_scalar(result.trail_mult, last),
+            "target_mult": float(result.target_mult),
+            "no_stop_bars": int(result.no_stop_bars),
+            "min_hold": int(result.min_hold),
+            "max_hold": int(result.max_hold),
+        }
+
+        # Secondary leg trade params (falls back to primary if None)
+        sec_trade_params = {
+            "stop_mult": float(result.secondary_stop_mult) if result.secondary_stop_mult is not None else trade_params["stop_mult"],
+            "trail_mult": float(result.secondary_trail_mult) if result.secondary_trail_mult is not None else trade_params["trail_mult"],
+            "target_mult": float(result.secondary_target_mult) if result.secondary_target_mult is not None else trade_params["target_mult"],
+            "no_stop_bars": int(result.secondary_no_stop_bars) if result.secondary_no_stop_bars is not None else trade_params["no_stop_bars"],
+            "min_hold": int(result.secondary_min_hold) if result.secondary_min_hold is not None else trade_params["min_hold"],
+            "max_hold": int(result.secondary_max_hold) if result.secondary_max_hold is not None else trade_params["max_hold"],
+        }
+
+        # Trail schedule (progressive trailing stop)
+        trail_schedule = None
+        if result.trail_schedule is not None:
+            trail_schedule = result.trail_schedule.tolist()
+
+        # ADV at latest bar (for sizing and slippage)
+        spot_adv = float(ctx_spot.rolling_adv[last]) if ctx_spot.rolling_adv is not None else 5_000_000.0
+        perp_adv = float(ctx_perp.rolling_adv[last]) if ctx_perp.rolling_adv is not None else 5_000_000.0
+
+        # Capital split for combined strategies
+        capital_split = float(getattr(result, 'capital_split', 0.5))
+
+        base = {
             "regime": regime,
             "exit_regimes": result.exit_regimes,
             "in_exit_regime": in_exit,
-            "trade_params": {
-                "stop_mult": float(result.stop_mult) if not hasattr(result.stop_mult, '__len__') else float(result.stop_mult[last]),
-                "trail_mult": float(result.trail_mult) if not hasattr(result.trail_mult, '__len__') else float(result.trail_mult[last]),
-                "min_hold": result.min_hold,
-                "max_hold": result.max_hold,
-            },
+            "trade_params": trade_params,
+            "sec_trade_params": sec_trade_params,
+            "trail_schedule": trail_schedule,
+            "sizing": sizing,
             "spot_close": spot_close,
             "perp_close": perp_close,
             "basis_bps": round(basis_bps, 2),
             "spot_atr": float(ctx_spot.ind_1h["atr"][last]),
             "perp_atr": float(ctx_perp.ind_1h["atr"][last]),
+            "spot_adv": spot_adv,
+            "perp_adv": perp_adv,
+            "capital_split": capital_split,
         }
+
+        if is_single_ctx:
+            market = self.config.get("market", "perp")
+            entry = bool(result.entry_mask[last])
+            direction = int(result.direction[last])
+            base.update({
+                "spot_entry": entry if market == "spot" else False,
+                "perp_entry": entry if market == "perp" else False,
+                "spot_direction": direction if market == "spot" else 0,
+                "perp_direction": direction if market == "perp" else 0,
+            })
+        else:
+            base.update({
+                "spot_entry": bool(result.entry_mask[last]),
+                "perp_entry": bool(
+                    result.secondary_entry_mask[last]
+                    if result.secondary_entry_mask is not None
+                    else False
+                ),
+                "spot_direction": int(result.direction[last]),
+                "perp_direction": int(
+                    result.secondary_direction[last]
+                    if result.secondary_direction is not None
+                    else 1
+                ),
+            })
+
+        return base
