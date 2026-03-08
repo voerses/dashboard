@@ -103,6 +103,10 @@ def _get_token_trades(ticker, strategy_path, data_dir, market, capital, exchange
     v3_dir = os.path.dirname(os.path.abspath(__file__))
     if v3_dir not in sys.path:
         sys.path.insert(0, v3_dir)
+    # Ensure project root is on path so wrapper strategies can import base strategies
+    project_root = os.path.dirname(v3_dir)
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
 
     _eng = _load_v3('engine')
     EngineLocal = _eng.Engine

@@ -213,6 +213,10 @@ def _run_walk_forward(engine: Engine, strategy_fn: StrategyFn, ticker: str,
         market_type=result.market_type,
         leverage=result.leverage,
         exchange=result.exchange,
+        size_multiplier=result.size_multiplier,
+        cap_multiplier=result.cap_multiplier,
+        trail_schedule=result.trail_schedule,
+        max_trail_mult=result.max_trail_mult,
     )
 
     trades, final_equity = engine._simulate(ctx, masked_result)
@@ -386,6 +390,10 @@ def _run_walk_forward_combined(engine: Engine, strategy_fn, ticker: str,
         secondary_edge=result.secondary_edge,
         secondary_rsi_exit_level=result.secondary_rsi_exit_level,
         secondary_convex_exit=result.secondary_convex_exit,
+        size_multiplier=result.size_multiplier,
+        cap_multiplier=result.cap_multiplier,
+        trail_schedule=result.trail_schedule,
+        max_trail_mult=result.max_trail_mult,
     )
 
     trades, final_equity = engine._simulate_combined(ctx_spot, ctx_perp, masked_result)
@@ -504,6 +512,12 @@ def _validate_token(ticker: str, strategy_module_path: str, config_dict: dict,
     # This is needed because strategies do `from engine import StrategyContext, StrategyResult`
     if v3_dir not in sys.path:
         sys.path.insert(0, v3_dir)
+
+    # Also add project root so strategies that import other strategies
+    # (e.g. s34 does `from strategies.s11_momentum_burst import ...`) can resolve
+    project_root = os.path.dirname(v3_dir)
+    if project_root not in sys.path:
+        sys.path.insert(1, project_root)
 
     config = ValidationConfig(
         wf=WalkForwardConfig(**config_dict.get('wf', {})),

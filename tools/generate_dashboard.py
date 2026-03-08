@@ -497,7 +497,7 @@ function render() {{
         <div class="kpi"><div class="lbl">Max Drawdown</div><div class="val r">${{maxDD.toFixed(1)}}%</div></div>
         <div class="kpi"><div class="lbl">Trades</div><div class="val b">${{nT}} <span style="font-size:0.6em;color:${{nO>0?'#3fb950':'#484f58'}}">(${{nO}} open)</span></div></div>
         <div class="kpi"><div class="lbl">Win Rate</div><div class="val ${{wr>=50?'g':'y'}}">${{wr.toFixed(1)}}%<div style="font-size:0.45em;color:#484f58;margin-top:2px">${{nW}}/${{nClosed}} closed</div></div></div>
-        <div class="kpi"><div class="lbl">Best / Worst Day</div><div class="val"><span class="g">$${{fmt(bestDay)}}</span> / <span class="r">$${{fmt(worstDay)}}</span></div></div>
+        <div class="kpi"><div class="lbl">Best / Worst Day</div><div class="val"><span class="${{bestDay>=0?'g':'r'}}">$${{fmt(bestDay)}}</span> / <span class="${{worstDay>=0?'g':'r'}}">$${{fmt(worstDay)}}</span></div></div>
         <div class="kpi"><div class="lbl">Total Fees</div><div class="val r">$${{fmt(ef+ff)}}</div></div>
     </div>`;
 

@@ -391,6 +391,10 @@ def _get_token_trades_with_regime(args):
     v3_dir = os.path.dirname(os.path.abspath(__file__))
     if v3_dir not in sys.path:
         sys.path.insert(0, v3_dir)
+    # Ensure project root is on path so wrapper strategies can import base strategies
+    project_root = os.path.dirname(v3_dir)
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
 
     eng_mod = _load_v3('engine')
     EngineLocal = eng_mod.Engine

@@ -1,0 +1,23 @@
+[
+  {
+    "id": "sim_1",
+    "name": "Simulation Run 1",
+    "capital": 100000,
+    "strategies": ["s11_momentum_burst"],
+    "tokens": ["BTC", "ETH", "SOL", "BNB", "XRP", "DOGE", "ADA", "AVAX", "LINK", "DOT", "UNI", "ARB", "OP", "APT", "SUI"]
+  },
+  {
+    "id": "sim_2",
+    "name": "Simulation Run 2",
+    "capital": 100000,
+    "strategies": ["s33_leveraged_conviction_perp"],
+    "tokens": ["BTC", "ETH", "SOL", "BNB", "XRP", "DOGE", "ADA", "AVAX", "LINK", "DOT", "UNI", "ARB", "OP", "APT", "SUI"]
+  },
+  {
+    "id": "sim_3",
+    "name": "Simulation Run 3",
+    "capital": 200000,
+    "strategies": ["s11_momentum_burst", "s33_leveraged_conviction_perp"],
+    "tokens": ["BTC", "ETH", "SOL", "BNB", "XRP", "DOGE", "ADA", "AVAX", "LINK", "DOT", "UNI", "ARB", "OP", "APT", "SUI"]
+  }
+]

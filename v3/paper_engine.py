@@ -401,4 +401,6 @@ class CombinedPaperEngine:
             "spot_close": spot_close,
             "perp_close": perp_close,
             "basis_bps": round(basis_bps, 2),
+            "spot_atr": float(ctx_spot.ind_1h["atr"][last]),
+            "perp_atr": float(ctx_perp.ind_1h["atr"][last]),
         }

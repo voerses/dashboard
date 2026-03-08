@@ -26,6 +26,22 @@ Before proposing a strategy, know what tools and strategy types exist.
 |---------|--------|--------|
 | Regime weighting | `v3/regime_analysis.py` | Scale allocation by BTC regime. S11+S09: Sharpe +0.29, DD +4.5pp |
 | Signal agreement | `v3/signal_agreement.py` | AND/N-of-M gating. S11+S09 AND: trades -66%, Calmar +0.46, DD +6.7pp |
+| Regime sizing (O2) | wrapper strategy | `size_multiplier` per regime. s34 (s11+O2+O3): Sharpe +0.27, PF +0.08 |
+| Weekend reduction (O3) | wrapper strategy | Reduce size Fri 20:00–Sun 20:00. Part of s34 wrapper |
+
+**Overlay implementation rule (AIPIP-0018):** NEVER modify base strategies. Create a new
+wrapper file (`strategies/sNN_name.py`) that imports the base, calls `base_strategy(ctx)`,
+applies overlay logic, and returns a modified `StrategyResult`. See Gate 3O in SKILL.md.
+
+**Delta-neutral exemption:** Strategies like s30 basis carry (long spot + short perp) do
+NOT benefit from directional overlays (weekend sizing, regime sizing). Both legs hedge
+each other. Skip directional overlays at Gate 0 for delta-neutral bases.
+
+### Engine Overlay Support
+
+| Field | Type | Default | Purpose |
+|-------|------|---------|---------|
+| `size_multiplier` | `float` or `np.ndarray` | `1.0` | Strategy-configured sizing overlay. Applied to Kelly mult in `_simulate` and `_simulate_combined`. |
 
 ### Portfolio Tools
 

@@ -95,8 +95,8 @@ def get_tier_strategies(tier: str = 'A') -> List[str]:
 def _detect_strategy_market(strategy_path: str) -> str:
     """Detect whether a strategy targets 'combined', 'perp', or 'spot'.
 
-    Checks for MarketType.COMBINED or PERP assignment in the strategy file.
-    Returns 'combined' if found, then 'perp', else 'spot' (the default).
+    Checks for MarketType.COMBINED or PERP in the strategy source, then
+    falls back to inspecting the function signature (2-arg = combined wrapper).
     """
     try:
         with open(strategy_path, 'r') as f:
@@ -105,7 +105,17 @@ def _detect_strategy_market(strategy_path: str) -> str:
             return 'combined'
         if re.search(r'market_type\s*=\s*MarketType\.PERP', source):
             return 'perp'
-    except (OSError, IOError):
+        # Wrapper strategies may not mention MarketType directly — check signature
+        # Ensure project root is on path so wrappers can import base strategies
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(strategy_path)))
+        if project_root not in sys.path:
+            sys.path.insert(0, project_root)
+        spec = importlib.util.spec_from_file_location('_detect', strategy_path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        if hasattr(mod, 'strategy') and _portfolio_mod._is_combined_strategy(mod.strategy):
+            return 'combined'
+    except (OSError, IOError, Exception):
         pass
     return 'spot'
 

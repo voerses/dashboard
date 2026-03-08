@@ -27,9 +27,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import numpy as np
-import pandas as pd
-
 from v3.data_loader import DataLoader
 from v3.live_fetcher import LiveFetcher
 from v3.paper_engine import CombinedPaperEngine
@@ -50,9 +47,17 @@ def _discover_tokens(data_dir: str = "data") -> list[str]:
 
 TOKENS = _discover_tokens(os.path.join(str(Path(__file__).resolve().parent), "data"))
 
+S54_ELITE_TOKENS = [
+    "AAVE", "ADA", "APT", "AVAX", "AXS", "BCH", "BNB", "BTC", "DOGE", "DOT",
+    "ETH", "FIL", "HBAR", "LINK", "LTC", "NEAR", "OP", "SOL", "TRX", "UNI",
+    "XRP", "ZEC",
+]
+
 RUNS = [
     {"strategy_id": "s30", "capital": 200_000.0, "label": "s30_basis_carry"},
     {"strategy_id": "s32", "capital": 200_000.0, "label": "s32_regime_spot_perp"},
+    {"strategy_id": "s54", "capital": 200_000.0, "label": "s54_turbo_carry",
+     "tokens": S54_ELITE_TOKENS},
 ]
 
 EXCHANGE = "binance"
@@ -126,8 +131,28 @@ class PaperPositionTracker:
             os.fsync(f.fileno())
         os.replace(tmp, self._trades_path())
 
-    def _position_size(self) -> float:
-        return self.equity / self.max_positions
+    def _position_size(self, sig: dict | None = None) -> float:
+        """Compute position size with ATR-inverse-vol adjustment (O1 parity fix).
+
+        Matches backtest engine vol_adj logic (engine.py:491):
+        high-vol tokens get smaller positions, low-vol tokens get larger.
+        This is a parity fix — the backtest engine already does this.
+        """
+        flat_size = self.equity / self.max_positions
+        if sig is None:
+            return flat_size
+
+        atr = sig.get("spot_atr", 0)
+        close = sig.get("spot_close", 0)
+        if atr > 0 and close > 0:
+            vol = atr / close
+            vol_adj = 0.02 / max(vol, 0.005)
+            sized = flat_size * min(vol_adj, 2.0)
+            sized = max(min(sized, flat_size * 2.0), flat_size * 0.2)
+        else:
+            sized = flat_size
+
+        return sized
 
     def process_signals(
         self, all_signals: dict[str, dict], tick_time: str,
@@ -170,7 +195,7 @@ class PaperPositionTracker:
         return {"opened": opened, "closed": closed}
 
     def _open_position(self, token: str, sig: dict, tick_time: str):
-        size = self._position_size()
+        size = self._position_size(sig)
         # Entry fee charged per leg (size split across legs)
         n_legs = int(sig.get("spot_entry", False)) + int(sig.get("perp_entry", False))
         size_per_leg = size / max(n_legs, 1)
@@ -666,6 +691,8 @@ def scan_strategy(
                 "basis_bps": sig["basis_bps"],
                 "spot_close": sig["spot_close"],
                 "perp_close": sig["perp_close"],
+                "spot_atr": sig.get("spot_atr", 0),
+                "perp_atr": sig.get("perp_atr", 0),
             }
         except Exception as e:
             results["signals"][token] = {"error": str(e)}
@@ -832,9 +859,13 @@ def run_tick(
     print(f"TICK @ {tick_str}")
     print(f"{'='*60}")
 
-    # 1) Fetch live data (once, shared)
+    # 1) Fetch live data (once, shared — union of all strategy tokens)
+    all_tokens = set(tokens)
+    for run_cfg in RUNS:
+        all_tokens.update(run_cfg.get("tokens", []))
+    all_tokens = sorted(all_tokens)
     print("\n[1/4] Fetching live data...")
-    fetch_summary = fetch_all_live_data(fetcher, tokens)
+    fetch_summary = fetch_all_live_data(fetcher, all_tokens)
     print_fetch_summary(fetch_summary)
 
     # 2) Run each strategy
@@ -844,7 +875,8 @@ def run_tick(
         engine = engines[label]
         tracker = trackers[label]
 
-        results = scan_strategy(engine, loader, tokens)
+        strategy_tokens = run_cfg.get("tokens", tokens)
+        results = scan_strategy(engine, loader, strategy_tokens)
         print_scan_results(results)
 
         # 3) Process positions (open/close based on signals)
@@ -919,7 +951,7 @@ def run_tick(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Continuous paper trading: s30 + s32 with shared data feed",
+        description="Continuous paper trading: s30 + s32 + s54 with shared data feed",
     )
     parser.add_argument("--once", action="store_true", help="Run one tick and exit")
     parser.add_argument("--status", action="store_true", help="Print last state")

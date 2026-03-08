@@ -278,7 +278,9 @@ def _simulate_core_jit(close, high, low, atr, entry_mask, direction,
                        no_stop_bars, edge_override,
                        kelly_mult_arr, cap_pct_arr, max_trade_pct,
                        is_perp, leverage_arr, funding_1h,
-                       burn_in_bars, maint_margin_rate):
+                       burn_in_bars, maint_margin_rate,
+                       trail_schedule, use_trail_schedule,
+                       max_trail_mult, use_max_trail):
     """
     Numba-JIT compiled trade simulation loop.
     Slippage is position-size-aware: slip_bps = base_spread + impact * sqrt(pos_usd / adv)
@@ -292,6 +294,12 @@ def _simulate_core_jit(close, high, low, atr, entry_mask, direction,
     - maint_margin_rate: exchange-specific (Binance 0.4%, Kraken 1.0%)
 
     When is_perp=False: zero overhead — Numba compiles the False branch away.
+
+    Progressive trailing stop (active when use_trail_schedule=True):
+    - trail_schedule: 2D float64 array shape (K, 2), rows = [profit_atr_threshold, trail_mult]
+    - Sorted ascending by threshold. At each bar, profit_atr = abs(close - entry_price) / ATR
+    - Walk schedule to find applicable trail_mult for current profit_atr
+    - When use_trail_schedule=False: uses fixed trail_mult[entry_bar] (original behavior)
 
     Returns: pnl[], ret_pct[], hold_hours[], exit_code[], pos_usd[],
              entry_bar[], exit_bar[], final_equity, cumulative_funding[]
@@ -347,11 +355,11 @@ def _simulate_core_jit(close, high, low, atr, entry_mask, direction,
             # so exchanges liquidate when margin is consumed.
             # Longs at 1x cap at -100% naturally (price can't go below 0).
             if is_perp and (leverage_arr[entry_bar] > 1.0 or position < 0.0) and position != 0.0:
-                # Simplified liquidation: if unrealized loss exceeds margin
+                # Liquidation uses worst intra-bar price (low for longs, high for shorts)
                 if position > 0.0:
-                    unrealized = position * (close[i] - entry_price)
+                    unrealized = position * (low[i] - entry_price)
                 else:
-                    unrealized = abs(position) * (entry_price - close[i])
+                    unrealized = abs(position) * (entry_price - high[i])
                 if margin_usd + unrealized - cumulative_funding < margin_usd * maint_margin_rate:
                     # Liquidation: total trade loss = margin (exchange takes position).
                     # Funding already deducted from equity bar-by-bar, so add it back
@@ -395,12 +403,29 @@ def _simulate_core_jit(close, high, low, atr, entry_mask, direction,
                             stop_price = be_trail
             else:
                 if bars_held >= no_stop_bars:
+                    # Determine effective trail multiplier
+                    if use_trail_schedule:
+                        profit_atr = abs(close[i] - entry_price) / max(cur_atr, 1e-10)
+                        eff_tm = trail_mult[entry_bar]  # fallback
+                        for si in range(trail_schedule.shape[0]):
+                            if profit_atr >= trail_schedule[si, 0]:
+                                eff_tm = trail_schedule[si, 1]
+                            else:
+                                break
+                    else:
+                        eff_tm = trail_mult[entry_bar]
+
+                    # Apply per-bar ceiling (defensive stop overlay)
+                    if use_max_trail:
+                        if max_trail_mult[i] < eff_tm:
+                            eff_tm = max_trail_mult[i]
+
                     if d == 1:
-                        trail = highest - trail_mult[entry_bar] * cur_atr
+                        trail = highest - eff_tm * cur_atr
                         if trail > stop_price:
                             stop_price = trail
                     else:
-                        trail = lowest + trail_mult[entry_bar] * cur_atr
+                        trail = lowest + eff_tm * cur_atr
                         if trail < stop_price:
                             stop_price = trail
 
@@ -600,6 +625,8 @@ def _simulate_combined_jit(
     capital_frac_2,
     burn_in_bars,
     maint_margin_rate_1, maint_margin_rate_2,
+    trail_schedule, use_trail_schedule,
+    max_trail_mult, use_max_trail,
 ):
     """
     Two-leg combined simulation with shared equity pool.
@@ -674,9 +701,9 @@ def _simulate_combined_jit(
             liq_1 = False
             if is_perp_1 and (leverage_1 > 1.0 or pos_1 < 0.0) and pos_1 != 0.0:
                 if pos_1 > 0.0:
-                    unreal_1 = pos_1 * (close[i] - entry_price_1)
+                    unreal_1 = pos_1 * (low[i] - entry_price_1)
                 else:
-                    unreal_1 = abs(pos_1) * (entry_price_1 - close[i])
+                    unreal_1 = abs(pos_1) * (entry_price_1 - high[i])
                 if margin_1 + unreal_1 - cum_fund_1 < margin_1 * maint_margin_rate_1:
                     liq_1 = True
 
@@ -702,12 +729,29 @@ def _simulate_combined_jit(
                                 stop_1 = be_trail_1
                 else:
                     if bh_1 >= no_stop_bars_1:
+                        # Determine effective trail multiplier for leg 1
+                        if use_trail_schedule:
+                            pa1 = abs(close[i] - entry_price_1) / max(cur_atr, 1e-10)
+                            etm1 = trail_mult_1  # fallback
+                            for si in range(trail_schedule.shape[0]):
+                                if pa1 >= trail_schedule[si, 0]:
+                                    etm1 = trail_schedule[si, 1]
+                                else:
+                                    break
+                        else:
+                            etm1 = trail_mult_1
+
+                        # Apply per-bar ceiling (defensive stop overlay)
+                        if use_max_trail:
+                            if max_trail_mult[i] < etm1:
+                                etm1 = max_trail_mult[i]
+
                         if d1 == 1:
-                            t1 = highest_1 - trail_mult_1 * cur_atr
+                            t1 = highest_1 - etm1 * cur_atr
                             if t1 > stop_1:
                                 stop_1 = t1
                         else:
-                            t1 = lowest_1 + trail_mult_1 * cur_atr
+                            t1 = lowest_1 + etm1 * cur_atr
                             if t1 < stop_1:
                                 stop_1 = t1
 
@@ -805,9 +849,9 @@ def _simulate_combined_jit(
             liq_2 = False
             if is_perp_2 and (leverage_2 > 1.0 or pos_2 < 0.0) and pos_2 != 0.0:
                 if pos_2 > 0.0:
-                    unreal_2 = pos_2 * (close[i] - entry_price_2)
+                    unreal_2 = pos_2 * (low[i] - entry_price_2)
                 else:
-                    unreal_2 = abs(pos_2) * (entry_price_2 - close[i])
+                    unreal_2 = abs(pos_2) * (entry_price_2 - high[i])
                 if margin_2 + unreal_2 - cum_fund_2 < margin_2 * maint_margin_rate_2:
                     liq_2 = True
 
@@ -833,12 +877,29 @@ def _simulate_combined_jit(
                                 stop_2 = be_trail_2
                 else:
                     if bh_2 >= no_stop_bars_2:
+                        # Determine effective trail multiplier for leg 2
+                        if use_trail_schedule:
+                            pa2 = abs(close[i] - entry_price_2) / max(cur_atr, 1e-10)
+                            etm2 = trail_mult_2  # fallback
+                            for si in range(trail_schedule.shape[0]):
+                                if pa2 >= trail_schedule[si, 0]:
+                                    etm2 = trail_schedule[si, 1]
+                                else:
+                                    break
+                        else:
+                            etm2 = trail_mult_2
+
+                        # Apply per-bar ceiling (defensive stop overlay)
+                        if use_max_trail:
+                            if max_trail_mult[i] < etm2:
+                                etm2 = max_trail_mult[i]
+
                         if d2 == 1:
-                            t2 = highest_2 - trail_mult_2 * cur_atr
+                            t2 = highest_2 - etm2 * cur_atr
                             if t2 > stop_2:
                                 stop_2 = t2
                         else:
-                            t2 = lowest_2 + trail_mult_2 * cur_atr
+                            t2 = lowest_2 + etm2 * cur_atr
                             if t2 < stop_2:
                                 stop_2 = t2
 
@@ -1105,6 +1166,19 @@ class StrategyResult:
 
     name: str = 'unnamed'
     max_trade_pct: float = 0.0  # max position as % of equity (0 = use ADV-based cap only)
+    size_multiplier: object = 1.0  # float scalar or per-bar np.ndarray — strategy-configured sizing overlay
+    cap_multiplier: float = 1.0  # scales ADV-based cap_pct (default 2-12% of equity) — use >1.0 for aggressive strategies
+
+    # Progressive trailing stop schedule (None = use fixed trail_mult)
+    # Shape (N, 2): [[profit_atr_threshold, trail_mult], ...] sorted by threshold ascending
+    # Example: [[0.0, 2.5], [1.0, 2.0], [2.0, 1.5]]
+    #   0-1 ATR profit → trail = 2.5*ATR, 1-2 ATR → 2.0*ATR, 2+ ATR → 1.5*ATR
+    trail_schedule: Optional[np.ndarray] = None
+
+    # Per-bar ceiling on trail multiplier (None = no ceiling)
+    # When provided, eff_tm = min(schedule_or_fixed_tm, max_trail_mult[i])
+    # Use for volatility-adaptive defensive stops (O4 overlay)
+    max_trail_mult: Optional[np.ndarray] = None
 
     # Futures support (defaults preserve backward compatibility)
     market_type: int = 0        # MarketType.SPOT
@@ -1419,6 +1493,17 @@ class Engine:
         adv_arr_rolling = ctx.rolling_adv if ctx.rolling_adv is not None else np.full(n, FALLBACK_ADV, dtype=np.float64)
         kelly_mult_arr, cap_pct_arr = adv_to_sizing(adv_arr_rolling)
 
+        # Strategy-configured size multiplier (overlay hook: regime sizing, etc.)
+        sm_val = result.size_multiplier
+        if isinstance(sm_val, np.ndarray):
+            kelly_mult_arr = kelly_mult_arr * sm_val.astype(np.float64)
+        elif sm_val != 1.0:
+            kelly_mult_arr = kelly_mult_arr * float(sm_val)
+
+        # Strategy-configured cap multiplier — scales ADV-based position cap
+        if result.cap_multiplier != 1.0:
+            cap_pct_arr = cap_pct_arr * result.cap_multiplier
+
         # Fee routing: exchange-specific fees for both spot and perp
         is_perp = result.market_type == MarketType.PERP
 
@@ -1485,6 +1570,22 @@ class Engine:
         else:
             trail_mult_arr = np.full(n, float(tm), dtype=np.float64)
 
+        # Progressive trailing stop schedule
+        if result.trail_schedule is not None:
+            trail_sched = np.asarray(result.trail_schedule, dtype=np.float64)
+            use_trail_sched = True
+        else:
+            trail_sched = np.empty((0, 2), dtype=np.float64)
+            use_trail_sched = False
+
+        # Per-bar max trail multiplier ceiling (defensive stop overlay)
+        if result.max_trail_mult is not None:
+            max_trail_arr = np.asarray(result.max_trail_mult, dtype=np.float64)
+            use_max_trail = True
+        else:
+            max_trail_arr = np.empty(0, dtype=np.float64)
+            use_max_trail = False
+
         sim_result = _simulate_core_jit(
             close, high, low, atr_arr, entry_mask, direction,
             stop_mult_arr, trail_mult_arr, float(result.target_mult),
@@ -1498,6 +1599,8 @@ class Engine:
             is_perp, leverage_arr, funding_1h,
             200,  # burn_in_bars: indicator warm-up period
             float(mmr),  # maint_margin_rate: exchange-specific liquidation threshold
+            trail_sched, use_trail_sched,
+            max_trail_arr, use_max_trail,
         )
 
         pnl_arr, ret_arr, hold_arr, exit_arr, pos_arr, entry_bars, exit_bars, final_equity, funding_arr = sim_result
@@ -1659,6 +1762,17 @@ class Engine:
         adv_arr_rolling = ctx_spot.rolling_adv[:n] if ctx_spot.rolling_adv is not None else np.full(n, FALLBACK_ADV, dtype=np.float64)
         kelly_mult_arr, cap_pct_arr = adv_to_sizing(adv_arr_rolling)
 
+        # Strategy-configured size multiplier (overlay hook: regime sizing, etc.)
+        sm_val = result.size_multiplier
+        if isinstance(sm_val, np.ndarray):
+            kelly_mult_arr = kelly_mult_arr * sm_val[:n].astype(np.float64)
+        elif sm_val != 1.0:
+            kelly_mult_arr = kelly_mult_arr * float(sm_val)
+
+        # Strategy-configured cap multiplier — scales ADV-based position cap
+        if result.cap_multiplier != 1.0:
+            cap_pct_arr = cap_pct_arr * result.cap_multiplier
+
         # Fee rates (exchange-specific, ADV-independent)
         fee_rate_1 = get_fee_rate(result.exchange, 'spot' if result.market_type != MarketType.PERP else 'perp')
         sec_mt = result.secondary_market_type
@@ -1712,6 +1826,22 @@ class Engine:
         s2_rsi = result.secondary_rsi_exit_level if result.secondary_rsi_exit_level is not None else result.rsi_exit_level
         s2_convex = result.secondary_convex_exit if result.secondary_convex_exit is not None else result.convex_exit
 
+        # Progressive trailing stop schedule (shared across both legs)
+        if result.trail_schedule is not None:
+            trail_sched = np.asarray(result.trail_schedule, dtype=np.float64)
+            use_trail_sched = True
+        else:
+            trail_sched = np.empty((0, 2), dtype=np.float64)
+            use_trail_sched = False
+
+        # Per-bar max trail multiplier ceiling (shared across both legs)
+        if result.max_trail_mult is not None:
+            max_trail_arr = np.asarray(result.max_trail_mult[:n], dtype=np.float64)
+            use_max_trail = True
+        else:
+            max_trail_arr = np.empty(0, dtype=np.float64)
+            use_max_trail = False
+
         sim_result = _simulate_combined_jit(
             close, high, low, atr_arr, ctx_spot.regime_1h[:n], float(self.capital),
             # Leg 1
@@ -1736,6 +1866,8 @@ class Engine:
             float(capital_frac_2),
             200,  # burn_in_bars: indicator warm-up period
             float(mmr_1), float(mmr_2),  # exchange-specific liquidation thresholds
+            trail_sched, use_trail_sched,
+            max_trail_arr, use_max_trail,
         )
 
         pnl_arr, ret_arr, hold_arr, exit_arr, pos_arr, entry_bars, exit_bars, final_equity, funding_arr, leg_arr = sim_result
