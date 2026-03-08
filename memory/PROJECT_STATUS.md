@@ -1,8 +1,10 @@
 # Project Status — crypto_backtest
 
 > **Last updated:** 2026-03-08
-> **Process mode:** strategy (Gate 6 — paper trading)
-> **Next step:** s54 turbo carry added to paper trading alongside s30+s32. Fixed-capital backtest: +160%/yr full period, +66.5%/yr last 12mo. Engine upgraded: cap_multiplier field + intra-bar liquidation fix (high/low).
+> **Process mode:** freeflow (paper trading live)
+> **Active:** Paper trading 4 strategies live (s30, s32, s54, s58) on 95 tokens @ $200K each = $800K total simulated.
+> **Recent completions:** Signal discovery engine (78 tokens, 252 signals), signal-enhanced strategies (s56/s57/s58), paper trading engine rewrite (trade management, slippage, ADV Kelly sizing), signal portfolio module.
+> **Next step:** Monitor paper trading, run signal portfolio pipeline for clustered strategy generation.
 
 ---
 
@@ -41,6 +43,12 @@
 | 15-min Data Fetcher (I1) | `tools/fetch_binance_15m.py` | Bulk download 15m candles from data.binance.vision. Parallel, resumable, 116 tokens. Output: `data/spot/15m_cache/`. |
 | ETF Flow Pipeline (I2) | `tools/fetch_etf_flows.py` | Daily ETF inflow/outflow data from SoSoValue API + Farside Investors. BTC+ETH, Jan 2024+. Output: `data/etf_flows/`. |
 | JIT Trail Progression (I3) | `v3/engine.py`, `v3/validation.py` | `trail_schedule` field in StrategyResult. Progressive trailing stop tightening by profit in ATR units. Applied in both JIT functions, forwarded in both WF functions. |
+| Signal Discovery Engine | `tools/signal_discovery/` | Automated IC testing: 300+ features × 55 tokens × 5 horizons. Walk-forward IC, FDR correction, lead/lag causality, rolling IC health, IC decay curves. 252 significant signals found. Top: `ret_1_1h_vs_4h` (IC=-0.376, STABLE), regime-conditional EMAs (IC=-0.67). Outputs in `outputs/signal_discovery/`. |
+| Temporal Analysis Layer | `tools/signal_discovery/analysis.py` | Rolling IC stability (STABLE/DECAYING/DEAD), lead/lag causality (57 LEADING, 16 HIGH confidence), IC decay curves (92% sign-consistent across horizons). |
+| Signal-Enhanced Strategies | `strategies/s56-s58` | s56 max_leverage_momentum (killed: 14% rate), s57 signal_timed_turbo_carry (paper trading), s58 multi_strategy_portfolio (paper trading). s57/s58 use signal discovery outputs for timing. |
+| Signal Portfolio Module | `tools/signal_portfolio/` | Token clustering by signal profiles, IC-weighted composite signals, strategy generation, walk-forward optimization. Designed but not yet run end-to-end. |
+| Paper Trading Engine Rewrite | `run_paper_live.py`, `v3/paper_engine.py` | Full parity with backtest engine: trade management (stop/trail/target/max_hold per tick), slippage model (3bps + sqrt(participation)), ADV-based Kelly sizing, funding sign fix, edge threshold, regime min hold, capital split, liquidation for all shorts. 10 tests passing. |
+| Live Paper Trading | `state/paper_live/` | 4 strategies running continuously: s30, s32, s54, s58. 95 tokens, $800K total ($200K each). Dashboard at `docs/index.html`, auto-pushed to GitHub Pages. |
 
 ### Infrastructure Roadmap (Next Wave)
 
@@ -61,10 +69,9 @@
 
 | Priority | Item | Blocker | Notes |
 |----------|------|---------|-------|
-| **URGENT** | AC8 fix: credentials written to disk in `run_paper_trade.py:141` | None | Strip creds before `json.dump()`, pass via env vars to subprocess |
-| MINOR | Resource leak: unclosed log file handle (`run_paper_trade.py:146`) | None | Close fd after Popen |
-| MINOR | Private API call: `InstanceManager._load_state()` | None | Expose public method |
-| **HIGH** | Dashboard GH Pages CDN stale cache | Mirror sync delay | Gitea→GitHub mirror not propagating gh-pages changes fast enough. Old fetch-based HTML (25KB) cached on CDN, causes heatmap Plotly errors. `data.json` added as backwards-compat fallback. May need manual `gh-pages` push directly to GitHub or check Gitea mirror settings. |
+| **HIGH** | Run signal portfolio pipeline end-to-end | None | Cluster 55 tokens by signal profile, generate IC-weighted composite strategies, optimize, backtest |
+| **HIGH** | Dashboard GH Pages CDN stale cache | Mirror sync delay | Gitea→GitHub mirror not propagating gh-pages changes fast enough |
+| **MED** | Monitor paper trading for 50+ trades | Time | Need 1-4 weeks of data before Gate 6 evaluation |
 | **MED** | s33 strategy investigation | None | -15.1% P&L, 27% win rate, $15k fees on $100k. 369 trades in 1 month, mostly max_hold exits. Fees alone equal losses. Needs: (1) reduce trade frequency, (2) tighten entry conviction threshold, (3) check if fee model is realistic. |
 | **MED** | Dashboard push workflow | None | `generate_dashboard.py --push` pushes to Gitea gh-pages via clone+commit. Should also push to GitHub directly or fix mirror sync for gh-pages branch. |
 
@@ -202,6 +209,20 @@
 17. **Portfolio tools couldn't load wrapper strategies (bug fix).** `v3/portfolio.py`, `v3/correlation.py`, and `v3/regime_analysis.py` used `importlib.util.spec_from_file_location()` to load strategies, but the project root wasn't on `sys.path` in CLI context. Wrapper strategies (s37-s44) do `from strategies.sNN_base import strategy` which failed with `ModuleNotFoundError`, silently swallowed by `except Exception: pass`. Fixed by adding `project_root = os.path.dirname(v3_dir)` to sys.path in `_get_token_trades()` and `_detect_strategy_market()`. Also fixed auto-detect to use signature inspection (2-arg = combined) for wrappers that don't directly reference `MarketType.COMBINED`.
 
 15. **External data overlays need 2+ years for validation.** s38 (ETF flow sizing) was identical to s11 because ETF data covers only 15 months (Dec 2024 – Mar 2026). Walk-forward validation spans 6 years, so the overlay is invisible. Infrastructure (tools/fetch_etf_flows.py) preserved for live signal enrichment. Lesson: don't prototype overlays on data shorter than 2x the WF training window.
+
+18. **Signal discovery: cross-timeframe divergence is the strongest STABLE signal.** `ret_1_1h_vs_4h` (IC=-0.376) and `rsi_1h_vs_4h` (IC=-0.291) are both STABLE (drift < 0.001/yr) and LEADING (HIGH confidence). They work across ALL regimes. Mechanism: 1h indicator diverging from 4h predicts short-term reversion. This is micro mean-reversion (4h horizon) unlike the macro mean-reversion that consistently fails in crypto.
+
+19. **Signal discovery: regime-conditional EMAs are powerful but DECAYING.** `ema_50_in_QUIET` (IC=-0.621 at 168h) is one of the strongest signals but decayed from -0.528 to -0.120 over the test period (+0.142/yr drift). Market structure changes erode regime-specific EMA edges. Cross-TF signals are more durable.
+
+20. **Signal discovery: 92% of signals are sign-consistent across horizons.** A signal that predicts returns at 1h also predicts at 168h — just stronger/weaker. 168h is the most common peak horizon (28/73 features). This validates using the same signal with different hold periods.
+
+21. **Signal discovery: only 23% of signals are genuinely LEADING (causal).** Of 252 FDR-passing signals, 57 are LEADING (forward IC >> reverse IC), 111 are LAGGING (describe past returns), 84 are SYMMETRIC. Only 16 have HIGH confidence. Strategy construction should prioritize these 16.
+
+22. **Paper trading engine now matches backtest fidelity.** All 13 gaps between paper trading and backtest engine fixed: trade management (stop/trail/target/max_hold), slippage model (3bps + sqrt(participation)), ADV-based Kelly sizing, funding sign convention, edge threshold, regime exit min hold, capital split, liquidation for 1x shorts. Verified with 10-test suite.
+
+23. **Leveraged strategies fail at 5x.** s50 (5x leverage momentum), s52 (5x funding), s56 (5x max leverage) all killed. Fees are amplified more than edge. s57/s58 use 1x leverage with aggressive sizing (size_mult=3.0, cap_mult=15.0) instead — large positions without fee amplification.
+
+24. **CRITICAL: Discovered signals only work as overlays, not standalone strategies.** Raw signal-based entries (e.g., enter when `ret_1_1h_vs_4h` z-score > 2) did not generate positive returns on their own. The signals have genuine IC (predictive power), but the IC translates to edge only when layered on top of existing well-performing strategies as timing/sizing overlays. Standalone signal strategies (s56) were killed. The successful approach is s57/s58: use the existing s44/s30 carry strategies as the base, and apply signal discovery outputs to improve entry timing, position sizing, and regime conditioning. **Lesson: IC != tradeable edge. Signals improve existing strategies, they don't replace them.**
 
 ---
 

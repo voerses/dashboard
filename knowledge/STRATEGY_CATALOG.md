@@ -470,6 +470,33 @@ Note: s31 excluded — redundant with s11 (corr +0.71).
 | s26 RSI Extreme Reversal | Mean reversion | 14.3% rate (47/329), below 20% threshold | FAILED |
 | s27 Funding Mean Reversion | Mean reversion (perp) | 11.6% rate (38/329), funding data sparse for many tokens | FAILED |
 | s28 Momentum Burst Perp | Momentum (perp) | 6.7% rate (22/329), bidirectional too selective on perp | FAILED |
+| s35 regime_spot_perp_volsized | Vol-managed sizing | Calmar -29%, return halved vs s32. Vol-managed sizing too aggressive on regime-gated strategy | FAILED |
+| s36 basis carry funding-scaled | Funding overlay | Neutral — Calmar -0.29, Sharpe -0.01. Funding rate colinear with basis premium | FAILED |
+| s38 momentum ETF flow | ETF flow overlay | ETF data covers only 15mo; overlay=1.0 for 85% of backtest | FAILED |
+| s42 momentum defensive trail | Per-bar vol ceiling | Zero marginal improvement on top of O5 trail progression | FAILED |
+| s43 regime spot/perp trail | Trail on s32 | Rate -2.2pp; trail tightens short leg prematurely | FAILED |
+| s50 momentum_extreme_leverage | 5x leverage momentum | 65% rate but only +2.7% mean return. Fees amplified more than edge | FAILED |
+| s52 funding_extremes_leveraged | 5x leverage funding | 40% rate, +2.4% mean return. Funding extremes too rare | FAILED |
+| s53 alt_momentum_breakout | Breakout filters | 37% rate, +1.0% mean return. Filters too strict | FAILED |
+| s55 leveraged_carry_momentum | 2-5x leverage carry | -7pp MaxDD degradation exposed by intra-bar liquidation fix | FAILED |
+| s56 max_leverage_momentum | 5x signal-enhanced | 14% rate, negative mean return. Leverage amplifies losses | FAILED |
+| **Standalone signal strategies** | Signal discovery entries | IC != tradeable edge. Signals only work as overlays on proven strategies | FAILED |
+
+---
+
+### Overlay Wrappers (s34-s44, s54, s57-s58)
+
+| Strategy | Base | Overlay | Result | Status |
+|----------|------|---------|--------|--------|
+| s34 momentum_regime_sized | s11 | O2 regime sizing + O3 weekend | Sharpe +0.27, PF +0.08 | Validated |
+| s37 momentum_trail_progression | s11 | O5 progressive trail | Sharpe +0.477, 65/69 token wins | Validated |
+| s39 trend_trail_progression | s09 | O5 progressive trail | Sharpe +0.819, rate 36→59% | Validated |
+| s40 tsmom_trail_progression | s13 | O5 progressive trail | Sharpe +0.752, rate 24→52% | Validated |
+| s41 skew_trail_progression | s21 | O5 progressive trail | Sharpe +0.468, rate 24→47% | Validated |
+| s44 basis_carry_trail_progression | s30 | O5 progressive trail | Sharpe +1.448, MaxDD halved | Validated |
+| s54 turbo_carry | s44 | 2x regime sizing + cap_mult=15 | +160%/yr, +66.5%/yr last 12mo | Paper trading |
+| s57 signal_timed_turbo_carry | s44 | Signal discovery timing | Signal-enhanced carry | Paper trading |
+| s58 multi_strategy_portfolio | s44+ | Multi-signal composite | Portfolio with signal overlays | Paper trading |
 
 ---
 
@@ -491,6 +518,12 @@ Note: s31 excluded — redundant with s11 (corr +0.71).
 | 3x ATR stop is optimal | Parameter sweep finding | Don't change stop multiplier |
 | TSMOM lookback 10-28d | Han (2023): 28d lookback, Sharpe 1.51 | Crypto cycles faster than equities |
 | Vol-weighted TSMOM promising | Huang (2024): Sharpe 2.17 | Untested in our system; Tier B priority |
+| Cross-TF divergence is most stable signal | `ret_1_1h_vs_4h` IC=-0.376, STABLE | Use as overlay timing, not standalone |
+| Signals only work as overlays | s56 killed, s57/s58 survive | Layer on proven strategy (carry, momentum), not as entries |
+| 92% of signals are sign-consistent | Discovery across 5 horizons | Same signal direction works at all timeframes |
+| Only 23% of signals are genuinely causal | Lead/lag analysis, 57 of 252 | Prioritize HIGH-confidence LEADING signals |
+| Regime-conditional EMAs decay fast | `ema_50_in_QUIET` lost 77% IC | Cross-TF signals more temporally robust |
+| Progressive trailing stops are universal | s37-s44 all improved | Strongest single overlay: +21.5pp avg, 93% win rate |
 
 ### What Fails in Crypto (Swing TF)
 
@@ -504,6 +537,9 @@ Note: s31 excluded — redundant with s11 (corr +0.71).
 | Momentum burst on perps | s28: 6.7% rate | Bidirectional momentum too selective; perp fees/funding eat edge |
 | Funding mean reversion | s27: 11.6% rate | Funding data sparse; signal decays fast once widely known |
 | Hedged momentum + s11 redundancy | s31↔s11 corr +0.71 | Momentum primary leg IS momentum burst; hedge adds little |
+| Standalone signal entries | s56: 14% rate, negative mean | IC predicts returns but not enough edge after costs |
+| 5x leverage on any strategy | s50/s52/s56: all killed | Fees amplified 5x eat the edge; use 1x with aggressive sizing instead |
+| Cross-TF signals as standalone | Discovery showed IC=-0.376 | Genuine IC but only ~14% of return variance; needs base strategy |
 
 ### RSI Regime Dependency
 
@@ -562,5 +598,8 @@ Our HMM detects 5 regimes that drive all allocation decisions:
 5. **Ensemble > single strategy.** S09 + S11 together diversify better than either alone. Cross-sectional momentum (corr +0.25 vs S11) adds genuine diversification vs the +0.62 pairwise correlation among time-series strategies.
 6. **Combined spot+perp unlocks new strategy classes.** Three distinct patterns (simultaneous, conditional, alternating) each capture different market premiums. s30 basis carry (Calmar 12.76) is the best risk-adjusted strategy ever validated.
 7. **Diversification across market types beats within-type.** s30(combined)+s29(perp)+s11(spot) have median pairwise corr 0.08 vs 0.62 among spot-only strategies. Effective N=3.03 with 5 strategies vs N=2.02 with 6 spot strategies.
+8. **IC != tradeable edge.** Signal discovery found 252 FDR-passing signals with genuine IC, but standalone signal strategies generated zero positive returns. Signals only work as overlays on existing profitable strategies (carry, momentum). The base strategy provides the structural edge; the signal improves timing and sizing.
+9. **Cross-TF divergence is the most robust alpha source.** `ret_1_1h_vs_4h` (IC=-0.376) and `rsi_1h_vs_4h` (IC=-0.291) are STABLE, LEADING, and work across ALL regimes. They exploit information lag between timeframes — a genuine market microstructure effect, not curve-fitting.
+10. **Aggressive sizing beats leverage.** s54/s57/s58 use `size_multiplier=3.0` + `cap_multiplier=15.0` at 1x leverage instead of 5x leverage. Same position sizes, but fees are on 1x notional not 5x. Every 5x leveraged strategy was killed.
 
 *Full strategy descriptions, parameter tables, and 67 academic citations archived in `knowledge/archive/STRATEGY_CATALOG_DETAILS.md`.*

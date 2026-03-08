@@ -61,14 +61,28 @@ each other. Skip directional overlays at Gate 0 for delta-neutral bases.
 | Exchanges | Binance, Kraken, Hyperliquid (different fee tiers) |
 | Data | 1H candles, 2020-2026. Spot: `data/spot/1h_cache/`. Perp: `data/perp/1h_cache/` |
 
+### Signal Discovery Engine
+
+| Capability | Module | Details |
+|-----------|--------|---------|
+| Automated IC testing | `tools/signal_discovery/` | 300+ features × 55 tokens × 5 horizons, FDR correction |
+| Per-token signal catalogs | `outputs/signal_discovery/` | 252 aggregate + 55 per-token signal catalogs |
+| Rolling IC health | `outputs/signal_discovery/rolling_ic_summary*.csv` | STABLE/DECAYING/STRENGTHENING/DEAD classification |
+| Lead/lag causality | `outputs/signal_discovery/lead_lag*.json` | Forward vs reverse IC asymmetry (57 LEADING, 16 HIGH conf) |
+| IC decay curves | `outputs/signal_discovery/ic_decay_curves*.json` | Peak horizon, half-life, sign consistency |
+| Signal portfolio | `tools/signal_portfolio/` | Token clustering, IC-weighted composites, strategy generation |
+
 ### Key Constraints
 
+- **IC != tradeable edge** — discovered signals only work as overlays on proven strategies, never standalone
 - **All 6 Tier A per-token strategies are momentum variants** (median pairwise r=+0.62, effective N=2.02)
 - To improve portfolio, need **different strategy families**, not more momentum
 - Cross-sectional (+0.25), sector rotation (+0.20), pairs (-0.06) provide genuine diversification
 - **Combined strategies unlocked diversification:** s30 basis carry (corr +0.21 vs s11), s29 funding carry (corr -0.16 vs s11) are different families
 - Mean reversion consistently fails at 18-720hr holds in crypto — don't retry
 - **s31 hedged momentum is redundant with s11** (corr +0.71) — don't run both
+- **5x leverage kills all strategies** — use 1x with aggressive sizing (size_mult=3, cap_mult=15) instead
+- **Regime-conditional EMAs decay fast** — prefer cross-TF signals (STABLE over time)
 
 ### Strategy Classes (Gate 0 Routing)
 
@@ -125,6 +139,26 @@ each other. Skip directional overlays at Gate 0 for delta-neutral bases.
 | s20 Low Beta Quality | B | 46.9% | Low-beta quality factor | long-term |
 | s12 Quality Breakout | B | 32.7% | Quality + breakout combo | swing |
 
+### Overlay Wrappers (Gate 5O validated)
+
+| Strategy | Base | Overlay | Key Result |
+|----------|------|---------|------------|
+| s37 momentum_trail | s11 | O5 trail | Sharpe +0.477, 65/69 token wins |
+| s39 trend_trail | s09 | O5 trail | Sharpe +0.819, rate 36→59% |
+| s44 basis_carry_trail | s30 | O5 trail | Sharpe +1.448, MaxDD halved |
+| s54 turbo_carry | s44 | 2x sizing + cap_mult=15 | +160%/yr, paper trading |
+| s57 signal_timed_carry | s44 | Signal discovery timing | Paper trading |
+| s58 multi_strategy | s44+ | Multi-signal composite | Paper trading |
+
+### Paper Trading (Live, Gate 6)
+
+| Strategy | Capital | Status | Tokens |
+|----------|---------|--------|--------|
+| s30 basis_carry | $200K | Running | 90 |
+| s32 regime_spot_perp | $200K | Running | 90 |
+| s54 turbo_carry | $200K | Running | 22 |
+| s58 multi_strategy_portfolio | $200K | Running | 90 |
+
 ### Portfolio Assembly (Gate 5.5 Result)
 
 **Recommended 4-strategy allocation (Sharpe ~4.7, MaxDD ~-4%):**
@@ -152,7 +186,9 @@ each other. Skip directional overlays at Gate 0 for delta-neutral bases.
 | Already tried & failed? | Check Tier C list below |
 | Look-ahead bias risk | Signal must use only past data |
 
-**Tier C (Archived — Don't Repeat):** s02, s03, s04, s07, s08, s10, s12, s14, s15, s16, s19, s20, s26, s27, s28
+**Tier C (Archived — Don't Repeat):** s02, s03, s04, s07, s08, s10, s12, s14, s15, s16, s19, s20, s25, s26, s27, s28, s33, s35, s36, s38, s42, s43, s50, s52, s53, s55, s56
+
+**Key Kill Reasons:** Standalone signal entries (IC != edge), 5x leverage (fee amplification), directional overlays on delta-neutral (both legs hedge), vol-managed sizing on regime-gated strategies (double-dipping risk reduction)
 
 > Deep dive: `knowledge/STRATEGY_LIFECYCLE.md`, `knowledge/process/SCOPE_AND_CONTEXT.md`
 

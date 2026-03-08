@@ -1,12 +1,13 @@
 # Signal Development -- Structured Best Practices
 
-> **TL;DR -- Six-layer signal stack**
+> **TL;DR -- Six-layer signal stack + automated discovery findings**
 > - Mandatory layers: Regime Filter -> Trend Alignment -> Entry Signal -> Volume Confirmation -> Exit Logic -> Sizing
-> - ADX is #1 predictor (IC=0.067); RSI standalone is useless; simple beats complex (4 conditions > 10)
+> - ADX is #1 manual predictor (IC=0.067); automated discovery found 252 significant features across 55 tokens
+> - **Top automated signals:** cross-TF divergence (`ret_1_1h_vs_4h` IC=-0.376, STABLE), regime-conditional EMAs (IC=-0.67), Donchian crisis reversal (IC=-0.82)
+> - 92% of signals are sign-consistent across horizons; 168h peak is most common
 > - Universal exits: 3x ATR stop, 3x trail, 999 target, 24h no-stop, 18h min hold, 720h max, exit on CRISIS/DOWNTREND
-> - Regime detection uses expanding quantiles (causal) -- never full-array statistics
-> **When to read full file:** Designing a new strategy, composing signal layers, choosing entry signal type
-> **Sections:** 1-Signal Stack, 2-Regime, 3-Trend, 4-Entry, 5-Volume, 6-Exit, 7-Sizing, 8-Composition, 9-Discovery Checklist, 10-Empirical Rules
+> **When to read full file:** Designing a new strategy, composing signal layers, interpreting discovery results
+> **Sections:** 1-Signal Stack, 2-Regime, 3-Trend, 4-Entry, 5-Volume, 6-Exit, 7-Sizing, 8-Composition, 9-Discovery Checklist, 10-Empirical Rules, 11-Automated Discovery Findings, 12-Signal Health, 13-Causality, 14-Horizon Selection
 
 ## 1. THE SIGNAL STACK
 
@@ -246,3 +247,160 @@ entry = (acceleration > 0) & (momentum > 0.005)
 8. **Post-ETF is a different market.** Always check post-ETF IC values.
 9. **Mean reversion is a trap.** IC=+0.022 post-ETF but loses after costs. s19 (0.0%) proves it.
 10. **Vectorize or die.** 100ms/call makes validation impractical. Fast iteration is the real edge.
+
+---
+
+## 11. AUTOMATED SIGNAL DISCOVERY FINDINGS (55 tokens, 300+ features, March 2026)
+
+Automated discovery via `tools/signal_discovery/` scanned 300+ features across 55 tokens with walk-forward IC evaluation, FDR correction (alpha=0.05), and multi-horizon testing (1, 4, 24, 72, 168h). Results in `outputs/signal_discovery/`.
+
+**252 signals survived FDR filtering** (|IC| >= 0.02, t-stat >= 2.0).
+
+### CRITICAL LESSON: Signals Work as Overlays, NOT Standalone Strategies
+
+Raw signal-based entries (e.g., enter when `ret_1_1h_vs_4h` z-score > threshold) **did not generate positive returns** as standalone strategies. Every standalone signal strategy was killed (s56 max_leverage_momentum: 14% rate, negative mean return).
+
+**Why:** IC (information coefficient) measures statistical correlation with future returns, but:
+- IC of -0.376 means the signal explains ~14% of return variance — not enough for standalone edge after costs
+- Standalone entries lack the structural edge (basis premium, carry, momentum) that generates P&L
+- Signal timing alone can't overcome transaction costs without an underlying profitable mechanism
+
+**What works:** Apply discovered signals as **overlays on existing well-performing strategies**:
+- s57/s58 use s44 basis carry as the base (proven profitable mechanism)
+- Signal discovery outputs improve **entry timing** (enter when composite signal agrees)
+- Signal IC weights **position sizing** (scale size by signal confidence per regime)
+- Signal health data enables **regime conditioning** (per-regime IC → regime-adaptive sizing)
+
+**Bottom line: IC != tradeable edge. Signals improve existing strategies, they don't replace them.**
+
+### Top Signals by Regime
+
+| Regime | #1 Signal | IC | #2 Signal | IC | Key Insight |
+|--------|-----------|----|-----------|----|-------------|
+| CRISIS | `donch_high_in_CRISIS` | -0.818 | `bb_width_mom_48h` | -0.320 | Strong reversal from Donchian highs; expanding vol = more downside |
+| QUIET | `ema_50_in_QUIET` | -0.621 | `macd_in_QUIET` | -0.403 | Trend indicators (EMA, MACD) dominate in low-vol environments |
+| UPTREND | `ema_50_in_UPTREND` | -0.671 | `atr_in_UPTREND` | -0.298 | EMA position is strongest predictor; ATR adds momentum confirmation |
+| RANGE | `ema_10_in_RANGE` | -0.614 | `macd_in_RANGE` | -0.350 | Short EMA + MACD trend for range breakout direction |
+| DOWNTREND | `ema_10_in_DOWNTREND` | -0.594 | `macd_in_DOWNTREND` | -0.263 | EMA position predicts continuation; negative IC = below EMA → more down |
+
+### Cross-Timeframe Signals (Strongest New Finding)
+
+Cross-timeframe divergence is the most robust signal class discovered — **STABLE over time, works across all regimes:**
+
+| Signal | IC | Stability | Best Horizon | Mechanism |
+|--------|----|-----------|--------------|-----------|
+| `ret_1_1h_vs_4h` | -0.376 | STABLE (drift < 0.001/yr) | 4h | 1h return z-score minus 4h z-score; captures mean-reverting micro-momentum |
+| `rsi_1h_vs_4h` | -0.291 | STABLE (drift = 0.001/yr) | 1h | RSI divergence between timeframes; when 1h RSI leads 4h, reversal imminent |
+| `plus_di_1h_vs_4h` | -0.137 | — | 1h | Directional index divergence |
+| `vol_ratio_1h_vs_4h` | varies | — | 1h | Volume divergence between timeframes |
+
+**Why they work:** Cross-TF signals exploit information lag — when short-term (1h) indicators diverge from medium-term (4h), the short-term usually reverts. Negative IC means high cross-TF divergence predicts lower returns (mean-reversion at the micro level works, unlike macro mean-reversion which fails in crypto).
+
+### Universal Signals (Work Across All Regimes)
+
+| Signal | All-Regime IC | Regime Range | Note |
+|--------|---------------|--------------|------|
+| `ret_1_1h_vs_4h` | -0.376 | -0.268 to -0.381 | Most regime-robust signal found |
+| `rsi_1h_vs_4h` | -0.291 | -0.271 to -0.335 | RSI cross-TF nearly as stable |
+| `minus_di_in_RANGE` | +0.270 | Range-specific | Rising -DI in range predicts breakdowns |
+| `bars_in_regime` (CRISIS) | +0.221 | Crisis-specific | Longer crisis = rebound more likely |
+
+---
+
+## 12. SIGNAL HEALTH (Rolling IC Stability)
+
+Of the top 30 signals tested over rolling 1-year windows:
+
+| Status | Count | Meaning | Implication |
+|--------|-------|---------|-------------|
+| STABLE | 11 (37%) | IC drift < 0.005/yr | Safe for live trading |
+| DECAYING | 13 (43%) | IC shrinking over time | Use with caution; may need refit |
+| STRENGTHENING | 5 (17%) | IC growing over time | Emerging edge; monitor |
+| DEAD | 1 (3%) | IC crossed zero | Discard |
+
+### Most Reliable Signals (STABLE, high IC)
+
+| Signal | Horizon | Early IC | Late IC | Annual Drift |
+|--------|---------|----------|---------|--------------|
+| `donch_high_in_CRISIS` | 168h | -0.440 | -0.415 | +0.003 |
+| `ret_1_1h_vs_4h` | 1h | -0.337 | -0.339 | -0.001 |
+| `ret_1_1h_vs_4h` | 4h | -0.336 | -0.338 | -0.001 |
+| `rsi_1h_vs_4h` | 1h | -0.272 | -0.270 | +0.001 |
+| `rsi_1h_vs_4h` | 4h | -0.256 | -0.255 | +0.000 |
+
+**Key lesson:** Cross-timeframe signals are the most temporally stable. Regime-conditional EMAs (e.g., `ema_50_in_QUIET`) decay fast (IC shift > 0.4 over period) — they overfit to specific market epochs.
+
+### DECAYING Signals (Use With Caution)
+
+| Signal | Horizon | Early IC | Late IC | Annual Drift |
+|--------|---------|----------|---------|--------------|
+| `ema_50_in_QUIET` | 168h | -0.528 | -0.120 | +0.142 |
+| `ema_50_in_QUIET` | 72h | -0.503 | -0.159 | +0.126 |
+| `ema_10_in_DOWNTREND` | 168h | -0.180 | -0.154 | +0.023 |
+| `donch_high_in_CRISIS` | 72h | -0.378 | -0.255 | +0.044 |
+
+---
+
+## 13. CAUSALITY (Lead/Lag Analysis)
+
+Of 252 signals tested for forward vs reverse IC asymmetry:
+- **57 LEADING** (forward IC >> reverse IC — genuine predictors)
+- **111 LAGGING** (reverse IC ≥ forward IC — following price, not predicting)
+- **84 SYMMETRIC** (unclear direction)
+- **16 HIGH confidence** LEADING signals
+
+### Top Leading Signals (Genuine Predictors)
+
+| Signal | Horizon | Asymmetry | Confidence | Forward IC |
+|--------|---------|-----------|------------|------------|
+| `ema_10_in_DOWNTREND` | 4h | 48.3x | MEDIUM | -0.028 |
+| `adx_in_CRISIS` | 72h | 23.7x | HIGH | +0.187 |
+| `ema_50_in_QUIET` | 24h | 21.3x | MEDIUM | -0.049 |
+| `ema_10_in_DOWNTREND` | 168h | 17.3x | HIGH | -0.155 |
+| `ret_1_1h_vs_4h` | 4h | 13.3x | HIGH | -0.341 |
+| `donch_high_in_CRISIS` | 168h | 11.7x | HIGH | -0.404 |
+
+**Actionable insight:** Prioritize HIGH-confidence LEADING signals for strategies. LAGGING signals describe past returns (useful for regime detection but not entry timing). Cross-TF signals (`ret_1_1h_vs_4h`, `rsi_1h_vs_4h`) are consistently LEADING with HIGH confidence.
+
+---
+
+## 14. HORIZON SELECTION (IC Decay Curves)
+
+Each signal was tested at 1h, 4h, 24h, 72h, 168h horizons. Peak horizon distribution:
+
+| Peak Horizon | # Features | Top Signal | Peak IC |
+|-------------|------------|------------|---------|
+| 1h | 10 | `rsi_1h_vs_4h` | -0.291 |
+| 4h | 7 | `ret_1_1h_vs_4h` | -0.376 |
+| 24h | 16 | `bb_pct_in_CRISIS` | -0.236 |
+| 72h | 12 | `bb_width_in_QUIET` | -0.208 |
+| 168h | 28 | `donch_high_in_CRISIS` | -0.818 |
+
+**92% of signals are sign-consistent** across all tested horizons — the signal direction is stable, only magnitude changes. This means a signal that works at 1h also works at 168h (just weaker/stronger).
+
+### Horizon Selection Rules
+
+1. **Short-horizon signals (1-4h):** Cross-TF divergence. Match with short holds (4-48h bars). Best for mean-reversion micro-entries.
+2. **Medium-horizon signals (24-72h):** BB/MACD regime-conditional. Match with swing holds (24-168h bars). Best for momentum entries.
+3. **Long-horizon signals (168h):** EMA position, Donchian channels. Match with position holds (72-720h bars). Best for trend-following.
+4. **Rule of thumb:** Set `min_hold` to ~1/4 of peak horizon, `max_hold` to ~4x peak horizon.
+
+### How to Use Discovery Results for Strategy Building
+
+```python
+# 1. Load per-token catalog
+import json
+with open('outputs/signal_discovery/signal_catalog_BTC.json') as f:
+    catalog = json.load(f)
+
+# 2. Filter: STABLE + LEADING + high IC
+# Use rolling_ic_summary_{TOKEN}.csv for stability
+# Use lead_lag_{TOKEN}.csv for causality
+
+# 3. Pick 2-5 non-correlated signals (|pairwise_corr| < 0.7)
+# 4. IC-weight into composite: sum(sign(ic) * |ic| * zscore(feature)) / sum(|ic|)
+# 5. Entry when |composite z-score| > threshold
+# 6. Set hold period from peak horizon of dominant signal
+```
+
+> Deep dive: `knowledge/process/SIGNAL_DISCOVERY_METHODS.md`, `outputs/signal_discovery/`
