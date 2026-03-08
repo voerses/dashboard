@@ -1,0 +1,9 @@
+{
+  "strategy_id": "s32",
+  "capital": 200000.0,
+  "last_tick": "2026-03-07 17:20 UTC",
+  "tick_count": 1,
+  "tokens_scanned": 0,
+  "tokens_with_entry": 0,
+  "entry_signals": {}
+}

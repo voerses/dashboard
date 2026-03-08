@@ -1,0 +1,67 @@
+{
+  "strategy_id": "s32",
+  "capital": 200000.0,
+  "last_tick": "2026-03-08 18:02 UTC",
+  "tick_count": 70,
+  "tokens_scanned": 90,
+  "tokens_with_entry": 4,
+  "equity": 204098.78,
+  "open_positions": 15,
+  "closed_trades": 1,
+  "realized_pnl": 4277.72,
+  "unrealized_pnl": 5008.76,
+  "entry_signals": {
+    "AIXBT": {
+      "spot_entry": false,
+      "perp_entry": true,
+      "spot_dir": 1,
+      "perp_dir": -1,
+      "regime": "DOWNTREND",
+      "in_exit_regime": false,
+      "basis_bps": 8.51,
+      "spot_close": 0.0235,
+      "perp_close": 0.02352,
+      "spot_atr": 0.00048217280841811994,
+      "perp_atr": 0.00047615368166812455
+    },
+    "GIGGLE": {
+      "spot_entry": false,
+      "perp_entry": true,
+      "spot_dir": 1,
+      "perp_dir": -1,
+      "regime": "DOWNTREND",
+      "in_exit_regime": false,
+      "basis_bps": -3.72,
+      "spot_close": 26.9,
+      "perp_close": 26.89,
+      "spot_atr": 0.3683889855888304,
+      "perp_atr": 0.37432855220145306
+    },
+    "SEI": {
+      "spot_entry": false,
+      "perp_entry": true,
+      "spot_dir": 1,
+      "perp_dir": -1,
+      "regime": "DOWNTREND",
+      "in_exit_regime": false,
+      "basis_bps": -6.32,
+      "spot_close": 0.0633,
+      "perp_close": 0.06326,
+      "spot_atr": 0.0006737754679094385,
+      "perp_atr": 0.0006622289395661356
+    },
+    "ZEC": {
+      "spot_entry": false,
+      "perp_entry": true,
+      "spot_dir": 1,
+      "perp_dir": -1,
+      "regime": "DOWNTREND",
+      "in_exit_regime": false,
+      "basis_bps": -9.06,
+      "spot_close": 198.72,
+      "perp_close": 198.54,
+      "spot_atr": 2.703239167866203,
+      "perp_atr": 2.7952578114472195
+    }
+  }
+}
