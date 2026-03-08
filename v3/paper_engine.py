@@ -311,3 +311,94 @@ class CombinedPaperEngine:
         perp_signals.sort(key=lambda s: (s["bar_index"], s["type"]))
 
         return {"spot": spot_signals, "perp": perp_signals}
+
+    def compute_latest_signal(
+        self,
+        spot_bars: list[dict],
+        perp_bars: list[dict],
+    ) -> dict:
+        """Check the raw strategy signal at the latest bar only.
+
+        Unlike ``compute_signals()`` which replays the full simulation,
+        this evaluates the strategy's entry/exit masks at the last bar.
+        Indicators and regime are identical to the full backtest provided
+        there are >= 2000 bars (enough for 60-day daily regime warmup).
+
+        Returns a dict with:
+            - spot_entry: bool — primary leg wants to enter
+            - perp_entry: bool — secondary leg wants to enter
+            - spot_direction: int — +1 long, -1 short
+            - perp_direction: int — +1 long, -1 short
+            - regime: int — current regime at last bar
+            - exit_regimes: set — regimes that trigger exit
+            - in_exit_regime: bool — current regime is an exit regime
+            - trade_params: dict — stop/trail/hold parameters
+            - spot_close: float — latest spot price
+            - perp_close: float — latest perp price
+            - basis_bps: float — (perp - spot) / spot in bps
+        """
+        from v3.engine import Engine
+
+        df_spot = _bars_to_dataframe(spot_bars)
+        df_perp = _bars_to_dataframe(perp_bars)
+        strategy_fn = _load_strategy_fn(self.strategy_id)
+
+        engine = Engine(
+            data_dir=self.data_dir,
+            market="combined",
+            capital=self.capital,
+            exchange=self.exchange,
+        )
+
+        token = self.tokens[0] if self.tokens else "BTC/USDT"
+        token_base = token.split("/")[0] if "/" in token else token
+
+        ctx_spot = engine._build_context(
+            token_base, df_spot, min_bars=210, market_override="spot",
+        )
+        ctx_perp = engine._build_context(
+            token_base, df_perp, min_bars=210, market_override="perp",
+        )
+
+        if ctx_spot is None or ctx_perp is None:
+            return {"error": "insufficient data for context"}
+
+        ctx_spot.liquidity_mask = None
+        ctx_perp.liquidity_mask = None
+
+        result = strategy_fn(ctx_spot, ctx_perp)
+
+        last = len(ctx_spot.ind_1h["close"]) - 1
+        spot_close = float(ctx_spot.ind_1h["close"][last])
+        perp_close = float(ctx_perp.ind_1h["close"][last])
+        basis_bps = (perp_close - spot_close) / spot_close * 10_000
+
+        regime = int(ctx_spot.regime_1h[last])
+        in_exit = regime in result.exit_regimes
+
+        return {
+            "spot_entry": bool(result.entry_mask[last]),
+            "perp_entry": bool(
+                result.secondary_entry_mask[last]
+                if result.secondary_entry_mask is not None
+                else False
+            ),
+            "spot_direction": int(result.direction[last]),
+            "perp_direction": int(
+                result.secondary_direction[last]
+                if result.secondary_direction is not None
+                else 1
+            ),
+            "regime": regime,
+            "exit_regimes": result.exit_regimes,
+            "in_exit_regime": in_exit,
+            "trade_params": {
+                "stop_mult": float(result.stop_mult) if not hasattr(result.stop_mult, '__len__') else float(result.stop_mult[last]),
+                "trail_mult": float(result.trail_mult) if not hasattr(result.trail_mult, '__len__') else float(result.trail_mult[last]),
+                "min_hold": result.min_hold,
+                "max_hold": result.max_hold,
+            },
+            "spot_close": spot_close,
+            "perp_close": perp_close,
+            "basis_bps": round(basis_bps, 2),
+        }

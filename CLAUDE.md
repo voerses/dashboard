@@ -37,6 +37,21 @@ Process rules in `.claude/rules/` are enforced by hooks in `.claude/hooks/`, wir
 
 See `aidev/AIPIP/AIPIP-0005-session-continuity-enforcement.md` for the design rationale.
 
+## Data Safety (Non-Negotiable)
+
+The `data/` directory contains ~500MB+ of historical market data (gitignored, re-fetchable but takes 60+ minutes). These rules prevent accidental data loss:
+
+1. **NEVER use `git checkout --orphan` in the main worktree.** Use `git worktree add /tmp/<name>` instead.
+2. **NEVER use `git checkout -f` or `git clean -f`** without first running `bash tools/check_data_integrity.sh`.
+3. **NEVER use `git add -A` or `git add .`** after any orphan/detached HEAD operation — it will stage gitignored data files.
+4. **For gh-pages or other isolated branches:** Always use a separate worktree:
+   ```bash
+   git worktree add /tmp/gh-pages gh-pages
+   # work in /tmp/gh-pages
+   git worktree remove /tmp/gh-pages
+   ```
+5. **If data is lost:** Regenerate with `bash tools/fetch_all_perp_data.sh --force && /workspace/venv/bin/python tools/fetch_binance_spot.py --force && /workspace/venv/bin/python tools/build_parquet_cache.py`
+
 ## Customization
 
 This is a generic AI development process framework. To adapt it for your project:

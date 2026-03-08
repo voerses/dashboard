@@ -32,8 +32,9 @@ class DataLoader:
 
     def _parquet_path(self, token: str, market: str) -> str:
         prefix = _token_prefix(token)
+        # Parquet cache lives at data/{market}/1h_cache/ (no exchange subdir)
         return os.path.join(
-            self.data_dir, market, self.exchange,
+            self.data_dir, market,
             "1h_cache", f"{prefix}_1h.parquet",
         )
 
@@ -48,7 +49,21 @@ class DataLoader:
         if not os.path.exists(path):
             return pd.DataFrame()
         try:
-            return pd.read_parquet(path)
+            df = pd.read_parquet(path)
+            # Parquet cache uses a datetime index — convert to ms timestamp
+            # column so it merges cleanly with WAL data.
+            if "timestamp" not in df.columns and hasattr(df.index, "dtype"):
+                if pd.api.types.is_datetime64_any_dtype(df.index):
+                    df = df.reset_index()
+                    col = df.columns[0]  # the former index
+                    df = df.rename(columns={col: "timestamp"})
+                    # Convert to epoch ms regardless of datetime resolution
+                    df["timestamp"] = (
+                        df["timestamp"]
+                        .values.astype("datetime64[ms]")
+                        .astype("int64")
+                    )
+            return df
         except Exception:
             return pd.DataFrame()
 

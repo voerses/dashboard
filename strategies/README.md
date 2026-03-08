@@ -70,3 +70,12 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
 | s23+ | Future (next available: s23) |
 
 Never reuse an archived strategy number.
+
+## Future Ideas
+
+Position sizing improvements (currently all strategies use flat equal-weight):
+- **Volatility-scaled sizing** — scale position size inversely with realized vol (e.g. ATR-based)
+- **Signal conviction sizing** — weight by signal strength (basis magnitude, IC score, regime confidence)
+- **Risk parity across legs** — equalize risk contribution between spot and perp legs instead of equal USD
+- **Kelly criterion sizing** — size based on estimated edge and variance from backtest statistics
+- **Regime-adaptive sizing** — reduce exposure in CRISIS/DOWNTREND, increase in UPTREND/RANGE

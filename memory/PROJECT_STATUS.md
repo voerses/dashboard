@@ -29,6 +29,9 @@
 | Combined Portfolio Tools | `v3/portfolio.py`, `v3/correlation.py`, `v3/regime_analysis.py` | All three tools updated to support combined market: detect 2-arg strategy signature, load both spot+perp data, align timeframes, mask both legs, call `_simulate_combined`. |
 | Gate 5.5 Portfolio Assembly | `results/correlation_*.json`, `results/regime_analysis_*.json` | 3-strategy and 5-strategy correlation, marginal Sharpe, regime analysis. Recommended 4-strat allocation: s30(40%)+s32(25%)+s29(20%)+s11(15%). |
 | Data Infrastructure | `data/1h_cache/` | Spot: Binance 116 tokens. Perp: Binance 165, Kraken 314, Hyperliquid 52. 1H candles 2020-2026. |
+| Dashboard (GitHub Pages) | `tools/generate_dashboard.py`, `simulations.json` | Self-contained HTML dashboard for monitoring simulation runs. Signal enrichment (indicators at entry), open positions panel, equity curve, daily P&L, expandable trade details. Deployed to `voerses.github.io/dashboard/`. |
+| s33 Engine Support | `v3/engine.py` | Array support for `stop_mult`/`trail_mult` in StrategyResult + JIT. Enables per-bar dynamic stops (needed for leverage-scaled stops). |
+| s33 Leveraged Conviction Perp | `strategies/s33_leveraged_conviction_perp.py` | Conviction-scored leverage (1-10x), Moreira-Muir inverse vol scaling, bidirectional. **Currently losing -15.1% in backtest — needs investigation before paper trading.** |
 
 ### Open / Outstanding
 
@@ -37,6 +40,9 @@
 | **URGENT** | AC8 fix: credentials written to disk in `run_paper_trade.py:141` | None | Strip creds before `json.dump()`, pass via env vars to subprocess |
 | MINOR | Resource leak: unclosed log file handle (`run_paper_trade.py:146`) | None | Close fd after Popen |
 | MINOR | Private API call: `InstanceManager._load_state()` | None | Expose public method |
+| **HIGH** | Dashboard GH Pages CDN stale cache | Mirror sync delay | Gitea→GitHub mirror not propagating gh-pages changes fast enough. Old fetch-based HTML (25KB) cached on CDN, causes heatmap Plotly errors. `data.json` added as backwards-compat fallback. May need manual `gh-pages` push directly to GitHub or check Gitea mirror settings. |
+| **MED** | s33 strategy investigation | None | -15.1% P&L, 27% win rate, $15k fees on $100k. 369 trades in 1 month, mostly max_hold exits. Fees alone equal losses. Needs: (1) reduce trade frequency, (2) tighten entry conviction threshold, (3) check if fee model is realistic. |
+| **MED** | Dashboard push workflow | None | `generate_dashboard.py --push` pushes to Gitea gh-pages via clone+commit. Should also push to GitHub directly or fix mirror sync for gh-pages branch. |
 
 ### Blocked
 

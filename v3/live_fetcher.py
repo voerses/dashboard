@@ -68,6 +68,41 @@ class LiveFetcher:
     # AC1: OHLCV fetching
     # ------------------------------------------------------------------
 
+    def _resolve_perp_symbol(self, token: str) -> str:
+        """Resolve the correct perp symbol for Binance-style exchanges.
+
+        Some tokens trade as 1000TOKEN on perps (e.g. PEPE → 1000PEPE).
+        Uses CCXT's loaded markets to find the correct symbol.
+        """
+        exchange = self._get_exchange("perp")
+        if not exchange.markets:
+            exchange.load_markets()
+
+        # Try the standard symbol first
+        standard = f"{token}:USDT"
+        if standard in exchange.markets:
+            return standard
+
+        # Try 1000-prefixed variant (Binance meme coins)
+        base = token.split("/")[0] if "/" in token else token
+        variant = f"1000{base}/USDT:USDT"
+        if variant in exchange.markets:
+            return variant
+
+        return standard  # fall back, let CCXT raise if wrong
+
+    def _is_1000x_symbol(self, token: str) -> bool:
+        """Check if the perp symbol uses a 1000x multiplier."""
+        exchange = self._get_exchange("perp")
+        if not exchange.markets:
+            exchange.load_markets()
+        standard = f"{token}:USDT"
+        if standard in exchange.markets:
+            return False
+        base = token.split("/")[0] if "/" in token else token
+        variant = f"1000{base}/USDT:USDT"
+        return variant in exchange.markets
+
     def fetch_ohlcv(
         self,
         token: str,
@@ -79,19 +114,27 @@ class LiveFetcher:
 
         Returns a list of bar dicts with keys:
         timestamp, open, high, low, close, volume.
+
+        For perp tokens that trade as 1000TOKEN (e.g. 1000PEPE), prices
+        are divided by 1000 so they match spot scale.
         """
         exchange = self._get_exchange(market)
-        symbol = token if market == "spot" else f"{token}:USDT"
+        if market == "perp":
+            symbol = self._resolve_perp_symbol(token)
+            scale = 1000.0 if self._is_1000x_symbol(token) else 1.0
+        else:
+            symbol = token
+            scale = 1.0
         raw = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
         bars = []
         for candle in raw:
             bars.append({
                 "timestamp": int(candle[0]),
-                "open": float(candle[1]),
-                "high": float(candle[2]),
-                "low": float(candle[3]),
-                "close": float(candle[4]),
-                "volume": float(candle[5]),
+                "open": float(candle[1]) / scale,
+                "high": float(candle[2]) / scale,
+                "low": float(candle[3]) / scale,
+                "close": float(candle[4]) / scale,
+                "volume": float(candle[5]) * scale,
             })
         return bars
 
@@ -142,7 +185,7 @@ class LiveFetcher:
     def fetch_funding_rates(self, token: str) -> list[dict]:
         """Fetch recent funding rate records for a perpetual."""
         exchange = self._get_exchange(market="perp")
-        symbol = f"{token}:USDT"
+        symbol = self._resolve_perp_symbol(token)
         raw = exchange.fetch_funding_rate_history(symbol, limit=10)
         rates = []
         for entry in raw:
@@ -239,7 +282,10 @@ class LiveFetcher:
             return []
         tf_ms = _TF_MS.get(timeframe, 3_600_000)
         exchange = self._get_exchange(market)
-        symbol = token if market == "spot" else f"{token}:USDT"
+        if market == "perp":
+            symbol = self._resolve_perp_symbol(token)
+        else:
+            symbol = token
 
         # Snap requested timestamps to their containing candle boundary.
         # E.g. 22:13:20 → 22:00:00  (floor to timeframe)
