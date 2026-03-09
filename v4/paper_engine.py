@@ -696,9 +696,23 @@ class PaperPortfolioEngine:
     def _push_dashboard(self) -> None:
         """Push dashboard to deployment target (AC27).
 
-        Placeholder — actual implementation depends on deployment strategy.
+        Calls tools/generate_dashboard_v2.py with --state-dir and --push.
+        Uses config_path for --config so dashboard picks up pool_name and strategy info.
         """
-        pass
+        import subprocess
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        script = os.path.join(project_root, "tools", "generate_dashboard_v2.py")
+
+        cmd = [
+            sys.executable, script,
+            "--state-dir", self.config.state_dir,
+            "--push",
+        ]
+        if self.config.config_path:
+            cmd.extend(["--config", self.config.config_path])
+
+        subprocess.run(cmd, cwd=project_root, timeout=120, check=False,
+                       capture_output=True, text=True)
 
     def tick(self) -> TickResult:
         """Process a single tick with error handling.
@@ -783,11 +797,11 @@ class PaperPortfolioEngine:
         os.makedirs(state_dir, exist_ok=True)
         heartbeat = {
             "timestamp": result.timestamp,
-            "tick_counter": result.tick_counter,
-            "open_positions": result.open_positions,
-            "portfolio_equity": result.portfolio_equity,
-            "mark_to_market_equity": result.mark_to_market_equity,
-            "processing_time_s": result.processing_time_s,
+            "tick_counter": int(result.tick_counter),
+            "open_positions": int(result.open_positions),
+            "portfolio_equity": float(result.portfolio_equity),
+            "mark_to_market_equity": float(result.mark_to_market_equity),
+            "processing_time_s": float(result.processing_time_s),
             "errors": result.error,
         }
         heartbeat_path = os.path.join(state_dir, "heartbeat.json")

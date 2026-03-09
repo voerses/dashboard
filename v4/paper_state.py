@@ -34,36 +34,40 @@ def make_position_id(token: str, strategy_id: str, tick_counter: int, leg: str) 
 # ---------------------------------------------------------------------------
 
 def _serialize_position(pos: Position) -> dict:
-    """Serialize a Position to a JSON-compatible dict."""
+    """Serialize a Position to a JSON-compatible dict.
+
+    Explicitly converts numpy scalar types to Python native types
+    to avoid json.dumps TypeError on numpy float32/int32/etc.
+    """
     d = {
         "position_id": pos.position_id,
         "token": pos.token,
         "strategy_id": pos.strategy_id,
         "leg": pos.leg,
-        "entry_bar": pos.entry_bar,
-        "entry_price": pos.entry_price,
-        "direction": pos.direction,
-        "quantity": pos.quantity,
-        "margin_usd": pos.margin_usd,
-        "leverage": pos.leverage,
-        "is_perp": pos.is_perp,
-        "fee_rate": pos.fee_rate,
-        "stop_mult": pos.stop_mult,
-        "trail_mult": pos.trail_mult,
-        "target_mult": pos.target_mult,
-        "no_stop_bars": pos.no_stop_bars,
-        "min_hold": pos.min_hold,
-        "max_hold": pos.max_hold,
+        "entry_bar": int(pos.entry_bar),
+        "entry_price": float(pos.entry_price),
+        "direction": int(pos.direction),
+        "quantity": float(pos.quantity),
+        "margin_usd": float(pos.margin_usd),
+        "leverage": float(pos.leverage),
+        "is_perp": bool(pos.is_perp),
+        "fee_rate": float(pos.fee_rate),
+        "stop_mult": float(pos.stop_mult),
+        "trail_mult": float(pos.trail_mult),
+        "target_mult": float(pos.target_mult),
+        "no_stop_bars": int(pos.no_stop_bars),
+        "min_hold": int(pos.min_hold),
+        "max_hold": int(pos.max_hold),
         "exit_regimes": sorted(pos.exit_regimes),
-        "convex_exit": pos.convex_exit,
-        "rsi_exit_level": pos.rsi_exit_level,
+        "convex_exit": bool(pos.convex_exit),
+        "rsi_exit_level": float(pos.rsi_exit_level),
         "trail_schedule": pos.trail_schedule.tolist() if pos.trail_schedule is not None else None,
         "max_trail_mult_arr": pos.max_trail_mult_arr.tolist() if pos.max_trail_mult_arr is not None else None,
-        "stop_price": pos.stop_price,
-        "highest": pos.highest,
-        "lowest": pos.lowest,
-        "initial_risk": pos.initial_risk,
-        "cumulative_funding": pos.cumulative_funding,
+        "stop_price": float(pos.stop_price),
+        "highest": float(pos.highest),
+        "lowest": float(pos.lowest),
+        "initial_risk": float(pos.initial_risk),
+        "cumulative_funding": float(pos.cumulative_funding),
         "linked_position_id": pos.linked_position_id,
     }
     return d
@@ -131,21 +135,21 @@ def serialize_state(
 
     data = {
         "version": STATE_VERSION,
-        "tick_counter": tick_counter,
+        "tick_counter": int(tick_counter),
         "last_timestamp": last_timestamp,
-        "initial_capital": state.initial_capital,
-        "realized_pnl": state.realized_pnl,
-        "total_fees": state.total_fees,
-        "total_funding": state.total_funding,
+        "initial_capital": float(state.initial_capital),
+        "realized_pnl": float(state.realized_pnl),
+        "total_fees": float(state.total_fees),
+        "total_funding": float(state.total_funding),
         "open_positions": positions,
-        "entry_fees_by_pos": dict(state._entry_fees_by_pos),
+        "entry_fees_by_pos": {k: float(v) for k, v in state._entry_fees_by_pos.items()},
     }
 
     if shadow_pools is not None:
-        data["shadow_pools"] = shadow_pools
+        data["shadow_pools"] = {k: float(v) for k, v in shadow_pools.items()}
 
     if last_known_prices is not None:
-        data["last_known_prices"] = last_known_prices
+        data["last_known_prices"] = {k: float(v) for k, v in last_known_prices.items()}
 
     return data
 
@@ -245,19 +249,19 @@ def _closed_trade_to_dict(trade: ClosedTrade, tick: Optional[int] = None) -> dic
         "token": trade.token,
         "strategy_id": trade.strategy_id,
         "leg": trade.leg,
-        "entry_bar": trade.entry_bar,
-        "exit_bar": trade.exit_bar,
-        "entry_price": trade.entry_price,
-        "exit_price": trade.exit_price,
-        "direction": trade.direction,
-        "margin_usd": trade.margin_usd,
-        "pnl": trade.pnl,
-        "funding_cost": trade.funding_cost,
-        "entry_fee": trade.entry_fee,
-        "exit_fee": trade.exit_fee,
-        "hold_bars": trade.hold_bars,
+        "entry_bar": int(trade.entry_bar),
+        "exit_bar": int(trade.exit_bar),
+        "entry_price": float(trade.entry_price),
+        "exit_price": float(trade.exit_price),
+        "direction": int(trade.direction),
+        "margin_usd": float(trade.margin_usd),
+        "pnl": float(trade.pnl),
+        "funding_cost": float(trade.funding_cost),
+        "entry_fee": float(trade.entry_fee),
+        "exit_fee": float(trade.exit_fee),
+        "hold_bars": int(trade.hold_bars),
         "exit_reason": trade.exit_reason,
-        "is_perp": trade.is_perp,
+        "is_perp": bool(trade.is_perp),
     }
     if tick is not None:
         d["tick"] = tick
@@ -431,7 +435,7 @@ def serialize_engine_state(
     data = {
         "version": STATE_VERSION,
         "mode": mode,
-        "tick_counter": tick_counter,
+        "tick_counter": int(tick_counter),
         "last_timestamp": last_timestamp,
         "strategy_states": {},
     }
@@ -439,20 +443,20 @@ def serialize_engine_state(
     for sid, state in strategy_states.items():
         positions = [_serialize_position(p) for p in state.position_manager.open_positions]
         sdata = {
-            "initial_capital": state.initial_capital,
-            "realized_pnl": state.realized_pnl,
-            "total_fees": state.total_fees,
-            "total_funding": state.total_funding,
+            "initial_capital": float(state.initial_capital),
+            "realized_pnl": float(state.realized_pnl),
+            "total_fees": float(state.total_fees),
+            "total_funding": float(state.total_funding),
             "open_positions": positions,
-            "entry_fees_by_pos": dict(state._entry_fees_by_pos),
+            "entry_fees_by_pos": {k: float(v) for k, v in state._entry_fees_by_pos.items()},
         }
         data["strategy_states"][sid] = sdata
 
     if shadow_pools is not None:
-        data["shadow_pools"] = shadow_pools
+        data["shadow_pools"] = {k: float(v) for k, v in shadow_pools.items()}
 
     if last_known_prices is not None:
-        data["last_known_prices"] = last_known_prices
+        data["last_known_prices"] = {k: float(v) for k, v in last_known_prices.items()}
 
     return data
 

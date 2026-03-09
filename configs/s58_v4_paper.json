@@ -1,0 +1,33 @@
+{
+  "initial_capital": 200000.0,
+  "mode": "pool",
+  "pool_name": "s58_momentum_carry",
+  "strategies": [
+    {
+      "strategy_id": "s56",
+      "weight": 0.5,
+      "market": "perp",
+      "max_positions": 12
+    },
+    {
+      "strategy_id": "s57",
+      "weight": 0.5,
+      "market": "combined",
+      "max_positions": 12
+    }
+  ],
+  "max_portfolio_positions": 25,
+  "concentration_limit": 0.20,
+  "adv_cap_pct": 0.10,
+  "min_position_usd": 200.0,
+  "exchange": "binance",
+  "seed": 42,
+  "base_spread_bps": 3.0,
+  "impact_coeff": 0.03,
+  "lookback_months": 12,
+  "enable_purge_windows": false,
+  "drawdown_alert_pct": 5.0,
+  "shadow_rebalance_threshold": 100.0,
+  "state_dir": "state/v4_paper/",
+  "dashboard_push": true
+}
