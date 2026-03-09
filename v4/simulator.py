@@ -22,7 +22,7 @@ from .sizing import compute_position_size, compute_slippage_bps
 _v3_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "v3")
 if _v3_dir not in sys.path:
     sys.path.insert(0, _v3_dir)
-from universe import get_fee_rate, get_maint_margin_rate
+from universe import get_fee_rate, get_maint_margin_rate, get_liquidation_fee_rate
 
 
 @dataclass
@@ -128,7 +128,11 @@ def _close_position(
 
     # Exit slippage using point-in-time ADV
     if exit_reason != "liquidation":
-        slip_bps = compute_slippage_bps(notional, exit_adv, config.base_spread_bps, config.impact_coeff)
+        # Apply stress ADV multiplier for stop exits (liquidity dries up during cascades)
+        effective_adv = exit_adv
+        if exit_reason == "stop":
+            effective_adv = exit_adv * config.stress_adv_multiplier
+        slip_bps = compute_slippage_bps(notional, effective_adv, config.base_spread_bps, config.impact_coeff, config.max_slip_bps)
         slip = exit_price * slip_bps / 10000.0
         if pos.direction == 1:
             exit_price -= slip
@@ -141,8 +145,10 @@ def _close_position(
     # to avoid double-counting.
     if exit_reason == "liquidation":
         mmr = get_maint_margin_rate(config.exchange)
-        max_loss = pos.margin_usd * (1.0 - mmr)
-        exit_fee = pos.margin_usd * pos.fee_rate
+        entry_notional = pos.margin_usd * pos.leverage
+        max_loss = pos.margin_usd - entry_notional * mmr
+        liq_fee_rate = get_liquidation_fee_rate(config.exchange)
+        exit_fee = abs(pos.quantity * exit_price) * liq_fee_rate
         # Funding already deducted bar-by-bar via total_funding; add back to realized_pnl
         # so net effect is: equity -= (max_loss + exit_fee)
         state.realized_pnl += -max_loss + pos.cumulative_funding
@@ -272,7 +278,9 @@ def _process_exits(
                 unrealized = pos.quantity * (low_val - pos.entry_price)
             else:
                 unrealized = abs(pos.quantity) * (pos.entry_price - high_val)
-            if pos.margin_usd + unrealized - pos.cumulative_funding < pos.margin_usd * mmr:
+            entry_notional = pos.margin_usd * pos.leverage
+            maintenance_margin = entry_notional * mmr
+            if pos.margin_usd + unrealized - pos.cumulative_funding < maintenance_margin:
                 positions_to_close.append((pos, close_val, "liquidation", adv_val))
                 if pos.linked_position_id:
                     linked = state.position_manager.get_linked(pos.linked_position_id)
@@ -549,7 +557,7 @@ def _process_entries(
             p_low = sig.low[local_bar]
             p_atr = atr_val
 
-            p_slip_bps = compute_slippage_bps(primary_notional, adv_val, config.base_spread_bps, config.impact_coeff)
+            p_slip_bps = compute_slippage_bps(primary_notional, adv_val, config.base_spread_bps, config.impact_coeff, config.max_slip_bps)
             p_slip = p_close * p_slip_bps / 10000.0
             p_entry_price = p_close + p_slip * direction
 
@@ -610,7 +618,7 @@ def _process_entries(
                 s_atr = atr_val
                 s_adv = adv_val
 
-            s_slip_bps = compute_slippage_bps(secondary_notional, s_adv, config.base_spread_bps, config.impact_coeff)
+            s_slip_bps = compute_slippage_bps(secondary_notional, s_adv, config.base_spread_bps, config.impact_coeff, config.max_slip_bps)
             s_slip = s_close * s_slip_bps / 10000.0
             s_entry_price = s_close + s_slip * sec_dir
 
@@ -709,7 +717,7 @@ def _process_entries(
                 continue
 
             # Entry slippage
-            slip_bps = compute_slippage_bps(notional_usd, adv_val, config.base_spread_bps, config.impact_coeff)
+            slip_bps = compute_slippage_bps(notional_usd, adv_val, config.base_spread_bps, config.impact_coeff, config.max_slip_bps)
             slip = close_val * slip_bps / 10000.0
             entry_price = close_val + slip * direction
 

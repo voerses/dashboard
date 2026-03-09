@@ -438,18 +438,20 @@ def simulate_portfolio(
             else:
                 scale = 1.0
 
-            # Check 3: cash availability
-            if cash < pos_usd:
-                # Try to scale down to what we can afford
-                if cash >= min_position_usd:
-                    scale = min(scale, cash / trade['position_usd'])
-                    pos_usd = cash
+            # Check 3: cash availability (including entry fee)
+            cost_with_fee = pos_usd * (1.0 + fee_rate)
+            if cash < cost_with_fee:
+                # Try to scale down to what we can afford (fee-inclusive)
+                affordable = cash / (1.0 + fee_rate)
+                if affordable >= min_position_usd:
+                    scale = min(scale, affordable / trade['position_usd'])
+                    pos_usd = affordable
                 else:
                     skipped.append(trade)
                     skip_reasons['no_cash'] += 1
                     continue
 
-            # Accept the trade — deduct entry fee from cash
+            # Accept the trade — deduct position + entry fee from cash
             entry_fee = pos_usd * fee_rate
             cash -= pos_usd + entry_fee
             total_entry_fees += entry_fee

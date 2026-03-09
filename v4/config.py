@@ -29,3 +29,5 @@ class PortfolioConfig:
     train_bars: int = 8760              # 365 days walk-forward
     recal_bars: int = 2160              # 90 days recalibration
     purge_bars: int = 120               # 5 days purge
+    stress_adv_multiplier: float = 1.0  # ADV multiplier for stop/liquidation exits (1.0 = no stress)
+    max_slip_bps: float = 300           # max slippage cap in basis points

@@ -49,8 +49,9 @@ def compute_slippage_bps(
     adv: float,
     base_spread_bps: float = 3.0,
     impact_coeff: float = 0.03,
+    max_slip_bps: float = 300.0,
 ) -> float:
     """Square-root market impact model (matches v3 JIT engine.py:534-538)."""
     participation = pos_usd / max(adv, 1.0)
     slip_bps = base_spread_bps + impact_coeff * np.sqrt(participation) * 10000.0
-    return min(slip_bps, 100.0)
+    return min(slip_bps, max_slip_bps)

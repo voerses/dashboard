@@ -165,6 +165,17 @@ EXCHANGE_MMR = {
     'hyperliquid': 0.05,    # 5.00% — conservative default
 }
 
+# Liquidation fee rates per exchange — charged on notional at liquidation
+# Sources:
+#   Binance: 1.5% of notional (liquidation insurance fund fee)
+#   Kraken:  estimated similar
+#   Hyperliquid: conservative estimate
+EXCHANGE_LIQUIDATION_FEE = {
+    'binance':     0.015,   # 1.5% of notional
+    'kraken':      0.015,   # 1.5% estimated
+    'hyperliquid': 0.015,   # 1.5% conservative
+}
+
 
 def get_maint_margin_rate(exchange='binance'):
     """Maintenance margin rate for an exchange.
@@ -173,6 +184,15 @@ def get_maint_margin_rate(exchange='binance'):
     E.g. 0.004 means position is liquidated when remaining margin < 0.4% of notional.
     """
     return EXCHANGE_MMR.get(exchange, EXCHANGE_MMR['binance'])
+
+
+def get_liquidation_fee_rate(exchange='binance'):
+    """Liquidation fee rate for an exchange.
+
+    Returns the fraction of notional charged as a liquidation fee.
+    E.g. 0.015 means 1.5% of notional at liquidation.
+    """
+    return EXCHANGE_LIQUIDATION_FEE.get(exchange, EXCHANGE_LIQUIDATION_FEE['binance'])
 
 
 def get_fee_rate(exchange='binance', market='spot', order_type='taker'):

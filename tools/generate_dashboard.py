@@ -494,6 +494,7 @@ function render() {{
         <div class="kpi"><div class="lbl">Realized P&L</div><div class="val ${{pc(realizedPnl)}}">$${{fmt(realizedPnl)}} (${{fmtPct(realizedPct)}})</div></div>
         <div class="kpi"><div class="lbl">Unrealized P&L</div><div class="val ${{pc(unrealizedPnl)}}">$${{fmt(unrealizedPnl)}}</div></div>
         <div class="kpi"><div class="lbl">Invested / Cash</div><div class="val b">$${{fmt(deployed)}} <span style="font-size:0.55em;color:#484f58">/ $${{fmt(cash)}}</span><div style="font-size:0.45em;color:#484f58;margin-top:2px">${{deployedPct.toFixed(0)}}% deployed</div></div></div>
+        ${{(s.spot_funds!=null) ? `<div class="kpi"><div class="lbl">Spot / Perp Split</div><div class="val m">$${{fmt(s.spot_funds)}} <span style="font-size:0.55em;color:#484f58">/ $${{fmt(s.perp_funds||0)}}</span><div style="font-size:0.45em;color:#484f58;margin-top:2px">${{(s.spot_funds/(s.spot_funds+(s.perp_funds||1))*100).toFixed(0)}}% spot, ${{((s.perp_funds||0)/(s.spot_funds+(s.perp_funds||1))*100).toFixed(0)}}% perp</div></div></div>` : ''}}
         <div class="kpi"><div class="lbl">Max Drawdown</div><div class="val r">${{maxDD.toFixed(1)}}%</div></div>
         <div class="kpi"><div class="lbl">Trades</div><div class="val b">${{nT}} <span style="font-size:0.6em;color:${{nO>0?'#3fb950':'#484f58'}}">(${{nO}} open)</span></div></div>
         <div class="kpi"><div class="lbl">Win Rate</div><div class="val ${{wr>=50?'g':'y'}}">${{wr.toFixed(1)}}%<div style="font-size:0.45em;color:#484f58;margin-top:2px">${{nW}}/${{nClosed}} closed</div></div></div>
@@ -538,6 +539,25 @@ function render() {{
                         <td class="r">$${{fmt((t.exchange_fee||0)+Math.abs(t.funding_cost||0))}}</td>
                     </tr>`;
                 }}).join('')}}</tbody>
+            </table>
+        </div></div>`;
+    }}
+
+    // --- Rebalance history ---
+    const rebalHist = s.rebalance_history||[];
+    if (rebalHist.length > 0) {{
+        h += `<div class="sec">
+        <h2 style="color:#bc8cff">Recent Rebalances (${{rebalHist.length}})</h2>
+        <div class="card tbl-wrap" style="max-height:200px">
+            <table>
+                <thead><tr><th>Time</th><th>Transfer</th><th>Direction</th><th>Spot After</th><th>Perp After</th></tr></thead>
+                <tbody>${{[...rebalHist].reverse().map(r => `<tr>
+                    <td>${{(r.time||'').substring(5,16)}}</td>
+                    <td style="font-weight:700">$${{fmt(r.amount||0)}}</td>
+                    <td style="color:#bc8cff">${{r.direction||''}}</td>
+                    <td>$${{fmt(r.spot_funds_after||0)}}</td>
+                    <td>$${{fmt(r.perp_funds_after||0)}}</td>
+                </tr>`).join('')}}</tbody>
             </table>
         </div></div>`;
     }}

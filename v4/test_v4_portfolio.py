@@ -524,7 +524,7 @@ class TestComputeSlippageBps:
             base_spread_bps=3.0,
             impact_coeff=0.03,
         )
-        assert huge == pytest.approx(100.0)
+        assert huge == pytest.approx(300.0)
 
     def test_slippage_minimum_is_base_spread(self):
         tiny = compute_slippage_bps(
