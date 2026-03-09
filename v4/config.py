@@ -1,0 +1,31 @@
+"""V4 Portfolio Backtest — Configuration dataclasses."""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+
+@dataclass
+class StrategySpec:
+    """Specification for one strategy in the portfolio."""
+    strategy_id: str              # e.g. "s30"
+    weight: float = 1.0           # fraction of portfolio equity
+    max_positions: int = 15       # per-strategy position limit
+    market: str = "combined"      # "spot", "perp", "combined"
+
+
+@dataclass
+class PortfolioConfig:
+    """Portfolio-level configuration for the backtest."""
+    strategies: list[StrategySpec] = field(default_factory=list)
+    capital: float = 200_000
+    max_portfolio_positions: int = 40
+    concentration_limit: float = 0.10    # 10% per-token across strategies
+    adv_cap_pct: float = 0.10           # 10% of rolling ADV (v4-only constraint)
+    min_position_usd: float = 200.0
+    exchange: str = "binance"
+    base_spread_bps: float = 3.0
+    impact_coeff: float = 0.03
+    seed: int = 42
+    train_bars: int = 8760              # 365 days walk-forward
+    recal_bars: int = 2160              # 90 days recalibration
+    purge_bars: int = 120               # 5 days purge
