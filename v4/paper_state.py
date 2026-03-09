@@ -157,6 +157,13 @@ def deserialize_state(data: dict, return_shadow: bool = False):
     last_timestamp is stored as state.last_timestamp for callers that need it.
     Closed trades list is always empty (they live in trades.jsonl).
     """
+    # R3-I3 fix: validate state version
+    version = data.get("version", 1)
+    if version != STATE_VERSION:
+        raise ValueError(
+            f"State version mismatch: file has v{version}, "
+            f"engine expects v{STATE_VERSION}. Manual migration required."
+        )
     state = SimulationState(initial_capital=data["initial_capital"])
     state.realized_pnl = data["realized_pnl"]
     state.total_fees = data["total_fees"]
@@ -226,9 +233,14 @@ def atomic_write_state(
 # Append-only writers
 # ---------------------------------------------------------------------------
 
-def _closed_trade_to_dict(trade: ClosedTrade) -> dict:
-    """Convert a ClosedTrade to a JSON-serializable dict."""
-    return {
+def _closed_trade_to_dict(trade: ClosedTrade, tick: Optional[int] = None) -> dict:
+    """Convert a ClosedTrade to a JSON-serializable dict.
+
+    Args:
+        trade: The closed trade to convert.
+        tick: Optional tick counter value for recovery truncation (AC16).
+    """
+    d = {
         "position_id": trade.position_id,
         "token": trade.token,
         "strategy_id": trade.strategy_id,
@@ -247,13 +259,16 @@ def _closed_trade_to_dict(trade: ClosedTrade) -> dict:
         "exit_reason": trade.exit_reason,
         "is_perp": trade.is_perp,
     }
+    if tick is not None:
+        d["tick"] = tick
+    return d
 
 
-def append_trades(trades: list[ClosedTrade], path: str) -> None:
+def append_trades(trades: list[ClosedTrade], path: str, tick: Optional[int] = None) -> None:
     """Append closed trades as JSON lines to trades.jsonl."""
     with open(path, "a") as f:
         for trade in trades:
-            f.write(json.dumps(_closed_trade_to_dict(trade)) + "\n")
+            f.write(json.dumps(_closed_trade_to_dict(trade, tick=tick)) + "\n")
 
 
 _EQUITY_COLUMNS = [
@@ -301,3 +316,175 @@ def append_equity(
             f"{perp_deployed:.2f}",
             f"{imbalance_pct:.2f}",
         ])
+        # R6-I3 fix: fsync equity.csv for power-failure safety
+        f.flush()
+        os.fsync(f.fileno())
+
+
+# ---------------------------------------------------------------------------
+# Rebalance log (AC10)
+# ---------------------------------------------------------------------------
+
+def append_rebalances(records: list[dict], path: str) -> None:
+    """Append rebalance records as JSON lines to a JSONL file."""
+    with open(path, "a") as f:
+        for rec in records:
+            f.write(json.dumps(rec) + "\n")
+
+
+# ---------------------------------------------------------------------------
+# JSONL reader with malformed-line tolerance
+# ---------------------------------------------------------------------------
+
+def read_trades_jsonl(path: str) -> list[dict]:
+    """Read trades from a JSONL file, skipping malformed lines.
+
+    Returns list of parsed dicts. Lines that fail JSON parsing are silently
+    skipped (crash recovery safety — partial writes leave truncated lines).
+    """
+    trades = []
+    if not os.path.exists(path):
+        return trades
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                trades.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    return trades
+
+
+# ---------------------------------------------------------------------------
+# Recovery truncation (AC16)
+# ---------------------------------------------------------------------------
+
+def truncate_after_tick(path: str, max_tick: int, format: str = "jsonl") -> None:
+    """Remove entries with tick > max_tick from a file.
+
+    Args:
+        path: Path to the file (trades.jsonl or equity.csv).
+        max_tick: Keep only entries with tick <= max_tick.
+        format: "jsonl" for trades.jsonl, "csv" for equity.csv.
+    """
+    if not os.path.exists(path):
+        return
+
+    if format == "jsonl":
+        kept = []
+        with open(path) as f:
+            for line in f:
+                line_s = line.strip()
+                if not line_s:
+                    continue
+                try:
+                    rec = json.loads(line_s)
+                except json.JSONDecodeError:
+                    continue
+                if rec.get("tick", 0) <= max_tick:
+                    kept.append(line_s)
+        with open(path, "w") as f:
+            for line_s in kept:
+                f.write(line_s + "\n")
+
+    elif format == "csv":
+        import pandas as pd
+        try:
+            df = pd.read_csv(path)
+        except (pd.errors.ParserError, pd.errors.EmptyDataError):
+            # R6-I2 fix: handle malformed CSV from crash mid-write.
+            # Fall back to line-by-line reading, skipping bad lines.
+            import io
+            good_lines = []
+            with open(path) as f:
+                for i, line in enumerate(f):
+                    if i == 0:
+                        good_lines.append(line)  # header
+                        continue
+                    # Validate line has expected number of fields
+                    if line.strip() and line.count(",") >= 2:
+                        good_lines.append(line)
+            df = pd.read_csv(io.StringIO("".join(good_lines)))
+        df = df[df["tick"] <= max_tick]
+        df.to_csv(path, index=False)
+
+
+# ---------------------------------------------------------------------------
+# Independent mode engine state (AC12)
+# ---------------------------------------------------------------------------
+
+def serialize_engine_state(
+    strategy_states: dict[str, SimulationState],
+    tick_counter: int,
+    last_timestamp: str,
+    mode: str = "independent",
+    shadow_pools: Optional[dict] = None,
+    last_known_prices: Optional[dict] = None,
+) -> dict:
+    """Serialize multiple strategy states for independent mode.
+
+    tick_counter is stored at the top level (not per-strategy).
+    Each strategy state is serialized without tick_counter.
+    """
+    data = {
+        "version": STATE_VERSION,
+        "mode": mode,
+        "tick_counter": tick_counter,
+        "last_timestamp": last_timestamp,
+        "strategy_states": {},
+    }
+
+    for sid, state in strategy_states.items():
+        positions = [_serialize_position(p) for p in state.position_manager.open_positions]
+        sdata = {
+            "initial_capital": state.initial_capital,
+            "realized_pnl": state.realized_pnl,
+            "total_fees": state.total_fees,
+            "total_funding": state.total_funding,
+            "open_positions": positions,
+            "entry_fees_by_pos": dict(state._entry_fees_by_pos),
+        }
+        data["strategy_states"][sid] = sdata
+
+    if shadow_pools is not None:
+        data["shadow_pools"] = shadow_pools
+
+    if last_known_prices is not None:
+        data["last_known_prices"] = last_known_prices
+
+    return data
+
+
+def deserialize_engine_state(data: dict) -> tuple:
+    """Deserialize independent mode engine state.
+
+    Returns (strategy_states_dict, tick_counter, last_timestamp)
+    where strategy_states_dict maps strategy_id -> SimulationState.
+    """
+    # R3-I3 fix: validate state version
+    version = data.get("version", 1)
+    if version != STATE_VERSION:
+        raise ValueError(
+            f"State version mismatch: file has v{version}, "
+            f"engine expects v{STATE_VERSION}. Manual migration required."
+        )
+    tick_counter = data["tick_counter"]
+    last_timestamp = data.get("last_timestamp", None)
+
+    strategy_states = {}
+    for sid, sdata in data.get("strategy_states", {}).items():
+        state = SimulationState(initial_capital=sdata["initial_capital"])
+        state.realized_pnl = sdata["realized_pnl"]
+        state.total_fees = sdata["total_fees"]
+        state.total_funding = sdata["total_funding"]
+
+        for pos_data in sdata.get("open_positions", []):
+            pos = _deserialize_position(pos_data)
+            state.position_manager.open_position(pos)
+
+        state._entry_fees_by_pos = dict(sdata.get("entry_fees_by_pos", {}))
+        strategy_states[sid] = state
+
+    return strategy_states, tick_counter, last_timestamp

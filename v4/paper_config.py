@@ -30,7 +30,9 @@ class PaperConfig(PortfolioConfig):
     drawdown_alert_pct: float = 5.0             # drawdown alert threshold %
     alert_webhook_url: str = ""                 # optional webhook URL
     shadow_rebalance_threshold: float = 100.0   # minimum USD for shadow rebalance logging
-    config_path: str = ""                       # source file path (set by load_paper_config)
+    state_dir: str = "state/paper/"              # directory for state persistence
+    dashboard_push: bool = False                 # push dashboard to GH Pages after tick
+    config_path: str = ""                        # source file path (set by load_paper_config)
 
 
 def load_paper_config(path: str) -> PaperConfig:
@@ -80,6 +82,8 @@ def load_paper_config(path: str) -> PaperConfig:
         drawdown_alert_pct=data.get("drawdown_alert_pct", 5.0),
         alert_webhook_url=data.get("alert_webhook_url", ""),
         shadow_rebalance_threshold=data.get("shadow_rebalance_threshold", 100.0),
+        state_dir=data.get("state_dir", "state/paper/"),
+        dashboard_push=data.get("dashboard_push", False),
     )
 
     config.config_path = path

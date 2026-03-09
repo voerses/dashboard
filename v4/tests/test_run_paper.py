@@ -42,6 +42,7 @@ def _write_test_config(tmpdir: str) -> str:
         "concentration_limit": 0.10,
         "exchange": "binance",
         "seed": 42,
+        "state_dir": os.path.join(tmpdir, "state"),
     }
     path = os.path.join(tmpdir, "test_config.json")
     with open(path, "w") as f:
