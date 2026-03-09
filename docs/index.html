@@ -6,102 +6,87 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>Trading Dashboard</title>
+<title>Paper Trading Dashboard V2</title>
 <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
 body { font-family:-apple-system,'Segoe UI',system-ui,sans-serif; background:#0a0e17; color:#c9d1d9; font-size:13px; }
 
-/* Header */
 .header { background:#0d1117; padding:12px 20px; border-bottom:1px solid #21262d; display:flex; justify-content:space-between; align-items:center; position:sticky; top:0; z-index:100; }
-.header h1 { font-size:1.1em; color:#58a6ff; font-weight:600; }
+.header h1 { font-size:1.1em; color:#bc8cff; font-weight:600; }
 .header .meta { color:#484f58; font-size:0.75em; }
 
-/* Sim tabs */
+.stale-banner { background:#5c0a0a; border:1px solid #f85149; color:#f85149; padding:8px 20px; font-size:0.85em; font-weight:600; display:none; }
+.stale-banner.visible { display:block; }
+
 .sim-tabs { display:flex; gap:4px; padding:8px 20px; background:#0d1117; border-bottom:1px solid #21262d; }
 .stab { padding:6px 14px; border-radius:6px; cursor:pointer; background:transparent; color:#484f58; border:1px solid transparent; font-size:0.8em; transition:all 0.15s; }
 .stab:hover { color:#c9d1d9; background:#161b22; }
 .stab.active { background:#1f6feb; color:#fff; font-weight:600; }
 
-/* KPIs */
-.kpi-row { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:8px; padding:12px 20px; }
+.kpi-row { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:8px; padding:12px 20px; }
 .kpi { background:#161b22; border:1px solid #21262d; border-radius:6px; padding:10px; }
 .kpi .lbl { color:#484f58; font-size:0.65em; text-transform:uppercase; letter-spacing:0.8px; }
 .kpi .val { font-size:1.3em; font-weight:700; margin-top:1px; }
 
-/* Colors */
 .g { color:#3fb950; } .r { color:#f85149; } .b { color:#58a6ff; } .y { color:#d29922; } .m { color:#bc8cff; }
 
-/* Sections */
 .sec { padding:12px 20px; }
 .sec h2 { color:#8b949e; font-size:0.8em; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px; }
 .card { background:#161b22; border:1px solid #21262d; border-radius:6px; }
+.chart { padding:8px; }
 
-/* Strategy cards */
-.strat-row { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:8px; }
-.sc { padding:12px; }
-.sc h3 { color:#c9d1d9; font-size:0.85em; margin-bottom:6px; display:flex; align-items:center; gap:6px; }
-.sc .row { display:flex; justify-content:space-between; padding:2px 0; font-size:0.8em; }
-.sc .row .k { color:#484f58; }
+/* Fund allocation panel */
+.fund-panel { display:grid; grid-template-columns:1fr 1fr; gap:12px; padding:12px; }
+.fund-bar { height:20px; border-radius:4px; display:flex; overflow:hidden; margin:6px 0; }
+.fund-bar .spot { background:#1f6feb; } .fund-bar .perp { background:#d29922; }
+.fund-stat { display:flex; justify-content:space-between; padding:2px 0; font-size:0.8em; }
+.fund-stat .k { color:#484f58; }
+.imb-green { color:#3fb950; } .imb-yellow { color:#d29922; } .imb-red { color:#f85149; }
 
-/* Pills */
 .pill { display:inline-block; padding:1px 6px; border-radius:8px; font-size:0.65em; font-weight:700; letter-spacing:0.3px; }
 .pill.long { background:#0d3520; color:#3fb950; } .pill.short { background:#3d1418; color:#f85149; }
 .pill.spot { background:#1a2332; color:#58a6ff; } .pill.perp { background:#2d1f0e; color:#d29922; }
-.pill.open { background:#0d3520; color:#3fb950; border:1px solid #238636; }
-.pill.closed { background:#161b22; color:#484f58; }
 
-/* Charts */
-.chart { padding:8px; }
-
-/* Tables */
 table { width:100%; border-collapse:collapse; }
 th { background:#161b22; color:#484f58; padding:6px 8px; text-align:left; font-weight:600; font-size:0.65em; text-transform:uppercase; letter-spacing:0.5px; position:sticky; top:0; }
 td { padding:5px 8px; border-bottom:1px solid #161b22; font-size:0.8em; }
 tr:hover { background:#1c2128; }
-tr.detail-row { background:#0d1117; }
-tr.detail-row:hover { background:#0d1117; }
 tr.trade-row { cursor:pointer; }
 
-/* Signal detail panel */
-.sig-panel { padding:8px 12px 12px 40px; }
-.sig-chips { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:6px; }
-.chip { display:inline-block; padding:2px 8px; border-radius:4px; font-size:0.75em; background:#21262d; color:#8b949e; }
-.chip.regime { font-weight:700; }
-.chip.UPTREND { background:#0d3520; color:#3fb950; } .chip.DOWNTREND { background:#3d1418; color:#f85149; }
-.chip.CRISIS { background:#5c0a0a; color:#ff7b72; } .chip.RANGE { background:#1c2128; color:#8b949e; }
-.chip.QUIET { background:#1a2332; color:#58a6ff; }
-.sig-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:2px 12px; font-size:0.75em; }
-.sig-grid .si { display:flex; justify-content:space-between; padding:1px 0; }
-.sig-grid .si .k { color:#484f58; }
-
-/* Filters */
+.tbl-wrap { overflow-x:auto; max-height:700px; overflow-y:auto; }
 .frow { display:flex; gap:3px; margin-bottom:8px; }
 .fb { padding:4px 10px; border-radius:4px; cursor:pointer; background:transparent; color:#484f58; border:1px solid #21262d; font-size:0.75em; }
 .fb:hover { color:#c9d1d9; border-color:#30363d; }
 .fb.active { background:#1f6feb; color:#fff; border-color:#1f6feb; }
 
-/* Scrollable table */
-.tbl-wrap { overflow-x:auto; max-height:700px; overflow-y:auto; }
+.strat-row { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:8px; }
+.sc { padding:12px; }
+.sc h3 { color:#c9d1d9; font-size:0.85em; margin-bottom:6px; }
+.sc .row { display:flex; justify-content:space-between; padding:2px 0; font-size:0.8em; }
+.sc .row .k { color:#484f58; }
 </style>
 </head>
 <body>
 
 <div class="header">
-    <h1>Trading Dashboard</h1>
-    <div class="meta">Updated: 2026-03-08 18:09 UTC</div>
+    <h1>Paper Trading Dashboard V2</h1>
+    <div class="meta">Updated: 2026-03-09 22:15 UTC</div>
+</div>
+<div class="stale-banner" id="stale-banner">
+    Data is stale — last update was more than 2 hours ago. Check paper trading engine.
 </div>
 <div class="sim-tabs" id="sim-tabs"></div>
 <div id="app"></div>
 
 <script>
-const SIMS = [{"id":"paper_s30_basis_carry","name":"Paper: s30_basis_carry","capital":200000.0,"strategies":[{"name":"s30_basis_carry","market":"COMBINED","starting_capital":200000.0,"final_equity":200098.53,"pnl":98.53,"return_pct":0.05,"n_trades":22,"n_open":22,"wins":0,"win_rate":0.0,"exchange_fees":123.63,"funding_fees":10.26}],"all_trades":[{"token":"BIO","strategy":"s30_basis_carry","market_type":"spot","entry_time":"2026-03-07 21:03 UTC","exit_time":"","status":"open","direction":1,"entry_price":0.0209,"current_price":0.0205,"pnl":-127.59,"return_pct":-1.9139,"position_usd":6666.66,"exchange_fee":6.67,"funding_cost":0,"hold_hours":21.1,"exit_reason":"","signal":{"regime":"RANGE","basis_bps":28.71,"signal_short":"SPOT LONG | basis=+28.7bps"}},{"token":"BIO","strategy":"s30_basis_carry","market_type":"perp","entry_time":"2026-03-07 21:03 UTC","exit_time":"","status":"open","direction":-1,"entry_price":0.02096,"current_price":0.02054,"pnl":133.59,"return_pct":2.0038,"position_usd":6666.66,"exchange_fee":3.33,"funding_cost":3.09,"hold_hours":21.1,"exit_reason":"","signal":{"regime":"RANGE","basis_bps":28.71,"signal_short":"PERP SHORT | basis=+28.7bps"}},{"token":"BERA","strategy":"s30_basis_carry","market_type":"spot","entry_time":"2026-03-08 02:00 UTC","exit_time":"","status":"open","direction":1,"entry_price":0.532,"current_price":0.533,"pnl":12.53,"return_pct":0.188,"position_usd":6666.0,"exchange_fee":6.67,"funding_cost":0,"hold_hours":16.2,"exit_reason":"","signal":{"regime":"DOWNTREND","basis_bps":13.16,"signal_short":"SPOT LONG | basis=+13.2bps"}},{"token":"BERA","strategy":"s30_basis_carry","market_type":"perp","entry_time":"2026-03-08 02:00 UTC","exit_time":"","status":"open","direction":-1,"entry_price":0.5327,"current_price":0.5325,"pnl":2.5,"return_pct":0.0375,"position_usd":6666.0,"exchange_fee":3.33,"funding_cost":0.46,"hold_hours":16.2,"exit_reason":"","signal":{"regime":"DOWNTREND","basis_bps":13.16,"signal_short":"PERP SHORT | basis=+13.2bps"}},{"token":"ARB","strategy":"s30_basis_carry","market_type":"spot","entry_time":"2026-03-08 05:00 UTC","exit_time":"","status":"open","direction":1,"entry_price":0.0948,"current_price":0.095,"pnl":14.06,"return_pct":0.211,"position_usd":6665.34,"exchange_fee":6.67,"funding_cost":0,"hold_hours":13.2,"exit_reason":"","signal":{"regime":"RANGE","basis_bps":10.55,"signal_short":"SPOT LONG | basis=+10.6bps"}},{"token":"ARB","strategy":"s30_basis_carry","market_type":"perp","entry_time":"2026-03-08 05:00 UTC","exit_time":"","status":"open","direction":-1,"entry_price":0.0949,"current_price":0.095,"pnl":-7.02,"return_pct":-0.1054,"position_usd":6665.34,"exchange_fee":3.33,"funding_cost":0.67,"hold_hours":13.2,"exit_reason":"","signal":{"regime":"RANGE","basis_bps":10.55,"signal_short":"PERP SHORT | basis=+10.6bps"}},{"token":"CRV","strategy":"s30_basis_carry","market_type":"spot","entry_time":"2026-03-08 06:00 UTC","exit_time":"","status":"open","direction":1,"entry_price":0.2314,"current_price":0.2336,"pnl":63.36,"return_pct":0.9507,"position_usd":6664.66,"exchange_fee":6.66,"funding_cost":0,"hold_hours":12.2,"exit_reason":"","signal":{"regime":"RANGE","basis_bps":25.93,"signal_short":"SPOT LONG | basis=+25.9bps"}},{"token":"CRV","strategy":"s30_basis_carry","market_type":"perp","entry_time":"2026-03-08 06:00 UTC","exit_time":"","status":"open","direction":-1,"entry_price":0.232,"current_price":0.233,"pnl":-28.73,"return_pct":-0.431,"position_usd":6664.66,"exchange_fee":3.33,"funding_cost":0.67,"hold_hours":12.2,"exit_reason":"","signal":{"regime":"RANGE","basis_bps":25.93,"signal_short":"PERP SHORT | basis=+25.9bps"}},{"token":"EIGEN","strategy":"s30_basis_carry","market_type":"spot","entry_time":"2026-03-08 07:00 UTC","exit_time":"","status":"open","direction":1,"entry_price":0.175,"current_price":0.18,"pnl":190.38,"return_pct":2.8571,"position_usd":6663.34,"exchange_fee":6.66,"funding_cost":0,"hold_hours":11.2,"exit_reason":"","signal":{"regime":"DOWNTREND","basis_bps":40.0,"signal_short":"SPOT LONG | basis=+40.0bps"}},{"token":"EIGEN","strategy":"s30_basis_carry","market_type":"perp","entry_time":"2026-03-08 07:00 UTC","exit_time":"","status":"open","direction":-1,"entry_price":0.1757,"current_price":0.1801,"pnl":-166.87,"return_pct":-2.5043,"position_usd":6663.34,"exchange_fee":3.33,"funding_cost":3.0,"hold_hours":11.2,"exit_reason":"","signal":{"regime":"DOWNTREND","basis_bps":40.0,"signal_short":"PERP SHORT | basis=+40.0bps"}},{"token":"ETHFI","strategy":"s30_basis_carry","market_type":"spot","entry_time":"2026-03-08 08:00 UTC","exit_time":"","status":"open","direction":1,"entry_price":0.517,"current_price":0.517,"pnl":0.0,"return_pct":0.0,"position_usd":6662.67,"exchange_fee":6.66,"funding_cost":0,"hold_hours":10.2,"exit_reason":"","signal":{"regime":"RANGE","basis_bps":11.61,"signal_short":"SPOT LONG | basis=+11.6bps"}},{"token":"ETHFI","strategy":"s30_basis_carry","market_type":"perp","entry_time":"2026-03-08 08:00 UTC","exit_time":"","status":"open","direction":-1,"entry_price":0.5176,"current_price":0.5168,"pnl":10.3,"return_pct":0.1546,"position_usd":6662.67,"exchange_fee":3.33,"funding_cost":0.33,"hold_hours":10.2,"exit_reason":"","signal":{"regime":"RANGE","basis_bps":11.61,"signal_short":"PERP SHORT | basis=+11.6bps"}},{"token":"AIXBT","strategy":"s30_basis_carry","market_type":"spot","entry_time":"2026-03-08 11:00 UTC","exit_time":"","status":"open","direction":1,"entry_price":0.0251,"current_price":0.0235,"pnl":-424.67,"return_pct":-6.3745,"position_usd":6662.0,"exchange_fee":6.66,"funding_cost":0,"hold_hours":7.2,"exit_reason":"","signal":{"regime":"DOWNTREND","basis_bps":15.94,"signal_short":"SPOT LONG | basis=+15.9bps"}},{"token":"AIXBT","strategy":"s30_basis_carry","market_type":"perp","entry_time":"2026-03-08 11:00 UTC","exit_time":"","status":"open","direction":-1,"entry_price":0.02514,"current_price":0.02352,"pnl":429.29,"return_pct":6.4439,"position_usd":6662.0,"exchange_fee":3.33,"funding_cost":0.0,"hold_hours":7.2,"exit_reason":"","signal":{"regime":"DOWNTREND","basis_bps":15.94,"signal_short":"PERP SHORT | basis=+15.9bps"}},{"token":"DYDX","strategy":"s30_basis_carry","market_type":"spot","entry_time":"2026-03-07 17:41 UTC","exit_time":"","status":"open","direction":1,"entry_price":0.0817,"current_price":0.0796,"pnl":-171.36,"return_pct":-2.5704,"position_usd":6666.66,"exchange_fee":6.67,"funding_cost":0,"hold_hours":24.5,"exit_reason":"","signal":{"regime":"RANGE","basis_bps":36.72,"signal_short":"SPOT LONG | basis=+36.7bps"}},{"token":"DYDX","strategy":"s30_basis_carry","market_type":"perp","entry_time":"2026-03-07 17:41 UTC","exit_time":"","status":"open","direction":-1,"entry_price":0.082,"current_price":0.079,"pnl":243.9,"return_pct":3.6585,"position_usd":6666.66,"exchange_fee":3.33,"funding_cost":1.77,"hold_hours":24.5,"exit_reason":"","signal":{"regime":"RANGE","basis_bps":36.72,"signal_short":"PERP SHORT | basis=+36.7bps"}},{"token":"GALA","strategy":"s30_basis_carry","market_type":"spot","entry_time":"2026-03-08 06:00 UTC","exit_time":"","status":"open","direction":1,"entry_price":0.0032,"current_price":0.00324,"pnl":83.3,"return_pct":1.25,"position_usd":6664.0,"exchange_fee":6.66,"funding_cost":0,"hold_hours":12.2,"exit_reason":"","signal":{"regime":"RANGE","basis_bps":31.25,"signal_short":"SPOT LONG | basis=+31.2bps"}},{"token":"GALA","strategy":"s30_basis_carry","market_type":"perp","entry_time":"2026-03-08 06:00 UTC","exit_time":"","status":"open","direction":-1,"entry_price":0.00321,"current_price":0.00324,"pnl":-62.28,"return_pct":-0.9346,"position_usd":6664.0,"exchange_fee":3.33,"funding_cost":0.27,"hold_hours":12.2,"exit_reason":"","signal":{"regime":"RANGE","basis_bps":31.25,"signal_short":"PERP SHORT | basis=+31.2bps"}},{"token":"SAND","strategy":"s30_basis_carry","market_type":"spot","entry_time":"2026-03-08 15:00 UTC","exit_time":"","status":"open","direction":1,"entry_price":0.0783,"current_price":0.078,"pnl":-45.09,"return_pct":-0.3831,"position_usd":11768.73,"exchange_fee":11.77,"funding_cost":0,"hold_hours":3.2,"exit_reason":"","signal":{"regime":"RANGE","basis_bps":16.6,"signal_short":"SPOT LONG | basis=+16.6bps"}},{"token":"SAND","strategy":"s30_basis_carry","market_type":"perp","entry_time":"2026-03-08 15:00 UTC","exit_time":"","status":"open","direction":-1,"entry_price":0.07843,"current_price":0.07807,"pnl":54.02,"return_pct":0.459,"position_usd":11768.73,"exchange_fee":5.88,"funding_cost":0.0,"hold_hours":3.2,"exit_reason":"","signal":{"regime":"RANGE","basis_bps":16.6,"signal_short":"PERP SHORT | basis=+16.6bps"}},{"token":"AXS","strategy":"s30_basis_carry","market_type":"spot","entry_time":"2026-03-08 17:00 UTC","exit_time":"","status":"open","direction":1,"entry_price":1.113,"current_price":1.117,"pnl":38.4,"return_pct":0.3594,"position_usd":10685.32,"exchange_fee":10.69,"funding_cost":0,"hold_hours":1.2,"exit_reason":"","signal":{"regime":"RANGE","basis_bps":17.97,"signal_short":"SPOT LONG | basis=+18.0bps"}},{"token":"AXS","strategy":"s30_basis_carry","market_type":"perp","entry_time":"2026-03-08 17:00 UTC","exit_time":"","status":"open","direction":-1,"entry_price":1.115,"current_price":1.116,"pnl":-9.58,"return_pct":-0.0897,"position_usd":10685.32,"exchange_fee":5.34,"funding_cost":0.0,"hold_hours":1.2,"exit_reason":"","signal":{"regime":"RANGE","basis_bps":17.97,"signal_short":"PERP SHORT | basis=+18.0bps"}}],"final_equity":200098.53,"pnl":98.53,"return_pct":0.05,"n_trades":22,"equity_history":[{"t":"2026-03-07T16:00:00Z","eq":200000.14},{"t":"2026-03-07T17:00:00Z","eq":199999.93},{"t":"2026-03-07T18:00:00Z","eq":200038.69},{"t":"2026-03-07T19:00:00Z","eq":200038.18},{"t":"2026-03-07T20:00:00Z","eq":200037.97},{"t":"2026-03-07T21:00:00Z","eq":200070.1},{"t":"2026-03-07T22:00:00Z","eq":200063.95},{"t":"2026-03-07T23:00:00Z","eq":200081.72},{"t":"2026-03-08T00:00:00Z","eq":200064.82},{"t":"2026-03-08T01:00:00Z","eq":200081.21},{"t":"2026-03-08T02:00:00Z","eq":200025.6},{"t":"2026-03-08T03:00:00Z","eq":200042.42},{"t":"2026-03-08T04:00:00Z","eq":200028.53},{"t":"2026-03-08T05:00:00Z","eq":200021.48},{"t":"2026-03-08T06:00:00Z","eq":200136.83},{"t":"2026-03-08T07:00:00Z","eq":200101.96},{"t":"2026-03-08T08:00:00Z","eq":200167.16},{"t":"2026-03-08T09:00:00Z","eq":200021.12},{"t":"2026-03-08T10:00:00Z","eq":200114.28},{"t":"2026-03-08T11:00:00Z","eq":200121.72},{"t":"2026-03-08T12:00:00Z","eq":200103.87},{"t":"2026-03-08T12:01:00Z","eq":200080.79},{"t":"2026-03-08T12:03:00Z","eq":200080.79},{"t":"2026-03-08T12:28:00Z","eq":200080.79},{"t":"2026-03-08T12:31:00Z","eq":200080.79},{"t":"2026-03-08T12:34:00Z","eq":200080.79},{"t":"2026-03-08T12:37:00Z","eq":200080.79},{"t":"2026-03-08T12:41:00Z","eq":200080.79},{"t":"2026-03-08T12:49:00Z","eq":200080.79},{"t":"2026-03-08T12:52:00Z","eq":200080.79},{"t":"2026-03-08T12:55:00Z","eq":200080.79},{"t":"2026-03-08T12:58:00Z","eq":200080.12},{"t":"2026-03-08T13:03:00Z","eq":200047.58},{"t":"2026-03-08T13:25:00Z","eq":200047.58},{"t":"2026-03-08T13:27:00Z","eq":200047.58},{"t":"2026-03-08T14:00:00Z","eq":200094.8},{"t":"2026-03-08T15:00:00Z","eq":200056.28},{"t":"2026-03-08T16:00:00Z","eq":200141.63},{"t":"2026-03-08T17:00:00Z","eq":200103.13},{"t":"2026-03-08T18:00:00Z","eq":200098.53},{"t":"2026-03-08T18:02:00Z","eq":200098.53}]},{"id":"paper_s32_regime_spot_perp","name":"Paper: s32_regime_spot_perp","capital":200000.0,"strategies":[{"name":"s32_regime_spot_perp","market":"COMBINED","starting_capital":200000.0,"final_equity":209107.54,"pnl":9107.54,"return_pct":4.55,"n_trades":16,"n_open":15,"wins":1,"win_rate":100.0,"exchange_fees":134.8,"funding_fees":53.62}],"all_trades":[{"token":"BANANAS31","strategy":"s32_regime_spot_perp","market_type":"spot","entry_time":"2026-03-07 17:41 UTC","exit_time":"2026-03-08 12:58 UTC","status":"closed","direction":1,"entry_price":0.005331,"exit_price":0.007052,"pnl":4277.72,"return_pct":32.2829,"position_usd":13333.33,"exchange_fee":26.67,"funding_cost":0,"hold_hours":19.3,"exit_reason":"defensive_stop:spot flash: candle drop -3.7%","signal":{"regime":"UPTREND","basis_bps":0,"signal_short":"SPOT LONG | basis=+0.0bps"}},{"token":"ALLO","strategy":"s32_regime_spot_perp","market_type":"spot","entry_time":"2026-03-07 17:41 UTC","exit_time":"","status":"open","direction":1,"entry_price":0.1242,"current_price":0.1247,"pnl":53.68,"return_pct":0.4026,"position_usd":13333.33,"exchange_fee":13.33,"funding_cost":0,"hold_hours":24.5,"exit_reason":"","signal":{"regime":"UPTREND","basis_bps":-21.74,"signal_short":"SPOT LONG | basis=-21.7bps"}},{"token":"ENA","strategy":"s32_regime_spot_perp","market_type":"perp","entry_time":"2026-03-07 17:41 UTC","exit_time":"","status":"open","direction":-1,"entry_price":0.1017,"current_price":0.0983,"pnl":445.76,"return_pct":3.3432,"position_usd":13333.33,"exchange_fee":6.67,"funding_cost":2.23,"hold_hours":24.5,"exit_reason":"","signal":{"regime":"DOWNTREND","basis_bps":-19.63,"signal_short":"PERP SHORT | basis=-19.6bps"}},{"token":"KITE","strategy":"s32_regime_spot_perp","market_type":"spot","entry_time":"2026-03-07 17:41 UTC","exit_time":"","status":"open","direction":1,"entry_price":0.2758,"current_price":0.3078,"pnl":1547.01,"return_pct":11.6026,"position_usd":13333.33,"exchange_fee":13.33,"funding_cost":0,"hold_hours":24.5,"exit_reason":"","signal":{"regime":"UPTREND","basis_bps":-59.1,"signal_short":"SPOT LONG | basis=-59.1bps"}},{"token":"LDO","strategy":"s32_regime_spot_perp","market_type":"perp","entry_time":"2026-03-07 17:41 UTC","exit_time":"","status":"open","direction":-1,"entry_price":0.2874,"current_price":0.2811,"pnl":292.28,"return_pct":2.1921,"position_usd":13333.33,"exchange_fee":6.67,"funding_cost":2.08,"hold_hours":24.5,"exit_reason":"","signal":{"regime":"DOWNTREND","basis_bps":-10.43,"signal_short":"PERP SHORT | basis=-10.4bps"}},{"token":"SEI","strategy":"s32_regime_spot_perp","market_type":"perp","entry_time":"2026-03-07 17:41 UTC","exit_time":"","status":"open","direction":-1,"entry_price":0.06522,"current_price":0.06326,"pnl":400.69,"return_pct":3.0052,"position_usd":13333.33,"exchange_fee":6.67,"funding_cost":11.5,"hold_hours":24.5,"exit_reason":"","signal":{"regime":"DOWNTREND","basis_bps":-12.25,"signal_short":"PERP SHORT | basis=-12.2bps"}},{"token":"APT","strategy":"s32_regime_spot_perp","market_type":"perp","entry_time":"2026-03-07 20:00 UTC","exit_time":"","status":"open","direction":-1,"entry_price":0.9356,"current_price":0.9311,"pnl":64.13,"return_pct":0.481,"position_usd":13333.33,"exchange_fee":6.67,"funding_cost":2.27,"hold_hours":22.2,"exit_reason":"","signal":{"regime":"DOWNTREND","basis_bps":-14.94,"signal_short":"PERP SHORT | basis=-14.9bps"}},{"token":"ARB","strategy":"s32_regime_spot_perp","market_type":"perp","entry_time":"2026-03-07 20:00 UTC","exit_time":"","status":"open","direction":-1,"entry_price":0.0962,"current_price":0.095,"pnl":166.32,"return_pct":1.2474,"position_usd":13333.33,"exchange_fee":6.67,"funding_cost":2.49,"hold_hours":22.2,"exit_reason":"","signal":{"regime":"DOWNTREND","basis_bps":0.0,"signal_short":"PERP SHORT | basis=+0.0bps"}},{"token":"ATOM","strategy":"s32_regime_spot_perp","market_type":"perp","entry_time":"2026-03-07 20:00 UTC","exit_time":"","status":"open","direction":-1,"entry_price":1.779,"current_price":1.728,"pnl":382.24,"return_pct":2.8668,"position_usd":13333.33,"exchange_fee":6.67,"funding_cost":19.4,"hold_hours":22.2,"exit_reason":"","signal":{"regime":"DOWNTREND","basis_bps":-22.43,"signal_short":"PERP SHORT | basis=-22.4bps"}},{"token":"BCH","strategy":"s32_regime_spot_perp","market_type":"perp","entry_time":"2026-03-07 20:00 UTC","exit_time":"","status":"open","direction":-1,"entry_price":446.41,"current_price":445.0,"pnl":42.11,"return_pct":0.3159,"position_usd":13333.33,"exchange_fee":6.67,"funding_cost":0.45,"hold_hours":22.2,"exit_reason":"","signal":{"regime":"DOWNTREND","basis_bps":-6.49,"signal_short":"PERP SHORT | basis=-6.5bps"}},{"token":"BNB","strategy":"s32_regime_spot_perp","market_type":"perp","entry_time":"2026-03-07 20:00 UTC","exit_time":"","status":"open","direction":-1,"entry_price":619.68,"current_price":612.99,"pnl":143.95,"return_pct":1.0796,"position_usd":13333.33,"exchange_fee":6.67,"funding_cost":0.0,"hold_hours":22.2,"exit_reason":"","signal":{"regime":"DOWNTREND","basis_bps":-2.58,"signal_short":"PERP SHORT | basis=-2.6bps"}},{"token":"BTC","strategy":"s32_regime_spot_perp","market_type":"perp","entry_time":"2026-03-07 20:00 UTC","exit_time":"","status":"open","direction":-1,"entry_price":67042.6,"current_price":67017.0,"pnl":5.09,"return_pct":0.0382,"position_usd":13333.33,"exchange_fee":6.67,"funding_cost":0.75,"hold_hours":22.2,"exit_reason":"","signal":{"regime":"DOWNTREND","basis_bps":-5.63,"signal_short":"PERP SHORT | basis=-5.6bps"}},{"token":"ETH","strategy":"s32_regime_spot_perp","market_type":"perp","entry_time":"2026-03-07 20:00 UTC","exit_time":"","status":"open","direction":-1,"entry_price":1954.01,"current_price":1934.54,"pnl":132.85,"return_pct":0.9964,"position_usd":13333.33,"exchange_fee":6.67,"funding_cost":1.81,"hold_hours":22.2,"exit_reason":"","signal":{"regime":"DOWNTREND","basis_bps":-6.09,"signal_short":"PERP SHORT | basis=-6.1bps"}},{"token":"CHZ","strategy":"s32_regime_spot_perp","market_type":"perp","entry_time":"2026-03-07 20:00 UTC","exit_time":"","status":"open","direction":-1,"entry_price":0.03798,"current_price":0.03631,"pnl":586.27,"return_pct":4.3971,"position_usd":13333.33,"exchange_fee":6.67,"funding_cost":0.44,"hold_hours":22.2,"exit_reason":"","signal":{"regime":"DOWNTREND","basis_bps":0,"signal_short":"PERP SHORT | basis=+0.0bps"}},{"token":"DOT","strategy":"s32_regime_spot_perp","market_type":"perp","entry_time":"2026-03-07 20:00 UTC","exit_time":"","status":"open","direction":-1,"entry_price":1.541,"current_price":1.454,"pnl":752.76,"return_pct":5.6457,"position_usd":13333.33,"exchange_fee":6.67,"funding_cost":10.2,"hold_hours":22.2,"exit_reason":"","signal":{"regime":"DOWNTREND","basis_bps":0,"signal_short":"PERP SHORT | basis=+0.0bps"}},{"token":"GIGGLE","strategy":"s32_regime_spot_perp","market_type":"perp","entry_time":"2026-03-08 12:58 UTC","exit_time":"","status":"open","direction":-1,"entry_price":26.83,"current_price":26.89,"pnl":-6.38,"return_pct":-0.2236,"position_usd":2854.27,"exchange_fee":1.43,"funding_cost":0.0,"hold_hours":5.2,"exit_reason":"","signal":{"regime":"DOWNTREND","basis_bps":-18.6,"signal_short":"PERP SHORT | basis=-18.6bps"}}],"final_equity":209107.54,"pnl":9107.54,"return_pct":4.55,"n_trades":16,"equity_history":[{"t":"2026-03-07T16:00:00Z","eq":200001.05},{"t":"2026-03-07T17:00:00Z","eq":199999.51},{"t":"2026-03-07T18:00:00Z","eq":199985.33},{"t":"2026-03-07T19:00:00Z","eq":200511.12},{"t":"2026-03-07T20:00:00Z","eq":199785.51},{"t":"2026-03-07T21:00:00Z","eq":199193.47},{"t":"2026-03-07T22:00:00Z","eq":199919.61},{"t":"2026-03-07T23:00:00Z","eq":199711.14},{"t":"2026-03-08T00:00:00Z","eq":200596.33},{"t":"2026-03-08T01:00:00Z","eq":200385.76},{"t":"2026-03-08T02:00:00Z","eq":202114.22},{"t":"2026-03-08T03:00:00Z","eq":201794.72},{"t":"2026-03-08T04:00:00Z","eq":202766.87},{"t":"2026-03-08T05:00:00Z","eq":202038.1},{"t":"2026-03-08T06:00:00Z","eq":202645.45},{"t":"2026-03-08T07:00:00Z","eq":202165.39},{"t":"2026-03-08T08:00:00Z","eq":200403.26},{"t":"2026-03-08T09:00:00Z","eq":198827.31},{"t":"2026-03-08T10:00:00Z","eq":198005.36},{"t":"2026-03-08T11:00:00Z","eq":198180.71},{"t":"2026-03-08T12:00:00Z","eq":198002.26},{"t":"2026-03-08T12:01:00Z","eq":199680.62},{"t":"2026-03-08T12:03:00Z","eq":199680.62},{"t":"2026-03-08T12:28:00Z","eq":199680.62},{"t":"2026-03-08T12:31:00Z","eq":199680.62},{"t":"2026-03-08T12:34:00Z","eq":199680.62},{"t":"2026-03-08T12:37:00Z","eq":199680.62},{"t":"2026-03-08T12:41:00Z","eq":199680.62},{"t":"2026-03-08T12:49:00Z","eq":205887.54},{"t":"2026-03-08T12:52:00Z","eq":205887.54},{"t":"2026-03-08T12:55:00Z","eq":205887.54},{"t":"2026-03-08T12:58:00Z","eq":207170.3},{"t":"2026-03-08T13:03:00Z","eq":206668.66},{"t":"2026-03-08T13:25:00Z","eq":206668.66},{"t":"2026-03-08T13:27:00Z","eq":206668.66},{"t":"2026-03-08T14:00:00Z","eq":207529.06},{"t":"2026-03-08T15:00:00Z","eq":207858.66},{"t":"2026-03-08T16:00:00Z","eq":208304.21},{"t":"2026-03-08T17:00:00Z","eq":209105.39},{"t":"2026-03-08T18:00:00Z","eq":209107.54},{"t":"2026-03-08T18:02:00Z","eq":209107.54}]},{"id":"paper_s54_turbo_carry","name":"Paper: s54_turbo_carry","capital":200000.0,"strategies":[{"name":"s54_turbo_carry","market":"COMBINED","starting_capital":200000.0,"final_equity":200000.0,"pnl":0.0,"return_pct":0.0,"n_trades":0,"n_open":0,"wins":0,"win_rate":0.0,"exchange_fees":0,"funding_fees":0}],"all_trades":[],"final_equity":200000.0,"pnl":0.0,"return_pct":0.0,"n_trades":0,"equity_history":[{"t":"2026-03-08T18:02:00Z","eq":200000.0}]}];
+const SIMS = [{"id":"s58","name":"s58","capital":200000,"strategies":[{"id":"s56","name":"s56","weight":0.5}],"all_trades":[],"equity_history":[],"shadow_pools":{"spot_funds":0.0,"perp_funds":0.0,"spot_deployed":0.0,"perp_deployed":0.0,"imbalance_pct":0.0,"blocked_entries_count":0},"rebalance_history":[],"last_updated":"","is_stale":false,"tick_counter":0,"portfolio_equity":200000,"open_positions":0}];
 let activeSim = 0;
 
 const DK = {
     paper_bgcolor:'transparent', plot_bgcolor:'transparent',
     font:{color:'#8b949e',size:10},
-    margin:{t:30,b:30,l:45,r:10},
+    margin:{t:30,b:30,l:55,r:10},
     xaxis:{gridcolor:'#161b22',zerolinecolor:'#21262d'},
     yaxis:{gridcolor:'#161b22',zerolinecolor:'#21262d'},
     legend:{bgcolor:'transparent',font:{color:'#8b949e',size:10},orientation:'h',y:-0.15},
@@ -120,141 +105,152 @@ function renderTabs() {
 }
 function switchSim(i) { activeSim=i; renderTabs(); render(); }
 
+/* ---- Imbalance color ---- */
+function imbClass(pct) {
+    if (pct < 20) return 'imb-green';
+    if (pct < 40) return 'imb-yellow';
+    return 'imb-red';
+}
+
 /* ---- Main render ---- */
 function render() {
     const s = SIMS[activeSim];
     const trades = s.all_trades||[];
-    const strats = s.strategies||[];
     const nT = trades.length;
-    const openTrades = trades.filter(t=>t.status==='open');
-    const closedTrades = trades.filter(t=>t.status!=='open');
-    const nO = openTrades.length;
-    const nClosed = closedTrades.length;
-    const nW = closedTrades.filter(t=>(t.pnl||0)>0).length;
-    const wr = nClosed>0?(nW/nClosed*100):0;
-    const ef = trades.reduce((a,t)=>a+(t.exchange_fee||0),0);
-    const ff = trades.reduce((a,t)=>a+Math.abs(t.funding_cost||0),0);
+    const nW = trades.filter(t=>(t.pnl||0)>0).length;
+    const wr = nT>0?(nW/nT*100):0;
+    const totalPnl = trades.reduce((a,t)=>a+(t.pnl||0),0);
+    const totalFees = trades.reduce((a,t)=>a+(t.entry_fee||0)+(t.exit_fee||0),0);
+    const totalFunding = trades.reduce((a,t)=>a+Math.abs(t.funding_cost||0),0);
+    const returnPct = s.capital>0 ? totalPnl/s.capital*100 : 0;
+    const equity = s.portfolio_equity || s.capital;
+    const nOpen = s.open_positions || 0;
 
-    // Realized vs unrealized P&L
-    const realizedPnl = closedTrades.reduce((a,t)=>a+(t.pnl||0),0);
-    const unrealizedPnl = openTrades.reduce((a,t)=>a+(t.pnl||0),0);
-    const realizedPct = s.capital>0 ? realizedPnl/s.capital*100 : 0;
+    // Stale banner
+    const banner = document.getElementById('stale-banner');
+    if (s.is_stale) banner.classList.add('visible');
+    else banner.classList.remove('visible');
 
-    // Deployed vs cash — based on starting capital, not mark-to-market
-    const deployed = openTrades.reduce((a,t)=>a+(t.position_usd||0),0);
-    const cash = s.capital - deployed;
-    const deployedPct = s.capital>0 ? deployed/s.capital*100 : 0;
+    // Drawdown from equity history
+    let maxDD = 0;
+    const eh = s.equity_history||[];
+    if (eh.length > 1) {
+        let peak = 0;
+        eh.forEach(p => {
+            const eq = p.mark_to_market_equity||0;
+            if (eq > peak) peak = eq;
+            const dd = peak > 0 ? (eq - peak) / peak * 100 : 0;
+            if (dd < maxDD) maxDD = dd;
+        });
+    }
 
-    // Compute peak & drawdown from CLOSED trades only
-    const allDates = new Set();
-    closedTrades.forEach(t => { const d=(t.exit_time||'').substring(0,10); if(d) allDates.add(d); });
-    const dates = [...allDates].sort();
-    const dayPnl = {};
-    closedTrades.forEach(t => { const d=(t.exit_time||'').substring(0,10); if(d) dayPnl[d]=(dayPnl[d]||0)+(t.pnl||0); });
-    let cum=0, peak=0, maxDD=0;
-    dates.forEach(d => { cum+=(dayPnl[d]||0); if(cum>peak) peak=cum; const dd=peak>0?(cum-peak)/s.capital*100:0; if(dd<maxDD) maxDD=dd; });
-
-    // Best/worst day from closed trades only
-    const dayVals = Object.values(dayPnl);
-    const bestDay = dayVals.length>0 ? Math.max(...dayVals) : 0;
-    const worstDay = dayVals.length>0 ? Math.min(...dayVals) : 0;
+    // Shadow pools
+    const sp = s.shadow_pools || {};
+    const spotTotal = (sp.spot_funds||0);
+    const perpTotal = (sp.perp_funds||0);
+    const poolTotal = spotTotal + perpTotal;
+    const spotPct = poolTotal > 0 ? spotTotal / poolTotal * 100 : 50;
+    const perpPct = poolTotal > 0 ? perpTotal / poolTotal * 100 : 50;
+    const imbPct = sp.imbalance_pct || 0;
+    const blockedCount = sp.blocked_entries_count || 0;
 
     let h = `
     <div class="kpi-row">
-        <div class="kpi"><div class="lbl">Current Value</div><div class="val ${pc(realizedPnl)}">$${fmt(s.final_equity)}<div style="font-size:0.45em;color:#484f58;margin-top:2px">start $${fmt(s.capital)}</div></div></div>
-        <div class="kpi"><div class="lbl">Realized P&L</div><div class="val ${pc(realizedPnl)}">$${fmt(realizedPnl)} (${fmtPct(realizedPct)})</div></div>
-        <div class="kpi"><div class="lbl">Unrealized P&L</div><div class="val ${pc(unrealizedPnl)}">$${fmt(unrealizedPnl)}</div></div>
-        <div class="kpi"><div class="lbl">Invested / Cash</div><div class="val b">$${fmt(deployed)} <span style="font-size:0.55em;color:#484f58">/ $${fmt(cash)}</span><div style="font-size:0.45em;color:#484f58;margin-top:2px">${deployedPct.toFixed(0)}% deployed</div></div></div>
-        <div class="kpi"><div class="lbl">Max Drawdown</div><div class="val r">${maxDD.toFixed(1)}%</div></div>
-        <div class="kpi"><div class="lbl">Trades</div><div class="val b">${nT} <span style="font-size:0.6em;color:${nO>0?'#3fb950':'#484f58'}">(${nO} open)</span></div></div>
-        <div class="kpi"><div class="lbl">Win Rate</div><div class="val ${wr>=50?'g':'y'}">${wr.toFixed(1)}%<div style="font-size:0.45em;color:#484f58;margin-top:2px">${nW}/${nClosed} closed</div></div></div>
-        <div class="kpi"><div class="lbl">Best / Worst Day</div><div class="val"><span class="${bestDay>=0?'g':'r'}">$${fmt(bestDay)}</span> / <span class="${worstDay>=0?'g':'r'}">$${fmt(worstDay)}</span></div></div>
-        <div class="kpi"><div class="lbl">Total Fees</div><div class="val r">$${fmt(ef+ff)}</div></div>
+        <div class="kpi"><div class="lbl">Portfolio Equity</div><div class="val ${pc(equity - s.capital)}">$${fmt(equity)}<div style="font-size:0.45em;color:#484f58;margin-top:2px">start $${fmt(s.capital)}</div></div></div>
+        <div class="kpi"><div class="lbl">Realized P&L</div><div class="val ${pc(totalPnl)}">$${fmt(totalPnl)} (${fmtPct(returnPct)})</div></div>
+        <div class="kpi"><div class="lbl">Max Drawdown</div><div class="val r">${maxDD.toFixed(2)}%</div></div>
+        <div class="kpi"><div class="lbl">Trades</div><div class="val b">${nT} <span style="font-size:0.6em;color:${nOpen>0?'#3fb950':'#484f58'}">(${nOpen} open)</span></div></div>
+        <div class="kpi"><div class="lbl">Win Rate</div><div class="val ${wr>=50?'g':'y'}">${wr.toFixed(1)}%<div style="font-size:0.45em;color:#484f58;margin-top:2px">${nW}/${nT}</div></div></div>
+        <div class="kpi"><div class="lbl">Total Fees</div><div class="val r">$${fmt(totalFees)}</div></div>
+        <div class="kpi"><div class="lbl">Funding Paid</div><div class="val r">$${fmt(totalFunding)}</div></div>
+        <div class="kpi"><div class="lbl">Tick</div><div class="val b">${s.tick_counter||0}<div style="font-size:0.45em;color:#484f58;margin-top:2px">Last: ${(s.last_updated||'N/A').substring(0,16)}</div></div></div>
     </div>`;
 
-    // --- OPEN POSITIONS (prominent, always visible if any) ---
-    if (nO > 0) {
-        const openSorted = [...openTrades].sort((a,b) => (b.pnl||0)-(a.pnl||0));
-        const openPnl = openTrades.reduce((a,t)=>a+(t.pnl||0),0);
+    // ---- Fund Allocation Panel (AC26) ----
+    if (poolTotal > 0) {
         h += `<div class="sec">
-        <h2 style="color:#3fb950">Open Positions (${nO}) &mdash; Unrealized P&L: <span class="${pc(openPnl)}">$${fmt(openPnl)}</span></h2>
-        <div class="card tbl-wrap" style="max-height:400px;border-color:#238636">
+        <h2 style="color:#bc8cff">Fund Allocation (Shadow Pools)</h2>
+        <div class="card">
+            <div class="fund-panel">
+                <div>
+                    <div style="font-size:0.75em;color:#484f58;margin-bottom:4px">POOL DISTRIBUTION</div>
+                    <div class="fund-bar" title="Spot ${spotPct.toFixed(1)}% / Perp ${perpPct.toFixed(1)}%">
+                        <div class="spot" style="width:${spotPct}%"></div>
+                        <div class="perp" style="width:${perpPct}%"></div>
+                    </div>
+                    <div class="fund-stat"><span class="k">Spot Pool</span><span class="b">$${fmt(spotTotal)}</span></div>
+                    <div class="fund-stat"><span class="k">Perp Pool</span><span class="y">$${fmt(perpTotal)}</span></div>
+                    <div class="fund-stat"><span class="k">Spot Deployed</span><span>$${fmt(sp.spot_deployed||0)}</span></div>
+                    <div class="fund-stat"><span class="k">Perp Deployed</span><span>$${fmt(sp.perp_deployed||0)}</span></div>
+                </div>
+                <div>
+                    <div style="font-size:0.75em;color:#484f58;margin-bottom:4px">HEALTH</div>
+                    <div class="fund-stat"><span class="k">Imbalance</span><span class="${imbClass(imbPct)}" style="font-weight:700">${imbPct.toFixed(1)}%</span></div>
+                    <div class="fund-stat"><span class="k">Shadow Blocked Entries</span><span style="font-weight:700">${blockedCount}</span></div>
+                    <div style="margin-top:8px;font-size:0.7em;color:#484f58">
+                        Imbalance: <span class="imb-green">green &lt;20%</span> &middot;
+                        <span class="imb-yellow">yellow 20-40%</span> &middot;
+                        <span class="imb-red">red &gt;40%</span>
+                    </div>
+                </div>
+            </div>
+        </div></div>`;
+    }
+
+    // ---- Rebalance History ----
+    const rebalHist = s.rebalance_history||[];
+    if (rebalHist.length > 0) {
+        h += `<div class="sec">
+        <h2 style="color:#bc8cff">Theoretical Rebalance History (${rebalHist.length})</h2>
+        <div class="card tbl-wrap" style="max-height:250px">
             <table>
-                <thead><tr>
-                    <th>Strategy</th><th>Token</th><th>Dir</th><th>Regime</th>
-                    <th>Entry Signal</th><th>Entry Time</th><th>Hold</th><th>Lev</th>
-                    <th>Size</th><th>Entry $</th><th>Current $</th><th>P&L</th><th>Return</th><th>Fees</th>
-                </tr></thead>
-                <tbody>${openSorted.map(t => {
-                    const pnl = t.pnl||0;
-                    const dir = t.direction===-1||t.direction==='-1'?'SHORT':'LONG';
-                    const sig = t.signal||{};
-                    const regime = sig.regime||'?';
-                    const mt = (t.market_type||'').toLowerCase();
-                    const lev = mt==='spot' ? 'N/A' : (sig.leverage ? sig.leverage+'x' : '1x');
-                    return `<tr>
-                        <td style="color:#8b949e">${t.strategy||''}</td>
-                        <td><b>${t.token||''}</b> <span style="font-size:0.6em;color:#484f58">${mt.toUpperCase()}</span></td>
-                        <td><span class="pill ${dir.toLowerCase()}">${dir}</span></td>
-                        <td><span class="chip regime ${regime}">${regime}</span></td>
-                        <td style="font-size:0.75em;max-width:250px;white-space:nowrap;overflow:visible">${sig.signal_short||'-'}</td>
-                        <td>${(t.entry_time||'').substring(5,16)}</td>
-                        <td>${t.hold_hours||0}h</td>
-                        <td>${lev}</td>
-                        <td>$${fmt(t.position_usd||0)}</td>
-                        <td style="font-size:0.85em">${fmtPrice(t.entry_price)}</td>
-                        <td style="font-size:0.85em">${fmtPrice(t.current_price)}</td>
-                        <td class="${pc(pnl)}" style="font-weight:700">$${fmt(pnl)}</td>
-                        <td class="${pc(pnl)}">${(t.return_pct||0).toFixed(1)}%</td>
-                        <td class="r">$${fmt((t.exchange_fee||0)+Math.abs(t.funding_cost||0))}</td>
-                    </tr>`;
-                }).join('')}</tbody>
+                <thead><tr><th>Time</th><th>Transfer Needed</th><th>Direction</th><th>Would Block</th></tr></thead>
+                <tbody>${[...rebalHist].reverse().slice(0,50).map(r => `<tr>
+                    <td>${(r.timestamp||'').substring(0,16)}</td>
+                    <td style="font-weight:700">$${fmt(r.transfer_needed_usd||0)}</td>
+                    <td style="color:#bc8cff">${r.direction||''}</td>
+                    <td>${r.would_have_blocked_entries||0}</td>
+                </tr>`).join('')}</tbody>
             </table>
         </div></div>`;
     }
 
-    // --- Strategy cards ---
+    // ---- Strategy Cards ----
+    const strats = s.strategies||[];
     h += `<div class="sec">
         <h2>Strategies</h2>
         <div class="strat-row">${strats.map(st => `
             <div class="card sc">
-                <h3>${st.name} <span class="pill ${st.market.toLowerCase()}">${st.market}</span></h3>
-                <div class="row"><span class="k">Capital</span><span>$${fmt(st.starting_capital)}</span></div>
-                <div class="row"><span class="k">Value</span><span class="${pc(st.pnl)}" style="font-weight:700">$${fmt(st.final_equity)}</span></div>
-                <div class="row"><span class="k">P&L</span><span class="${pc(st.pnl)}">$${fmt(st.pnl)} (${fmtPct(st.return_pct)})</span></div>
-                <div class="row"><span class="k">Trades (open)</span><span>${st.n_trades} (${st.n_open})</span></div>
-                <div class="row"><span class="k">Win Rate</span><span>${st.win_rate.toFixed(1)}%</span></div>
-                <div class="row"><span class="k">Exch Fees</span><span class="r">$${fmt(st.exchange_fees)}</span></div>
-                <div class="row"><span class="k">Funding</span><span class="r">$${fmt(st.funding_fees)}</span></div>
+                <h3>${st.name}</h3>
+                <div class="row"><span class="k">Weight</span><span>${(st.weight*100).toFixed(0)}%</span></div>
+                ${st.final_equity ? `<div class="row"><span class="k">Equity</span><span class="${pc((st.final_equity||0)-s.capital)}" style="font-weight:700">$${fmt(st.final_equity)}</span></div>` : ''}
+                ${st.trade_count !== undefined ? `<div class="row"><span class="k">Trades</span><span>${st.trade_count}</span></div>` : ''}
+                ${st.open_positions !== undefined ? `<div class="row"><span class="k">Open</span><span>${st.open_positions}</span></div>` : ''}
+                ${st.strategies ? `<div class="row"><span class="k">Contains</span><span>${st.strategies.join(', ')}</span></div>` : ''}
             </div>`).join('')}
         </div>
     </div>`;
 
-    // --- Charts: Equity + Daily P&L ---
+    // ---- Equity Chart ----
     h += `<div class="sec">
-        <h2>Equity Curve</h2>
+        <h2>Equity Curve (Mark-to-Market)</h2>
         <div class="card chart"><div id="ch-equity" style="height:300px;"></div></div>
     </div>`;
 
-    h += `<div class="sec">
-        <h2>Daily P&L — Realized (Last 28 Days)</h2>
-        <div class="card chart"><div id="ch-daily" style="height:250px;"></div></div>
-    </div>`;
-
-    // --- Trade Log ---
+    // ---- Trade Log ----
     h += `<div class="sec">
         <h2>Trade Log</h2>
         <div class="frow">
             <div class="fb active" onclick="setF(this,'all')">All (${nT})</div>
-            <div class="fb" onclick="setF(this,'open')">Open (${nO})</div>
-            <div class="fb" onclick="setF(this,'closed')">Closed (${nT-nO})</div>
+            <div class="fb" onclick="setF(this,'winners')">Winners (${nW})</div>
+            <div class="fb" onclick="setF(this,'losers')">Losers (${nT-nW})</div>
         </div>
         <div class="card tbl-wrap">
             <table>
                 <thead><tr>
-                    <th></th><th>Status</th><th>Strategy</th><th>Token</th><th>Dir</th>
-                    <th style="min-width:200px">Entry Signal</th><th>Regime</th><th>Entry</th><th>Exit</th><th>Hold</th>
-                    <th>Entry $</th><th>Exit/Cur $</th><th>P&L</th><th>Return</th><th>Size</th><th>Fees</th><th>Exit</th>
+                    <th>Strategy</th><th>Token</th><th>Dir</th><th>Mkt</th>
+                    <th>Hold</th><th>Entry $</th><th>Exit $</th>
+                    <th>Size</th><th>P&L</th><th>Fees</th><th>Exit</th>
                 </tr></thead>
                 <tbody id="tb-trades"></tbody>
             </table>
@@ -264,13 +260,13 @@ function render() {
         </div>
     </div>`;
 
-    // --- Per-Token Summary ---
+    // ---- Per-Token Summary ----
     h += `<div class="sec">
         <h2>Per-Token Summary</h2>
         <div class="card tbl-wrap">
             <table>
                 <thead><tr>
-                    <th>Token</th><th>Trades</th><th>Open</th><th>Win Rate</th>
+                    <th>Token</th><th>Trades</th><th>Win Rate</th>
                     <th>P&L</th><th>Best</th><th>Worst</th><th>Fees</th>
                 </tr></thead>
                 <tbody id="tb-tokens"></tbody>
@@ -281,8 +277,7 @@ function render() {
     document.getElementById('app').innerHTML = h;
     renderTrades(trades, 'all');
     renderTokens(trades);
-    // Defer chart rendering so tables paint first
-    setTimeout(() => { drawEquity(trades, strats); drawDaily(trades); }, 0);
+    setTimeout(() => drawEquity(), 0);
 }
 
 /* ---- Filter ---- */
@@ -295,47 +290,35 @@ function setF(el, f) {
     renderTrades(SIMS[activeSim].all_trades||[], f);
 }
 
-/* ---- Trade table — detail panels rendered on click, not upfront ---- */
-let _visibleTrades = [];
+/* ---- Trade table ---- */
 let _allFiltered = [];
 let _tradeLimit = 50;
 function renderTrades(trades, filter) {
-    const ft = filter==='all' ? trades : trades.filter(t=>t.status===filter);
-    _allFiltered = [...ft].sort((a,b)=>(b.exit_time||b.entry_time||'').localeCompare(a.exit_time||a.entry_time||''));
-    _visibleTrades = _allFiltered.slice(0, _tradeLimit);
+    let ft = trades;
+    if (filter==='winners') ft = trades.filter(t=>(t.pnl||0)>0);
+    else if (filter==='losers') ft = trades.filter(t=>(t.pnl||0)<=0);
+    _allFiltered = [...ft].sort((a,b)=>(b.signal?.exit_bar||0)-(a.signal?.exit_bar||0));
+    const visible = _allFiltered.slice(0, _tradeLimit);
     const tbody = document.getElementById('tb-trades');
     let rows = '';
-    _visibleTrades.forEach((t,i) => {
+    visible.forEach(t => {
         const pnl = t.pnl||0;
-        const dir = t.direction===-1||t.direction==='-1'?'SHORT':'LONG';
-        const st = t.status==='open';
-        const sig = t.signal||{};
-        const sigText = sig.signal_short||'-';
-        const regime = sig.regime||'?';
-        const totalFee = (t.exchange_fee||0)+Math.abs(t.funding_cost||0);
-
+        const dir = t.direction===-1?'SHORT':'LONG';
         const mt = (t.market_type||'').toLowerCase();
-        const mtLabel = mt ? ' <span style="font-size:0.6em;color:#484f58">'+mt.toUpperCase()+'</span>' : '';
-        rows += `<tr class="trade-row" onclick="toggleDetail(${i})">
-            <td style="color:#30363d;font-size:0.7em">&#9660;</td>
-            <td>${st?'<span class="pill open">OPEN</span>':'<span class="pill closed">CLOSED</span>'}</td>
+        const totalFee = (t.entry_fee||0)+(t.exit_fee||0)+Math.abs(t.funding_cost||0);
+        rows += `<tr class="trade-row">
             <td style="color:#8b949e;font-size:0.7em">${t.strategy||''}</td>
-            <td><b>${t.token||''}</b>${mtLabel}</td>
+            <td><b>${t.token||''}</b></td>
             <td><span class="pill ${dir.toLowerCase()}">${dir}</span></td>
-            <td style="font-size:0.75em;white-space:nowrap">${sigText}</td>
-            <td><span class="chip regime ${regime}" style="font-size:0.7em">${regime}</span></td>
-            <td>${(t.entry_time||'').substring(5,16)}</td>
-            <td>${(t.exit_time||'').substring(5,16)}</td>
-            <td>${t.hold_hours||0}h</td>
+            <td><span class="pill ${mt}">${mt.toUpperCase()}</span></td>
+            <td>${t.hold_bars||0}h</td>
             <td style="font-size:0.85em">${fmtPrice(t.entry_price)}</td>
-            <td style="font-size:0.85em">${fmtPrice(st ? t.current_price : t.exit_price)}</td>
+            <td style="font-size:0.85em">${fmtPrice(t.exit_price)}</td>
+            <td>$${fmt(t.margin_usd||0)}</td>
             <td class="${pc(pnl)}" style="font-weight:600">$${fmt(pnl)}</td>
-            <td class="${pc(pnl)}">${(t.return_pct||0).toFixed(1)}%</td>
-            <td>$${fmt(t.position_usd||0)}</td>
             <td class="r">$${totalFee.toFixed(0)}</td>
             <td style="color:#484f58">${t.exit_reason||'-'}</td>
-        </tr>
-        <tr class="detail-row" id="det-${i}" style="display:none"><td colspan="17"></td></tr>`;
+        </tr>`;
     });
     tbody.innerHTML = rows;
     const sm = document.getElementById('show-more-wrap');
@@ -347,83 +330,28 @@ function showMore() {
     renderTrades(SIMS[activeSim].all_trades||[], curFilter);
 }
 
-function toggleDetail(i) {
-    const el = document.getElementById('det-'+i);
-    if (el.style.display==='none') {
-        // Render on first open
-        if (!el.firstChild.innerHTML) {
-            const t = _visibleTrades[i];
-            el.firstChild.innerHTML = renderSignalPanel(t.signal||{}, t);
-        }
-        el.style.display = 'table-row';
-    } else {
-        el.style.display = 'none';
-    }
-}
-
-function renderSignalPanel(sig, t) {
-    if (!sig || !sig.regime) return '<div class="sig-panel" style="color:#484f58">No signal data</div>';
-
-    const mt = (t.market_type||'').toLowerCase();
-    let chips = `<span class="chip regime ${sig.regime}">${sig.regime}</span>`;
-    if (mt) chips += `<span class="chip" style="background:#1a2332;color:#58a6ff">${mt.toUpperCase()}</span>`;
-    if (mt==='perp' && sig.leverage) chips += `<span class="chip" style="background:#2d1f0e;color:#d29922">${sig.leverage}x leverage</span>`;
-
-    const dir = t.direction===-1||t.direction==='-1'?'SHORT':'LONG';
-    chips += `<span class="chip ${dir==='SHORT'?'short':'long'}">${dir}</span>`;
-
-    let grid = '';
-    const add = (k,v) => { if(v!==undefined && v!==null) grid += `<div class="si"><span class="k">${k}</span><span>${v}</span></div>`; };
-
-    add('Close', sig.close ? '$'+sig.close.toLocaleString() : '-');
-    add('EMA 20', sig.ema_20 ? '$'+sig.ema_20.toLocaleString() : '-');
-    add('Above EMA20', sig.above_ema20 ? 'Yes' : 'No');
-    add('ADX', sig.adx?.toFixed(1));
-    add('RSI', sig.rsi?.toFixed(1));
-    add('Vol Ratio', sig.vol_ratio?.toFixed(2)+'x');
-    add('ATR', sig.atr ? '$'+sig.atr.toFixed(2) : '-');
-    add('Volatility', sig.vol_20 ? (sig.vol_20*100).toFixed(2)+'%' : '-');
-    if (sig.ret_1 !== undefined) add('1h Return', (sig.ret_1*100).toFixed(2)+'%');
-    if (sig.ret_24h !== undefined) add('24h Return', sig.ret_24h.toFixed(2)+'%');
-    if (sig.adx_score !== undefined) add('ADX Score', sig.adx_score.toFixed(2));
-    if (sig.mom_score !== undefined) add('Mom Score', sig.mom_score.toFixed(2));
-    if (sig.stop_atr !== undefined) add('Stop', sig.stop_atr.toFixed(2)+' ATR');
-
-    return `<div class="sig-panel">
-        <div style="color:#484f58;font-size:0.7em;text-transform:uppercase;margin-bottom:4px">Entry Indicators</div>
-        <div class="sig-chips">${chips}</div>
-        <div class="sig-grid">${grid}</div>
-    </div>`;
-}
-
 /* ---- Per-token table ---- */
 function renderTokens(trades) {
     const m = {};
     trades.forEach(t => {
         const tk = t.token||'?';
-        if(!m[tk]) m[tk]={pnl:0,n:0,open:0,closed:0,wins:0,fees:0,best:-Infinity,worst:Infinity,unrealized:0};
+        if(!m[tk]) m[tk]={pnl:0,n:0,wins:0,fees:0,best:-Infinity,worst:Infinity};
         const p = t.pnl||0;
         m[tk].pnl += p;
         m[tk].n++;
-        m[tk].fees += (t.exchange_fee||0)+Math.abs(t.funding_cost||0);
-        if(t.status==='open') {
-            m[tk].open++;
-            m[tk].unrealized += p;
-        } else {
-            m[tk].closed++;
-            if(p>0) m[tk].wins++;
-            if(p>m[tk].best) m[tk].best=p;
-            if(p<m[tk].worst) m[tk].worst=p;
-        }
+        m[tk].fees += (t.entry_fee||0)+(t.exit_fee||0)+Math.abs(t.funding_cost||0);
+        if(p>0) m[tk].wins++;
+        if(p>m[tk].best) m[tk].best=p;
+        if(p<m[tk].worst) m[tk].worst=p;
     });
     const tks = Object.keys(m).sort((a,b)=>m[b].pnl-m[a].pnl);
     document.getElementById('tb-tokens').innerHTML = tks.map(tk => {
         const d=m[tk];
-        const wr = d.closed>0 ? (d.wins/d.closed*100).toFixed(1) : '-';
-        const bestStr = d.closed>0 ? `$${fmt(d.best===-Infinity?0:d.best)}` : '-';
-        const worstStr = d.closed>0 ? `$${fmt(d.worst===Infinity?0:d.worst)}` : '-';
-        return `<tr><td><b>${tk}</b></td><td>${d.n}</td><td>${d.open}</td>
-            <td>${wr}${d.closed>0?'%':''}</td>
+        const wr = d.n>0 ? (d.wins/d.n*100).toFixed(1) : '-';
+        const bestStr = d.best!==-Infinity ? `$${fmt(d.best)}` : '-';
+        const worstStr = d.worst!==Infinity ? `$${fmt(d.worst)}` : '-';
+        return `<tr><td><b>${tk}</b></td><td>${d.n}</td>
+            <td>${wr}${d.n>0?'%':''}</td>
             <td class="${pc(d.pnl)}" style="font-weight:600">$${fmt(d.pnl)}</td>
             <td class="g">${bestStr}</td>
             <td class="r">${worstStr}</td>
@@ -431,103 +359,28 @@ function renderTokens(trades) {
     }).join('');
 }
 
-/* ---- Charts ---- */
-function drawEquity(trades, strats) {
+/* ---- Equity Chart ---- */
+function drawEquity() {
     const s = SIMS[activeSim];
     const eh = s.equity_history || [];
-    const colors = ['#58a6ff','#3fb950','#d29922','#bc8cff','#f85149','#39d353'];
-
-    if (eh.length > 1) {
-        // Paper trading: equity curve from tick snapshots
-        const cap = s.capital || 0;
-        const traces = [{
-            x: eh.map(p=>p.t), y: eh.map(p=>p.eq - cap),
-            name: s.name||'P&L', type:'scatter', mode:'lines',
-            line:{color:colors[0],width:2},
-            fill:'tozeroy', fillcolor:'rgba(88,166,255,0.1)',
-        }];
-        Plotly.newPlot('ch-equity', traces, {
-            ...DK, title:'Cumulative P&L (mark-to-market)',
-            xaxis:{...DK.xaxis, type:'date'},
-            yaxis:{...DK.yaxis,title:'USD',tickprefix:'$'},
-            shapes:[{type:'line',x0:eh[0].t,x1:eh[eh.length-1].t,y0:0,y1:0,line:{color:'#484f58',width:1,dash:'dot'}}],
-        }, {responsive:true});
-    } else {
-        // Backtest: derive from per-trade P&L
-        const sNames = [...new Set(trades.map(t=>t.strategy))];
-        const allDates = new Set();
-        trades.forEach(t => { const d=(t.exit_time||t.entry_time||'').substring(0,10); if(d) allDates.add(d); });
-        const dates = [...allDates].sort();
-        const traces = sNames.map((sn,i) => {
-            const dayPnl = {};
-            trades.filter(t=>t.strategy===sn).forEach(t => {
-                const d = (t.exit_time||t.entry_time||'').substring(0,10);
-                if(d) dayPnl[d] = (dayPnl[d]||0) + (t.pnl||0);
-            });
-            let cum = 0;
-            return {
-                x: dates, y: dates.map(d => { cum += (dayPnl[d]||0); return cum; }),
-                name: sn, type:'scatter', mode:'lines',
-                line:{color:colors[i%6],width:2},
-            };
-        });
-        if (sNames.length > 1) {
-            const totalDayPnl = {};
-            trades.forEach(t => { const d=(t.exit_time||t.entry_time||'').substring(0,10); if(d) totalDayPnl[d]=(totalDayPnl[d]||0)+(t.pnl||0); });
-            let tc = 0;
-            traces.push({
-                x: dates, y: dates.map(d => { tc += (totalDayPnl[d]||0); return tc; }),
-                name:'Total', type:'scatter', mode:'lines',
-                line:{color:'#e0e0e0',width:2,dash:'dot'},
-            });
-        }
-        Plotly.newPlot('ch-equity', traces, {
-            ...DK, title:'Cumulative P&L',
-            xaxis:{...DK.xaxis, type:'date'},
-            yaxis:{...DK.yaxis,title:'USD',tickprefix:'$'},
-        }, {responsive:true});
-    }
-}
-
-
-function drawDaily(trades) {
-    // Daily P&L from realized (closed) trades only
-    const closedTrades = trades.filter(t=>t.status==='closed');
-    const colors = ['#58a6ff','#3fb950','#d29922','#bc8cff','#f85149','#39d353'];
-
-    if (closedTrades.length === 0) {
-        document.getElementById('ch-daily').innerHTML =
-            '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#484f58;font-size:0.9em">No closed trades yet — daily P&L will appear when positions are exited</div>';
+    if (eh.length < 2) {
+        document.getElementById('ch-equity').innerHTML =
+            '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#484f58;font-size:0.9em">No equity data yet — will appear after paper trading produces snapshots</div>';
         return;
     }
-
-    const daily = {};
-    closedTrades.forEach(t => {
-        const d = (t.exit_time||'').substring(0,10);
-        if(!d) return;
-        if(!daily[d]) daily[d]={};
-        const sn = t.strategy||'?';
-        daily[d][sn] = (daily[d][sn]||0) + (t.pnl||0);
-    });
-    const days = Object.keys(daily).sort().slice(-28);
-    const sNames = [...new Set(closedTrades.map(t=>t.strategy))];
-    const traces = sNames.map((sn,i) => ({
-        x:days, y:days.map(d=>(daily[d]&&daily[d][sn])||0),
-        name:sn, type:'bar', marker:{color:colors[i%colors.length]},
-    }));
-    let cum=0;
-    traces.push({
-        x:days, y:days.map(d=>{
-            cum += Object.values(daily[d]||{}).reduce((a,b)=>a+b,0);
-            return cum;
-        }),
-        name:'Cumulative', type:'scatter', mode:'lines+markers',
-        yaxis:'y2', line:{color:'#e0e0e0',width:1.5}, marker:{size:2},
-    });
-    Plotly.newPlot('ch-daily', traces, {
-        ...DK, barmode:'stack', title:'Daily P&L (Realized)',
-        yaxis:{...DK.yaxis,title:'Daily ($)',tickprefix:'$'},
-        yaxis2:{title:'Cum ($)',overlaying:'y',side:'right',gridcolor:'transparent',tickprefix:'$'},
+    const cap = s.capital || 0;
+    const traces = [{
+        x: eh.map(p=>p.timestamp),
+        y: eh.map(p=>(p.mark_to_market_equity||0) - cap),
+        name: s.name||'P&L', type:'scatter', mode:'lines',
+        line:{color:'#58a6ff',width:2},
+        fill:'tozeroy', fillcolor:'rgba(88,166,255,0.1)',
+    }];
+    Plotly.newPlot('ch-equity', traces, {
+        ...DK, title:'Cumulative P&L (mark-to-market)',
+        xaxis:{...DK.xaxis, type:'date'},
+        yaxis:{...DK.yaxis,title:'USD',tickprefix:'$'},
+        shapes:[{type:'line',x0:eh[0].timestamp,x1:eh[eh.length-1].timestamp,y0:0,y1:0,line:{color:'#484f58',width:1,dash:'dot'}}],
     }, {responsive:true});
 }
 

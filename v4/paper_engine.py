@@ -11,6 +11,7 @@ Tick processing order (AC10b):
 from __future__ import annotations
 
 import os
+import resource
 import sys
 from dataclasses import dataclass, field
 from typing import Optional
@@ -26,6 +27,11 @@ from v4.config import PortfolioConfig, StrategySpec
 from v4.position import Position, ClosedTrade, PositionManager
 import v4.simulator as _sim
 from v4.simulator import SimulationState
+from v4.signals import precompute_strategy_signals, discover_tokens
+from v4.paper_state import (
+    serialize_state, atomic_write_state, append_trades, append_equity,
+    _closed_trade_to_dict,
+)
 
 _v3_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "v3")
 if _v3_dir not in sys.path:
@@ -42,6 +48,7 @@ class TickResult:
     exits: int = 0
     open_positions: int = 0
     portfolio_equity: float = 0.0
+    mark_to_market_equity: float = 0.0
     error: Optional[str] = None
     alerts: list = field(default_factory=list)
     skipped: bool = False
@@ -334,6 +341,63 @@ class PaperPortfolioEngine:
 
         self._alerts.append("EMERGENCY: All positions closed due to invariant violation")
 
+    def _persist_emergency_state(self) -> None:
+        """Persist state after emergency close (R4-C1).
+
+        Writes trades.jsonl and state.json so emergency closures survive restart.
+        Uses the same crash-safe ordering as _tick_internal: trades before state.
+        """
+        state_dir = self.config.state_dir
+        os.makedirs(state_dir, exist_ok=True)
+        timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+        # Write emergency-closed trades to trades.jsonl
+        trades_path = os.path.join(state_dir, "trades.jsonl")
+        new_closed = []
+        for st in self._get_all_states():
+            new_closed.extend(st.position_manager.closed_trades)
+        if not hasattr(self, '_flushed_position_ids'):
+            self._flushed_position_ids = set()
+        unflushed = [t for t in new_closed if t.position_id not in self._flushed_position_ids]
+        if unflushed:
+            with open(trades_path, "a") as f:
+                for trade in unflushed:
+                    f.write(json.dumps(_closed_trade_to_dict(trade, tick=self.tick_counter)) + "\n")
+                f.flush()
+                os.fsync(f.fileno())
+            self._flushed_position_ids.update(t.position_id for t in unflushed)
+
+        # Write state.json (atomic)
+        state_path = os.path.join(state_dir, "state.json")
+        shadow = getattr(self, 'shadow', None)
+        shadow_pools = {
+            "spot_funds": shadow.spot_funds_shadow if shadow else 0.0,
+            "perp_funds": shadow.perp_funds_shadow if shadow else 0.0,
+            "spot_deployed": shadow.spot_deployed if shadow else 0.0,
+            "perp_deployed": shadow.perp_deployed if shadow else 0.0,
+        }
+        if self.state is not None:
+            atomic_write_state(
+                self.state, self.tick_counter, timestamp, state_path,
+                shadow_pools=shadow_pools,
+                last_known_prices=dict(self._last_known_prices),
+            )
+        else:
+            from v4.paper_state import serialize_engine_state
+            data = serialize_engine_state(
+                dict(self.strategy_states), self.tick_counter, timestamp,
+                mode="independent", shadow_pools=shadow_pools,
+                last_known_prices=dict(self._last_known_prices),
+            )
+            import tempfile as _tmpfile
+            fd, tmp = _tmpfile.mkstemp(dir=state_dir, suffix=".tmp")
+            os.close(fd)
+            with open(tmp, "w") as f:
+                json.dump(data, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.rename(tmp, state_path)
+
     # ------------------------------------------------------------------
     # Tick processing
     # ------------------------------------------------------------------
@@ -405,28 +469,248 @@ class PaperPortfolioEngine:
     def _tick_internal(self, bar_timestamp=None) -> None:
         """Full tick processing: fetch data, recompute signals, process.
 
-        This is the main entry point called by tick() — override for testing.
+        Pipeline (AC10b):
+          1. Fetch live data via self.fetcher + append to parquet
+          2. Discover tokens from parquet cache
+          3. Call precompute_strategy_signals() per strategy
+          4. Build bar_maps
+          5. Handle disappeared tokens
+          6. Call _tick_internal_with_signals()
+          7. Update last known prices
+          8. Compute mark-to-market equity + populate equity_history
+          9. Persist state (state.json, equity.csv, shadow_pools)
         """
-        # In production, this would:
-        # 1. fetch_data
-        # 2. append_to_history
-        # 3. recompute_signals
-        # 4. build bar_maps
-        # 5. handle disappeared tokens
-        # 6. apply walk-forward mask
-        # 7. call _tick_internal_with_signals
-        # 8. record equity
-        # 9. persist state
-        # 10. generate alerts
-        raise NotImplementedError("_tick_internal requires live data integration (Task 7)")
+        import logging
+        logger = logging.getLogger(__name__)
+
+        timestamp = bar_timestamp or ""
+
+        # --- Step 1: Fetch live data + append to parquet ---
+        if self.fetcher is not None:
+            # Discover which tokens to fetch for each market
+            all_tokens_to_fetch: set[str] = set()
+            for spec in self.config.strategies:
+                try:
+                    tokens = discover_tokens(spec.market)
+                    all_tokens_to_fetch.update(tokens)
+                except Exception:
+                    pass  # No parquet data yet — will handle below
+
+            for token in all_tokens_to_fetch:
+                for market in ("spot", "perp"):
+                    try:
+                        bars = self.fetcher.fetch_ohlcv(token, market, limit=10)
+                        closed = self.fetcher.filter_closed_bars(bars)
+                        if closed:
+                            self.fetcher.append_to_parquet(token, market, closed)
+                    except Exception:
+                        pass  # Non-fatal — token may not have spot/perp data
+
+                # Fetch and merge funding rates for perp
+                try:
+                    rates = self.fetcher.fetch_funding_rates(token, limit=10)
+                    if rates and hasattr(self.fetcher, 'merge_funding_into_parquet'):
+                        self.fetcher.merge_funding_into_parquet(token, rates)
+                except Exception:
+                    pass  # Non-fatal
+
+        # --- Step 2-3: Discover tokens + precompute signals per strategy ---
+        all_signals: dict[str, dict] = {}
+        strategy_specs = {s.strategy_id: s for s in self.config.strategies}
+
+        any_tokens_found = False
+        for spec in self.config.strategies:
+            tokens = discover_tokens(spec.market)
+            if tokens:
+                any_tokens_found = True
+            sigs = precompute_strategy_signals(spec, tokens, self.config, self.config.lookback_months)
+            all_signals[spec.strategy_id] = sigs
+
+        if not any_tokens_found:
+            logger.warning("No parquet cache data found — cold start or missing data directory")
+
+        # --- Step 4: Build bar_maps ---
+        bar_maps = self._build_bar_maps(all_signals, self.tick_counter)
+
+        # --- Step 5: Handle disappeared tokens ---
+        self._handle_disappeared_tokens(all_signals)
+
+        # --- Step 6: Process exits → entries ---
+        # Note: walk-forward mask is already applied by precompute_strategy_signals
+        self._tick_internal_with_signals(all_signals, strategy_specs, bar_maps)
+
+        # --- Step 7: Update last known prices ---
+        self._update_last_known_prices(all_signals, bar_maps)
+
+        # --- Step 8: Compute equity + populate equity_history ---
+        portfolio_eq = self._aggregate_portfolio_equity()
+        mtm_eq = self._compute_mark_to_market()
+
+        if not hasattr(self, 'equity_history'):
+            self.equity_history = []
+        self.equity_history.append({
+            "timestamp": timestamp,
+            "portfolio_equity": portfolio_eq,
+            "mark_to_market_equity": mtm_eq,
+        })
+        # R7-I5 fix: cap equity_history to prevent unbounded memory growth
+        # in long-running daemon mode (720 entries = 30 days of hourly ticks)
+        _MAX_EQUITY_HISTORY = 720
+        if len(self.equity_history) > _MAX_EQUITY_HISTORY:
+            self.equity_history = self.equity_history[-_MAX_EQUITY_HISTORY:]
+
+        # --- Step 9: Persist state ---
+        # C5 fix: increment tick_counter BEFORE persisting so state.json
+        # records the NEXT expected tick. On crash-recovery, we restore to
+        # the next tick and don't re-process the current one.
+        self.tick_counter += 1
+        # R5-I1 fix: track whether state.json commit point was reached.
+        # If exception occurs AFTER commit, tick_counter should NOT be rolled back.
+        self._state_committed = False
+
+        state_dir = self.config.state_dir
+        os.makedirs(state_dir, exist_ok=True)
+
+        # Shadow pools
+        shadow = getattr(self, 'shadow', None)
+        if shadow is not None:
+            shadow_pools = {
+                "spot_funds": shadow.spot_funds_shadow,
+                "perp_funds": shadow.perp_funds_shadow,
+                "spot_deployed": shadow.spot_deployed,
+                "perp_deployed": shadow.perp_deployed,
+            }
+        else:
+            shadow_pools = {
+                "spot_funds": 0.0, "perp_funds": 0.0,
+                "spot_deployed": 0.0, "perp_deployed": 0.0,
+            }
+
+        # QM-C2 fix: Write trades.jsonl BEFORE state.json so that on
+        # crash between the two writes, recovery truncation removes the
+        # orphaned trades (they have tick > restored tick_counter).
+        trades_path = os.path.join(state_dir, "trades.jsonl")
+        new_closed = []
+        for st in self._get_all_states():
+            new_closed.extend(st.position_manager.closed_trades)
+        # R4-I1 fix: track flushed trades by position_id to prevent duplicates
+        # on partial write failures. Previously used a count which could re-write
+        # trades if the count wasn't updated due to a write exception.
+        if not hasattr(self, '_flushed_position_ids'):
+            self._flushed_position_ids = set()
+        unflushed = [t for t in new_closed if t.position_id not in self._flushed_position_ids]
+        # R7-I1 fix: stage position_ids written this tick. Only promote to
+        # _flushed_position_ids after state.json commit, so failed ticks don't
+        # permanently mark trades as flushed when the state was never committed.
+        self._tick_staged_ids = set()
+        if unflushed:
+            with open(trades_path, "a") as f:
+                for trade in unflushed:
+                    f.write(json.dumps(_closed_trade_to_dict(trade, tick=self.tick_counter)) + "\n")
+                f.flush()
+                os.fsync(f.fileno())  # R3-C1 fix: fsync before state.json commit
+            self._tick_staged_ids = {t.position_id for t in unflushed}
+
+        # R5-I2 fix: write equity.csv BEFORE state.json commit point
+        # so crash between trades and state doesn't create permanent equity gaps
+        # R6-I4 fix: skip if this tick was already written (retry after failed state.json)
+        last_equity_tick = getattr(self, '_last_equity_tick', -1)
+        if self.tick_counter != last_equity_tick:
+            equity_path = os.path.join(state_dir, "equity.csv")
+            all_states = self._get_all_states()
+            free_cap = sum(s.free_capital for s in all_states) if all_states else 0.0
+            append_equity(
+                equity_path,
+                timestamp=timestamp,
+                tick=self.tick_counter,
+                portfolio_equity=portfolio_eq,
+                mark_to_market_equity=mtm_eq,
+                free_capital=free_cap,
+                open_positions=self._aggregate_open_positions(),
+            )
+            self._last_equity_tick = self.tick_counter
+
+        # Write state.json — handle both pool and independent modes
+        # This is the "commit point": once state.json is atomically written,
+        # the tick is considered complete.
+        state_path = os.path.join(state_dir, "state.json")
+        if self.state is not None:
+            # Pool mode: single shared state
+            atomic_write_state(
+                self.state,
+                self.tick_counter,
+                timestamp,
+                state_path,
+                shadow_pools=shadow_pools,
+                last_known_prices=dict(self._last_known_prices),
+            )
+        else:
+            # Independent mode: serialize all strategy states (C4 fix)
+            from v4.paper_state import serialize_engine_state
+            data = serialize_engine_state(
+                dict(self.strategy_states), self.tick_counter, timestamp,
+                mode="independent",
+                shadow_pools=shadow_pools,
+                last_known_prices=dict(self._last_known_prices),
+            )
+            import tempfile as _tmpfile
+            fd, tmp = _tmpfile.mkstemp(dir=state_dir, suffix=".tmp")
+            os.close(fd)
+            with open(tmp, "w") as f:
+                json.dump(data, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())  # QM-I3 fix: fsync for independent mode
+            os.rename(tmp, state_path)
+
+        # R5-I1 fix: mark commit point reached — tick_counter should NOT
+        # be rolled back if anything after this point throws
+        self._state_committed = True
+
+        # R7-I1 fix: promote staged position_ids to flushed now that state
+        # is committed. If state.json commit failed, these would NOT be promoted,
+        # allowing retry to re-write the trades (duplicates cleaned by truncation).
+        self._flushed_position_ids.update(self._tick_staged_ids)
+        self._tick_staged_ids = set()
+
+        # R4-I3 fix: update last_timestamp so dashboard stale-data checks
+        # use the latest processed tick's timestamp, not the restored one
+        self.last_timestamp = timestamp
+
+        # AC26: Trigger dashboard generation after persistence
+        self._trigger_dashboard()
+
+    def _trigger_dashboard(self) -> None:
+        """Trigger dashboard generation after each tick (AC26).
+
+        If config.dashboard_push is True, also pushes the dashboard.
+        Dashboard errors are logged but non-fatal (AC27).
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        try:
+            if self.config.dashboard_push:
+                self._push_dashboard()
+        except Exception as e:
+            logger.warning("Dashboard generation failed (non-fatal): %s", e)
+
+    def _push_dashboard(self) -> None:
+        """Push dashboard to deployment target (AC27).
+
+        Placeholder — actual implementation depends on deployment strategy.
+        """
+        pass
 
     def tick(self) -> TickResult:
         """Process a single tick with error handling.
 
         Catches invariant violations and performs emergency close if needed.
         """
+        t0 = time.time()
         result = TickResult(tick_counter=self.tick_counter)
         self._alerts.clear()
+        # R4-I4 fix: save tick_counter before _tick_internal so we can roll back
+        # if it throws after incrementing but before persisting
+        saved_tick_counter = self.tick_counter
 
         try:
             open_before = self._aggregate_open_positions()
@@ -439,7 +723,11 @@ class PaperPortfolioEngine:
             result.entries = max(0, open_after - open_before + result.exits)
             result.open_positions = open_after
             result.portfolio_equity = self._aggregate_portfolio_equity()
+            result.mark_to_market_equity = self._compute_mark_to_market()
             result.alerts = list(self._alerts)
+            # R3-I4 fix: update tick_counter AFTER _tick_internal increments it
+            # so heartbeat matches state.json/trades.jsonl/equity.csv
+            result.tick_counter = self.tick_counter
 
         except Exception as e:
             error_msg = str(e)
@@ -448,16 +736,76 @@ class PaperPortfolioEngine:
             free_cap = min((s.free_capital for s in all_states), default=0.0)
             if "invariant" in error_msg.lower() or free_cap < -1.0:
                 self._emergency_close_all()
+                # R4-C1 fix: persist state after emergency close so closures
+                # survive process restart (prevents infinite restart loop)
+                try:
+                    self._persist_emergency_state()
+                except Exception as persist_err:
+                    import logging
+                    logging.getLogger(__name__).error(
+                        "Failed to persist emergency close state: %s", persist_err
+                    )
                 result.error = f"Invariant violation: {error_msg}"
             else:
                 # Transient errors (network, data, etc.) — log but don't close positions
                 result.error = f"Tick error (non-invariant): {error_msg}"
+                # R4-I4 + R5-I1 fix: only roll back tick_counter if state.json
+                # was NOT yet committed. If committed, the tick is on disk and
+                # rolling back would create a divergence.
+                if not getattr(self, '_state_committed', False):
+                    self.tick_counter = saved_tick_counter
 
             result.open_positions = self._aggregate_open_positions()
             result.portfolio_equity = self._aggregate_portfolio_equity()
+            result.mark_to_market_equity = self._compute_mark_to_market()
             result.alerts = list(self._alerts)
+            # R3-I4 fix: sync tick_counter even on error path
+            result.tick_counter = self.tick_counter
+
+        # AC23: Peak RSS memory
+        ru = resource.getrusage(resource.RUSAGE_SELF)
+        result.peak_rss_mb = ru.ru_maxrss / 1024.0  # Linux reports in KB
+
+        # AC24: Processing time
+        result.processing_time_s = time.time() - t0
+
+        # AC24: Timestamp
+        result.timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+        # AC25: Write heartbeat.json
+        self._write_heartbeat(result)
 
         return result
+
+    def _write_heartbeat(self, result: TickResult) -> None:
+        """Write heartbeat.json to state_dir after each tick (AC25)."""
+        state_dir = self.config.state_dir
+        os.makedirs(state_dir, exist_ok=True)
+        heartbeat = {
+            "timestamp": result.timestamp,
+            "tick_counter": result.tick_counter,
+            "open_positions": result.open_positions,
+            "portfolio_equity": result.portfolio_equity,
+            "mark_to_market_equity": result.mark_to_market_equity,
+            "processing_time_s": result.processing_time_s,
+            "errors": result.error,
+        }
+        heartbeat_path = os.path.join(state_dir, "heartbeat.json")
+        # R3-I5 fix: atomic write to avoid partial reads by monitoring
+        import tempfile as _tmpfile
+        fd, tmp = _tmpfile.mkstemp(dir=state_dir, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(heartbeat, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.rename(tmp, heartbeat_path)
+        except Exception:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
 
     # ------------------------------------------------------------------
     # Live data integration (Task 7)
@@ -503,12 +851,18 @@ class PaperPortfolioEngine:
         """
         for i in range(n_missed_bars):
             ts = bar_timestamps[i] if bar_timestamps and i < len(bar_timestamps) else None
-            result = self._tick_internal(bar_timestamp=ts)
-
-            # Stop on error
-            if result is not None and hasattr(result, 'error') and result.error is not None:
+            try:
+                result = self._tick_internal(bar_timestamp=ts)
+                # R3-I1 fix: check return value if _tick_internal returns a TickResult
+                if result is not None and hasattr(result, 'error') and result.error is not None:
+                    self._alerts.append(
+                        f"Catch-up stopped at bar {i+1}/{n_missed_bars}: {result.error}"
+                    )
+                    break
+            except Exception as e:
+                # R3-I1 fix: also catch exceptions to stop cascading failures
                 self._alerts.append(
-                    f"Catch-up stopped at bar {i+1}/{n_missed_bars}: {result.error}"
+                    f"Catch-up stopped at bar {i+1}/{n_missed_bars}: {e}"
                 )
                 break
 
@@ -551,6 +905,19 @@ class PaperPortfolioEngine:
         if self.config.mode == "independent":
             return sum(len(s.position_manager.closed_trades) for s in self.strategy_states.values())
         return len(self.state.position_manager.closed_trades)
+
+    def _compute_mark_to_market(self) -> float:
+        """Compute mark-to-market equity: portfolio_equity + sum of unrealized P&L.
+
+        Unrealized P&L = quantity * (current_price - entry_price) for each open position.
+        """
+        base_equity = self._aggregate_portfolio_equity()
+        unrealized_pnl = 0.0
+        for st in self._get_all_states():
+            for pos in st.position_manager.open_positions:
+                current_price = self._last_known_prices.get(pos.token, pos.entry_price)
+                unrealized_pnl += pos.quantity * (current_price - pos.entry_price)
+        return base_equity + unrealized_pnl
 
     def process_tick(
         self,
@@ -610,7 +977,7 @@ class PaperPortfolioEngine:
                 "weight": s.weight,
             } for s in config.strategies]
 
-        # Build all_trades
+        # Build all_trades (closed + open)
         all_trades = []
         for t in all_closed_trades:
             all_trades.append({
@@ -632,6 +999,25 @@ class PaperPortfolioEngine:
                 "margin_usd": t.margin_usd,
                 "hold_bars": t.hold_bars,
             })
+
+        # AC28: Include open positions with status="open"
+        last_prices = getattr(self, '_last_known_prices', {})
+        for st in self._get_all_states():
+            for pos in st.position_manager.open_positions:
+                current_price = last_prices.get(pos.token, pos.entry_price)
+                unrealized_pnl = pos.quantity * (current_price - pos.entry_price)
+                all_trades.append({
+                    "token": pos.token,
+                    "strategy": pos.strategy_id,
+                    "market_type": "perp" if pos.is_perp else "spot",
+                    "direction": pos.direction,
+                    "status": "open",
+                    "current_price": current_price,
+                    "unrealized_pnl": unrealized_pnl,
+                    "entry_price": pos.entry_price,
+                    "margin_usd": pos.margin_usd,
+                    "entry_bar": pos.entry_bar,
+                })
 
         # Equity history
         equity_history = getattr(self, 'equity_history', [])
