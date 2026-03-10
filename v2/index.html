@@ -71,7 +71,7 @@ tr.trade-row { cursor:pointer; }
 
 <div class="header">
     <h1>Paper Trading Dashboard V2</h1>
-    <div class="meta">Updated: 2026-03-10 00:02 UTC</div>
+    <div class="meta">Updated: 2026-03-10 00:04 UTC</div>
 </div>
 <div class="stale-banner" id="stale-banner">
     Data is stale — last update was more than 2 hours ago. Check paper trading engine.
@@ -80,7 +80,7 @@ tr.trade-row { cursor:pointer; }
 <div id="app"></div>
 
 <script>
-const SIMS = [{"id":"s58_momentum_carry","name":"s58_momentum_carry","capital":200000.0,"strategies":[{"id":"s58_momentum_carry","name":"s58_momentum_carry","weight":2.0,"final_equity":199874.6344151497,"trade_count":0,"open_positions":4,"strategies":["s56","s57"]}],"all_trades":[],"equity_history":[{"timestamp":"","mark_to_market_equity":199831.39},{"timestamp":"","mark_to_market_equity":199828.77}],"shadow_pools":{"spot_funds":0.0,"perp_funds":0.0,"spot_deployed":0.0,"perp_deployed":0.0,"imbalance_pct":0.0,"blocked_entries_count":0},"rebalance_history":[],"last_updated":"","is_stale":false,"tick_counter":2,"portfolio_equity":199874.6344151497,"open_positions":4,"realized_pnl":0.0,"total_fees":122.73821258544922,"total_funding":2.6273722648620605}];
+const SIMS = [{"id":"s58_momentum_carry","name":"s58_momentum_carry","capital":200000.0,"strategies":[{"id":"s58_momentum_carry","name":"s58_momentum_carry","weight":2.0,"final_equity":199872.00704288483,"trade_count":0,"open_positions":4,"strategies":["s56","s57"]}],"all_trades":[],"equity_history":[{"timestamp":"","mark_to_market_equity":199831.39},{"timestamp":"","mark_to_market_equity":199828.77},{"timestamp":"","mark_to_market_equity":199826.14}],"shadow_pools":{"spot_funds":0.0,"perp_funds":0.0,"spot_deployed":0.0,"perp_deployed":0.0,"imbalance_pct":0.0,"blocked_entries_count":0},"rebalance_history":[],"last_updated":"","is_stale":false,"tick_counter":3,"portfolio_equity":199872.00704288483,"open_positions":4,"realized_pnl":0.0,"total_fees":122.73821258544922,"total_funding":5.254744529724121}];
 let activeSim = 0;
 
 const DK = {
