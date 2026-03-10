@@ -90,8 +90,13 @@ each other. Skip directional overlays at Gate 0 for delta-neutral bases.
 |-------|-----------|-------------|
 | A. Per-Token Signal | 0→1→2→3→4→5→6→7 | Single signal on individual tokens (spot or perp) |
 | A2. Combined Spot+Perp | 0→1→2→3→4→5→5.5→6→7 | Dual-leg: long spot + short perp, or regime-adaptive instrument selection |
-| B. Portfolio Strategy | 0→2→3P→5P→6→7 | Cross-token ranking, sector rotation, pairs |
+| B. Portfolio Strategy | 0→2→3P→5P→6→7 | Cross-token ranking, sector rotation, pairs (V3 modules) |
 | C. Overlay | 0→2→3O→5O→6→7 | Regime weighting, signal agreement, risk scaling |
+| D. V4 Portfolio Strategy | 0→2→V4-3→V4-4→V4-5→6→7 | V4 portfolio components, sideways complements, perp strategies |
+
+**V4 vs V3 routing:** Use V4 (Class D) for portfolio components targeting s58,
+perp/combined bidirectional strategies, and sideways/choppy complements. Use V3 (Class B)
+for independent portfolio strategies and per-token robustness testing.
 
 **Combined strategy patterns (Class A2):**
 - **Simultaneous:** Both legs enter/exit together (e.g., s30 basis carry)
@@ -194,18 +199,38 @@ each other. Skip directional overlays at Gate 0 for delta-neutral bases.
 
 ---
 
-## Gate 1: Signal Lab — IC Thresholds
+## Gate 1: Signal Lab — IC Thresholds (AIPIP-0016 Updated)
 
 **Kill if ANY fail:**
 
-| Metric | Kill Threshold |
-|--------|---------------|
-| Mean IC (post-ETF) | < +0.02 |
-| IC t-statistic | < 2.0 |
-| IC hit rate | < 55% |
-| ICIR (IC / std(IC)) | < 0.5 |
-| Gross profit factor | < 1.3 |
-| Trade count | < 50 |
+| Metric | Kill Threshold | Source |
+|--------|---------------|--------|
+| Mean IC (post-ETF) | < +0.02 | — |
+| IC t-statistic | < 2.0 (or < 3.4 if N > 37 strategies tested) | Harvey & Liu 2020 |
+| IC hit rate | < 55% | — |
+| **ICIR (IC / std(IC))** | **< 0.3** | Qian/Hua/Sorensen 2007 |
+| Gross profit factor | < 1.3 | — |
+| Trade count | < 50 | — |
+
+**Harvey-Liu multiple testing:** With N=37+ strategies/signals tested, required
+t-stat = `sqrt(2 * ln(N))` ≈ 3.4. Apply to NEW signals only — existing Tier A grandfathered.
+
+**New informational metrics (check, don't kill):**
+
+| Metric | Purpose | Source |
+|--------|---------|--------|
+| ICIR post-ETF | Stability in current regime | `outputs/signal_discovery/rolling_ic_summary*.csv` |
+| Transfer entropy | Non-linear causality | `outputs/signal_discovery/lead_lag*.json` |
+| IC decay class | STABLE/DECAYING/DEAD | `outputs/signal_discovery/rolling_ic_summary*.csv` |
+| Lead/lag asymmetry | Confirm signal is LEADING | `outputs/signal_discovery/lead_lag*.json` |
+
+**Signal stability hierarchy:**
+
+| Class | Drift Rate | Examples | Use As |
+|-------|-----------|---------|--------|
+| STABLE | < 0.001/yr | Cross-TF divergence, vol clustering | Primary entry signals |
+| DECAYING | 0.001-0.01/yr | Regime-conditional EMAs, RSI | Use with caution, monitor |
+| DEAD | > 0.01/yr | Microstructure, order flow proxies | Avoid (post-ETF killed) |
 
 **Top Predictors (post-ETF IC):**
 
@@ -406,21 +431,91 @@ Costs are now continuous functions of actual ADV (computed from volume data):
 
 ---
 
-## Gate 6: Paper Trading — Degradation Thresholds
+## V4 Gates: V4 Portfolio Strategy Validation (Class D)
+
+### V4-Gate 3: Full-History Backtest (72 months)
+
+**Run:** `/workspace/venv/bin/python v4/portfolio_backtest.py --strategy sNN --months 72 --capital 200000`
+
+Uses max available data (currently 74 months, Jan 2020 – Mar 2026) to cover all market regimes:
+COVID crash, 2021 bull, 2022 bear, 2023 recovery, 2024 ETF rally, 2025-2026 consolidation.
+
+| Criterion | Threshold | Kill |
+|-----------|-----------|------|
+| Full-history total return | > +50% | < +50% |
+| Portfolio Calmar | > 0.5 | < 0.5 |
+| Max drawdown | < 25% | > 25% |
+| Trade count | > 100 | < 100 |
+| Vectorized (< 1ms/call) | Yes | No |
+
+**Check mission brief:** If `.claude/.strategy-mission` exists, apply mission-specific criteria.
+
+**Report per-regime metrics** (UPTREND, DOWNTREND, RANGE, QUIET, CRISIS) — not kill criteria,
+but required for portfolio complement test at V4-Gate 5.
+
+### V4-Gate 4: OOS Validation (Train→Dec, Trade Jan-Mar)
+
+**Method:** Adjust `config.train_bars` to end on Dec 31 2025. Trade OOS Jan 1 to present.
+
+| Criterion | Threshold | Kill |
+|-----------|-----------|------|
+| OOS total return | > 0% (positive) | Negative |
+| OOS months positive | >= 2 of 3 | < 2 of 3 |
+| OOS max drawdown | < 30% | > 30% |
+| March 2026 PnL | > -5% | < -5% |
+
+**Sideways market checklist:**
+- [ ] Uses perp or combined market (bidirectional)
+- [ ] Profitable in RANGE and QUIET regimes
+- [ ] Shows positive March 2026 PnL
+- [ ] Low correlation with s56 (momentum) and s57 (carry)
+
+### V4-Gate 5: Portfolio Complement Test
+
+**Method:** Run V4 backtest with s58 + new strategy. Compare portfolio metrics.
+
+| Criterion | Threshold | Kill |
+|-----------|-----------|------|
+| Portfolio Sharpe delta | > 0 (improves) | Decreases |
+| Portfolio MaxDD delta | <= +2pp | Worsens > 2pp |
+| Correlation vs s56 | < 0.5 | > 0.7 |
+| Correlation vs s57 | < 0.5 | > 0.7 |
+| Marginal Sharpe contribution | > 0 | Negative |
+| Regime coverage | 2+ regimes beyond s58 | Same profile |
+
+**V4 reference strategies:**
+
+| Strategy | V4 12mo | OOS Jan-Mar | March | Role |
+|----------|---------|-------------|-------|------|
+| s58 (s56+s57) | +1717% | +66% | +66% | Production baseline |
+| s28 momentum_burst_perp | +3157% | +157% | — | V4 candidate (failed V3) |
+| s27 funding_mean_rev | — | — | +$16K | Best March performer |
+| s29 funding_carry | +269% | +50% | — | Regime-stable, low corr |
+
+> Deep dive: `knowledge/process/STRATEGY_PIPELINE_GATES.md` (V4 OOS test template)
+
+---
+
+## Gate 6: Paper Trading — Degradation Thresholds (AIPIP-0016 Updated)
 
 **Minimum:** 50 trades before any go-live decision. Duration: 1-4 weeks.
 
+**Expected degradation (Suhonen et al. 2017):**
+- 215 strategies across 17 banks: **median 73% Sharpe deterioration**
+- Budget **50-60% Sharpe degradation** backtest → live
+- s58 example: backtest Sharpe 7.29 → expected live **2.9-4.4**
+
 **Acceptable Degradation:**
 
-| Metric | Max Degradation |
-|--------|-----------------|
-| Paper Sortino / Backtest Sortino | > 0.6x |
-| Slippage vs modeled | < 2x backtest assumption |
-| Max drawdown | < 1.5x backtest |
-| Fill rate | > 95% |
+| Metric | First 2 Weeks | Steady State |
+|--------|---------------|-------------|
+| Paper Sortino / Backtest Sortino | > 0.4x (settling) | > 0.6x |
+| Slippage vs modeled | < 2x backtest assumption | < 2x |
+| Max drawdown | < 1.5x backtest | < 1.5x |
+| Fill rate | > 90% | > 95% |
 
 **Kill criteria:**
-- Paper returns < 60% of backtest returns
+- Paper Sharpe < 0.4x backtest Sharpe (after settling)
 - Slippage > 50% of expected edge per trade
 - Max DD > 1.5x worst backtest drawdown
 - < 10 trades generated
@@ -445,7 +540,7 @@ Costs are now continuous functions of actual ADV (computed from volume data):
 | Max DD from peak > 15% | Pull from production |
 | Portfolio daily loss > 5% | Reduce ALL 50% |
 
-**Decay Detection (monthly):**
+**Decay Detection — Threshold Flags (monthly):**
 
 | Flag | Trigger |
 |------|---------|
@@ -455,7 +550,20 @@ Costs are now continuous functions of actual ADV (computed from volume data):
 | Corr with another Tier A > 0.7 | Flag |
 | Validation rate dropped > 10pp | Flag |
 
-**Escalation:** 1 flag → -25%. 2 flags → -50% + review. 3+ flags → pull, post-mortem.
+**Decay Detection — BOCPD (Adams & MacKay 2007):**
+
+| Metric | BOCPD Config | Trigger |
+|--------|-------------|---------|
+| Rolling 30d Sharpe | Hazard rate 1/90 | Changepoint prob > 0.8 |
+| Rolling 30d return | Hazard rate 1/90 | Downward shift detected |
+| Rolling 60d realized vol | Hazard rate 1/180 | Vol regime change |
+
+**Combined interpretation:**
+- Threshold + BOCPD fire → **Structural decay.** Pull from production.
+- Threshold fires, BOCPD silent → **Normal noise.** Reduce 25%, continue.
+- BOCPD fires, threshold OK → **Early warning.** Investigate regime change.
+
+**Escalation:** 1 threshold flag → -25%. 2 flags → -50% + review. 3+ flags or BOCPD confirmed → pull.
 
 > Deep dive: `knowledge/process/RISK_PORTFOLIO_CONSTRUCTION.md`, `knowledge/KRAKEN_FEES.md`
 

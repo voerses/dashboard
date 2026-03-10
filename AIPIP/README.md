@@ -90,3 +90,5 @@ Numbers are assigned sequentially and never reused.
 | AIPIP-0013 | Workspace-Aware Process Modes | accepted |
 | AIPIP-0014 | Strategy Development Process v2 — Gate-Based Validation Pipeline | accepted |
 | AIPIP-0015 | Strategy Process v3 — Portfolio-Aware Gates + Continuous Feedback Loop | accepted |
+| AIPIP-0016 | V4 Portfolio Gates + Signal Lab Upgrades (Research-Backed) | accepted |
+| AIPIP-0017 | Deep Training Window + Strategy Mission Briefs | accepted |

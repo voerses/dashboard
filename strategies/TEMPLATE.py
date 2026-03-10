@@ -50,8 +50,16 @@ Steps:
      for _ in range(1000): strategy(ctx)
      print(f'{(time.perf_counter()-t0)/1000*1000:.3f}ms/call')
    "
-5. Quick validate: python v3/validation.py --strategy sNN --tokens BTC --workers 1
-6. Full validate: python v3/validation.py --strategy sNN --workers 4
+5a. V3 path: python v3/validation.py --strategy sNN --tokens BTC --workers 1
+5b. V4 path: python v4/portfolio_backtest.py --strategy sNN --months 12 --capital 200000
+6. Full validate (V3): python v3/validation.py --strategy sNN --workers 4
+7. V4 OOS test: see knowledge/process/STRATEGY_PIPELINE_GATES.md § V4 OOS Test Template
+
+SIDEWAYS MARKET STRATEGIES (complementing s58):
+- Must use perp or combined market (bidirectional for short capability)
+- Must be profitable in RANGE/QUIET regimes (not just UPTREND)
+- Must show positive March 2026 PnL (sideways stress test)
+- See V4 candidates: s27, s28, s25, s29 in STRATEGY_CATALOG.md
 
 Status: EXPERIMENTAL
 """
@@ -168,37 +176,55 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
 
 
 # =============================================================================
-# PERP STRATEGY EXAMPLE (uncomment to use as perp template)
+# PERP STRATEGY EXAMPLE — BIDIRECTIONAL (for V4 sideways/choppy markets)
 # =============================================================================
 #
 # def strategy(ctx: StrategyContext) -> StrategyResult:
-#     """Pure perp strategy with funding as signal."""
+#     """Bidirectional perp strategy — long in uptrends, short in downtrends.
+#
+#     V4 NOTE: Bidirectional strategies are critical for sideways markets.
+#     ALL spot-only strategies lost money Jan-Mar 2026. Only perp/combined
+#     strategies with short capability survived.
+#
+#     For V4 portfolio use: set market='perp' in StrategySpec.
+#     """
 #     n = len(ctx.ind_1h['close'])
 #     close = ctx.ind_1h['close']
+#     ema20 = ctx.ind_1h['ema_20']
+#     adx = ctx.ind_1h['adx']
+#     ret_1 = ctx.ind_1h['ret_1']
+#     vol_ratio = ctx.ind_1h['vol_ratio']
 #
 #     # Use funding rate as a signal — negative funding = shorts pay longs
 #     funding = ctx.funding_1h  # per-hour funding rate (None if spot)
 #     if funding is None:
 #         funding = np.zeros(n)
 #
-#     regime_ok = ctx.regime_1h != 0
-#     trend_ok = close > ctx.ind_1h['ema_20']
-#     core_signal = ctx.ind_1h['ret_1'] > 0.03
-#     vol_ok = ctx.ind_1h['vol_ratio'] > 1.0
+#     regime_ok = ctx.regime_1h != 0  # exclude crisis
 #
-#     entry = regime_ok & trend_ok & core_signal & vol_ok
+#     # LONG entries: momentum burst in uptrends
+#     long_entry = regime_ok & (close > ema20) & (adx > 25) & (ret_1 > 0.03) & (vol_ratio > 1.0)
+#
+#     # SHORT entries: downtrend momentum (key for sideways survival)
+#     short_entry = regime_ok & (close < ema20) & (adx > 20) & (ret_1 < -0.03) & (vol_ratio > 0.8)
+#
+#     entry = long_entry | short_entry
 #     entry[:200] = False
+#
+#     direction = np.where(long_entry, 1, np.where(short_entry, -1, 0)).astype(np.int8)
 #
 #     return StrategyResult(
 #         entry_mask=entry,
-#         direction=np.ones(n, dtype=np.int8),
+#         direction=direction,
 #         market_type=MarketType.PERP,
-#         leverage=2.0,
-#         exchange='hyperliquid',
-#         name='perp_momentum',
+#         leverage=1.0,            # 1x leverage — aggressive sizing beats leverage
+#         exchange='binance',
+#         name='perp_bidirectional',
 #         stop_mult=3.0, trail_mult=3.0, target_mult=999,
 #         no_stop_bars=24, min_hold=18, max_hold=720, edge=0.40,
-#         exit_regimes={CRISIS, DOWNTREND},
+#         exit_regimes={CRISIS},   # Don't exit on DOWNTREND — shorts need it
+#         size_multiplier=3.0,     # Aggressive sizing at 1x leverage
+#         cap_multiplier=15.0,     # Relax ADV cap for more capital deployment
 #     )
 #
 #

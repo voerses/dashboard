@@ -1,16 +1,29 @@
 # Strategy Lifecycle -- Research to Production Pipeline
 
 > **TL;DR -- Tier system and development pipeline**
-> - Tier A (>50%): production; Tier B (20-50%): experimental, max 3 cycles; Tier C (<20%): archive immediately
+> - **V4 (portfolio):** New standard. Run V4 backtest + OOS Jan-Mar. V3-killed strategies can succeed in V4 portfolio context.
+> - **V3 (per-token):** Still used for IC validation and per-token robustness. Tier A (>50%), Tier B (20-50%), Tier C (<20%).
 > - Pre-dev checklist: 7 knowledge files + sweep results + bias audit + cost verification
 > - Fast iteration: idea to validated result in ~25 min (vectorized + parallel workers)
 > - Dedup: >80% overlap with Tier A -> propose as filter instead of new strategy
+> - **Sideways market gap:** ALL spot-only strategies fail Jan-Mar 2026. Need perp/combined strategies.
 > **When to read full file:** Starting a new strategy, understanding tiers, deciding promote/demote/archive
-> **Sections:** 1-Tier System, 2-Knowledge Check, 3-Pipeline, 4-Promotion Rules, 5-Sweep Protocol, 6-Numbering, 7-Fast Iteration
+> **Sections:** 1-Tier System, 2-Knowledge Check, 3-Pipeline, 4-Promotion Rules, 5-Sweep Protocol, 6-Numbering, 7-Fast Iteration, 8-V4 Development
 
 ---
 
 ## 1. TIER SYSTEM
+
+### V4 Portfolio Tier (March 2026 — NEW)
+
+| Strategy | V4 Status | V4 12mo | OOS Jan-Mar | Notes |
+|----------|-----------|---------|-------------|-------|
+| s58 (s56+s57) | **Production** | +1717% | +66% | Paper trading live Mar 10 |
+| s28 momentum_burst_perp | V4 Candidate | +3157% | +157% | Failed V3 gate, thrives in V4 |
+| s27 funding_mean_rev | V4 Candidate | — | — | Best March performer (+$16K) |
+| s29 funding_carry | V4 Candidate | +269% | +50% | Regime-stable, near-zero corr |
+
+### V3 Per-Token Tier (legacy — still valid for signal validation)
 
 Strategies classified by V3 validation rate (% of 49 tokens passing dual WF+CPCV gate):
 
@@ -152,7 +165,12 @@ Results: `results/sweep_summary_YYYYMMDD.json`. Compare across dates.
 | s07-s10 | V2 initial batch |
 | s11-s16 | Signal Lab batch 1 (IC analysis) |
 | s17-s22 | Signal Lab batch 2 (post-ETF) |
-| s23+ | Future (next available: s23) |
+| s23-s28 | Perp/combined batch (funding, carry, momentum) |
+| s29-s32 | Combined spot+perp strategies |
+| s33-s44 | Overlay wrappers (regime, trail, sizing) |
+| s49-s55 | Leverage/sizing experiments |
+| s56-s58 | Signal-enhanced V4 portfolio strategies |
+| s59+ | Future (next available: s59) |
 
 Numbers are permanent -- never reuse an archived number.
 
@@ -179,3 +197,47 @@ Total: ~25 min from idea to validated result
 - Don't over-fit to specific tokens (works on 5 = likely curve-fitted)
 - Don't tune parameters without re-validating (every change needs fresh V3 run)
 - Don't skip the knowledge base check (#1 time waste = reimplementing known failures)
+
+---
+
+## 8. V4 PORTFOLIO DEVELOPMENT WORKFLOW
+
+### When to Use V4 (vs V3)
+
+Use V4 when building **portfolio components** — strategies that may be individually weak but contribute to portfolio-level edge through diversification, regime coverage, or low correlation.
+
+Use V3 when testing **new hypotheses** — strategies that need to prove per-token robustness before being considered.
+
+**Key insight (March 2026):** Several V3-killed strategies (s27, s28, s25) are profitable in V4 portfolio context. V4's shared capital pool + multi-token diversification compensates for per-token weakness.
+
+### V4 Fast Path (Idea → Portfolio Component)
+
+```
+1. Gate 0: Idea screening (same as V3)           (~5 min)
+2. V4 12-month backtest                           (~5 min)
+   python v4/portfolio_backtest.py --strategy sNN --months 12
+3. V4 OOS test (train→Dec, trade Jan-Mar)         (~5 min)
+   Adjust config.train_bars to push mask to Jan 1
+4. Portfolio complement test                       (~10 min)
+   Add to s58 portfolio, check return/Sharpe/MaxDD improvement
+5. Paper trading (if passes gates 1-3)             (~1-4 weeks)
+Total: ~25 min from idea to portfolio-validated result
+```
+
+### Sideways/Choppy Market Strategy Design
+
+**Goal:** Complement s58 in regimes where carry goes flat and long-only momentum fails.
+
+**Requirements:**
+1. Must use perp or combined market (bidirectional)
+2. Must be profitable in RANGE and QUIET regimes
+3. Must show positive March 2026 PnL (stress test)
+4. Must have low correlation with s56 (momentum) and s57 (carry)
+
+**Proven approaches from V4 sweep:**
+- Funding mean reversion (s27): exploits funding rate extremes
+- Bidirectional momentum (s28): catches both upside and downside moves
+- Pure funding carry (s29): harvests funding payments, regime-stable
+- Vol spike reversal (s25): catches reversals after vol expansion
+
+See `knowledge/process/STRATEGY_PIPELINE_GATES.md` § "V4 Portfolio Strategy Development" for full gate details and code templates.

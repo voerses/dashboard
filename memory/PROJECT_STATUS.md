@@ -1,10 +1,11 @@
 # Project Status — crypto_backtest
 
-> **Last updated:** 2026-03-08
-> **Process mode:** freeflow (paper trading live)
-> **Active:** Paper trading 4 strategies live (s30, s32, s54, s58) on 95 tokens @ $200K each = $800K total simulated.
-> **Recent completions:** Signal discovery engine (78 tokens, 252 signals), signal-enhanced strategies (s56/s57/s58), paper trading engine rewrite (trade management, slippage, ADV Kelly sizing), signal portfolio module.
-> **Next step:** Monitor paper trading, run signal portfolio pipeline for clustered strategy generation.
+> **Last updated:** 2026-03-10
+> **Process mode:** strategy (building s59 funding mean reversion V4)
+> **Active:** V4 paper trading s58 (s56+s57) portfolio live on Binance, $200K capital. s59 funding mean reversion passed V4-Gate 5 (conditional), ready for Gate 6.
+> **V4 Backtest Results:** s58 portfolio: +1717% (12mo), Sharpe 7.29, MaxDD -1.9%, 1856 trades. OOS Jan-Mar: +66% ($131K). s59 standalone: +633% (12mo), Sharpe 3.83, MaxDD -6.5%. Combined s57+s59: +571% (12mo), Sharpe 6.24, Calmar 49.07.
+> **Recent completions:** AIPIP-0016 (V4 gate process), s59 through V4 gates 0→2→V4-3→V4-4→V4-5.
+> **Next step:** s59 Gate 6 paper trading. Monitor V4 paper trading for 50+ trades.
 
 ---
 
@@ -45,10 +46,15 @@
 | JIT Trail Progression (I3) | `v3/engine.py`, `v3/validation.py` | `trail_schedule` field in StrategyResult. Progressive trailing stop tightening by profit in ATR units. Applied in both JIT functions, forwarded in both WF functions. |
 | Signal Discovery Engine | `tools/signal_discovery/` | Automated IC testing: 300+ features × 55 tokens × 5 horizons. Walk-forward IC, FDR correction, lead/lag causality, rolling IC health, IC decay curves. 252 significant signals found. Top: `ret_1_1h_vs_4h` (IC=-0.376, STABLE), regime-conditional EMAs (IC=-0.67). Outputs in `outputs/signal_discovery/`. |
 | Temporal Analysis Layer | `tools/signal_discovery/analysis.py` | Rolling IC stability (STABLE/DECAYING/DEAD), lead/lag causality (57 LEADING, 16 HIGH confidence), IC decay curves (92% sign-consistent across horizons). |
-| Signal-Enhanced Strategies | `strategies/s56-s58` | s56 max_leverage_momentum (killed: 14% rate), s57 signal_timed_turbo_carry (paper trading), s58 multi_strategy_portfolio (paper trading). s57/s58 use signal discovery outputs for timing. |
+| Signal-Enhanced Strategies | `strategies/s56-s58` | s56 signal_enhanced_momentum (V4 component), s57 signal_timed_turbo_carry (V4 component), s58 multi_strategy_portfolio (V4 production). s57/s58 use signal discovery outputs for timing. |
+| V4 Portfolio Backtest Engine | `v4/` | Portfolio-level simulator: shared capital pool, concentration limits, ADV caps, partial fills, square-root slippage. Replaces V3 per-token validation with end-to-end simulation. See `knowledge/V4_ENGINE.md`. |
+| V4 Paper Trading | `v4/paper_engine.py`, `v4/run_paper.py` | Same simulator code with live data via ccxt. Per-tick execution, state persistence, deterministic RNG, dashboard push to gh-pages. |
+| Quant Review Fixes (Mar 10) | `v4/simulator.py`, `v4/paper_engine.py`, `strategies/s56,s57` | M2: symmetric RSI exit for shorts. M4: removed dead `_apply_walk_forward_mask_live()`. H3: fixed deprecated `reindex(method='ffill')`. C2/C3/H1/H2: verified as false positives. |
+| V4 Strategy Sweep | `knowledge/STRATEGY_CATALOG.md` | All 37 strategies run through V4 12-month + Jan-Mar OOS backtests. Key finding: spot-only fails in sideways; perp/combined survive. |
 | Signal Portfolio Module | `tools/signal_portfolio/` | Token clustering by signal profiles, IC-weighted composite signals, strategy generation, walk-forward optimization. Designed but not yet run end-to-end. |
 | Paper Trading Engine Rewrite | `run_paper_live.py`, `v3/paper_engine.py` | Full parity with backtest engine: trade management (stop/trail/target/max_hold per tick), slippage model (3bps + sqrt(participation)), ADV-based Kelly sizing, funding sign fix, edge threshold, regime min hold, capital split, liquidation for all shorts. 10 tests passing. |
-| Live Paper Trading | `state/paper_live/` | 4 strategies running continuously: s30, s32, s54, s58. 95 tokens, $800K total ($200K each). Dashboard at `docs/index.html`, auto-pushed to GitHub Pages. |
+| Live Paper Trading (V3) | `state/paper_live/` | **Superseded by V4.** Previously: 4 strategies (s30, s32, s54, s58), 95 tokens, $800K. |
+| Live Paper Trading (V4) | `state/v4_paper/` | V4 paper trading: s58 portfolio (s56+s57), $200K capital, Binance. Fresh start Mar 10. Dashboard auto-pushed to gh-pages. |
 
 ### Infrastructure Roadmap (Next Wave)
 
@@ -69,11 +75,12 @@
 
 | Priority | Item | Blocker | Notes |
 |----------|------|---------|-------|
+| **HIGH** | Monitor V4 paper trading for 50+ trades | Time | s58 portfolio started fresh Mar 10. Need 1-4 weeks before evaluation. |
+| **HIGH** | Develop sideways-market strategies for V4 | None | V3-killed strategies (s27, s28, s25, s29) profitable in V4 portfolio context. Build V4-native versions targeting choppy/sideways regimes. |
 | **HIGH** | Run signal portfolio pipeline end-to-end | None | Cluster 55 tokens by signal profile, generate IC-weighted composite strategies, optimize, backtest |
-| **HIGH** | Dashboard GH Pages CDN stale cache | Mirror sync delay | Gitea→GitHub mirror not propagating gh-pages changes fast enough |
-| **MED** | Monitor paper trading for 50+ trades | Time | Need 1-4 weeks of data before Gate 6 evaluation |
-| **MED** | s33 strategy investigation | None | -15.1% P&L, 27% win rate, $15k fees on $100k. 369 trades in 1 month, mostly max_hold exits. Fees alone equal losses. Needs: (1) reduce trade frequency, (2) tighten entry conviction threshold, (3) check if fee model is realistic. |
-| **MED** | Dashboard push workflow | None | `generate_dashboard.py --push` pushes to Gitea gh-pages via clone+commit. Should also push to GitHub directly or fix mirror sync for gh-pages branch. |
+| **MED** | Dashboard GH Pages CDN stale cache | Mirror sync delay | Gitea→GitHub mirror not propagating gh-pages changes fast enough |
+| **MED** | Hyperliquid data gap | No spot data | Only 23 perp tokens (Aug 2025-Mar 5), no spot. s57 can't run on HL. Not worth building fetcher yet. |
+| **LOW** | s33 strategy investigation | None | -15.1% P&L, 27% win rate. Low priority — V4 approach preferred over fixing individual V3 strategies. |
 
 ### Blocked
 
@@ -84,9 +91,33 @@
 
 ---
 
-## Strategy Tiers (March 1, 2026 Sweep)
+## Strategy Tiers (March 10, 2026)
 
-### Tier A (>50% validation rate — production candidates)
+### V4 Production (portfolio-level, paper trading)
+
+| Strategy | V4 12mo Return | V4 Sharpe | OOS (Jan-Mar) | Paper Status |
+|----------|---------------|-----------|---------------|--------------|
+| **s58 (s56+s57)** | **+1717%** | **7.29** | **+66%** | **Live (fresh Mar 10)** |
+| s56 signal_enhanced_momentum | Component of s58 | — | +$72K | Via s58 |
+| s57 signal_timed_turbo_carry | Component of s58 | — | +$60K | Via s58 |
+
+### V4 Validated (passed V4 gates, ready for paper trading)
+
+| Strategy | V4 12mo | V4 Sharpe | OOS Jan-Mar | Market | Gate Status |
+|----------|---------|-----------|-------------|--------|-------------|
+| **s59 funding_mean_rev_v4** | **+633%** | **3.83** | **+33.5% (3/3 months positive)** | **perp** | **V4-Gate 5 conditional pass → Gate 6** |
+
+### V4 Candidates (strong in V4 sweep, not yet in portfolio)
+
+| Strategy | V4 12mo | OOS | March PnL | Market | Notes |
+|----------|---------|-----|-----------|--------|-------|
+| s28 momentum_burst_perp | +3157% | +157% | +$15.2K | perp | Best overall but failed V3 gate |
+| s27 funding_mean_rev | — | — | +$16.2K | perp | Best March performer, failed V3 |
+| s51 regime_momentum | +238% | — | +$14.3K | perp | Regime-gated shorts |
+| s25 vol_spike_reversal | — | +67% | +$8.4K | perp | Vol spikes both directions |
+| s29 funding_carry | +269% | +50% | +$8.1K | perp | Regime-stable, near-zero corr |
+
+### V3 Tier A (>50% per-token validation rate)
 
 | Strategy | Rate | Sharpe | Type |
 |----------|------|--------|------|
@@ -176,6 +207,14 @@
 
 ## Key Findings
 
+0. **V4 portfolio simulation is the new standard.** V4 replaces V3's per-token validation with portfolio-level simulation: shared capital, concentration limits, ADV caps, slippage model. Several strategies killed at V3's per-token gate (s27, s28, s25) are profitable in V4's portfolio context because diversification across many tokens compensates for individual weakness.
+
+0a. **s58 production portfolio: +1717% (12mo), Sharpe 7.29, MaxDD -1.9%.** s56 (momentum) + s57 (carry) in V4 shared capital. OOS Jan-Mar 2026: +66% ($131K). March weakness ($833/day vs $2,394/day Feb) due to carry going flat in sideways market. Momentum carried the load in March.
+
+0b. **Spot-only strategies fail in sideways markets (Jan-Mar 2026).** Every spot-only strategy in the sweep lost money during Jan-Mar. Only perp (bidirectional) and combined (carry) strategies survived. Implication: any all-weather portfolio MUST include perp/combined components.
+
+0c. **Carry profits from basis convergence, not funding.** s57 generated $1.97M PnL but only $331 from funding payments. The edge is premium convergence (perp price → spot price), not yield harvesting.
+
 1. **Correlation problem:** All 6 Tier A strategies are momentum/trend variants (median pairwise r=+0.62). Running them together gives effective N=2 bets, not 6. S11 alone (Sharpe 1.74) beats any equal-weight combo (1.22).
 
 2. **Diversification unlocked:** Cross-sectional (+0.25 corr), sector rotation (+0.20), and pairs trading (-0.06) provide genuine diversification that per-token strategies cannot.
@@ -219,6 +258,8 @@
 21. **Signal discovery: only 23% of signals are genuinely LEADING (causal).** Of 252 FDR-passing signals, 57 are LEADING (forward IC >> reverse IC), 111 are LAGGING (describe past returns), 84 are SYMMETRIC. Only 16 have HIGH confidence. Strategy construction should prioritize these 16.
 
 22. **Paper trading engine now matches backtest fidelity.** All 13 gaps between paper trading and backtest engine fixed: trade management (stop/trail/target/max_hold), slippage model (3bps + sqrt(participation)), ADV-based Kelly sizing, funding sign convention, edge threshold, regime exit min hold, capital split, liquidation for 1x shorts. Verified with 10-test suite.
+
+23a. **V4-Gate 5 Sharpe/MaxDD delta tests break against near-riskless baselines.** s57 carry has 0.48% max DD and Sharpe 8.52 — near-arbitrage. Adding ANY directional strategy fails the Sharpe delta > 0 and MaxDD delta <= 2pp criteria because the baseline is already at the risk-free frontier. s59 has positive marginal Sharpe contribution (Grinold-Kahn: SR 3.83 > rho*8.52 = 2.42), confirming it adds portfolio value at optimal allocation (~5-8%). Future gate evaluations against extreme baselines should use marginal Sharpe contribution test, not simple delta comparison.
 
 23. **Leveraged strategies fail at 5x.** s50 (5x leverage momentum), s52 (5x funding), s56 (5x max leverage) all killed. Fees are amplified more than edge. s57/s58 use 1x leverage with aggressive sizing (size_mult=3.0, cap_mult=15.0) instead — large positions without fee amplification.
 

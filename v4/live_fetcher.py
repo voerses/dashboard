@@ -161,9 +161,10 @@ class LiveFetcher:
     ) -> None:
         """Merge funding rates into the perp parquet's funding_1h column.
 
-        Funding rates are mapped by timestamp (integer ms) to the parquet
-        index. Timestamps without a matching funding rate get NaN (or keep
-        existing value if funding_1h column already exists).
+        Funding rates are mapped by timestamp to the parquet index.
+        Exchange timestamps are rounded to the nearest hour to align with
+        the hourly parquet index.  Timestamps without a matching funding
+        rate keep their existing value (or 0.0 if the column is new).
         """
         if not funding_rates:
             return
@@ -175,17 +176,26 @@ class LiveFetcher:
 
         df = pd.read_parquet(path)
 
-        # Build mapping: timestamp_ms → fundingRate
-        funding_map = {int(r["timestamp"]): float(r["fundingRate"]) for r in funding_rates}
+        # Build mapping: round exchange ms timestamps to nearest hour, then
+        # convert to tz-naive Timestamp to match the parquet index type.
+        funding_map = {}
+        for r in funding_rates:
+            ts_ms = int(r["timestamp"])
+            # Round to nearest hour boundary (floor to 3600s)
+            rounded_ms = (ts_ms // _HOUR_MS) * _HOUR_MS
+            ts = pd.Timestamp(rounded_ms, unit="ms")
+            funding_map[ts] = float(r["fundingRate"])
 
-        # Map to index; existing values preserved for timestamps not in funding_map
+        # Map parquet index to funding values
         new_funding = df.index.map(lambda ts: funding_map.get(ts))
+        mask = new_funding.notna()
+        if not mask.any():
+            return  # No matching timestamps — skip write
+
         if "funding_1h" in df.columns:
-            # Only overwrite where we have new data
-            mask = new_funding.notna()
-            df.loc[mask, "funding_1h"] = new_funding[mask]
+            df.loc[mask, "funding_1h"] = new_funding[mask].astype(float)
         else:
-            df["funding_1h"] = new_funding
+            df["funding_1h"] = new_funding.astype(float)
             df["funding_1h"] = df["funding_1h"].fillna(0.0)
 
         # Atomic write

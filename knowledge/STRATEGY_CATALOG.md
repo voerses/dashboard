@@ -1,16 +1,85 @@
 # Strategy Catalog — Compact Reference
 
 > **TL;DR** Trend following is the only consistent edge in crypto at swing timeframes.
-> S09 (dual momentum) and S11 (momentum burst) are Tier A production strategies.
+> S56+S57 (momentum+carry) is the production portfolio running in V4. Sharpe 7.29, +1717% (12mo).
 > Mean reversion loses money at 18-720hr holds. Simple beats complex (4 conditions > 10).
+> ALL spot-only strategies lose money in Jan-Mar 2026 sideways market. Only perp/combined survive.
 > **Full details + 67 citations:** `knowledge/archive/STRATEGY_CATALOG_DETAILS.md`
 
 **Context:** Crypto swing trading, $200K capital, 1H timeframe, 18-720hr holds, 6-111 tokens
-**Last validated:** March 2026, 111 tokens (spot+perp+combined), Jan 2024 - Jan 2026 data
+**Last validated:** March 2026, V4 portfolio backtest (12-month + Jan-Mar 2026 OOS)
+**V4 engine:** Portfolio-level simulation with shared capital, concentration limits, ADV caps, slippage model. See `knowledge/V4_ENGINE.md`.
 
 ---
 
-## Production Strategies (Tier A)
+## V4 Portfolio Results (March 2026)
+
+### s58 Production Portfolio: s56 (momentum) + s57 (carry)
+
+**12-Month Backtest (Binance, $200K capital):**
+
+| Metric | Value |
+|--------|-------|
+| Final Equity | $3,634,688 (+1717%) |
+| Sharpe | 7.29 |
+| Sortino | 13.72 |
+| Calmar | 91.74 |
+| Max Drawdown | -1.9% |
+| Total Trades | 1,856 |
+
+**Out-of-Sample: Jan-Mar 2026 (train→Dec 31, trade Jan 1-Mar 10):**
+
+| Month | PnL | Daily Rate | Trades |
+|-------|-----|-----------|--------|
+| January | +$56,528 | $1,823/day | ~110 |
+| February | +$67,020 | $2,394/day | ~120 |
+| March (10 days) | +$8,330 | $833/day | ~50 |
+| **Total OOS** | **+$131,878 (+66%)** | **$1,912/day** | **352** |
+
+**Per-Strategy OOS Breakdown:**
+- **s56 (momentum)**: +$72,074 — carries load in March choppy market
+- **s57 (carry)**: +$59,804 — strong Jan/Feb, flat in March (-$604)
+
+**Exchange Comparison (OOS):** Binance vs Hyperliquid differ by ~$2,500 in fees only (same price data used).
+
+### V4 Strategy Sweep — All Strategies Ranked
+
+**Top 12-Month Performers (V4 portfolio backtest, $200K capital):**
+
+| # | Strategy | Return | Sharpe | MaxDD | Trades | Market |
+|---|----------|--------|--------|-------|--------|--------|
+| 1 | s28 momentum_burst_perp | +3157% | 5.2 | -4.1% | 2,400+ | perp |
+| 2 | s54 turbo_carry | +746% | 4.8 | -7.6% | 1,200+ | combined |
+| 3 | s29 funding_carry | +269% | 3.1 | -2.8% | 900+ | perp |
+| 4 | s51 regime_momentum | +238% | 2.9 | -8.2% | 1,100+ | perp |
+| 5 | s49 perp_momentum | +148% | 2.4 | -6.5% | 800+ | perp |
+| 6 | s44 basis_carry_trail | +139% | 2.8 | -3.2% | 700+ | combined |
+
+**Top Jan-Mar 2026 OOS Performers:**
+
+| # | Strategy | OOS Return | Mar PnL | Market |
+|---|----------|-----------|---------|--------|
+| 1 | s28 momentum_burst_perp | +157% | +$15,200 | perp |
+| 2 | s54 turbo_carry | +78% | +$2,100 | combined |
+| 3 | s25 vol_spike_reversal | +67% | +$8,400 | perp |
+| 4 | s29 funding_carry | +50% | +$8,100 | perp |
+| 5 | s49/s44 | +25% | +$3,500 | perp/combined |
+
+**March 2026 Specialists (choppy sideways market):**
+
+| # | Strategy | March PnL | Market | Edge in Sideways |
+|---|----------|-----------|--------|------------------|
+| 1 | s27 funding_mean_rev | +$16,200 | perp | Funding rate extremes revert |
+| 2 | s28 momentum_burst_perp | +$15,200 | perp | Bidirectional catches both sides |
+| 3 | s51 regime_momentum | +$14,300 | perp | Regime-gated short entries |
+| 4 | s25 vol_spike_reversal | +$8,400 | perp | Vol spikes in both directions |
+| 5 | s29 funding_carry | +$8,100 | perp | Funding harvesting regime-stable |
+
+**Critical Finding: ALL spot-only strategies lose money Jan-Mar 2026.** Only perp and combined strategies remain profitable in the sideways/selloff market. The carry strategies (s29, s44, s54, s57) are regime-stable. Momentum strategies need bidirectional capability (perp shorts) to survive sideways.
+
+---
+
+## V3 Production Strategies (Tier A — Per-Token Validation)
 
 ### S09 Optimized Trend (Dual Momentum)
 
@@ -484,7 +553,7 @@ Note: s31 excluded — redundant with s11 (corr +0.71).
 
 ---
 
-### Overlay Wrappers (s34-s44, s54, s57-s58)
+### Overlay Wrappers (s34-s44, s54, s56-s58)
 
 | Strategy | Base | Overlay | Result | Status |
 |----------|------|---------|--------|--------|
@@ -494,9 +563,10 @@ Note: s31 excluded — redundant with s11 (corr +0.71).
 | s40 tsmom_trail_progression | s13 | O5 progressive trail | Sharpe +0.752, rate 24→52% | Validated |
 | s41 skew_trail_progression | s21 | O5 progressive trail | Sharpe +0.468, rate 24→47% | Validated |
 | s44 basis_carry_trail_progression | s30 | O5 progressive trail | Sharpe +1.448, MaxDD halved | Validated |
-| s54 turbo_carry | s44 | 2x regime sizing + cap_mult=15 | +160%/yr, +66.5%/yr last 12mo | Paper trading |
-| s57 signal_timed_turbo_carry | s44 | Signal discovery timing | Signal-enhanced carry | Paper trading |
-| s58 multi_strategy_portfolio | s44+ | Multi-signal composite | Portfolio with signal overlays | Paper trading |
+| s54 turbo_carry | s44 | 2x regime sizing + cap_mult=15 | +160%/yr, +66.5%/yr last 12mo | Validated |
+| **s56 signal_enhanced_momentum** | s11 | Signal discovery timing + perp | V4: component of s58 portfolio | **V4 Production** |
+| **s57 signal_timed_turbo_carry** | s44 | Signal discovery timing | V4: component of s58 portfolio | **V4 Production** |
+| **s58 multi_strategy_portfolio** | s56+s57 | Multi-strategy portfolio | V4: +1717% 12mo, Sharpe 7.29 | **V4 Paper Trading** |
 
 ---
 
@@ -601,5 +671,27 @@ Our HMM detects 5 regimes that drive all allocation decisions:
 8. **IC != tradeable edge.** Signal discovery found 252 FDR-passing signals with genuine IC, but standalone signal strategies generated zero positive returns. Signals only work as overlays on existing profitable strategies (carry, momentum). The base strategy provides the structural edge; the signal improves timing and sizing.
 9. **Cross-TF divergence is the most robust alpha source.** `ret_1_1h_vs_4h` (IC=-0.376) and `rsi_1h_vs_4h` (IC=-0.291) are STABLE, LEADING, and work across ALL regimes. They exploit information lag between timeframes — a genuine market microstructure effect, not curve-fitting.
 10. **Aggressive sizing beats leverage.** s54/s57/s58 use `size_multiplier=3.0` + `cap_multiplier=15.0` at 1x leverage instead of 5x leverage. Same position sizes, but fees are on 1x notional not 5x. Every 5x leveraged strategy was killed.
+
+### V4-Specific Research Findings
+
+| Finding | Evidence | Implication |
+|---------|----------|-------------|
+| Spot-only strategies fail in sideways markets | ALL spot strategies negative Jan-Mar 2026 | Must include perp/combined for all-weather portfolio |
+| Carry is regime-stable, momentum is not | s57 carry: flat in March; s56 momentum: still positive | Carry anchors portfolio, momentum adds alpha in trends |
+| Basis convergence > funding payments | s57: +$1.97M PnL, only +$331 from funding | Carry profits from premium convergence, not yield |
+| Bidirectional perp momentum survives choppy markets | s28: +$15K March, s51: +$14K March | Short capability critical for sideways/bearish regimes |
+| V4 concentration limits prevent blow-ups | MaxDD -1.9% on +1717% return | Shared capital pool with constraints works |
+| Exchange fees matter less than expected | Binance vs Hyperliquid: ~$2.5K difference on $130K OOS | Focus on strategy edge, not fee optimization |
+
+### Opportunities for New Strategies (Complementing s58)
+
+**Gap analysis from V4 sweep — strategies that complement s58 in sideways markets:**
+
+1. **Funding mean reversion (s27 variant for V4)**: +$16K March, exploits funding rate extremes. Currently failed V3 gate but works in V4 portfolio context with shared capital.
+2. **Bidirectional perp momentum (s28 variant)**: +$15K March, best single-strategy March performer. Failed V3 gate (too selective per-token) but thrives in V4 portfolio with many tokens.
+3. **Vol spike reversal (s25 on perps)**: +$8.4K March, catches both-direction vol spikes. Again, failed V3 per-token gate but works in V4.
+4. **Pure funding carry (s29)**: +$8.1K March, regime-stable, near-zero correlation with everything.
+
+**Key insight:** Several strategies killed at V3's per-token gate survive and profit in V4's portfolio context. V4's shared capital pool, position limits, and multi-token diversification transform individually weak strategies into useful portfolio components.
 
 *Full strategy descriptions, parameter tables, and 67 academic citations archived in `knowledge/archive/STRATEGY_CATALOG_DETAILS.md`.*

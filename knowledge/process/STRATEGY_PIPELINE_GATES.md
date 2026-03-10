@@ -613,11 +613,112 @@ These indicate something is likely wrong -- investigate before proceeding.
 
 ---
 
+## V4 Portfolio Strategy Development (New — March 2026)
+
+### When to Use V4 vs V3
+
+| Use V4 When | Use V3 When |
+|-------------|-------------|
+| Strategy targets portfolio-level edge | Strategy must prove per-token robustness |
+| Strategy was killed at V3 Gate 3 but has portfolio value | New untested hypothesis needs IC/signal validation |
+| Building complementary strategies for existing portfolio | Need CPCV/WF validation metrics |
+| Testing sideways/choppy market strategies | Evaluating overlay wrappers on proven base |
+
+**Key insight:** V3-killed strategies can succeed in V4. V4's shared capital + multi-token diversification transforms individually weak strategies into useful portfolio components.
+
+### V4 Gate System (AIPIP-0016)
+
+**Class D gate path:** 0→2→V4-3→V4-4→V4-5→6→7
+
+Gate 0 (Idea Screen) and Gate 2 (Knowledge+Dedup) are shared with the V3 pipeline.
+V4-specific gates start at V4-3.
+
+```
+GATE 0:  Idea Screening (shared)                   (~5 min)     Kill ~50%
+  |
+  v  GATE 2: Knowledge + Dedup (shared)             (~15 min)    Kill ~30%
+  |
+  v  V4-GATE 3: 12-Month V4 Backtest               (~15 min)    Kill ~50%
+  |  Run: v4/portfolio_backtest.py --strategy sNN --months 12 --capital 200000
+  |  Kill: return <+50%, Calmar <0.5, MaxDD >25%, trades <100
+  |
+  v  V4-GATE 4: OOS Validation (Train→Dec, Jan-Mar) (~10 min)    Kill ~50%
+  |  Adjust config.train_bars to end on Dec 31 2025
+  |  Kill: OOS negative, <2/3 months positive, March <-5%
+  |
+  v  V4-GATE 5: Portfolio Complement Test           (~15 min)    Kill ~30%
+  |  Add to s58 portfolio, check Sharpe/MaxDD delta
+  |  Kill: Sharpe decreases, MaxDD >+2pp, corr >0.7 vs s56/s57
+  |
+  v  GATE 6: Paper Trading (shared)                 (~1-4 wks)   Kill ~50%
+  |  Budget 50-60% Sharpe degradation (Suhonen 2017)
+  |
+  v  GATE 7: Production (shared)                    (ongoing)
+  |  BOCPD + threshold decay detection
+```
+
+### V4 OOS Test Template (Train→Dec, Trade Jan-Mar)
+
+```python
+from v4.config import PortfolioConfig, StrategySpec
+from v4.signals import precompute_strategy_signals, discover_tokens, infer_data_end_date
+from v4.simulator import simulate_portfolio
+from v4.report import compute_portfolio_metrics
+import pandas as pd
+
+strategy_specs = {
+    'sNN': StrategySpec(strategy_id='sNN', weight=1.0, max_positions=15, market='perp'),
+}
+config = PortfolioConfig(
+    strategies=list(strategy_specs.values()),
+    capital=200_000, exchange='binance',
+)
+
+data_end = infer_data_end_date('perp')  # or 'combined', 'spot'
+# Push walk-forward mask to Jan 1
+trade_start_raw = data_end - pd.DateOffset(months=3)
+extra = int((pd.Timestamp('2026-01-01') - trade_start_raw).total_seconds() / 3600)
+config.train_bars = 8760 + extra  # 365 days + gap to Jan 1
+
+all_signals = {}
+for sid, spec in strategy_specs.items():
+    tokens = discover_tokens(spec.market)
+    all_signals[sid] = precompute_strategy_signals(spec, tokens, config, 3, end_date=data_end)
+
+state = simulate_portfolio(all_signals, strategy_specs, config)
+metrics, extra_info, eq_daily = compute_portfolio_metrics(state, 200_000)
+```
+
+### Sideways/Choppy Market Strategy Checklist
+
+Strategies complementing s58 in sideways markets should have:
+
+```
+[ ] 1. BIDIRECTIONAL — can go long AND short (requires perp or combined market)
+[ ] 2. REGIME-STABLE — positive PnL in RANGE and QUIET regimes (not just UPTREND)
+[ ] 3. LOW CORRELATION with s56/s57 — check both 12-month and March-specific correlation
+[ ] 4. FUNDING/CARRY EDGE — funding harvesting or basis arbitrage works in all regimes
+[ ] 5. V4 OOS MARCH TEST — must be profitable in March 2026 (10 days of choppy sideways)
+```
+
+**Priority candidates from V4 sweep (March 2026):**
+
+| Strategy | March PnL | Why It Works Sideways | Next Step |
+|----------|-----------|----------------------|-----------|
+| s27 funding_mean_rev | +$16.2K | Funding extremes revert in all regimes | Build V4-native version |
+| s28 momentum_burst_perp | +$15.2K | Bidirectional catches both sides | Build V4-native version |
+| s29 funding_carry | +$8.1K | Pure carry, regime-stable | Already exists, add to portfolio |
+| s25 vol_spike_reversal | +$8.4K | Vol spikes in both directions | Build V4-native perp version |
+
+---
+
 ## Quick Reference: Gate Decision Matrix
 
 **Remember: Return first, don't lose big.**
 
 ```
+=== V3 PATH (per-token validation) ===
+
 GATE 0:  Has rationale? + Novel? + Data exists? + Enough trades?
          ALL YES -> Gate 1.  ANY NO -> KILL.
 
@@ -637,4 +738,17 @@ GATE 4:  Paper returns reasonable? + SPRT accepts? + DD < 1.5x backtest?
 
 GATE 5:  Continuous monitoring. Breach 3+ decay thresholds -> PULL.
          Key decay signal: 6 months without new equity high.
+
+=== V4 PATH (Class D — portfolio-level validation, AIPIP-0016) ===
+
+GATE 0:    Same idea screening (choose Class D at routing step).
+GATE 2:    Same knowledge + dedup (compare vs V4 candidates, not per-token Tier A).
+V4-GATE 3: 12mo backtest: return >+50% + Calmar >0.5 + DD <25% + >100 trades?
+V4-GATE 4: OOS Jan-Mar: positive in 2/3 months? March >-5%?
+V4-GATE 5: Portfolio complement: Sharpe improves? DD <+2pp? Corr <0.5 vs s56/s57?
+GATE 6:    Paper trading: budget 50-60% Sharpe degradation (Suhonen 2017).
+GATE 7:    Production: BOCPD + threshold decay detection (Adams & MacKay 2007).
+
+Use V4 path for: portfolio components, sideways strategies, V3-killed strategies with portfolio value.
+Use V3 path for: new hypotheses needing IC validation, per-token robustness proof.
 ```
