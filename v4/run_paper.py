@@ -375,6 +375,21 @@ def main(argv: list[str] | None = None) -> None:
             for alert in result.alerts:
                 logger.warning("ALERT: %s", alert)
 
+            # Push dashboard after each successful tick
+            if not result.error and not result.skipped:
+                try:
+                    from tools.generate_dashboard_v2 import build_sims_from_state_dir, generate_html, push_to_ghpages
+                    from pathlib import Path
+                    sims = build_sims_from_state_dir(config.state_dir)
+                    html = generate_html([sims])
+                    out_path = Path(config.state_dir).parent.parent / "docs" / "index.html"
+                    out_path.parent.mkdir(parents=True, exist_ok=True)
+                    out_path.write_text(html)
+                    push_to_ghpages(out_path)
+                    logger.info("Dashboard pushed to gh-pages")
+                except Exception:
+                    logger.exception("Dashboard push failed (non-fatal)")
+
             # Sleep until next hour boundary
             sleep_s = compute_sleep_until_next_hour(time.time())
             logger.info("Sleeping %.0fs until next hour", sleep_s)
