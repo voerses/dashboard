@@ -71,7 +71,7 @@ tr.trade-row { cursor:pointer; }
 
 <div class="header">
     <h1>Paper Trading Dashboard V2</h1>
-    <div class="meta">Updated: 2026-03-10 15:02 UTC</div>
+    <div class="meta">Updated: 2026-03-10 16:03 UTC</div>
 </div>
 <div class="stale-banner" id="stale-banner">
     Data is stale — last update was more than 2 hours ago. Check paper trading engine.
@@ -80,7 +80,7 @@ tr.trade-row { cursor:pointer; }
 <div id="app"></div>
 
 <script>
-const SIMS = [{"id":"paper_trading","name":"paper_trading","capital":200000.0,"strategies":[{"id":"paper_trading","name":"paper_trading","weight":0,"final_equity":199977.50973320007,"trade_count":0,"open_positions":2,"strategies":[]}],"all_trades":[{"token":"ARC","strategy":"s56","market_type":"perp","direction":1,"status":"open","entry_price":0.047119125723838806,"current_price":0.045180000364780426,"unrealized_pnl":-987.5129811849911,"margin_usd":23995.74,"entry_bar":0,"entry_fee":12.0,"cumulative_funding":0.0,"hold_bars":3},{"token":"RENDER","strategy":"s56","market_type":"perp","direction":1,"status":"open","entry_price":1.5388805866241455,"current_price":1.5390000343322754,"unrealized_pnl":1.6288366571534425,"margin_usd":20984.79,"entry_bar":2,"entry_fee":10.49,"cumulative_funding":0.0,"hold_bars":1}],"equity_history":[{"timestamp":"2026-03-10T13:38:56Z","mark_to_market_equity":199968.08},{"timestamp":"2026-03-10T14:00:05Z","mark_to_market_equity":199794.92},{"timestamp":"2026-03-10T15:00:05Z","mark_to_market_equity":198991.62}],"shadow_pools":{"spot_funds":0.0,"perp_funds":0.0,"spot_deployed":0.0,"perp_deployed":0.0,"imbalance_pct":0.0,"blocked_entries_count":0},"rebalance_history":[],"last_updated":"2026-03-10T15:00:05Z","is_stale":false,"tick_counter":3,"portfolio_equity":199977.50973320007,"open_positions":2,"realized_pnl":0.0,"total_fees":22.490266799926758,"total_funding":0.0}];
+const SIMS = [{"id":"s58_momentum_carry","name":"s58_momentum_carry","capital":200000.0,"strategies":[{"id":"s58_momentum_carry","name":"s58_momentum_carry","weight":2.0,"final_equity":199977.50973320007,"trade_count":0,"open_positions":2,"strategies":["s56","s57"]}],"all_trades":[{"token":"ARC","strategy":"s56","market_type":"perp","direction":1,"status":"open","entry_price":0.047119125723838806,"current_price":0.04544999822974205,"unrealized_pnl":-850.0147037805291,"margin_usd":23995.74,"entry_bar":0,"entry_fee":12.0,"cumulative_funding":0.0,"hold_bars":4},{"token":"RENDER","strategy":"s56","market_type":"perp","direction":1,"status":"open","entry_price":1.5388805866241455,"current_price":1.5160000324249268,"unrealized_pnl":-312.00837587565184,"margin_usd":20984.79,"entry_bar":2,"entry_fee":10.49,"cumulative_funding":0.0,"hold_bars":2}],"equity_history":[{"timestamp":"2026-03-10T13:38:56Z","mark_to_market_equity":199968.08},{"timestamp":"2026-03-10T14:00:05Z","mark_to_market_equity":199794.92},{"timestamp":"2026-03-10T15:00:05Z","mark_to_market_equity":198991.62},{"timestamp":"2026-03-10T16:00:05Z","mark_to_market_equity":198815.5}],"shadow_pools":{"spot_funds":0.0,"perp_funds":0.0,"spot_deployed":0.0,"perp_deployed":0.0,"imbalance_pct":0.0,"blocked_entries_count":0},"rebalance_history":[],"last_updated":"2026-03-10T16:00:05Z","is_stale":false,"tick_counter":4,"portfolio_equity":199977.50973320007,"open_positions":2,"realized_pnl":0.0,"total_fees":22.490266799926758,"total_funding":0.0}];
 let activeSim = 0;
 
 const DK = {
