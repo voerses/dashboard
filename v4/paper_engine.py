@@ -450,6 +450,10 @@ class PaperPortfolioEngine:
                 except Exception:
                     pass  # No parquet data yet — will handle below
 
+            fetch_ok = 0
+            fetch_err = 0
+            bars_appended = 0
+            funding_merged = 0
             for token in all_tokens_to_fetch:
                 for market in ("spot", "perp"):
                     try:
@@ -457,16 +461,27 @@ class PaperPortfolioEngine:
                         closed = self.fetcher.filter_closed_bars(bars)
                         if closed:
                             self.fetcher.append_to_parquet(token, market, closed)
-                    except Exception:
-                        pass  # Non-fatal — token may not have spot/perp data
+                            bars_appended += len(closed)
+                        fetch_ok += 1
+                    except Exception as e:
+                        fetch_err += 1
+                        if fetch_err <= 3:  # Log first 3 errors
+                            logger.warning("Fetch %s/%s failed: %s", token, market, e)
 
                 # Fetch and merge funding rates for perp
                 try:
                     rates = self.fetcher.fetch_funding_rates(token, limit=10)
                     if rates and hasattr(self.fetcher, 'merge_funding_into_parquet'):
                         self.fetcher.merge_funding_into_parquet(token, rates)
-                except Exception:
-                    pass  # Non-fatal
+                        funding_merged += 1
+                except Exception as e:
+                    if fetch_err <= 3:
+                        logger.warning("Funding %s failed: %s", token, e)
+
+            logger.info("Data fetch: %d ok, %d err, %d bars appended, %d funding merged",
+                        fetch_ok, fetch_err, bars_appended, funding_merged)
+        else:
+            logger.debug("No fetcher configured — using existing parquet data")
 
         # --- Step 2-3: Discover tokens + precompute signals per strategy ---
         all_signals: dict[str, dict] = {}

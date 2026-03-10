@@ -1,0 +1,51 @@
+{
+  "shared": {
+    "exchange": "binance",
+    "concentration_limit": 1.0,
+    "adv_cap_pct": 0.05,
+    "min_position_usd": 200.0,
+    "seed": 42,
+    "base_spread_bps": 3.0,
+    "impact_coeff": 0.03,
+    "lookback_months": 12,
+    "enable_purge_windows": false,
+    "drawdown_alert_pct": 5.0,
+    "shadow_rebalance_threshold": 100.0,
+    "dashboard_push": true
+  },
+  "portfolios": [
+    {
+      "pool_name": "s58",
+      "initial_capital": 200000.0,
+      "mode": "pool",
+      "strategies": [
+        {"strategy_id": "s56", "weight": 1.0, "market": "perp", "max_positions": 15},
+        {"strategy_id": "s57", "weight": 1.0, "market": "combined", "max_positions": 15}
+      ],
+      "max_portfolio_positions": 40,
+      "state_dir": "state/v4_paper/"
+    },
+    {
+      "pool_name": "s60",
+      "initial_capital": 200000.0,
+      "mode": "pool",
+      "strategies": [
+        {"strategy_id": "s60", "weight": 1.0, "market": "perp", "max_positions": 15}
+      ],
+      "max_portfolio_positions": 15,
+      "state_dir": "state/v4_paper_s60_solo/"
+    },
+    {
+      "pool_name": "s58+s60",
+      "initial_capital": 200000.0,
+      "mode": "pool",
+      "strategies": [
+        {"strategy_id": "s56", "weight": 1.0, "market": "perp", "max_positions": 15},
+        {"strategy_id": "s57", "weight": 1.0, "market": "combined", "max_positions": 15},
+        {"strategy_id": "s60", "weight": 0.5, "market": "perp", "max_positions": 10}
+      ],
+      "max_portfolio_positions": 45,
+      "state_dir": "state/v4_paper_s60/"
+    }
+  ]
+}
