@@ -71,7 +71,7 @@ tr.trade-row { cursor:pointer; }
 
 <div class="header">
     <h1>Paper Trading Dashboard V2</h1>
-    <div class="meta">Updated: 2026-03-10 00:04 UTC</div>
+    <div class="meta">Updated: 2026-03-10 01:44 UTC</div>
 </div>
 <div class="stale-banner" id="stale-banner">
     Data is stale — last update was more than 2 hours ago. Check paper trading engine.
@@ -80,7 +80,7 @@ tr.trade-row { cursor:pointer; }
 <div id="app"></div>
 
 <script>
-const SIMS = [{"id":"s58_momentum_carry","name":"s58_momentum_carry","capital":200000.0,"strategies":[{"id":"s58_momentum_carry","name":"s58_momentum_carry","weight":2.0,"final_equity":199861.49755477905,"trade_count":0,"open_positions":4,"strategies":["s56","s57"]}],"all_trades":[],"equity_history":[{"timestamp":"","mark_to_market_equity":199831.39},{"timestamp":"","mark_to_market_equity":199828.77},{"timestamp":"","mark_to_market_equity":199826.14},{"timestamp":"","mark_to_market_equity":199823.52},{"timestamp":"","mark_to_market_equity":199820.88},{"timestamp":"","mark_to_market_equity":199818.25},{"timestamp":"","mark_to_market_equity":199815.62}],"shadow_pools":{"spot_funds":0.0,"perp_funds":0.0,"spot_deployed":0.0,"perp_deployed":0.0,"imbalance_pct":0.0,"blocked_entries_count":0},"rebalance_history":[],"last_updated":"","is_stale":false,"tick_counter":7,"portfolio_equity":199861.49755477905,"open_positions":4,"realized_pnl":0.0,"total_fees":122.73821258544922,"total_funding":15.764232635498047}];
+const SIMS = [{"id":"s58_momentum_carry","name":"s58_momentum_carry","capital":200000.0,"strategies":[{"id":"s58_momentum_carry","name":"s58_momentum_carry","weight":2.0,"final_equity":199858.87018203735,"trade_count":0,"open_positions":4,"strategies":["s56","s57"]}],"all_trades":[{"token":"ZRO","strategy":"s57","market_type":"spot","direction":1,"status":"open","entry_price":1.9004640579223633,"margin_usd":53649.54,"entry_bar":0,"cumulative_funding":0.0,"hold_bars":8},{"token":"ZRO","strategy":"s57","market_type":"perp","direction":-1,"status":"open","entry_price":1.8956544399261475,"margin_usd":53649.54,"entry_bar":0,"cumulative_funding":9.621664047241211,"hold_bars":8},{"token":"RENDER","strategy":"s57","market_type":"spot","direction":1,"status":"open","entry_price":1.4015108346939087,"margin_usd":28175.94,"entry_bar":0,"cumulative_funding":0.0,"hold_bars":8},{"token":"RENDER","strategy":"s57","market_type":"perp","direction":-1,"status":"open","entry_price":1.406009316444397,"margin_usd":28175.94,"entry_bar":0,"cumulative_funding":8.769941329956055,"hold_bars":8}],"equity_history":[{"timestamp":"","mark_to_market_equity":199831.39},{"timestamp":"","mark_to_market_equity":199828.77},{"timestamp":"","mark_to_market_equity":199826.14},{"timestamp":"","mark_to_market_equity":199823.52},{"timestamp":"","mark_to_market_equity":199820.88},{"timestamp":"","mark_to_market_equity":199818.25},{"timestamp":"","mark_to_market_equity":199815.62},{"timestamp":"","mark_to_market_equity":199813.0}],"shadow_pools":{"spot_funds":0.0,"perp_funds":0.0,"spot_deployed":0.0,"perp_deployed":0.0,"imbalance_pct":0.0,"blocked_entries_count":0},"rebalance_history":[],"last_updated":"","is_stale":false,"tick_counter":8,"portfolio_equity":199858.87018203735,"open_positions":4,"realized_pnl":0.0,"total_fees":122.73821258544922,"total_funding":18.391605377197266}];
 let activeSim = 0;
 
 const DK = {
@@ -242,6 +242,7 @@ function render() {
         <h2>Trade Log</h2>
         <div class="frow">
             <div class="fb active" onclick="setF(this,'all')">All (${nT})</div>
+            <div class="fb" onclick="setF(this,'open')">Open (${nOpen})</div>
             <div class="fb" onclick="setF(this,'winners')">Winners (${nW})</div>
             <div class="fb" onclick="setF(this,'losers')">Losers (${nT-nW})</div>
         </div>
@@ -297,27 +298,37 @@ function renderTrades(trades, filter) {
     let ft = trades;
     if (filter==='winners') ft = trades.filter(t=>(t.pnl||0)>0);
     else if (filter==='losers') ft = trades.filter(t=>(t.pnl||0)<=0);
-    _allFiltered = [...ft].sort((a,b)=>(b.signal?.exit_bar||0)-(a.signal?.exit_bar||0));
+    else if (filter==='open') ft = trades.filter(t=>t.status==='open');
+    // Sort: open positions first, then by exit_bar desc
+    _allFiltered = [...ft].sort((a,b)=>{
+        if (a.status==='open' && b.status!=='open') return -1;
+        if (b.status==='open' && a.status!=='open') return 1;
+        return (b.signal?.exit_bar||b.entry_bar||0)-(a.signal?.exit_bar||a.entry_bar||0);
+    });
     const visible = _allFiltered.slice(0, _tradeLimit);
     const tbody = document.getElementById('tb-trades');
     let rows = '';
     visible.forEach(t => {
-        const pnl = t.pnl||0;
+        const isOpen = t.status==='open';
+        const pnl = isOpen ? (t.unrealized_pnl||0) : (t.pnl||0);
         const dir = t.direction===-1?'SHORT':'LONG';
         const mt = (t.market_type||'').toLowerCase();
-        const totalFee = (t.entry_fee||0)+(t.exit_fee||0)+Math.abs(t.funding_cost||0);
-        rows += `<tr class="trade-row">
+        const totalFee = (t.entry_fee||0)+(t.exit_fee||0)+Math.abs(t.funding_cost||0)+Math.abs(t.cumulative_funding||0);
+        const exitCol = isOpen ? '<span style="color:#3fb950;font-weight:600">OPEN</span>' : fmtPrice(t.exit_price);
+        const reasonCol = isOpen ? '<span class="pill" style="background:#1f3d1f;color:#3fb950">LIVE</span>' : (t.exit_reason||'-');
+        const pnlLabel = isOpen ? '~' : '';
+        rows += `<tr class="trade-row" style="${isOpen?'background:#0d1f0d;':''}">
             <td style="color:#8b949e;font-size:0.7em">${t.strategy||''}</td>
             <td><b>${t.token||''}</b></td>
             <td><span class="pill ${dir.toLowerCase()}">${dir}</span></td>
             <td><span class="pill ${mt}">${mt.toUpperCase()}</span></td>
             <td>${t.hold_bars||0}h</td>
             <td style="font-size:0.85em">${fmtPrice(t.entry_price)}</td>
-            <td style="font-size:0.85em">${fmtPrice(t.exit_price)}</td>
+            <td style="font-size:0.85em">${exitCol}</td>
             <td>$${fmt(t.margin_usd||0)}</td>
-            <td class="${pc(pnl)}" style="font-weight:600">$${fmt(pnl)}</td>
+            <td class="${pc(pnl)}" style="font-weight:600">${pnlLabel}$${fmt(pnl)}</td>
             <td class="r">$${totalFee.toFixed(0)}</td>
-            <td style="color:#484f58">${t.exit_reason||'-'}</td>
+            <td style="color:#484f58">${reasonCol}</td>
         </tr>`;
     });
     tbody.innerHTML = rows;
