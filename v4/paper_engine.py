@@ -240,52 +240,6 @@ class PaperPortfolioEngine:
             )
 
     # ------------------------------------------------------------------
-    # Walk-forward masking for live mode
-    # ------------------------------------------------------------------
-
-    def _apply_walk_forward_mask_live(
-        self,
-        all_signals: dict[str, dict],
-    ) -> None:
-        """Apply walk-forward masking for live paper trading (AC15).
-
-        - First train_bars of each token's data: all entries masked
-        - Purge windows: only if enable_purge_windows=True
-        """
-        train_bars = self.config.train_bars
-        enable_purge = self.config.enable_purge_windows
-        recal_bars = self.config.recal_bars
-        purge_bars = self.config.purge_bars
-
-        for sid, token_sigs in all_signals.items():
-            for token, sig in token_sigs.items():
-                n = sig.n_bars
-
-                # Mask first train_bars
-                if n <= train_bars:
-                    # All bars masked — token doesn't have enough history
-                    sig.entry_mask[:] = False
-                    if sig.secondary_entry_mask is not None:
-                        sig.secondary_entry_mask[:] = False
-                    continue
-                else:
-                    # Mask the initial training window
-                    sig.entry_mask[:train_bars] = False
-                    if sig.secondary_entry_mask is not None:
-                        sig.secondary_entry_mask[:train_bars] = False
-
-                # Purge windows (only if enabled)
-                if enable_purge and recal_bars > 0 and purge_bars > 0:
-                    # Purge windows start at train_bars, then every recal_bars
-                    purge_start = train_bars
-                    while purge_start < n:
-                        purge_end = min(purge_start + purge_bars, n)
-                        sig.entry_mask[purge_start:purge_end] = False
-                        if sig.secondary_entry_mask is not None:
-                            sig.secondary_entry_mask[purge_start:purge_end] = False
-                        purge_start += recal_bars
-
-    # ------------------------------------------------------------------
     # Strategy equity
     # ------------------------------------------------------------------
 

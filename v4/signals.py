@@ -251,10 +251,12 @@ def precompute_strategy_signals(
                 # Align spot and perp to common date range (matches v3/engine.py:1685-1688).
                 # Without this, bar 0 of spot and bar 0 of perp can be years apart,
                 # producing phantom basis values (e.g., 2020 spot vs 2022 perp).
-                common_start = max(df_spot.index[0], df_perp.index[0])
-                common_end = min(df_spot.index[-1], df_perp.index[-1])
-                df_spot = df_spot[common_start:common_end]
-                df_perp = df_perp[common_start:common_end]
+                # Use index intersection to ensure bar-for-bar timestamp alignment;
+                # simple date-range slicing leaves different bar counts when one
+                # series has gaps the other doesn't (affected 35/95 tokens).
+                common_idx = df_spot.index.intersection(df_perp.index)
+                df_spot = df_spot.reindex(common_idx)
+                df_perp = df_perp.reindex(common_idx)
                 if len(df_spot) < 500 or len(df_perp) < 500:
                     continue
                 ctx_spot = eng_spot._build_context(token, df_spot, min_bars=210, market_override="spot")

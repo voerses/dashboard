@@ -83,7 +83,7 @@ def strategy(ctx_spot: StrategyContext, ctx_perp: StrategyContext) -> StrategyRe
         # candle close isn't known until hour 4, so use the previous 4h bar)
         aligned_ret_4h = pd.Series(
             ret_4h, index=ctx_spot.idx_4h
-        ).shift(1).reindex(ctx_spot.idx_1h[:n], method='ffill').values.copy()
+        ).shift(1).reindex(ctx_spot.idx_1h[:n]).ffill().values.copy()
 
         z1 = _zscore_fast(ret_1h[:n])
         z4 = _zscore_fast(aligned_ret_4h)

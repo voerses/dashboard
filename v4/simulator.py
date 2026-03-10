@@ -372,11 +372,16 @@ def _process_exits(
                 exit_signal = True
                 exit_reason = "regime"
 
-        # 4. RSI exit
+        # 4. RSI exit (symmetric: longs exit on high RSI, shorts on low RSI)
         if not exit_signal and pos.rsi_exit_level < 999.0 and sig.rsi is not None:
-            if d == 1 and sig.rsi[local_bar] > pos.rsi_exit_level and bars_held >= pos.min_hold:
-                exit_signal = True
-                exit_reason = "rsi"
+            rsi_val = sig.rsi[local_bar]
+            if bars_held >= pos.min_hold:
+                if d == 1 and rsi_val > pos.rsi_exit_level:
+                    exit_signal = True
+                    exit_reason = "rsi"
+                elif d == -1 and rsi_val < (100.0 - pos.rsi_exit_level):
+                    exit_signal = True
+                    exit_reason = "rsi"
 
         # 5. Mean-target exit (convex only)
         if not exit_signal and pos.convex_exit and sig.mean_target_vals is not None:
