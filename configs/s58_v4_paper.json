@@ -5,20 +5,20 @@
   "strategies": [
     {
       "strategy_id": "s56",
-      "weight": 0.5,
+      "weight": 1.0,
       "market": "perp",
       "max_positions": 12
     },
     {
       "strategy_id": "s57",
-      "weight": 0.5,
+      "weight": 1.0,
       "market": "combined",
       "max_positions": 12
     }
   ],
   "max_portfolio_positions": 25,
-  "concentration_limit": 0.20,
-  "adv_cap_pct": 0.10,
+  "concentration_limit": 1.0,
+  "adv_cap_pct": 0.30,
   "min_position_usd": 200.0,
   "exchange": "binance",
   "seed": 42,

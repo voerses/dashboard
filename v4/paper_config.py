@@ -100,12 +100,18 @@ def validate_paper_config(config: PaperConfig) -> None:
       - All strategy_ids are loadable
     """
     # --- Weight sum check (pool mode only) ---
+    # Weights > 1.0 per strategy are allowed — this means each strategy sizes
+    # off the full portfolio equity (matching v3 behavior where sub-strategies
+    # share a single capital pool). The free_capital check at entry time prevents
+    # over-allocation. We warn but don't reject.
     if config.mode == "pool":
         total_weight = sum(s.weight for s in config.strategies)
-        if total_weight > 1.0 + 1e-9:  # small epsilon for float rounding
-            raise ValueError(
-                f"Strategy weights sum to {total_weight:.4f} (> 1.0) in pool mode. "
-                f"Reduce weights so they sum to <= 1.0."
+        if total_weight > 1.0 + 1e-9:
+            import logging
+            logging.getLogger(__name__).info(
+                "Strategy weights sum to %.2f (> 1.0) in pool mode. "
+                "Each strategy sizes off weight × equity; free_capital check "
+                "prevents over-allocation.", total_weight,
             )
 
     # --- Position limit consistency ---

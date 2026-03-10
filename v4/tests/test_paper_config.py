@@ -222,8 +222,12 @@ class TestConfigValidationWeights:
     separately so the pytest.raises block captures the correct failure.
     """
 
-    def test_pool_mode_weights_over_1_raises(self):
-        """Weights summing to > 1.0 in pool mode should raise ValueError."""
+    def test_pool_mode_weights_over_1_warns(self):
+        """Weights summing to > 1.0 in pool mode should warn but not raise.
+
+        This matches v3 behavior where sub-strategies size off full equity.
+        The free_capital check at entry time prevents over-allocation.
+        """
         data = _valid_config_dict(
             mode="pool",
             strategies=[
@@ -233,10 +237,9 @@ class TestConfigValidationWeights:
         )
         config_path = _write_config(data)
 
-        # Q6 fix: separate loading from validation
         config = load_paper_config(config_path)
-        with pytest.raises((ValueError, RuntimeError)):
-            validate_paper_config(config)
+        # Should not raise — weights > 1.0 allowed in pool mode
+        validate_paper_config(config)
 
     def test_pool_mode_weights_equal_1_ok(self):
         """Weights summing to exactly 1.0 should be valid."""
