@@ -287,6 +287,18 @@ def main(argv: list[str] | None = None) -> None:
     # Create engine
     engine = PaperPortfolioEngine(config)
 
+    # Wire up live data fetcher (ccxt exchange → LiveFetcher → engine)
+    import ccxt
+    from v4.live_fetcher import LiveFetcher
+    exchange_cls = getattr(ccxt, config.exchange, None) or ccxt.binance
+    ccxt_config: dict = {"enableRateLimit": True}
+    # Pass HTTP proxy from environment (required in proxy-only networks)
+    proxy = os.environ.get("HTTPS_PROXY", os.environ.get("https_proxy", ""))
+    if proxy:
+        ccxt_config["proxies"] = {"https": proxy, "http": proxy}
+    exchange = exchange_cls(ccxt_config)
+    engine.fetcher = LiveFetcher(exchange=exchange, data_dir="data")
+
     # QM-I4 fix: Restore state from state.json on startup
     restore_state(engine, config)
 

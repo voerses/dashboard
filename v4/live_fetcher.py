@@ -124,6 +124,8 @@ class LiveFetcher:
 
         # Build new DataFrame from bars
         new_df = pd.DataFrame(bars)
+        # Convert ms-epoch timestamps to DatetimeIndex matching existing parquet format
+        new_df["timestamp"] = pd.to_datetime(new_df["timestamp"], unit="ms", utc=True).dt.tz_localize(None)
         new_df = new_df.set_index("timestamp")
 
         # Read existing data if present
