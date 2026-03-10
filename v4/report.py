@@ -104,6 +104,7 @@ def compute_portfolio_metrics(
 
     extra_info = {
         "rejections": state.rejections.to_dict(),
+        "partial_fills": state.partial_fills,
         "strategy_attribution": dict(strategy_stats),
         "exposure": exposure,
         "total_trades": len(trades),
@@ -150,15 +151,18 @@ def print_report(
     print(f"  Total Fees:      ${extra_info['total_fees']:,.0f}")
     print(f"  Total Funding:   ${extra_info['total_funding']:,.0f}")
 
-    # Rejections
+    # Rejections & partial fills
     rej = extra_info["rejections"]
-    if rej["total"] > 0:
+    pf = extra_info.get("partial_fills", 0)
+    if rej["total"] > 0 or pf > 0:
         print()
         print("  Entry Rejections:")
         for reason in ["portfolio_limit", "strategy_limit", "min_size", "adv_cap", "concentration", "capital"]:
             if rej[reason] > 0:
                 print(f"    {reason:20s} {rej[reason]:>6d}")
         print(f"    {'total':20s} {rej['total']:>6d}")
+        if pf > 0:
+            print(f"  Partial Fills:     {pf:>6d}")
 
     # Per-strategy
     sa = extra_info["strategy_attribution"]

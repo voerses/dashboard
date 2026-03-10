@@ -129,6 +129,35 @@ def _apply_walk_forward_mask(
     return masked
 
 
+def infer_data_end_date(market: str = "combined") -> pd.Timestamp:
+    """Get the latest timestamp in the parquet data for deterministic backtesting.
+
+    Reads the index of a few liquid reference tokens to find the data boundary.
+    Falls back to pd.Timestamp.now() if no data is found.
+    """
+    ref_tokens = ["BTC", "ETH", "SOL"]
+    latest = pd.Timestamp.min
+
+    for mkt in (["spot", "perp"] if market == "combined" else [market]):
+        cache_dir = Path(DATA_DIR) / mkt / "1h_cache"
+        if not cache_dir.is_dir():
+            continue
+        for token in ref_tokens:
+            pq = cache_dir / f"{token}_1h.parquet"
+            if pq.exists():
+                idx = pd.read_parquet(pq, columns=[]).index
+                if len(idx) > 0:
+                    ts = idx[-1]
+                    if hasattr(ts, 'tz') and ts.tz is not None:
+                        ts = ts.tz_localize(None)
+                    if ts > latest:
+                        latest = ts
+
+    if latest == pd.Timestamp.min:
+        return pd.Timestamp.now().tz_localize(None)
+    return latest
+
+
 def discover_tokens(market: str = "combined") -> list[str]:
     """Find tokens with data for the given market type.
 
@@ -152,8 +181,14 @@ def precompute_strategy_signals(
     tokens: list[str],
     config: PortfolioConfig,
     months: int,
+    end_date: Optional[pd.Timestamp] = None,
 ) -> dict[str, TokenSignals]:
     """Precompute signal arrays for one strategy across all tokens.
+
+    Args:
+        end_date: Explicit end date for the data window. If None, uses
+                  pd.Timestamp.now() (appropriate for live trading only).
+                  For backtesting, pass infer_data_end_date() for reproducibility.
 
     Follows backtest_funds.py pattern:
       _build_context() -> strategy_fn() -> extract arrays -> walk-forward mask
@@ -182,8 +217,21 @@ def precompute_strategy_signals(
                 if not perp_pq.exists():
                     continue
 
-            # Load and trim data
-            cutoff = pd.Timestamp.now().tz_localize(None) - pd.DateOffset(months=months + 2)
+            # Compute cutoff for the simulation window.  We load extra
+            # warm-up history before the cutoff so indicators (liquidity
+            # burn-in 90d, regime expanding percentiles 60d, rolling ADV 30d,
+            # EMAs) are properly initialized.  Arrays are trimmed to the
+            # cutoff AFTER context building.
+            #
+            # Warm-up budget: 180 days covers all burn-in periods with margin.
+            # This avoids loading full 4-5yr parquets which cause OOM.
+            WARMUP_DAYS = 180
+            anchor = end_date if end_date is not None else pd.Timestamp.now().tz_localize(None)
+            # Trading should start at anchor - months. Cutoff must be
+            # train_bars hours earlier so walk-forward mask aligns exactly.
+            trade_start = anchor - pd.DateOffset(months=months)
+            cutoff = trade_start - pd.DateOffset(hours=int(config.train_bars))
+            load_from = cutoff - pd.DateOffset(days=WARMUP_DAYS)
 
             df_spot = None
             df_perp = None
@@ -192,13 +240,22 @@ def precompute_strategy_signals(
 
             if spot_pq.exists():
                 df_spot = pd.read_parquet(spot_pq)
-                df_spot = df_spot[df_spot.index >= cutoff]
+                df_spot = df_spot[df_spot.index >= load_from]
             if perp_pq.exists():
                 df_perp = pd.read_parquet(perp_pq)
-                df_perp = df_perp[df_perp.index >= cutoff]
+                df_perp = df_perp[df_perp.index >= load_from]
 
             if is_combined:
                 if df_spot is None or df_perp is None or len(df_spot) < 500 or len(df_perp) < 500:
+                    continue
+                # Align spot and perp to common date range (matches v3/engine.py:1685-1688).
+                # Without this, bar 0 of spot and bar 0 of perp can be years apart,
+                # producing phantom basis values (e.g., 2020 spot vs 2022 perp).
+                common_start = max(df_spot.index[0], df_perp.index[0])
+                common_end = min(df_spot.index[-1], df_perp.index[-1])
+                df_spot = df_spot[common_start:common_end]
+                df_perp = df_perp[common_start:common_end]
+                if len(df_spot) < 500 or len(df_perp) < 500:
                     continue
                 ctx_spot = eng_spot._build_context(token, df_spot, min_bars=210, market_override="spot")
                 ctx_perp = eng_perp._build_context(token, df_perp, min_bars=210, market_override="perp")
@@ -260,17 +317,12 @@ def precompute_strategy_signals(
                 timestamps = ctx_perp.idx_1h[:n_safe].copy()
                 p_rsi = _copy_f32(ctx_perp.ind_1h["rsi"], n_safe)
 
-            # Entry mask with liquidity masking
+            # Entry mask with liquidity masking (walk-forward applied after trim)
             entry_mask = sr.entry_mask[:n_safe].copy()
             if ctx_spot is not None and ctx_spot.liquidity_mask is not None:
                 entry_mask = entry_mask & ctx_spot.liquidity_mask[:n_safe]
             elif ctx_perp is not None and ctx_perp.liquidity_mask is not None:
                 entry_mask = entry_mask & ctx_perp.liquidity_mask[:n_safe]
-
-            # Walk-forward masking
-            entry_mask = _apply_walk_forward_mask(
-                entry_mask, config.train_bars, config.recal_bars, config.purge_bars,
-            )
 
             # Combined fields
             sec_entry = None
@@ -285,12 +337,9 @@ def precompute_strategy_signals(
             is_perp_secondary = False
 
             if is_combined and ctx_perp is not None:
-                sec_entry_raw = sr.secondary_entry_mask[:n_safe].copy() if sr.secondary_entry_mask is not None else np.zeros(n_safe, dtype=bool)
+                sec_entry = sr.secondary_entry_mask[:n_safe].copy() if sr.secondary_entry_mask is not None else np.zeros(n_safe, dtype=bool)
                 if ctx_perp.liquidity_mask is not None:
-                    sec_entry_raw = sec_entry_raw & ctx_perp.liquidity_mask[:n_safe]
-                sec_entry = _apply_walk_forward_mask(
-                    sec_entry_raw, config.train_bars, config.recal_bars, config.purge_bars,
-                )
+                    sec_entry = sec_entry & ctx_perp.liquidity_mask[:n_safe]
                 sec_dir = sr.secondary_direction[:n_safe].copy() if sr.secondary_direction is not None else np.ones(n_safe, dtype=np.int8)
 
                 perp_close_arr = _copy_f32(ctx_perp.ind_1h["close"], n_safe)
@@ -348,6 +397,61 @@ def precompute_strategy_signals(
 
             # Free context and dataframe memory (break refs so GC can reclaim)
             ctx_spot = ctx_perp = df_spot = df_perp = sr = None
+
+            # Trim arrays to the simulation window.  Indicators were computed
+            # on full history so burn-in / expanding stats are correct; we now
+            # discard the pre-cutoff portion that was only needed for warm-up.
+            ts_arr = timestamps.values if hasattr(timestamps, 'values') else np.asarray(timestamps)
+            cutoff_ns = np.datetime64(cutoff)
+            trim_start = int(np.searchsorted(ts_arr, cutoff_ns))
+
+            if trim_start > 0:
+                s = trim_start  # shorthand
+                timestamps = timestamps[s:]
+                p_close = p_close[s:]
+                p_high = p_high[s:]
+                p_low = p_low[s:]
+                p_atr = p_atr[s:]
+                p_adv = p_adv[s:]
+                p_regime = p_regime[s:]
+                p_funding = p_funding[s:]
+                p_rsi = p_rsi[s:]
+                entry_mask = entry_mask[s:]
+                sr_direction = sr_direction[s:]
+                sr_stop_mult = sr_stop_mult[s:]
+                sr_trail_mult = sr_trail_mult[s:]
+                sr_size_mult = sr_size_mult[s:]
+                sr_leverage = sr_leverage[s:]
+                if mean_target is not None:
+                    mean_target = mean_target[s:]
+                if max_trail is not None:
+                    max_trail = max_trail[s:]
+                if sec_entry is not None:
+                    sec_entry = sec_entry[s:]
+                if sec_dir is not None:
+                    sec_dir = sec_dir[s:]
+                if perp_close_arr is not None:
+                    perp_close_arr = perp_close_arr[s:]
+                    perp_high_arr = perp_high_arr[s:]
+                    perp_low_arr = perp_low_arr[s:]
+                    perp_atr_arr = perp_atr_arr[s:]
+                    perp_adv_arr = perp_adv_arr[s:]
+                    perp_funding_arr = perp_funding_arr[s:]
+                n_safe = n_safe - s
+
+            # Skip token if trimmed window is too short for walk-forward training
+            if n_safe < config.train_bars + config.purge_bars + 100:
+                continue
+
+            # Walk-forward masking (applied on trimmed arrays so training
+            # window starts from the cutoff, not from the token's first bar)
+            entry_mask = _apply_walk_forward_mask(
+                entry_mask, config.train_bars, config.recal_bars, config.purge_bars,
+            )
+            if sec_entry is not None:
+                sec_entry = _apply_walk_forward_mask(
+                    sec_entry, config.train_bars, config.recal_bars, config.purge_bars,
+                )
 
             ts = TokenSignals(
                 token=token,

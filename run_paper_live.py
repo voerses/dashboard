@@ -96,6 +96,9 @@ class PaperPositionTracker:
         self.label = label
         self.capital = capital
         self.equity = capital
+        self.spot_funds = capital / 2.0
+        self.perp_funds = capital / 2.0
+        self.rebalance_history: list[dict] = []
         self.state_dir = state_dir
         self.data_dir = data_dir
         self.exchange = exchange
@@ -120,6 +123,9 @@ class PaperPositionTracker:
         self.open_positions = data.get("open_positions", {})
         self.closed_trades = data.get("closed_trades", [])
         self.equity = data.get("equity", self.capital)
+        self.spot_funds = data.get("spot_funds", self.equity / 2)
+        self.perp_funds = data.get("perp_funds", self.equity / 2)
+        self.rebalance_history = data.get("rebalance_history", [])
 
     def save(self):
         os.makedirs(os.path.dirname(self._trades_path()), exist_ok=True)
@@ -128,6 +134,9 @@ class PaperPositionTracker:
             "label": self.label,
             "capital": self.capital,
             "equity": round(self.equity, 2),
+            "spot_funds": round(self.spot_funds, 2),
+            "perp_funds": round(self.perp_funds, 2),
+            "rebalance_history": self.rebalance_history[-50:],
             "open_positions": self.open_positions,
             "closed_trades": self.closed_trades,
         }
@@ -189,6 +198,13 @@ class PaperPositionTracker:
         else:
             pos_usd = min(raw, cap)
 
+        # 8. ADV hard cap — never exceed 30% of daily volume
+        # Without this, compounding equity makes positions >> ADV, unrealistic
+        max_participation = 0.30
+        adv_cap = adv * max_participation
+        if adv_cap > 0:
+            pos_usd = min(pos_usd, adv_cap)
+
         # Minimum viable trade size
         if pos_usd < 200.0:
             return 0.0
@@ -229,6 +245,9 @@ class PaperPositionTracker:
                     self._close_position(token, sig, tick_time, exit_reason="regime")
                     closed.append(token)
 
+        # 2.5 Rebalance funds between spot and perp accounts
+        last_rebalance = self._rebalance(tick_time)
+
         # 3. Check entries for new positions
         for token, sig in all_signals.items():
             if token in self.open_positions:
@@ -251,12 +270,28 @@ class PaperPositionTracker:
 
         self.save()
 
-        return {"opened": opened, "closed": closed, "liquidated": liquidated}
+        return {"opened": opened, "closed": closed, "liquidated": liquidated,
+                "rebalance": last_rebalance}
 
     def _open_position(self, token: str, sig: dict, tick_time: str):
         size = self._position_size(sig)
         if size <= 0:
             return  # below minimum viable trade size
+
+        # Capital utilization check: don't exceed equity with total deployed.
+        # self.equity already reflects entry fees paid, funding deducted, and
+        # closed P&L (with exit fees). deployed is raw capital locked in positions.
+        deployed = sum(
+            p.get("spot_size", 0) + p.get("perp_size", 0)
+            for p in self.open_positions.values()
+        )
+        # Reserve for entry fee this new position will incur
+        max_fee = max(self.spot_fee, self.perp_fee)
+        available = max(self.equity - deployed, 0) / (1.0 + max_fee)
+        if size > available:
+            if available < 200:
+                return  # not enough capital for minimum trade
+            size = available  # cap to remaining capital
 
         sizing = sig.get("sizing", {})
         spot_lev = sizing.get("leverage", 1.0)
@@ -291,13 +326,13 @@ class PaperPositionTracker:
             perp_close, perp_size * perp_lev, perp_adv, perp_dir,
         ) if has_perp else perp_close
 
-        # Entry fees on leveraged notional
-        entry_fee = 0.0
-        if has_spot:
-            entry_fee += spot_size * spot_lev * self.spot_fee
-        if has_perp:
-            entry_fee += perp_size * perp_lev * self.perp_fee
-        self.equity -= entry_fee
+        # Entry fees on leveraged notional — tracked per fund
+        spot_entry_fee = spot_size * spot_lev * self.spot_fee if has_spot else 0.0
+        perp_entry_fee = perp_size * perp_lev * self.perp_fee if has_perp else 0.0
+        entry_fee = spot_entry_fee + perp_entry_fee
+        self.spot_funds -= spot_entry_fee
+        self.perp_funds -= perp_entry_fee
+        self.equity = self.spot_funds + self.perp_funds
 
         # Trade management params (primary for spot leg, secondary for perp leg)
         tp = sig.get("trade_params", {})
@@ -453,14 +488,23 @@ class PaperPositionTracker:
                 "size_multiplier": pos.get("size_multiplier", 1.0),
             })
 
-        # Re-credit entry fee (was pre-deducted) and apply closed P&L
-        entry_fee_total = pos.get("entry_fee", 0)
-        self.equity += entry_fee_total  # undo the pre-deduction
-        closed_pnl = sum(
+        # Per-fund accounting: split closed P&L by leg
+        spot_entry_fee_undo = spot_size * spot_lev * self.spot_fee if pos["spot_entry"] else 0.0
+        perp_entry_fee_undo = perp_size * perp_lev * self.perp_fee if pos["perp_entry"] else 0.0
+        spot_closed_pnl = sum(
             t["pnl"] for t in self.closed_trades
-            if t["token"] == real_token and t["exit_time"] == tick_time
+            if t["token"] == real_token and t["exit_time"] == tick_time and t.get("leg") == "spot"
         )
-        self.equity += closed_pnl
+        perp_closed_pnl = sum(
+            t["pnl"] for t in self.closed_trades
+            if t["token"] == real_token and t["exit_time"] == tick_time and t.get("leg") == "perp"
+        )
+        # Spot fund: undo entry fee pre-deduction + spot P&L
+        self.spot_funds += spot_entry_fee_undo + spot_closed_pnl
+        # Perp fund: undo entry fee pre-deduction + perp P&L + undo funding double-count
+        # (funding was already deducted from perp_funds during hold)
+        self.perp_funds += perp_entry_fee_undo + perp_closed_pnl + accrued_funding
+        self.equity = self.spot_funds + self.perp_funds
 
     @staticmethod
     def _compute_slippage(price: float, pos_usd: float, adv: float, direction: int) -> float:
@@ -485,6 +529,63 @@ class PaperPositionTracker:
     def _real_token(key: str) -> str:
         """Strip sub-strategy suffix from compound position key (e.g. 'BTC:mom' -> 'BTC')."""
         return key.split(":")[0] if ":" in key else key
+
+    def _target_spot_pct(self) -> float:
+        """Target spot allocation percentage based on strategy type."""
+        sid = self.strategy_id
+        # Perp-only strategies
+        if sid in ("s56",):
+            return 0.0
+        # Multi-strategy: weighted average based on current open positions,
+        # clamped to [0.2, 0.8] because both sub-strategies are always active
+        if sid == "s58" and self.open_positions:
+            total_spot = sum(p.get("spot_size", 0) for p in self.open_positions.values())
+            total_perp = sum(p.get("perp_size", 0) for p in self.open_positions.values())
+            total = total_spot + total_perp
+            if total > 0:
+                return max(0.2, min(0.8, total_spot / total))
+        # s30, s32, s54, s57 carry strategies → 50/50
+        return 0.5
+
+    def _rebalance(self, tick_time: str) -> dict | None:
+        """Compute and execute fund rebalancing between spot and perp accounts.
+
+        Returns transfer record or None if no rebalance needed.
+        """
+        spot_deployed = sum(p.get("spot_size", 0) for p in self.open_positions.values())
+        perp_deployed = sum(p.get("perp_size", 0) for p in self.open_positions.values())
+        spot_available = self.spot_funds - spot_deployed
+        perp_available = self.perp_funds - perp_deployed
+        total_available = spot_available + perp_available
+
+        if total_available <= 0:
+            return None
+
+        target_spot_pct = self._target_spot_pct()
+        target_spot = total_available * target_spot_pct
+        transfer = target_spot - spot_available
+
+        # Cap transfer so neither fund goes below zero
+        transfer = max(-self.spot_funds, min(transfer, self.perp_funds))
+
+        if abs(transfer) < 100:
+            return None
+
+        # Execute transfer
+        self.spot_funds += transfer
+        self.perp_funds -= transfer
+        # equity unchanged: spot_funds + perp_funds is constant
+
+        direction = "perp → spot" if transfer > 0 else "spot → perp"
+        record = {
+            "time": tick_time,
+            "amount": round(abs(transfer), 2),
+            "direction": direction,
+            "spot_funds_after": round(self.spot_funds, 2),
+            "perp_funds_after": round(self.perp_funds, 2),
+        }
+        self.rebalance_history.append(record)
+        return record
 
     def _read_latest_funding_rate(self, token: str) -> float:
         """Read the latest funding rate from WAL for a token."""
@@ -635,7 +736,8 @@ class PaperPositionTracker:
                         pos.get("accrued_funding", 0) + funding_cost, 4,
                     )
                     pos["last_funding_ts"] = last_ts + periods * funding_interval_ms
-                    self.equity -= funding_cost
+                    self.perp_funds -= funding_cost
+                    self.equity = self.spot_funds + self.perp_funds
 
             # --- Gross P&L per leg on leveraged notional ---
             spot_gross = 0.0
@@ -843,6 +945,9 @@ class PaperPositionTracker:
             "return_pct": round(total_pnl / self.capital * 100, 2),
             "n_trades": n_trades,
             "equity_history": equity_history,
+            "spot_funds": round(self.spot_funds, 2),
+            "perp_funds": round(self.perp_funds, 2),
+            "rebalance_history": self.rebalance_history[-20:],
         }
 
     def _load_equity_history(self) -> list[dict]:
@@ -1104,6 +1209,12 @@ def print_status() -> None:
         print(f"\n[{label}]")
         print(f"  Capital: ${run_cfg['capital']:,.0f}")
         print(f"  Equity: ${state.get('equity', run_cfg['capital']):,.0f}")
+        spot_f = state.get('spot_funds', state.get('equity', run_cfg['capital']) / 2)
+        perp_f = state.get('perp_funds', state.get('equity', run_cfg['capital']) / 2)
+        total_f = spot_f + perp_f
+        if total_f > 0:
+            print(f"  Spot / Perp: ${spot_f:,.0f} ({spot_f/total_f*100:.0f}%) / "
+                  f"${perp_f:,.0f} ({perp_f/total_f*100:.0f}%)")
         print(f"  Last tick: {state.get('last_tick', 'never')}")
         print(f"  Ticks completed: {state.get('tick_count', 0)}")
         print(f"  Tokens scanned: {state.get('tokens_scanned', 0)}")
@@ -1210,6 +1321,9 @@ def run_tick(
             print(f"    OPENED: {', '.join(pos_summary['opened'])}")
         if pos_summary["closed"]:
             print(f"    CLOSED: {', '.join(pos_summary['closed'])}")
+        if pos_summary.get("rebalance"):
+            rb = pos_summary["rebalance"]
+            print(f"    REBALANCE: ${rb['amount']:,.0f} {rb['direction']}")
         n_open = len(tracker.open_positions)
         n_closed = len(tracker.closed_trades)
         unrealized = sum(
@@ -1250,6 +1364,9 @@ def run_tick(
             "unrealized": round(unrealized, 2),
             "open_positions": n_open,
             "closed_trades": n_closed,
+            "spot_funds": round(tracker.spot_funds, 2),
+            "perp_funds": round(tracker.perp_funds, 2),
+            "rebalance": pos_summary.get("rebalance"),
         })
 
     print(f"\n[3/4] State saved to {STATE_DIR}/")

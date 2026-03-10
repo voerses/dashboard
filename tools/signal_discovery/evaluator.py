@@ -1,8 +1,11 @@
 """Purged walk-forward IC evaluation with FDR correction and bootstrap CI."""
 
+import warnings
 import numpy as np
-from scipy.stats import spearmanr
+from scipy.stats import spearmanr, ConstantInputWarning
 from statsmodels.stats.multitest import multipletests
+
+warnings.filterwarnings('ignore', category=ConstantInputWarning)
 
 from .config import DiscoveryConfig, REGIME_NAMES
 

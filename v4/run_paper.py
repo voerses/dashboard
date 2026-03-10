@@ -328,8 +328,61 @@ def main(argv: list[str] | None = None) -> None:
             sys.exit(1)
         return
 
-    # Continuous mode (not yet fully implemented — requires live data)
-    print("Continuous mode not yet implemented. Use --once for single tick.")
+    # Continuous hourly loop
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    lock_file = acquire_pid_lock(config.state_dir)
+    shutdown = threading.Event()
+    signal.signal(signal.SIGINT, create_shutdown_handler(shutdown))
+    signal.signal(signal.SIGTERM, create_shutdown_handler(shutdown))
+
+    logger.info(
+        "Paper trading started — pool=%s, strategies=%s, capital=$%.0f",
+        config.pool_name,
+        [s.strategy_id for s in config.strategies],
+        config.capital,
+    )
+
+    try:
+        while not shutdown.is_set():
+            try:
+                result = engine.tick()
+            except Exception:
+                logger.exception("Tick failed with unhandled exception")
+                # Wait before retrying to avoid tight crash loops
+                if shutdown.wait(60):
+                    break
+                continue
+
+            if result.error:
+                logger.error("Tick %d error: %s", result.tick_counter, result.error)
+            elif result.skipped:
+                logger.info("Tick %d skipped (no new data)", result.tick_counter)
+            else:
+                logger.info(
+                    "Tick %d done — entries=%d exits=%d open=%d equity=$%.0f "
+                    "mtm=$%.0f rss=%.0fMB %.1fs",
+                    result.tick_counter, result.entries, result.exits,
+                    result.open_positions, result.portfolio_equity,
+                    result.mark_to_market_equity, result.peak_rss_mb,
+                    result.processing_time_s,
+                )
+
+            for alert in result.alerts:
+                logger.warning("ALERT: %s", alert)
+
+            # Sleep until next hour boundary
+            sleep_s = compute_sleep_until_next_hour(time.time())
+            logger.info("Sleeping %.0fs until next hour", sleep_s)
+            if shutdown.wait(sleep_s):
+                break
+    finally:
+        lock_file.close()
+        logger.info("Paper trading stopped")
 
 
 if __name__ == "__main__":

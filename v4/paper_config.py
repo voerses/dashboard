@@ -67,7 +67,7 @@ def load_paper_config(path: str) -> PaperConfig:
         capital=data.get("initial_capital", 200_000.0),
         max_portfolio_positions=data.get("max_portfolio_positions", 40),
         concentration_limit=data.get("concentration_limit", 0.10),
-        adv_cap_pct=data.get("adv_cap_pct", 0.10),
+        adv_cap_pct=data.get("adv_cap_pct", 0.05),
         min_position_usd=data.get("min_position_usd", 200.0),
         exchange=data.get("exchange", "binance"),
         seed=data.get("seed", 42),

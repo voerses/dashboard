@@ -20,7 +20,7 @@ class PortfolioConfig:
     capital: float = 200_000
     max_portfolio_positions: int = 40
     concentration_limit: float = 0.10    # 10% per-token across strategies
-    adv_cap_pct: float = 0.10           # 10% of rolling ADV (v4-only constraint)
+    adv_cap_pct: float = 0.05           # 5% of rolling ADV (v4-only constraint)
     min_position_usd: float = 200.0
     exchange: str = "binance"
     base_spread_bps: float = 3.0

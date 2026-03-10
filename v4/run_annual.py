@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "v3"))
 import numpy as np
 import pandas as pd
 from v4.config import PortfolioConfig, StrategySpec
-from v4.signals import precompute_strategy_signals, discover_tokens
+from v4.signals import precompute_strategy_signals, discover_tokens, infer_data_end_date
 from v4.simulator import simulate_portfolio
 from v4.report import compute_portfolio_metrics
 
@@ -22,13 +22,17 @@ def run(months=36, verbose_mem=False):
 
     config = PortfolioConfig(capital=200_000, max_portfolio_positions=40, seed=42)
 
+    # Infer data end date for deterministic backtesting
+    data_end = infer_data_end_date("combined")
+    print(f'Data end: {data_end.strftime("%Y-%m-%d %H:%M")}')
+
     # Precompute signals one strategy at a time to limit peak memory
     all_signals = {}
     for sid, spec in specs.items():
         tokens = discover_tokens(spec.market)
         print(f'Precomputing {sid} ({len(tokens)} tokens, {spec.market})...')
         t0 = time.time()
-        signals = precompute_strategy_signals(spec, tokens, config, months)
+        signals = precompute_strategy_signals(spec, tokens, config, months, end_date=data_end)
         print(f'  Done: {len(signals)} tokens ({time.time()-t0:.1f}s)')
         all_signals[sid] = signals
         gc.collect()

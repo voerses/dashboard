@@ -159,14 +159,63 @@ def process_single_token(token, cfg, data_dir):
 
 
 def _process_token_wrapper(args):
-    """Wrapper for multiprocessing — unpacks args tuple."""
+    """Wrapper for multiprocessing (pooled mode).
+
+    Strips large arrays (close, regime_1h, idx_1h, features) from the result
+    to avoid pickling GBs of numpy data through IPC. The main process reloads
+    the best token's data for analysis.
+    """
     token, cfg_dict, data_dir = args
     cfg = DiscoveryConfig(**cfg_dict)
     try:
-        return process_single_token(token, cfg, data_dir)
+        result = process_single_token(token, cfg, data_dir)
+        if result is not None:
+            # Strip large arrays — only return aggregation-ready data
+            result.pop('close', None)
+            result.pop('regime_1h', None)
+            result.pop('idx_1h', None)
+            result.pop('features', None)
+        return result
     except Exception as e:
         print(f'  ERROR processing {token}: {e}')
         return None
+
+
+def _process_token_per_token(args):
+    """Worker for per-token mode — runs full pipeline + analysis + saves files.
+
+    All heavy work (feature arrays, analysis) stays inside the worker process.
+    Only returns a lightweight summary dict through IPC.
+    """
+    token, cfg_dict, data_dir = args
+    cfg = DiscoveryConfig(**cfg_dict)
+    try:
+        result = process_single_token(token, cfg, data_dir)
+        if result is None:
+            return {'token': token, 'status': 'skipped'}
+
+        summary = {
+            'token': token,
+            'status': 'ok',
+            'n_bars': result['n_bars'],
+            'n_features': result['n_features'],
+            'n_significant': len(result['significant_results']),
+        }
+
+        if result['significant_results']:
+            save_signal_catalog(result['significant_results'], cfg, token=token)
+            save_rankings_csv(result['significant_results'], cfg, token=token)
+
+            if cfg.analyze:
+                analysis = run_full_analysis(
+                    result['features'], result['close'], result['regime_1h'],
+                    result['idx_1h'], result['significant_results'], cfg)
+                save_analysis(analysis, cfg, token=token)
+
+        return summary
+    except Exception as e:
+        print(f'  ERROR processing {token}: {e}')
+        return {'token': token, 'status': 'error', 'error': str(e)}
 
 
 # ---------------------------------------------------------------------------
@@ -222,28 +271,69 @@ def run_discovery(cfg):
     n_total_features = 0
 
     if cfg.per_token:
-        # Per-token mode: each token gets its own catalog
-        for token in tokens:
-            print(f'Processing {token}...')
-            result = process_single_token(token, cfg, data_dir)
-            if result is None:
-                print(f'  Skipped (insufficient data)')
-                continue
-            n_tokens_processed += 1
-            n_total_features = max(n_total_features, result['n_features'])
+        # Per-token mode: each token gets its own catalog + analysis
+        if cfg.workers > 1 and len(tokens) > 1:
+            # Parallel per-token: workers do everything, return lightweight summaries
+            cfg_dict = {
+                'market': cfg.market, 'tokens': None,
+                'min_bars': cfg.min_bars, 'horizons': cfg.horizons,
+                'min_train_bars': cfg.min_train_bars,
+                'test_window_bars': cfg.test_window_bars,
+                'purge_gap_bars': cfg.purge_gap_bars,
+                'fdr_alpha': cfg.fdr_alpha, 'min_abs_ic': cfg.min_abs_ic,
+                'min_t_stat': cfg.min_t_stat,
+                'bootstrap_samples': cfg.bootstrap_samples,
+                'max_corr': cfg.max_corr, 'top_per_regime': cfg.top_per_regime,
+                'workers': 1, 'quick': cfg.quick,
+                'per_token': True, 'primary_horizon': cfg.primary_horizon,
+                'analyze': cfg.analyze, 'output_dir': cfg.output_dir,
+            }
+            args_list = [(t, cfg_dict, data_dir) for t in tokens]
 
-            if result['significant_results']:
-                save_signal_catalog(result['significant_results'], cfg, token=token)
-                save_rankings_csv(result['significant_results'], cfg, token=token)
+            with ProcessPoolExecutor(max_workers=cfg.workers) as executor:
+                futures = {executor.submit(_process_token_per_token, a): a[0]
+                           for a in args_list}
+                for future in as_completed(futures):
+                    token = futures[future]
+                    try:
+                        summary = future.result()
+                    except Exception as e:
+                        print(f'  ERROR {token}: {e}')
+                        continue
 
-                if cfg.analyze:
-                    analysis = run_full_analysis(
-                        result['features'], result['close'], result['regime_1h'],
-                        result['idx_1h'], result['significant_results'], cfg)
-                    save_analysis(analysis, cfg, token=token)
-                    print_analysis_summary(analysis)
-            else:
-                print(f'  No significant signals found')
+                    if summary['status'] == 'skipped':
+                        continue
+                    if summary['status'] == 'error':
+                        print(f'  ERROR {token}: {summary.get("error", "unknown")}')
+                        continue
+                    n_tokens_processed += 1
+                    n_total_features = max(n_total_features, summary['n_features'])
+                    print(f'  {token}: {summary["n_bars"]} bars, '
+                          f'{summary["n_features"]} features, '
+                          f'{summary["n_significant"]} significant')
+        else:
+            # Sequential per-token
+            for token in tokens:
+                print(f'Processing {token}...')
+                result = process_single_token(token, cfg, data_dir)
+                if result is None:
+                    print(f'  Skipped (insufficient data)')
+                    continue
+                n_tokens_processed += 1
+                n_total_features = max(n_total_features, result['n_features'])
+
+                if result['significant_results']:
+                    save_signal_catalog(result['significant_results'], cfg, token=token)
+                    save_rankings_csv(result['significant_results'], cfg, token=token)
+
+                    if cfg.analyze:
+                        analysis = run_full_analysis(
+                            result['features'], result['close'], result['regime_1h'],
+                            result['idx_1h'], result['significant_results'], cfg)
+                        save_analysis(analysis, cfg, token=token)
+                        print_analysis_summary(analysis)
+                else:
+                    print(f'  No significant signals found')
     else:
         # Pooled mode: aggregate across tokens
         if cfg.workers > 1 and len(tokens) > 1:
@@ -263,6 +353,7 @@ def run_discovery(cfg):
                 'analyze': cfg.analyze, 'output_dir': cfg.output_dir,
             }
             args_list = [(t, cfg_dict, data_dir) for t in tokens]
+            best_token = None  # track token name, reload later
 
             with ProcessPoolExecutor(max_workers=cfg.workers) as executor:
                 futures = {executor.submit(_process_token_wrapper, a): a[0]
@@ -280,12 +371,21 @@ def run_discovery(cfg):
                     n_tokens_processed += 1
                     n_total_features = max(n_total_features, result['n_features'])
                     all_significant.extend(result['significant_results'])
-                    all_features.update(result['features'])
+                    # features stripped by worker — track best token for reload
                     if best_result is None or result['n_bars'] > best_result['n_bars']:
                         best_result = result
+                        best_token = token
                     print(f'  {token}: {result["n_bars"]} bars, '
                           f'{result["n_features"]} features, '
                           f'{len(result["significant_results"])} significant')
+
+            # Reload best token's data for clustering + analysis
+            if best_token and all_significant:
+                print(f'\nReloading {best_token} for clustering & analysis...')
+                best_full = process_single_token(best_token, cfg, data_dir)
+                if best_full:
+                    all_features = best_full['features']
+                    best_result = best_full
         else:
             # Sequential
             for token in tokens:
@@ -297,12 +397,14 @@ def run_discovery(cfg):
                 n_tokens_processed += 1
                 n_total_features = max(n_total_features, result['n_features'])
                 all_significant.extend(result['significant_results'])
-                all_features.update(result['features'])
-                if best_result is None or result['n_bars'] > best_result['n_bars']:
+                n_bars = result['n_bars']
+                n_feat = result['n_features']
+                n_sig = len(result['significant_results'])
+                # Only keep features/arrays from the longest token
+                if best_result is None or n_bars > best_result['n_bars']:
+                    all_features = result['features']
                     best_result = result
-                print(f'  {token}: {result["n_bars"]} bars, '
-                      f'{result["n_features"]} features, '
-                      f'{len(result["significant_results"])} significant')
+                print(f'  {token}: {n_bars} bars, {n_feat} features, {n_sig} significant')
 
         if not all_significant:
             print('\nNo significant signals found across any token.')

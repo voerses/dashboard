@@ -71,8 +71,9 @@ def _compute_cross_tf_divergence(ctx):
     if ret_1h is None or ret_4h is None:
         return np.zeros(len(ctx.ind_1h['close']))
 
-    # Align 4h to 1h grid
-    aligned_4h = pd.Series(ret_4h, index=ctx.idx_4h).reindex(
+    # Align 4h to 1h grid (shift by 1 to prevent look-ahead: the 4h
+    # candle close isn't known until hour 4, so use the previous 4h bar)
+    aligned_4h = pd.Series(ret_4h, index=ctx.idx_4h).shift(1).reindex(
         ctx.idx_1h, method='ffill').values.copy()
 
     z1 = _zscore_rolling(ret_1h)

@@ -14,13 +14,15 @@ import sys
 import time
 from pathlib import Path
 
+import pandas as pd
+
 # Ensure project root is importable
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "v3"))
 
 from v4.config import PortfolioConfig, StrategySpec
-from v4.signals import precompute_strategy_signals, discover_tokens
+from v4.signals import precompute_strategy_signals, discover_tokens, infer_data_end_date
 from v4.simulator import simulate_portfolio
 from v4.report import compute_portfolio_metrics, print_report, save_results
 
@@ -37,8 +39,8 @@ def parse_args() -> argparse.Namespace:
                         help="Exchange (default: binance)")
     parser.add_argument("--concentration", type=float, default=0.10,
                         help="Per-token concentration limit (default: 0.10)")
-    parser.add_argument("--adv-cap", type=float, default=0.10,
-                        help="ADV hard cap (default: 0.10)")
+    parser.add_argument("--adv-cap", type=float, default=0.05,
+                        help="ADV hard cap (default: 0.05)")
     parser.add_argument("--max-positions", type=int, default=15,
                         help="Per-strategy max positions (default: 15)")
     parser.add_argument("--max-portfolio-positions", type=int, default=40,
@@ -58,6 +60,7 @@ def run_backtest(
     capital: float,
     config: PortfolioConfig,
     precomputed_signals: dict | None = None,
+    end_date: pd.Timestamp | None = None,
 ) -> tuple:
     """Run a single backtest with given parameters.
 
@@ -83,7 +86,7 @@ def run_backtest(
             tokens = discover_tokens(spec.market)
             print(f"\n  Precomputing signals for {sid} ({len(tokens)} tokens, {spec.market})...")
             t0 = time.time()
-            signals = precompute_strategy_signals(spec, tokens, config, months)
+            signals = precompute_strategy_signals(spec, tokens, config, months, end_date=end_date)
             print(f"  Done: {len(signals)} tokens with signals ({time.time()-t0:.1f}s)")
             precomputed_signals[sid] = signals
 
@@ -140,6 +143,10 @@ def main():
     print(f"  Market:     {market}")
     print(f"  Seed:       {args.seed}")
 
+    # Infer data end date for deterministic backtesting
+    data_end = infer_data_end_date(market)
+    print(f"  Data End:   {data_end.strftime('%Y-%m-%d %H:%M')}")
+
     # Precompute signals once (they don't depend on capital)
     strategy_specs_for_precompute = {}
     for sid in strategy_ids:
@@ -156,7 +163,7 @@ def main():
         tokens = discover_tokens(spec.market)
         print(f"\n  Precomputing signals for {sid} ({len(tokens)} tokens, {spec.market})...")
         t0 = time.time()
-        signals = precompute_strategy_signals(spec, tokens, config, args.months)
+        signals = precompute_strategy_signals(spec, tokens, config, args.months, end_date=data_end)
         print(f"  Done: {len(signals)} tokens with signals ({time.time()-t0:.1f}s)")
         all_precomputed[sid] = signals
 

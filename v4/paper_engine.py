@@ -483,7 +483,7 @@ class PaperPortfolioEngine:
         import logging
         logger = logging.getLogger(__name__)
 
-        timestamp = bar_timestamp or ""
+        timestamp = bar_timestamp or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
         # --- Step 1: Fetch live data + append to parquet ---
         if self.fetcher is not None:

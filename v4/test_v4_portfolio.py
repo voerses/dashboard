@@ -232,7 +232,7 @@ class TestConfigDefaults:
 
     def test_portfolio_config_adv_cap_default(self):
         cfg = PortfolioConfig()
-        assert cfg.adv_cap_pct == pytest.approx(0.10)
+        assert cfg.adv_cap_pct == pytest.approx(0.05)
 
     def test_portfolio_config_min_position_usd_default(self):
         cfg = PortfolioConfig()

@@ -79,10 +79,11 @@ def strategy(ctx_spot: StrategyContext, ctx_perp: StrategyContext) -> StrategyRe
 
     signal_favorable = np.ones(n, dtype=bool)  # default: always OK
     if ret_1h is not None and ret_4h is not None:
-        # Align 4h to 1h
+        # Align 4h to 1h (shift by 1 to prevent look-ahead: the 4h
+        # candle close isn't known until hour 4, so use the previous 4h bar)
         aligned_ret_4h = pd.Series(
             ret_4h, index=ctx_spot.idx_4h
-        ).reindex(ctx_spot.idx_1h[:n], method='ffill').values.copy()
+        ).shift(1).reindex(ctx_spot.idx_1h[:n], method='ffill').values.copy()
 
         z1 = _zscore_fast(ret_1h[:n])
         z4 = _zscore_fast(aligned_ret_4h)

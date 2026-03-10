@@ -159,7 +159,7 @@ def build_sims_from_state_dir(state_dir: str, config_path: str = "") -> dict:
             "weight": s.get("weight", 1.0),
         } for i, s in enumerate(strategy_specs)]
 
-    # Build all_trades from trades.jsonl
+    # Build all_trades from trades.jsonl (closed trades)
     all_trades = []
     for t in trades:
         all_trades.append({
@@ -183,6 +183,34 @@ def build_sims_from_state_dir(state_dir: str, config_path: str = "") -> dict:
             "funding_cost": t.get("funding_cost", 0),
             "entry_fee": t.get("entry_fee", 0),
             "exit_fee": t.get("exit_fee", 0),
+        })
+
+    # Add open positions from state.json (AC28)
+    entry_fees_map = state.get("entry_fees_by_pos", {})
+    last_prices = state.get("last_known_prices", {})
+    for pos in open_positions:
+        pos_id = pos.get("position_id", "")
+        entry_fee = entry_fees_map.get(pos_id, 0.0)
+        entry_price = pos.get("entry_price", 0)
+        token = pos.get("token", "")
+        direction = pos.get("direction", 1)
+        quantity = pos.get("quantity", 0)
+        current_price = last_prices.get(token, entry_price)
+        unrealized_pnl = quantity * (current_price - entry_price)
+        all_trades.append({
+            "token": token,
+            "strategy": pos.get("strategy_id", ""),
+            "market_type": "perp" if pos.get("is_perp", False) else "spot",
+            "direction": direction,
+            "status": "open",
+            "entry_price": entry_price,
+            "current_price": current_price,
+            "unrealized_pnl": unrealized_pnl,
+            "margin_usd": pos.get("margin_usd", 0),
+            "entry_bar": pos.get("entry_bar", 0),
+            "entry_fee": entry_fee,
+            "cumulative_funding": pos.get("cumulative_funding", 0),
+            "hold_bars": tick_counter - pos.get("entry_bar", 0),
         })
 
     # Equity history from equity.csv
@@ -406,11 +434,11 @@ function render() {{
     const nT = trades.length;
     const nW = trades.filter(t=>(t.pnl||0)>0).length;
     const wr = nT>0?(nW/nT*100):0;
-    const totalPnl = trades.reduce((a,t)=>a+(t.pnl||0),0);
-    const totalFees = trades.reduce((a,t)=>a+(t.entry_fee||0)+(t.exit_fee||0),0);
-    const totalFunding = trades.reduce((a,t)=>a+Math.abs(t.funding_cost||0),0);
-    const returnPct = s.capital>0 ? totalPnl/s.capital*100 : 0;
+    const totalPnl = s.realized_pnl !== undefined ? s.realized_pnl : trades.reduce((a,t)=>a+(t.pnl||0),0);
+    const totalFees = s.total_fees || trades.reduce((a,t)=>a+(t.entry_fee||0)+(t.exit_fee||0),0);
+    const totalFunding = s.total_funding || trades.reduce((a,t)=>a+Math.abs(t.funding_cost||0),0);
     const equity = s.portfolio_equity || s.capital;
+    const returnPct = s.capital>0 ? (equity - s.capital)/s.capital*100 : 0;
     const nOpen = s.open_positions || 0;
 
     // Stale banner
@@ -441,16 +469,20 @@ function render() {{
     const imbPct = sp.imbalance_pct || 0;
     const blockedCount = sp.blocked_entries_count || 0;
 
+    const unrealizedPnl = trades.filter(t=>t.status==='open').reduce((a,t)=>a+(t.unrealized_pnl||0),0);
+    const mtmEquity = eh.length > 0 ? eh[eh.length-1].mark_to_market_equity : equity;
+
     let h = `
     <div class="kpi-row">
-        <div class="kpi"><div class="lbl">Portfolio Equity</div><div class="val ${{pc(equity - s.capital)}}">$${{fmt(equity)}}<div style="font-size:0.45em;color:#484f58;margin-top:2px">start $${{fmt(s.capital)}}</div></div></div>
-        <div class="kpi"><div class="lbl">Realized P&L</div><div class="val ${{pc(totalPnl)}}">$${{fmt(totalPnl)}} (${{fmtPct(returnPct)}})</div></div>
+        <div class="kpi"><div class="lbl">Portfolio Equity</div><div class="val ${{pc(mtmEquity - s.capital)}}">$${{fmt(mtmEquity)}}<div style="font-size:0.45em;color:#484f58;margin-top:2px">start $${{fmt(s.capital)}}</div></div></div>
+        <div class="kpi"><div class="lbl">Realized P&L</div><div class="val ${{pc(totalPnl)}}">$${{fmt(totalPnl)}}</div></div>
+        <div class="kpi"><div class="lbl">Unrealized P&L</div><div class="val ${{pc(unrealizedPnl)}}">$${{fmt(unrealizedPnl)}}</div></div>
         <div class="kpi"><div class="lbl">Max Drawdown</div><div class="val r">${{maxDD.toFixed(2)}}%</div></div>
         <div class="kpi"><div class="lbl">Trades</div><div class="val b">${{nT}} <span style="font-size:0.6em;color:${{nOpen>0?'#3fb950':'#484f58'}}">(${{nOpen}} open)</span></div></div>
         <div class="kpi"><div class="lbl">Win Rate</div><div class="val ${{wr>=50?'g':'y'}}">${{wr.toFixed(1)}}%<div style="font-size:0.45em;color:#484f58;margin-top:2px">${{nW}}/${{nT}}</div></div></div>
         <div class="kpi"><div class="lbl">Total Fees</div><div class="val r">$${{fmt(totalFees)}}</div></div>
         <div class="kpi"><div class="lbl">Funding Paid</div><div class="val r">$${{fmt(totalFunding)}}</div></div>
-        <div class="kpi"><div class="lbl">Tick</div><div class="val b">${{s.tick_counter||0}}<div style="font-size:0.45em;color:#484f58;margin-top:2px">Last: ${{(s.last_updated||'N/A').substring(0,16)}}</div></div></div>
+        <div class="kpi"><div class="lbl">Tick</div><div class="val b">${{s.tick_counter||0}}<div style="font-size:0.45em;color:#484f58;margin-top:2px">${{s.last_updated ? new Date(s.last_updated).toLocaleString() : 'N/A'}}</div></div></div>
     </div>`;
 
     // ---- Fund Allocation Panel (AC26) ----
@@ -529,6 +561,7 @@ function render() {{
         <h2>Trade Log</h2>
         <div class="frow">
             <div class="fb active" onclick="setF(this,'all')">All (${{nT}})</div>
+            <div class="fb" onclick="setF(this,'open')">Open (${{nOpen}})</div>
             <div class="fb" onclick="setF(this,'winners')">Winners (${{nW}})</div>
             <div class="fb" onclick="setF(this,'losers')">Losers (${{nT-nW}})</div>
         </div>
@@ -536,7 +569,7 @@ function render() {{
             <table>
                 <thead><tr>
                     <th>Strategy</th><th>Token</th><th>Dir</th><th>Mkt</th>
-                    <th>Hold</th><th>Entry $</th><th>Exit $</th>
+                    <th>Hold</th><th>Entry $</th><th>Exit/Now $</th>
                     <th>Size</th><th>P&L</th><th>Fees</th><th>Exit</th>
                 </tr></thead>
                 <tbody id="tb-trades"></tbody>
@@ -584,27 +617,37 @@ function renderTrades(trades, filter) {{
     let ft = trades;
     if (filter==='winners') ft = trades.filter(t=>(t.pnl||0)>0);
     else if (filter==='losers') ft = trades.filter(t=>(t.pnl||0)<=0);
-    _allFiltered = [...ft].sort((a,b)=>(b.signal?.exit_bar||0)-(a.signal?.exit_bar||0));
+    else if (filter==='open') ft = trades.filter(t=>t.status==='open');
+    // Sort: open positions first, then by exit_bar desc
+    _allFiltered = [...ft].sort((a,b)=>{{
+        if (a.status==='open' && b.status!=='open') return -1;
+        if (b.status==='open' && a.status!=='open') return 1;
+        return (b.signal?.exit_bar||b.entry_bar||0)-(a.signal?.exit_bar||a.entry_bar||0);
+    }});
     const visible = _allFiltered.slice(0, _tradeLimit);
     const tbody = document.getElementById('tb-trades');
     let rows = '';
     visible.forEach(t => {{
-        const pnl = t.pnl||0;
+        const isOpen = t.status==='open';
+        const pnl = isOpen ? (t.unrealized_pnl||0) : (t.pnl||0);
         const dir = t.direction===-1?'SHORT':'LONG';
         const mt = (t.market_type||'').toLowerCase();
-        const totalFee = (t.entry_fee||0)+(t.exit_fee||0)+Math.abs(t.funding_cost||0);
-        rows += `<tr class="trade-row">
+        const totalFee = (t.entry_fee||0)+(t.exit_fee||0)+Math.abs(t.funding_cost||0)+Math.abs(t.cumulative_funding||0);
+        const exitCol = isOpen ? fmtPrice(t.current_price) + ' <span style="color:#3fb950;font-size:0.7em">LIVE</span>' : fmtPrice(t.exit_price);
+        const reasonCol = isOpen ? '<span class="pill" style="background:#1f3d1f;color:#3fb950">LIVE</span>' : (t.exit_reason||'-');
+        const pnlLabel = isOpen ? '~' : '';
+        rows += `<tr class="trade-row" style="${{isOpen?'background:#0d1f0d;':''}}">
             <td style="color:#8b949e;font-size:0.7em">${{t.strategy||''}}</td>
             <td><b>${{t.token||''}}</b></td>
             <td><span class="pill ${{dir.toLowerCase()}}">${{dir}}</span></td>
             <td><span class="pill ${{mt}}">${{mt.toUpperCase()}}</span></td>
             <td>${{t.hold_bars||0}}h</td>
             <td style="font-size:0.85em">${{fmtPrice(t.entry_price)}}</td>
-            <td style="font-size:0.85em">${{fmtPrice(t.exit_price)}}</td>
+            <td style="font-size:0.85em">${{exitCol}}</td>
             <td>$${{fmt(t.margin_usd||0)}}</td>
-            <td class="${{pc(pnl)}}" style="font-weight:600">$${{fmt(pnl)}}</td>
+            <td class="${{pc(pnl)}}" style="font-weight:600">${{pnlLabel}}$${{fmt(pnl)}}</td>
             <td class="r">$${{totalFee.toFixed(0)}}</td>
-            <td style="color:#484f58">${{t.exit_reason||'-'}}</td>
+            <td style="color:#484f58">${{reasonCol}}</td>
         </tr>`;
     }});
     tbody.innerHTML = rows;
@@ -683,25 +726,35 @@ render();
 # GitHub Pages push
 # ---------------------------------------------------------------------------
 
-def push_to_ghpages(html_path: Path, subdirectory: str = "v2"):
-    """Push dashboard HTML to gh-pages branch under a subdirectory."""
-    print(f"\nPushing to GitHub Pages (/{subdirectory}/)...")
-    tmp = tempfile.mkdtemp(prefix="dashboard-v2-")
+def push_to_ghpages(html_path: Path):
+    """Push dashboard HTML to gh-pages branch under /docs."""
+    print("\nPushing to GitHub Pages (/docs/)")
+    tmp = tempfile.mkdtemp(prefix="dashboard-")
     try:
         subprocess.run(
             ["git", "clone", "--branch", "gh-pages", "--single-branch", "--depth", "1",
              "http://10.100.1.10:8080/git/voerses/dashboard.git", tmp],
             check=True, capture_output=True, text=True)
 
-        # Put v2 dashboard in subdirectory
-        dst = Path(tmp) / subdirectory
-        dst.mkdir(exist_ok=True)
-        shutil.copy2(str(html_path), str(dst / "index.html"))
+        # Remove old v1/v2 subdirectories if present
+        for old_dir in ["v1", "v2"]:
+            old_path = Path(tmp) / old_dir
+            if old_path.exists():
+                shutil.rmtree(str(old_path))
+
+        # Remove root-level index.html (moved to docs/)
+        root_index = Path(tmp) / "index.html"
+        if root_index.exists():
+            root_index.unlink()
+
+        # Dashboard under /docs
+        docs_dir = Path(tmp) / "docs"
+        docs_dir.mkdir(exist_ok=True)
+        shutil.copy2(str(html_path), str(docs_dir / "index.html"))
         Path(tmp, ".nojekyll").touch()
 
         subprocess.run(
-            ["git", "-C", tmp, "add",
-             f"{subdirectory}/index.html", ".nojekyll"],
+            ["git", "-C", tmp, "add", "-A"],
             check=True, capture_output=True)
 
         r = subprocess.run(
@@ -713,7 +766,7 @@ def push_to_ghpages(html_path: Path, subdirectory: str = "v2"):
 
         subprocess.run(
             ["git", "-C", tmp, "commit", "-m",
-             f"Update paper trading dashboard v2 {datetime.now().strftime('%Y-%m-%d %H:%M')}"],
+             f"Update dashboard {datetime.now().strftime('%Y-%m-%d %H:%M')}"],
             check=True, capture_output=True, text=True)
         subprocess.run(
             ["git", "-C", tmp, "push", "origin", "gh-pages"],
