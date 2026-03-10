@@ -410,7 +410,7 @@ const DK = {{
 const fmt = v => v.toLocaleString(undefined,{{maximumFractionDigits:0}});
 const fmtPct = v => (v>=0?'+':'')+v.toFixed(1)+'%';
 const pc = v => v>=0?'g':'r';
-const fmtPrice = v => {{if(!v) return '-'; if(v>=1000) return '$'+fmt(v); if(v>=1) return '$'+v.toFixed(2); return '$'+v.toPrecision(4);}};
+const fmtPrice = v => {{if(!v) return '-'; if(v>=1000) return '$'+v.toLocaleString(undefined,{{minimumFractionDigits:2,maximumFractionDigits:2}}); if(v>=100) return '$'+v.toFixed(2); if(v>=1) return '$'+v.toFixed(4); if(v>=0.01) return '$'+v.toFixed(6); return '$'+v.toPrecision(4);}};
 
 /* ---- Tabs ---- */
 function renderTabs() {{
