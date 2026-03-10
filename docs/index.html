@@ -71,7 +71,7 @@ tr.trade-row { cursor:pointer; }
 
 <div class="header">
     <h1>Paper Trading Dashboard V2</h1>
-    <div class="meta">Updated: 2026-03-10 02:10 UTC</div>
+    <div class="meta">Updated: 2026-03-10 02:11 UTC</div>
 </div>
 <div class="stale-banner" id="stale-banner">
     Data is stale — last update was more than 2 hours ago. Check paper trading engine.
@@ -80,7 +80,7 @@ tr.trade-row { cursor:pointer; }
 <div id="app"></div>
 
 <script>
-const SIMS = [{"id":"s58_momentum_carry","name":"s58_momentum_carry","capital":200000.0,"strategies":[{"id":"s58_momentum_carry","name":"s58_momentum_carry","weight":2.0,"final_equity":199843.10594558716,"trade_count":0,"open_positions":4,"strategies":["s56","s57"]}],"all_trades":[{"token":"ZRO","strategy":"s57","market_type":"spot","direction":1,"status":"open","entry_price":1.9004640579223633,"margin_usd":53649.54,"entry_bar":0,"entry_fee":53.65,"cumulative_funding":0.0,"hold_bars":14},{"token":"ZRO","strategy":"s57","market_type":"perp","direction":-1,"status":"open","entry_price":1.8956544399261475,"margin_usd":53649.54,"entry_bar":0,"entry_fee":26.82,"cumulative_funding":17.868803024291992,"hold_bars":14},{"token":"RENDER","strategy":"s57","market_type":"spot","direction":1,"status":"open","entry_price":1.4015108346939087,"margin_usd":28175.94,"entry_bar":0,"entry_fee":28.18,"cumulative_funding":0.0,"hold_bars":14},{"token":"RENDER","strategy":"s57","market_type":"perp","direction":-1,"status":"open","entry_price":1.406009316444397,"margin_usd":28175.94,"entry_bar":0,"entry_fee":14.09,"cumulative_funding":16.287033081054688,"hold_bars":14}],"equity_history":[{"timestamp":"","mark_to_market_equity":199831.39},{"timestamp":"","mark_to_market_equity":199828.77},{"timestamp":"","mark_to_market_equity":199826.14},{"timestamp":"","mark_to_market_equity":199823.52},{"timestamp":"","mark_to_market_equity":199820.88},{"timestamp":"","mark_to_market_equity":199818.25},{"timestamp":"","mark_to_market_equity":199815.62},{"timestamp":"","mark_to_market_equity":199813.0},{"timestamp":"","mark_to_market_equity":199810.38},{"timestamp":"","mark_to_market_equity":199807.75},{"timestamp":"","mark_to_market_equity":199805.11},{"timestamp":"","mark_to_market_equity":199802.48},{"timestamp":"","mark_to_market_equity":199799.86},{"timestamp":"","mark_to_market_equity":199797.23}],"shadow_pools":{"spot_funds":0.0,"perp_funds":0.0,"spot_deployed":0.0,"perp_deployed":0.0,"imbalance_pct":0.0,"blocked_entries_count":0},"rebalance_history":[],"last_updated":"","is_stale":false,"tick_counter":14,"portfolio_equity":199843.10594558716,"open_positions":4,"realized_pnl":0.0,"total_fees":122.73821258544922,"total_funding":34.15584182739258}];
+const SIMS = [{"id":"s58_momentum_carry","name":"s58_momentum_carry","capital":200000.0,"strategies":[{"id":"s58_momentum_carry","name":"s58_momentum_carry","weight":2.0,"final_equity":199843.10594558716,"trade_count":0,"open_positions":4,"strategies":["s56","s57"]}],"all_trades":[{"token":"ZRO","strategy":"s57","market_type":"spot","direction":1,"status":"open","entry_price":1.9004640579223633,"current_price":1.8960000276565552,"unrealized_pnl":-126.01824914477766,"margin_usd":53649.54,"entry_bar":0,"entry_fee":53.65,"cumulative_funding":0.0,"hold_bars":14},{"token":"ZRO","strategy":"s57","market_type":"perp","direction":-1,"status":"open","entry_price":1.8956544399261475,"current_price":1.8960000276565552,"unrealized_pnl":-9.780591079266742,"margin_usd":53649.54,"entry_bar":0,"entry_fee":26.82,"cumulative_funding":17.868803024291992,"hold_bars":14},{"token":"RENDER","strategy":"s57","market_type":"spot","direction":1,"status":"open","entry_price":1.4015108346939087,"current_price":1.3980000019073486,"unrealized_pnl":-70.5816931987647,"margin_usd":28175.94,"entry_bar":0,"entry_fee":28.18,"cumulative_funding":0.0,"hold_bars":14},{"token":"RENDER","strategy":"s57","market_type":"perp","direction":-1,"status":"open","entry_price":1.406009316444397,"current_price":1.3980000019073486,"unrealized_pnl":160.5038788341917,"margin_usd":28175.94,"entry_bar":0,"entry_fee":14.09,"cumulative_funding":16.287033081054688,"hold_bars":14}],"equity_history":[{"timestamp":"","mark_to_market_equity":199831.39},{"timestamp":"","mark_to_market_equity":199828.77},{"timestamp":"","mark_to_market_equity":199826.14},{"timestamp":"","mark_to_market_equity":199823.52},{"timestamp":"","mark_to_market_equity":199820.88},{"timestamp":"","mark_to_market_equity":199818.25},{"timestamp":"","mark_to_market_equity":199815.62},{"timestamp":"","mark_to_market_equity":199813.0},{"timestamp":"","mark_to_market_equity":199810.38},{"timestamp":"","mark_to_market_equity":199807.75},{"timestamp":"","mark_to_market_equity":199805.11},{"timestamp":"","mark_to_market_equity":199802.48},{"timestamp":"","mark_to_market_equity":199799.86},{"timestamp":"","mark_to_market_equity":199797.23}],"shadow_pools":{"spot_funds":0.0,"perp_funds":0.0,"spot_deployed":0.0,"perp_deployed":0.0,"imbalance_pct":0.0,"blocked_entries_count":0},"rebalance_history":[],"last_updated":"","is_stale":false,"tick_counter":14,"portfolio_equity":199843.10594558716,"open_positions":4,"realized_pnl":0.0,"total_fees":122.73821258544922,"total_funding":34.15584182739258}];
 let activeSim = 0;
 
 const DK = {
@@ -250,7 +250,7 @@ function render() {
             <table>
                 <thead><tr>
                     <th>Strategy</th><th>Token</th><th>Dir</th><th>Mkt</th>
-                    <th>Hold</th><th>Entry $</th><th>Exit $</th>
+                    <th>Hold</th><th>Entry $</th><th>Exit/Now $</th>
                     <th>Size</th><th>P&L</th><th>Fees</th><th>Exit</th>
                 </tr></thead>
                 <tbody id="tb-trades"></tbody>
@@ -314,7 +314,7 @@ function renderTrades(trades, filter) {
         const dir = t.direction===-1?'SHORT':'LONG';
         const mt = (t.market_type||'').toLowerCase();
         const totalFee = (t.entry_fee||0)+(t.exit_fee||0)+Math.abs(t.funding_cost||0)+Math.abs(t.cumulative_funding||0);
-        const exitCol = isOpen ? '<span style="color:#3fb950;font-weight:600">OPEN</span>' : fmtPrice(t.exit_price);
+        const exitCol = isOpen ? fmtPrice(t.current_price) + ' <span style="color:#3fb950;font-size:0.7em">LIVE</span>' : fmtPrice(t.exit_price);
         const reasonCol = isOpen ? '<span class="pill" style="background:#1f3d1f;color:#3fb950">LIVE</span>' : (t.exit_reason||'-');
         const pnlLabel = isOpen ? '~' : '';
         rows += `<tr class="trade-row" style="${isOpen?'background:#0d1f0d;':''}">
