@@ -71,7 +71,7 @@ tr.trade-row { cursor:pointer; }
 
 <div class="header">
     <h1>Paper Trading Dashboard V2</h1>
-    <div class="meta">Updated: 2026-03-10 02:00 UTC</div>
+    <div class="meta">Updated: 2026-03-10 02:04 UTC</div>
 </div>
 <div class="stale-banner" id="stale-banner">
     Data is stale — last update was more than 2 hours ago. Check paper trading engine.
@@ -119,11 +119,11 @@ function render() {
     const nT = trades.length;
     const nW = trades.filter(t=>(t.pnl||0)>0).length;
     const wr = nT>0?(nW/nT*100):0;
-    const totalPnl = trades.reduce((a,t)=>a+(t.pnl||0),0);
-    const totalFees = trades.reduce((a,t)=>a+(t.entry_fee||0)+(t.exit_fee||0),0);
-    const totalFunding = trades.reduce((a,t)=>a+Math.abs(t.funding_cost||0),0);
-    const returnPct = s.capital>0 ? totalPnl/s.capital*100 : 0;
+    const totalPnl = s.realized_pnl !== undefined ? s.realized_pnl : trades.reduce((a,t)=>a+(t.pnl||0),0);
+    const totalFees = s.total_fees || trades.reduce((a,t)=>a+(t.entry_fee||0)+(t.exit_fee||0),0);
+    const totalFunding = s.total_funding || trades.reduce((a,t)=>a+Math.abs(t.funding_cost||0),0);
     const equity = s.portfolio_equity || s.capital;
+    const returnPct = s.capital>0 ? (equity - s.capital)/s.capital*100 : 0;
     const nOpen = s.open_positions || 0;
 
     // Stale banner
