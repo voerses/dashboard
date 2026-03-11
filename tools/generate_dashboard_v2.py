@@ -188,6 +188,8 @@ def build_sims_from_state_dir(state_dir: str, config_path: str = "") -> dict:
     # Add open positions from state.json (AC28)
     entry_fees_map = state.get("entry_fees_by_pos", {})
     last_prices = state.get("last_known_prices", {})
+    last_regimes = state.get("last_known_regimes", {})
+    regime_names = {0: "CRISIS", 1: "QUIET", 2: "UPTREND", 3: "RANGE", 4: "DOWNTREND"}
     for pos in open_positions:
         pos_id = pos.get("position_id", "")
         entry_fee = entry_fees_map.get(pos_id, 0.0)
@@ -197,6 +199,19 @@ def build_sims_from_state_dir(state_dir: str, config_path: str = "") -> dict:
         quantity = pos.get("quantity", 0)
         current_price = last_prices.get(token, entry_price)
         unrealized_pnl = quantity * (current_price - entry_price)
+        stop_price = pos.get("stop_price", 0)
+        # % distance to stop (positive = room, negative = breached)
+        if stop_price and current_price:
+            if direction == 1:  # long: stop below
+                pct_to_stop = (current_price - stop_price) / current_price * 100
+            else:  # short: stop above
+                pct_to_stop = (stop_price - current_price) / current_price * 100
+        else:
+            pct_to_stop = 0
+        regime_id = last_regimes.get(token, -1)
+        regime_name = regime_names.get(regime_id, "N/A")
+        exit_regimes = pos.get("exit_regimes", [])
+        exit_regime_names = [regime_names.get(r, str(r)) for r in exit_regimes]
         all_trades.append({
             "token": token,
             "strategy": pos.get("strategy_id", ""),
@@ -211,6 +226,10 @@ def build_sims_from_state_dir(state_dir: str, config_path: str = "") -> dict:
             "entry_fee": entry_fee,
             "cumulative_funding": pos.get("cumulative_funding", 0),
             "hold_bars": tick_counter - pos.get("entry_bar", 0),
+            "stop_price": stop_price,
+            "pct_to_stop": round(pct_to_stop, 2),
+            "regime": regime_name,
+            "exit_regimes": exit_regime_names,
         })
 
     # Equity history from equity.csv
@@ -570,6 +589,7 @@ function render() {{
                 <thead><tr>
                     <th>Strategy</th><th>Token</th><th>Dir</th><th>Mkt</th>
                     <th>Hold</th><th>Entry $</th><th>Exit/Now $</th>
+                    <th>Stop $</th><th>% to Stop</th><th>Regime</th>
                     <th>Size</th><th>P&L</th><th>Fees</th><th>Exit</th>
                 </tr></thead>
                 <tbody id="tb-trades"></tbody>
@@ -636,6 +656,25 @@ function renderTrades(trades, filter) {{
         const exitCol = isOpen ? fmtPrice(t.current_price) + ' <span style="color:#3fb950;font-size:0.7em">LIVE</span>' : fmtPrice(t.exit_price);
         const reasonCol = isOpen ? '<span class="pill" style="background:#1f3d1f;color:#3fb950">LIVE</span>' : (t.exit_reason||'-');
         const pnlLabel = isOpen ? '~' : '';
+        // Stop / regime columns (open positions only)
+        let stopCol = '-';
+        let pctStopCol = '-';
+        let regimeCol = '-';
+        if (isOpen) {{
+            if (t.stop_price) stopCol = fmtPrice(t.stop_price);
+            const pts = t.pct_to_stop;
+            if (pts !== undefined && pts !== null) {{
+                const ptsClass = pts < 2 ? 'r' : pts < 5 ? 'y' : 'g';
+                pctStopCol = `<span class="${{ptsClass}}" style="font-weight:700">${{pts.toFixed(1)}}%</span>`;
+            }}
+            if (t.regime) {{
+                const rc = {{'CRISIS':'r','DOWNTREND':'r','RANGE':'y','QUIET':'b','UPTREND':'g'}}[t.regime]||'';
+                const exitR = t.exit_regimes||[];
+                const wouldExit = exitR.includes(t.regime);
+                regimeCol = `<span class="${{rc}}" style="font-weight:600">${{t.regime}}</span>`;
+                if (exitR.length) regimeCol += `<div style="font-size:0.6em;color:#484f58">exits: ${{exitR.join(',')}}</div>`;
+            }}
+        }}
         rows += `<tr class="trade-row" style="${{isOpen?'background:#0d1f0d;':''}}">
             <td style="color:#8b949e;font-size:0.7em">${{t.strategy||''}}</td>
             <td><b>${{t.token||''}}</b></td>
@@ -644,6 +683,9 @@ function renderTrades(trades, filter) {{
             <td>${{t.hold_bars||0}}h</td>
             <td style="font-size:0.85em">${{fmtPrice(t.entry_price)}}</td>
             <td style="font-size:0.85em">${{exitCol}}</td>
+            <td style="font-size:0.85em">${{stopCol}}</td>
+            <td>${{pctStopCol}}</td>
+            <td style="font-size:0.75em">${{regimeCol}}</td>
             <td>$${{fmt(t.margin_usd||0)}}</td>
             <td class="${{pc(pnl)}}" style="font-weight:600">${{pnlLabel}}$${{fmt(pnl)}}</td>
             <td class="r">$${{totalFee.toFixed(0)}}</td>

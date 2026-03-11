@@ -69,6 +69,7 @@ class PaperPortfolioEngine:
         self.config = config
         self.tick_counter: int = 0
         self._last_known_prices: dict[str, float] = {}
+        self._last_known_regimes: dict[str, int] = {}
         self._alerts: list = []
         self._consecutive_failures: int = 0
         self.fetcher = None  # Set by live integration (Task 7)
@@ -335,6 +336,7 @@ class PaperPortfolioEngine:
                 self.state, self.tick_counter, timestamp, state_path,
                 shadow_pools=shadow_pools,
                 last_known_prices=dict(self._last_known_prices),
+                last_known_regimes=dict(self._last_known_regimes),
             )
         else:
             from v4.paper_state import serialize_engine_state
@@ -342,6 +344,7 @@ class PaperPortfolioEngine:
                 dict(self.strategy_states), self.tick_counter, timestamp,
                 mode="independent", shadow_pools=shadow_pools,
                 last_known_prices=dict(self._last_known_prices),
+                last_known_regimes=dict(self._last_known_regimes),
             )
             import tempfile as _tmpfile
             fd, tmp = _tmpfile.mkstemp(dir=state_dir, suffix=".tmp")
@@ -612,6 +615,7 @@ class PaperPortfolioEngine:
                 state_path,
                 shadow_pools=shadow_pools,
                 last_known_prices=dict(self._last_known_prices),
+                last_known_regimes=dict(self._last_known_regimes),
             )
         else:
             # Independent mode: serialize all strategy states (C4 fix)
@@ -621,6 +625,7 @@ class PaperPortfolioEngine:
                 mode="independent",
                 shadow_pools=shadow_pools,
                 last_known_prices=dict(self._last_known_prices),
+                last_known_regimes=dict(self._last_known_regimes),
             )
             import tempfile as _tmpfile
             fd, tmp = _tmpfile.mkstemp(dir=state_dir, suffix=".tmp")
@@ -858,7 +863,7 @@ class PaperPortfolioEngine:
         all_signals: dict,
         bar_maps: dict,
     ) -> None:
-        """Track last known prices for each token (for disappearance handling)."""
+        """Track last known prices and regimes for each token."""
         for sid, token_sigs in all_signals.items():
             for token, sig in token_sigs.items():
                 bm = bar_maps.get(token)
@@ -866,6 +871,8 @@ class PaperPortfolioEngine:
                     local_bar = bm[self.tick_counter]
                     if local_bar >= 0 and local_bar < sig.n_bars:
                         self._last_known_prices[token] = float(sig.close[local_bar])
+                        if hasattr(sig, 'regime') and sig.regime is not None:
+                            self._last_known_regimes[token] = int(sig.regime[local_bar])
 
     # ------------------------------------------------------------------
     # process_tick — deterministic tick for testing (Task 12)

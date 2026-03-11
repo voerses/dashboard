@@ -189,6 +189,7 @@ def restore_state(engine: PaperPortfolioEngine, config) -> None:
         engine.last_timestamp = data.get("last_timestamp", None)
 
     engine._last_known_prices = data.get("last_known_prices", {})
+    engine._last_known_regimes = data.get("last_known_regimes", {})
 
     # Restore shadow pools if present
     shadow_pools = data.get("shadow_pools", {})
