@@ -71,7 +71,7 @@ tr.trade-row { cursor:pointer; }
 
 <div class="header">
     <h1>Paper Trading Dashboard V2</h1>
-    <div class="meta">Updated: 2026-03-11 09:42 UTC</div>
+    <div class="meta">Updated: 2026-03-11 09:45 UTC</div>
 </div>
 <div class="stale-banner" id="stale-banner">
     Data is stale — last update was more than 2 hours ago. Check paper trading engine.
@@ -154,12 +154,16 @@ function render() {
     const imbPct = sp.imbalance_pct || 0;
     const blockedCount = sp.blocked_entries_count || 0;
 
-    const unrealizedPnl = trades.filter(t=>t.status==='open').reduce((a,t)=>a+(t.unrealized_pnl||0),0);
+    const openTrades = trades.filter(t=>t.status==='open');
+    const unrealizedPnl = openTrades.reduce((a,t)=>a+(t.unrealized_pnl||0),0);
+    const totalInvested = openTrades.reduce((a,t)=>a+(t.margin_usd||0),0);
     const mtmEquity = eh.length > 0 ? eh[eh.length-1].mark_to_market_equity : equity;
+    const investedPct = mtmEquity > 0 ? (totalInvested / mtmEquity * 100) : 0;
 
     let h = `
     <div class="kpi-row">
         <div class="kpi"><div class="lbl">Portfolio Equity</div><div class="val ${pc(mtmEquity - s.capital)}">$${fmt(mtmEquity)}<div style="font-size:0.45em;color:#484f58;margin-top:2px">start $${fmt(s.capital)}</div></div></div>
+        <div class="kpi"><div class="lbl">Invested Now</div><div class="val m">$${fmt(totalInvested)}<div style="font-size:0.45em;color:#484f58;margin-top:2px">${investedPct.toFixed(1)}% of equity &middot; ${nOpen} pos</div></div></div>
         <div class="kpi"><div class="lbl">Realized P&L</div><div class="val ${pc(totalPnl)}">$${fmt(totalPnl)}</div></div>
         <div class="kpi"><div class="lbl">Unrealized P&L</div><div class="val ${pc(unrealizedPnl)}">$${fmt(unrealizedPnl)}</div></div>
         <div class="kpi"><div class="lbl">Max Drawdown</div><div class="val r">${maxDD.toFixed(2)}%</div></div>
