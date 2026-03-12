@@ -63,7 +63,14 @@ class TokenSignals:
     leverage: np.ndarray
     max_trade_pct: float          # additional sizing cap (0 = disabled)
     trail_schedule: Optional[np.ndarray] = None
+    time_trail_schedule: Optional[np.ndarray] = None
     max_trail_mult: Optional[np.ndarray] = None
+    # Funding-aware exit
+    funding_exit_threshold: float = 0.0
+    # Partial profit-taking
+    partial_tp_atr: float = 0.0
+    partial_tp_pct: float = 0.5
+    partial_tp_trail: float = 1.5
     # Exit mode fields
     convex_exit: bool = False
     rsi: Optional[np.ndarray] = None
@@ -367,6 +374,11 @@ def precompute_strategy_signals(
             if sr.trail_schedule is not None:
                 trail_sched = np.asarray(sr.trail_schedule, dtype=np.float32)
 
+            # Time-based trail schedule
+            time_trail_sched = None
+            if getattr(sr, 'time_trail_schedule', None) is not None:
+                time_trail_sched = np.asarray(sr.time_trail_schedule, dtype=np.float32)
+
             # Max trail mult
             max_trail = None
             if sr.max_trail_mult is not None:
@@ -388,6 +400,10 @@ def precompute_strategy_signals(
             sr_max_trade_pct = float(sr.max_trade_pct)
             sr_convex_exit = sr.convex_exit
             sr_rsi_exit_level = float(sr.rsi_exit_level)
+            sr_funding_exit_threshold = float(getattr(sr, 'funding_exit_threshold', 0.0))
+            sr_partial_tp_atr = float(getattr(sr, 'partial_tp_atr', 0.0))
+            sr_partial_tp_pct = float(getattr(sr, 'partial_tp_pct', 0.5))
+            sr_partial_tp_trail = float(getattr(sr, 'partial_tp_trail', 1.5))
             sr_sec_leverage = float(getattr(sr, 'secondary_leverage', 1.0))
             sr_capital_split = float(getattr(sr, 'capital_split', 0.5))
             sr_sec_stop = float(sr.secondary_stop_mult) if sr.secondary_stop_mult is not None else None
@@ -482,7 +498,12 @@ def precompute_strategy_signals(
                 leverage=sr_leverage,
                 max_trade_pct=sr_max_trade_pct,
                 trail_schedule=trail_sched,
+                time_trail_schedule=time_trail_sched,
                 max_trail_mult=max_trail,
+                funding_exit_threshold=sr_funding_exit_threshold,
+                partial_tp_atr=sr_partial_tp_atr,
+                partial_tp_pct=sr_partial_tp_pct,
+                partial_tp_trail=sr_partial_tp_trail,
                 convex_exit=sr_convex_exit,
                 rsi=p_rsi,
                 rsi_exit_level=sr_rsi_exit_level,

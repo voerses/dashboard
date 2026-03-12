@@ -39,8 +39,10 @@ echo "gate0" > "$CLAUDE_PROJECT_DIR/.strategy-gate"
 > | 3/3P/3O/V4-3 | Prototype | 15-30 min | ~10% | >1ms/call, can't vectorize |
 > | 4 | Quick Validate (BTC) | 5 min | ~50% | BTC fails dual gate x3 |
 > | V4-4 | V4 OOS (Jan-Mar) | 10 min | ~50% | OOS negative, March < -5% |
-> | 5/5P/5O/V4-5 | Full Validate | 10 min | ~50% | Rate <20% / complement fails |
+> | 5/5P/5O/V4-5 | Full Validate + Supremacy | 10 min | ~50% | Rate <20% / no mode passes |
+> | 5.75 | Adversarial Quant Review | 10 min | ~20% | Bias found / structural risk |
 > | 6 | Paper Trade | 1-4 wks | ~50% | Sharpe < 0.4x backtest |
+> | 6.5 | Knowledge Update | 10 min | 0% | Checklist ensures all knowledge files current |
 > | 7 | Production + Decay | ongoing | ~30%/yr | BOCPD + threshold decay |
 >
 > **~99.8% of ideas never reach production. This is normal.**
@@ -65,7 +67,7 @@ Four strategy classes, each with its own gate path:
 | A. Per-Token Signal | 0→1→2→3→4→5→6→7 | Single signal on individual tokens |
 | B. Portfolio Strategy | 0→2→3P→5P→6→7 | Cross-token ranking, sector rotation, pairs (V3 modules) |
 | C. Overlay | 0→2→3O→5O→6→7 | Regime weighting, signal agreement, risk scaling |
-| D. V4 Portfolio Strategy | 0→2→V4-3→V4-4→V4-5→6→7 | V4 portfolio components, sideways complements, perp strategies |
+| D. V4 Portfolio Strategy | 0→2→V4-3→V4-4→V4-5→6→7 | V4 portfolio strategies — standalone, complement, or replacement |
 
 **Choose class at Gate 0.** The class determines which gates you hit.
 
@@ -73,33 +75,60 @@ Four strategy classes, each with its own gate path:
 
 | Use V4 (Class D) | Use V3 (Class B) |
 |-------------------|-------------------|
-| Portfolio components for s58 | Cross-sectional/sector ranking hypotheses |
-| Perp/combined bidirectional strategies | Spot-only cross-token strategies |
-| Sideways/choppy market complements | Independent portfolio strategies |
-| Strategy individually weak but portfolio-valuable | Strategy must stand alone |
-| Shared capital + concentration limits needed | Per-token robustness proof needed |
+| Perp/combined strategies (standalone or complement) | Cross-sectional/sector ranking hypotheses |
+| Bidirectional strategies (long+short) | Spot-only cross-token strategies |
+| New portfolio baselines or complements to existing | Strategy requires per-token robustness proof |
+| Shared capital + concentration limits needed | Independent V3-engine portfolio strategies |
 
 ## Gate Process
 
-At each gate:
+### Autonomous Mode (AIPIP-0020)
+
+**When an active mission exists** (`status: active` in `.strategy-mission`), gates are
+traversed autonomously without stopping for user approval:
+
+- **Mission `kill_if` criteria are HARD kills.** No conditional passes, no judgment calls.
+  If any mission kill rule fails, the strategy is killed immediately. Document and move
+  to the next candidate.
+- **Gate criteria are SOFT gates.** If a gate metric is closely met (within ~10-20% of
+  threshold), grant a conditional pass with documented reasoning. The agent decides.
+- **Iterate autonomously.** If a strategy is killed, proceed immediately to the next
+  candidate idea from Gate 0. Screen multiple ideas, develop the best ones, kill fast.
+- **Stop at Gate 6 (paper trading).** Present all results to the user before deploying:
+  full gate history, final metrics vs mission baselines, any soft passes and reasoning.
+- **Stop on genuine ambiguity.** If borderline on multiple mission criteria simultaneously,
+  ask the user rather than guessing.
+
+**When no active mission exists**, pause at each gate transition for user approval
+(original behavior).
+
+### At Each Gate
+
 1. Read `knowledge/STRATEGY_QUICK_REFERENCE.md` — your current gate's section
 2. Run the specified checks
 3. Run the bias audit checklist (bottom of quick reference)
 4. Output a gate report (format below)
 5. Capture findings to `findings/strategy-findings.jsonl`
 6. Update the gate state file
+7. If autonomous mode: proceed immediately to next gate (or next candidate if killed)
 
 ### Gate Report Format (mandatory at every transition)
 
 ```
-## Gate N: [NAME] — [PASS / KILL / RECYCLE]
+## Gate N: [NAME] — [PASS / SOFT PASS / KILL]
 
 | Metric | Value | Threshold | Status |
 |--------|-------|-----------|--------|
-| [metric] | [value] | [threshold] | PASS/FAIL |
+| [metric] | [value] | [threshold] | PASS/SOFT PASS/FAIL |
 
+**Mission criteria (if active):**
+| Kill Rule | Value | Threshold | Status |
+|-----------|-------|-----------|--------|
+| [mission kill_if] | [value] | [threshold] | PASS/FAIL |
+
+**Soft pass justification (if any):** [why shortfall is acceptable]
 **Bias audit:** [CLEAN / issues found]
-**Decision:** [PROCEED to Gate N+1 / KILL: reason / RECYCLE: proposed modification]
+**Decision:** [PROCEED to Gate N+1 / KILL: reason / ITERATE: next candidate]
 
 ### Findings (for future sessions)
 - [SIGNAL] [one-line insight about the signal that future strategies should know]
@@ -123,6 +152,41 @@ After gate kills or passes, also update `memory/PROJECT_STATUS.md`:
 - **New capability:** Add to capability inventory
 - **Bug found:** Add to open items
 
+### Candidate Ranking Table (AIPIP-0021)
+
+On ANY kill at V4-Gate 3+ (or Gate 4+ for per-token), append the strategy to
+`.claude/.strategy-candidates`. This tracks strategies that showed promise but failed
+gate or mission criteria — the user can review to evaluate if criteria are too strict
+or to resurrect candidates.
+
+```yaml
+# Append to .claude/.strategy-candidates
+- id: sNN_name
+  killed_at: v4gate5      # gate where killed
+  killed_by: mission       # "mission" or "gate"
+  kill_reason: "Specific reason with numbers"
+  metrics:
+    sharpe: X.XX
+    calmar: X.XX
+    max_dd: -X.XX
+    sortino: X.XX
+    total_return_pct: XXXXX
+    total_trades: NNNN
+  portfolio_metrics:       # if portfolio test was run
+    sharpe_delta: +/-X.XX
+    calmar_delta: +/-X.XX
+    max_dd_delta: +/-X.XX
+  composite_score: X.X     # 0.35*calmar + 0.25*sortino + 0.25*return + 0.15*sharpe (normalized)
+  date: "YYYY-MM-DD"
+```
+
+**Rules:**
+- Always append, never overwrite existing entries
+- `killed_by: mission` = passed gate thresholds but failed mission `kill_if`
+- `killed_by: gate` = failed the gate's own thresholds
+- `killed_by: adversarial_review` = failed Gate 5.75 review
+- Sort by composite score descending when displaying to user
+
 ---
 
 ## GATE 0: Idea Screening (< 5 min)
@@ -130,17 +194,22 @@ After gate kills or passes, also update `memory/PROJECT_STATUS.md`:
 ### Step 0: Load Project State
 
 ```
+READ: .claude/.strategy-mission — FIRST. Check if file exists and has `status: active`.
+      If active: load search goals, baselines, kill criteria, previous attempts, promising directions.
+      If file doesn't exist or status is closed: proceed without mission context.
 READ: memory/PROJECT_STATUS.md — open tasks, capability inventory, strategy tiers, key findings
 READ: knowledge/STRATEGY_QUICK_REFERENCE.md — "Available Capabilities" + "Gate 0" sections
-READ: .claude/.strategy-mission — active mission brief (if exists)
 ```
 
-This tells you what's been built, what's broken, and what tools you have.
+This tells you what's been built, what's broken, what you're searching for, and what tools you have.
 
-**If a mission brief exists:** The mission defines the current strategy search goal. Use it as
-additional screening at Gate 0 (kill ideas that can't meet the mission) and as extra criteria
-at every subsequent gate. When a strategy passes all gates AND meets the mission goal, append
-the outcome to `findings/strategy-findings.jsonl` and delete the mission file.
+**If an active mission exists:** The mission defines the current strategy search goal, baselines
+to beat, and mission-specific kill criteria. These are ADDITIVE to standard gate thresholds —
+a strategy must pass both. Use the mission to:
+- Screen ideas at Gate 0 (kill ideas that can't meet mission baselines)
+- Apply mission `kill_if` rules at every subsequent gate (V4-Gate 3/4/5 especially)
+- Avoid repeating `previous_attempts` listed in the mission
+- Focus on `promising_directions` the mission identifies
 
 ### Step 0.5: Curate Findings (if needed)
 
@@ -157,11 +226,11 @@ If `findings/strategy-findings.jsonl` has >50 entries since last curation:
 | A. Per-Token Signal | 0→1→2→3→4→5→6→7 | "[Signal] predicts [direction] on [token] over [hold] because [mechanism]" |
 | B. Portfolio Strategy | 0→2→3P→5P→6→7 | "[Ranking/selection] across [universe] produces alpha because [mechanism]" |
 | C. Overlay | 0→2→3O→5O→6→7 | "Applying [overlay] to [base strategy] improves [metric] because [mechanism]" |
-| D. V4 Portfolio Strategy | 0→2→V4-3→V4-4→V4-5→6→7 | "[Strategy] complements s58 in [regime] because [mechanism]" |
+| D. V4 Portfolio Strategy | 0→2→V4-3→V4-4→V4-5→6→7 | "[Strategy] generates alpha in [regime/market] because [mechanism]" |
 
 **Portfolio subtypes:** cross-sectional momentum, sector rotation, pairs/stat arb, dynamic factor
 **Overlay subtypes:** regime weighting, signal agreement, rebalancing rules, risk scaling
-**V4 subtypes:** sideways complement, funding harvester, bidirectional momentum, vol reversal
+**V4 subtypes:** standalone alpha, funding harvester, bidirectional momentum, vol reversal, portfolio complement
 
 ### Step 2: Write Hypothesis
 
@@ -170,10 +239,13 @@ Use the template for your class. Must include:
 - Economic mechanism (why should this work?)
 - Expected holding period or rebalance frequency
 
-### Step 3: Check Graveyard + Tier C
+### Step 3: Check Graveyard + Tier C + Mission Previous Attempts
 
 Read `strategies/GRAVEYARD.md` and Tier C list in Quick Reference.
 Kill if: already tried with no new evidence.
+
+**If active mission exists:** Also check `.strategy-mission` `previous_attempts` section.
+Kill if the idea uses the same approach as a previous attempt with no new evidence or mechanism.
 
 ### Step 4: Score the Idea
 
@@ -384,8 +456,9 @@ echo "gate5o" > "$CLAUDE_PROJECT_DIR/.strategy-gate"
 
 **Read:** Quick Reference — "V4 Portfolio" section + `strategies/TEMPLATE.py` (bidirectional perp example)
 
-**Read mission brief (if exists):** `cat "$CLAUDE_PROJECT_DIR/.strategy-mission"` — apply
-mission-specific criteria alongside standard gates.
+**Mission criteria (if active mission loaded at Gate 0):** Apply mission `kill_if` rules
+in addition to gate thresholds below. Mission criteria are ADDITIVE — strategy must pass
+both gate thresholds AND mission criteria.
 
 ### What to Do
 1. Copy `strategies/TEMPLATE.py` → `strategies/sNN_name.py` (use bidirectional perp template)
@@ -427,6 +500,10 @@ echo "v4gate4" > "$CLAUDE_PROJECT_DIR/.strategy-gate"
 
 **V4 Portfolio strategies only (Class D).** The critical sideways market survival test.
 
+**Mission criteria (if active mission loaded at Gate 0):** Apply mission `kill_if` rules
+in addition to gate thresholds below (e.g., OOS PnL must beat mission baseline, March
+daily PnL must exceed mission threshold).
+
 **Method:** Adjust `config.train_bars` to end training on Dec 31 2025. Strategy trades
 OOS from Jan 1 to present (~Mar 10).
 
@@ -449,25 +526,70 @@ echo "v4gate5" > "$CLAUDE_PROJECT_DIR/.strategy-gate"
 
 ---
 
-## V4-GATE 5: Portfolio Complement Test (< 15 min)
+## V4-GATE 5: Portfolio & Supremacy Evaluation (< 15 min)
 
-**V4 Portfolio strategies only (Class D).** Does this strategy improve s58?
+**V4 Portfolio strategies only (Class D).** Three evaluation modes — run ALL, pick best.
 
-**Method:** Run V4 portfolio backtest with s58 + new strategy. Compare metrics.
+**Mission criteria (if active mission loaded at Gate 0):** Apply mission `kill_if` rules
+in addition to gate thresholds below.
+
+### Evaluation Modes (AIPIP-0021)
+
+Run all three modes. The best configuration wins — a new strategy can complement, replace,
+or form a new multi-strategy portfolio.
+
+**Mode A: Portfolio Complement** — Does this strategy improve the current best portfolio?
+```bash
+# Run: current production strategies + new strategy
+# Use whatever strategies are currently in production (check .strategy-mission for baseline)
+/workspace/venv/bin/python v4/portfolio_backtest.py --strategy <production_ids>,sNN --months 74 --capital 200000
+```
+
+**Mode B: Standalone** — Can the new strategy stand on its own or form a new portfolio baseline?
+```bash
+# Run: new strategy standalone
+/workspace/venv/bin/python v4/portfolio_backtest.py --strategy sNN --months 74 --capital 200000
+```
+
+**Mode C: Best Multi-Portfolio** — What's the best combination of ALL available strategies?
+```bash
+# Run: all viable strategies together (existing + new)
+# Test 2-3 promising combinations — including ones that DROP current production components
+# The best portfolio wins, even if it doesn't include current production strategies
+```
+
+### Gate Criteria (per mode)
 
 | Criterion | Threshold | Kill |
 |-----------|-----------|------|
-| Portfolio Sharpe delta | > 0 (improves) | Sharpe decreases |
+| Portfolio Sharpe delta | > 0 (improves over production) | Sharpe decreases |
 | Portfolio MaxDD delta | <= +2pp | MaxDD worsens > 2pp |
-| Correlation vs s56 | < 0.5 | > 0.7 |
-| Correlation vs s57 | < 0.5 | > 0.7 |
+| Correlation vs existing | < 0.5 | > 0.7 |
 | Marginal Sharpe contribution | > 0 | Negative (drags portfolio) |
-| Regime coverage | Covers 2+ regimes not covered by s58 | Same regime profile |
+| Regime coverage | Covers 2+ regimes | Same regime profile |
+
+### Decision Matrix
+
+| Best Mode | Action |
+|-----------|--------|
+| Mode A wins | Deploy as complement to existing portfolio |
+| Mode B wins | New strategy replaces production baseline. Update mission. |
+| Mode C wins | New multi-strategy portfolio becomes production standard. Update mission. |
+| None pass | Kill strategy. Append to candidate table. |
+
+**Composite metric for cross-mode comparison:**
+```
+composite = 0.35 * calmar_norm + 0.25 * sortino_norm + 0.25 * return_norm + 0.15 * sharpe_norm
+```
+Where each metric is normalized `(value - min) / (max - min)` across all configurations tested.
+
+If Mode B or C wins, the agent updates `.strategy-mission` baseline to reflect the new
+best configuration. The old baseline becomes a historical reference.
 
 **Deep dive if needed:** `knowledge/process/STRATEGY_PIPELINE_GATES.md` (V4 OOS template)
 
 ```bash
-echo "gate6" > "$CLAUDE_PROJECT_DIR/.strategy-gate"
+echo "gate575" > "$CLAUDE_PROJECT_DIR/.strategy-gate"
 ```
 
 ---
@@ -563,6 +685,64 @@ echo "gate6" > "$CLAUDE_PROJECT_DIR/.strategy-gate"
 
 ---
 
+## GATE 5.75: Adversarial Quant Review (AIPIP-0021)
+
+**All strategy classes.** Mandatory after passing Gate 5 / 5P / 5O / V4-5. Before Gate 6.
+
+**Purpose:** Independent adversarial challenge. The reviewing subagent's job is to FIND
+reasons the strategy will fail in production. It receives ONLY the strategy source code,
+backtest metrics, and equity curve — NO development reasoning, gate history, or
+justifications (prevents anchoring on the developer's confirmation bias).
+
+### How to Run
+
+Launch a subagent (Task tool, `subagent_type: "general-purpose"`) with:
+- Strategy source file path
+- Backtest metrics JSON
+- Equity curve JSON (if available)
+- Instruction: "You are an adversarial quant reviewer. Your job is to find reasons this
+  strategy will fail. Read the strategy code line by line and check every item below."
+
+### Bias & Look-Forward Audit (mandatory — check every line of strategy code)
+
+| Bias Type | What to Check | How to Detect |
+|-----------|--------------|---------------|
+| **Look-ahead bias** | Does any signal use future data? | Trace every array: is `close[i]` ever compared to `close[i+k]` where k>0? Check rolling windows use only past bars. Check funding/indicator windows are trailing, not centered. |
+| **Survivorship bias** | Are only winning tokens in the universe? | Check if token universe includes only tokens that survived to present. |
+| **Selection bias** | Was this signal picked BECAUSE it worked on this data? | Count total signals tested (Harvey-Liu N). If N>37, t-stat must exceed 3.4. |
+| **Regime overfitting** | Does the strategy only work in 1 regime? | Check PnL distribution across regimes. If >70% from one regime → fragile. |
+| **Parameter sensitivity** | Do small changes break it? | Check: +/-20% on each parameter. If Calmar degrades >50% → overfit. |
+| **Indexing errors** | Off-by-one in warmup, entry/exit bars? | Verify warmup guard matches indicator window. Check exit signals don't peek at current bar close. |
+| **Funding model realism** | Are funding costs accurately modeled? | Compare assumed funding rate to actual historical distribution. |
+| **Execution assumptions** | Can trades actually be filled at these prices? | Check if entry/exit prices assume best-case fills. Slippage model present? |
+
+### Structural Risk Assessment
+
+| Check | What to Look For |
+|-------|-----------------|
+| Tail risk / short gamma | Is the strategy systematically selling insurance? Positive skew or negative? |
+| Capacity constraint | At $1M+ capital, does market impact eat the edge? ADV checks? |
+| Correlation stability | Does correlation with existing portfolio hold in drawdowns? |
+| Crowding risk | Is this a well-known strategy that could get crowded? |
+| Regime dependency | If the regime detector is wrong, does the strategy blow up? |
+| Concentration risk | Does >50% PnL come from <5 tokens? |
+
+### Output
+
+The subagent outputs a structured report with line references for every concern found.
+
+| Verdict | Meaning | Action |
+|---------|---------|--------|
+| **PASS** | No biases or structural risks found | Proceed to Gate 6 |
+| **CONDITIONAL PASS** | Minor concerns documented | Proceed to Gate 6 with caveats noted |
+| **FAIL** | Critical bias or structural risk found | Kill. Append to candidate table with `killed_by: adversarial_review` |
+
+```bash
+echo "gate6" > "$CLAUDE_PROJECT_DIR/.strategy-gate"
+```
+
+---
+
 ## GATE 5.5: Portfolio Assembly (< 30 min)
 
 **Optional.** Run when you have 2+ strategies passing their respective Gate 5 and want to build an optimal combined portfolio.
@@ -601,6 +781,64 @@ echo "gate6" > "$CLAUDE_PROJECT_DIR/.strategy-gate"
 
 **Read:** Quick Reference — "Gate 6" section
 
+### Single Deployment Path (AIPIP-0022 + AIPIP-0024)
+
+There is exactly ONE paper trading deployment path. **NEVER create new runner scripts,
+standalone launchers, or alternative dashboard paths.**
+
+| Component | Single Path | Forbidden |
+|-----------|-------------|-----------|
+| Runner | `v4/run_paper_multi.py` | Creating new `run_paper*.py` files |
+| Config | `configs/multi_v4_paper.json` | Per-strategy standalone configs for running |
+| Dashboard | Runner pushes after each tick; CLI reads same config | Filesystem glob discovery, `--once` mode |
+| State | `state/v4_paper_*/` directories | Running engines outside the multi-runner |
+
+### Deployment Checklist
+
+1. **Add pool to multi-runner config** (`configs/multi_v4_paper.json`):
+   - Read the existing config first — NEVER overwrite it
+   - APPEND the new portfolio entry to the `"portfolios"` array
+   - Set a unique `state_dir` (e.g., `state/v4_paper_sNN/`)
+   - Verify the config has ALL existing portfolios plus the new one
+
+2. **Create state directory** and copy config:
+   ```bash
+   mkdir -p state/v4_paper_sNN
+   # Create config.json with the pool's strategy list — must match
+   # the entry you just added to multi_v4_paper.json
+   ```
+
+3. **Kill the existing runner and verify only ONE process exists:**
+   ```bash
+   # Find and kill ALL runner processes (stale ones accumulate)
+   pkill -f "run_paper_multi" && sleep 2
+   # Verify clean — this MUST return empty
+   ps aux | grep run_paper_multi | grep -v grep
+   # Clean PID lock
+   rm -f state/v4_paper_multi/paper.pid
+   ```
+
+4. **Start the runner:**
+   ```bash
+   nohup /workspace/venv/bin/python -m v4.run_paper_multi \
+     --config configs/multi_v4_paper.json > /tmp/paper_multi.log 2>&1 &
+   ```
+
+5. **Verify deployment (ALL must pass before setting gate6):**
+   ```bash
+   # a) Config contains new pool
+   grep "pool_name.*sNN" configs/multi_v4_paper.json
+   # b) Only ONE runner process
+   ps aux | grep run_paper_multi | grep python | grep -v grep | wc -l  # must be 1
+   # c) Runner started with all pools
+   head -1 /tmp/paper_multi.log  # must list ALL portfolio names
+   # d) Dashboard CLI produces same ordering as runner
+   python tools/generate_dashboard_v2.py 2>&1 | head -10
+   ```
+   - After first tick: dashboard must show all portfolio tabs
+   - New portfolio should start with $200k equity and no prior positions
+
+### Metrics to Track
 1. Deploy on live data, simulated execution
 2. Min 50 trades before go-live
 3. Kill if: returns <60% backtest, slippage >50% edge, MaxDD >1.5x, <10 trades
@@ -613,6 +851,119 @@ echo "gate6" > "$CLAUDE_PROJECT_DIR/.strategy-gate"
 - If paper Sharpe < 2.9 → investigate; if < 1.5 → kill
 
 **Deep dive if needed:** `knowledge/PAPER_TRADING_PRO_FRAMEWORK.md`
+
+### Mission Lifecycle Review (mandatory if active mission exists)
+
+After deploying a strategy to paper trading, the agent MUST:
+
+**Step 1: Draft a mission evolution** (AIPIP-0021) — always produce this before asking the user.
+
+```
+**Mission Evolution Draft:**
+
+Based on [N] strategies tested, [M] killed, [K] deployed this cycle:
+
+**Current best configuration:** [strategy/portfolio that won at V4-Gate 5]
+  all_time: [metrics]
+  oos_3mo: [metrics]
+
+**Proposed new baseline:** (if new config beats current mission baseline)
+  [Updated baseline with the new best metrics]
+
+**Proposed kill_if adjustments:**
+  [List each criterion with proposed change and reasoning]
+  Example: "Relax MaxDD from 3% to 5% — current production baseline is 3.93%,
+  making <3% impossible to improve by addition. N of M candidates killed by this."
+
+**Promising directions for next cycle:**
+  [Updated based on what signal types worked/failed, which regimes need coverage]
+
+**Candidate resurrection recommendations:**
+  [Strategies from .strategy-candidates that would pass relaxed criteria, with scores]
+```
+
+**Step 2: Present to user with options:**
+
+```
+**Mission Review:** Strategy sNN deployed to paper trading.
+
+The active mission goal was: [quote mission goal]
+
+1. **Accept evolution draft** — new mission replaces old with updated baselines, criteria,
+   and directions. The best configuration becomes the new standard to beat.
+
+2. **Modify draft** — user adjusts the proposed mission before it takes effect.
+
+3. **Keep mission as-is** — strategy deployed but mission goal not yet fully met.
+   Continue searching with current criteria in next /strategy session.
+
+4. **Close mission** — goal achieved or abandoned, no further search needed.
+   Logs closure to findings/strategy-findings.jsonl with outcome summary.
+```
+
+Use `AskUserQuestion` with these four options. Based on the user's choice:
+- **Accept:** Replace `.strategy-mission` with the evolution draft, add sNN to previous_attempts.
+- **Modify:** Let user provide changes, then update `.strategy-mission`.
+- **Keep:** Add sNN to previous_attempts, keep everything else unchanged.
+- **Close:** Set `status: closed` in `.strategy-mission`, append closure finding.
+
+```bash
+echo "gate6.5" > "$CLAUDE_PROJECT_DIR/.strategy-gate"
+```
+
+---
+
+## GATE 6.5: Knowledge Update (< 10 min) — AIPIP-0023
+
+**All strategy classes.** Mandatory after paper trading deployment confirmed (first tick
+logged). Runs immediately — do NOT skip to Gate 7 without completing this.
+
+### What to Do
+
+Update ALL of the following files:
+
+1. **`memory/PROJECT_STATUS.md`**:
+   - Add strategy to V4 Validated or V4 Production table
+   - Add key findings to Key Findings section (numbered, continue sequence)
+   - Update "Active" line in header
+   - Add any killed strategies to Graveyard table
+
+2. **`knowledge/STRATEGY_QUICK_REFERENCE.md`**:
+   - Add strategy to appropriate dedup table (Per-Token Perp, Combined, etc.)
+   - Update Paper Trading table with new pool
+   - Update Tier C list if any strategies were killed during this cycle
+   - Update Key Constraints if new edge families were validated
+
+3. **`.claude/.strategy-mission`**:
+   - Update baselines with new portfolio metrics
+   - Add strategy to Previous Attempts section
+   - Update kill criteria if new baselines are higher
+   - Update edge family coverage
+   - If mission is achieved, change status to `paper-trading-monitoring`
+   - Add concrete Next Actions
+
+4. **`findings/strategy-findings.jsonl`**:
+   - Verify all gate findings were logged (should already be done at each gate)
+   - Curate if >50 entries since last curation
+
+5. **`strategies/GRAVEYARD.md`**:
+   - Add any strategies killed during this development cycle
+
+### Gate Report Format
+
+```
+## Gate 6.5: Knowledge Update — DONE
+
+| File | Updated | Changes |
+|------|---------|---------|
+| PROJECT_STATUS.md | Yes | Added sNN to V4 Validated, findings NN-NN, graveyard entries |
+| STRATEGY_QUICK_REFERENCE.md | Yes | Added sNN to Perp table, updated Paper Trading table |
+| .strategy-mission | Yes | Updated baselines, added attempts, status → monitoring |
+| findings/strategy-findings.jsonl | Yes | N entries logged, no curation needed |
+| GRAVEYARD.md | Yes | Added sNN_killed_strategy |
+
+**All knowledge files current. Ready for next development cycle.**
+```
 
 ```bash
 echo "gate7" > "$CLAUDE_PROJECT_DIR/.strategy-gate"

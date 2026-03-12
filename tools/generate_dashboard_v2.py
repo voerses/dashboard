@@ -107,7 +107,7 @@ def build_sims_from_state_dir(state_dir: str, config_path: str = "") -> dict:
       - trades.jsonl (closed trades)
       - equity.csv (equity snapshots)
       - rebalances.jsonl (shadow rebalance log)
-      - config.json (if config_path provided, for pool_name/strategy info)
+      - config.json (auto-discovered in state_dir, or explicit config_path)
     """
     state_dir = Path(state_dir)
 
@@ -117,10 +117,13 @@ def build_sims_from_state_dir(state_dir: str, config_path: str = "") -> dict:
     equity = load_equity_csv(str(state_dir / "equity.csv"))
     rebalances = load_rebalances_jsonl(str(state_dir / "rebalances.jsonl"))
 
-    # Load config if available
+    # Load config: explicit path first, then auto-discover in state_dir
     config = {}
     if config_path and os.path.exists(config_path):
         with open(config_path) as f:
+            config = json.load(f)
+    elif (state_dir / "config.json").exists():
+        with open(state_dir / "config.json") as f:
             config = json.load(f)
 
     # Extract key values
@@ -183,6 +186,7 @@ def build_sims_from_state_dir(state_dir: str, config_path: str = "") -> dict:
             "funding_cost": t.get("funding_cost", 0),
             "entry_fee": t.get("entry_fee", 0),
             "exit_fee": t.get("exit_fee", 0),
+            "entry_timestamp": t.get("entry_timestamp", ""),
         })
 
     # Add open positions from state.json (AC28)
@@ -230,6 +234,7 @@ def build_sims_from_state_dir(state_dir: str, config_path: str = "") -> dict:
             "pct_to_stop": round(pct_to_stop, 2),
             "regime": regime_name,
             "exit_regimes": exit_regime_names,
+            "entry_timestamp": pos.get("entry_timestamp", ""),
         })
 
     # Equity history from equity.csv
@@ -310,8 +315,15 @@ def build_sims_from_engine(config_path: str) -> dict:
 # HTML Generation
 # ---------------------------------------------------------------------------
 
-def generate_html(sims_data: list[dict]) -> str:
-    """Generate self-contained HTML dashboard for paper trading."""
+def generate_html(sims_data: list[dict], source: str = "manual") -> str:
+    """Generate self-contained HTML dashboard for paper trading.
+
+    Args:
+        sims_data: List of SIMS dicts (one per pool/tab).
+        source: Origin marker — "runner" from live tick loop, "manual" from CLI.
+                Used by push_to_ghpages staleness guard to prevent manual pushes
+                from overwriting runner-generated dashboards.
+    """
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
     # Slim down data for embedding
@@ -332,8 +344,11 @@ def generate_html(sims_data: list[dict]) -> str:
 
     data_json = json.dumps(slim, separators=(",", ":"))
 
+    generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    n_pools = len(sims_data)
+
     html = f"""<!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-generated-at="{generated_at}" data-source="{source}" data-pools="{n_pools}">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -488,12 +503,16 @@ function render() {{
     const imbPct = sp.imbalance_pct || 0;
     const blockedCount = sp.blocked_entries_count || 0;
 
-    const unrealizedPnl = trades.filter(t=>t.status==='open').reduce((a,t)=>a+(t.unrealized_pnl||0),0);
+    const openTrades = trades.filter(t=>t.status==='open');
+    const unrealizedPnl = openTrades.reduce((a,t)=>a+(t.unrealized_pnl||0),0);
+    const totalInvested = openTrades.reduce((a,t)=>a+(t.margin_usd||0),0);
     const mtmEquity = eh.length > 0 ? eh[eh.length-1].mark_to_market_equity : equity;
+    const investedPct = mtmEquity > 0 ? (totalInvested / mtmEquity * 100) : 0;
 
     let h = `
     <div class="kpi-row">
         <div class="kpi"><div class="lbl">Portfolio Equity</div><div class="val ${{pc(mtmEquity - s.capital)}}">$${{fmt(mtmEquity)}}<div style="font-size:0.45em;color:#484f58;margin-top:2px">start $${{fmt(s.capital)}}</div></div></div>
+        <div class="kpi"><div class="lbl">Invested Now</div><div class="val m">$${{fmt(totalInvested)}}<div style="font-size:0.45em;color:#484f58;margin-top:2px">${{investedPct.toFixed(1)}}% of equity &middot; ${{nOpen}} pos</div></div></div>
         <div class="kpi"><div class="lbl">Realized P&L</div><div class="val ${{pc(totalPnl)}}">$${{fmt(totalPnl)}}</div></div>
         <div class="kpi"><div class="lbl">Unrealized P&L</div><div class="val ${{pc(unrealizedPnl)}}">$${{fmt(unrealizedPnl)}}</div></div>
         <div class="kpi"><div class="lbl">Max Drawdown</div><div class="val r">${{maxDD.toFixed(2)}}%</div></div>
@@ -588,7 +607,7 @@ function render() {{
             <table>
                 <thead><tr>
                     <th>Strategy</th><th>Token</th><th>Dir</th><th>Mkt</th>
-                    <th>Hold</th><th>Entry $</th><th>Exit/Now $</th>
+                    <th>Entered</th><th>Hold</th><th>Entry $</th><th>Exit/Now $</th>
                     <th>Stop $</th><th>% to Stop</th><th>Regime</th>
                     <th>Size</th><th>P&L</th><th>Fees</th><th>Exit</th>
                 </tr></thead>
@@ -680,7 +699,8 @@ function renderTrades(trades, filter) {{
             <td><b>${{t.token||''}}</b></td>
             <td><span class="pill ${{dir.toLowerCase()}}">${{dir}}</span></td>
             <td><span class="pill ${{mt}}">${{mt.toUpperCase()}}</span></td>
-            <td>${{t.hold_bars||0}}h</td>
+            <td style="font-size:0.75em;color:#8b949e">${{t.entry_timestamp ? new Date(t.entry_timestamp).toLocaleString() : '—'}}</td>
+            <td>${{(() => {{ if (isOpen && t.entry_timestamp) {{ const hrs = (Date.now() - new Date(t.entry_timestamp).getTime()) / 3600000; return hrs < 1 ? Math.round(hrs*60)+'m' : hrs.toFixed(1)+'h'; }} return (t.hold_bars||0)+'h'; }})()}}</td>
             <td style="font-size:0.85em">${{fmtPrice(t.entry_price)}}</td>
             <td style="font-size:0.85em">${{exitCol}}</td>
             <td style="font-size:0.85em">${{stopCol}}</td>
@@ -768,8 +788,28 @@ render();
 # GitHub Pages push
 # ---------------------------------------------------------------------------
 
-def push_to_ghpages(html_path: Path):
-    """Push dashboard HTML to gh-pages branch under /docs."""
+def _extract_dashboard_meta(html_text: str) -> dict:
+    """Extract data-generated-at, data-source, data-pools from dashboard HTML."""
+    import re
+    meta = {}
+    for attr in ("generated-at", "source", "pools"):
+        m = re.search(rf'data-{attr}="([^"]+)"', html_text)
+        meta[attr] = m.group(1) if m else ""
+    return meta
+
+
+def push_to_ghpages(html_path: Path, force: bool = False):
+    """Push dashboard HTML to gh-pages branch under /docs.
+
+    Staleness guard (prevents manual pushes from clobbering runner output):
+      1. If existing dashboard was generated by "runner" and new one is "manual",
+         BLOCK — manual CLI pushes must not overwrite the live runner's dashboard.
+      2. If existing dashboard has more pools than new one (regardless of source),
+         BLOCK — a single-pool push must not overwrite a multi-pool dashboard.
+      3. If existing is newer by timestamp (same source), BLOCK.
+
+    Pass force=True to bypass all guards.
+    """
     print("\nPushing to GitHub Pages (/docs/)")
     tmp = tempfile.mkdtemp(prefix="dashboard-")
     try:
@@ -777,6 +817,37 @@ def push_to_ghpages(html_path: Path):
             ["git", "clone", "--branch", "gh-pages", "--single-branch", "--depth", "1",
              "http://10.100.1.10:8080/git/voerses/dashboard.git", tmp],
             check=True, capture_output=True, text=True)
+
+        # --- Staleness guard ---
+        existing_index = Path(tmp) / "docs" / "index.html"
+        new_html_text = html_path.read_text()
+        new_meta = _extract_dashboard_meta(new_html_text)
+        if force:
+            print("  --force: bypassing staleness guards")
+        elif existing_index.exists():
+            old_meta = _extract_dashboard_meta(existing_index.read_text())
+
+            # Guard 1: manual must not overwrite runner
+            if old_meta.get("source") == "runner" and new_meta.get("source") == "manual":
+                print(f"BLOCKED: refusing to overwrite runner dashboard with manual push. "
+                      f"Use --force to override.")
+                return
+
+            # Guard 2: fewer pools must not overwrite more pools
+            old_pools = int(old_meta.get("pools") or 0)
+            new_pools = int(new_meta.get("pools") or 0)
+            if old_pools > 1 and new_pools < old_pools:
+                print(f"BLOCKED: existing dashboard has {old_pools} pools, "
+                      f"new has {new_pools}. Not overwriting multi-pool dashboard "
+                      f"with fewer pools. Use --force to override.")
+                return
+
+            # Guard 3: timestamp check (same source only)
+            old_ts = old_meta.get("generated-at", "")
+            new_ts = new_meta.get("generated-at", "")
+            if old_ts and new_ts and old_ts > new_ts:
+                print(f"SKIP: existing dashboard is newer ({old_ts}) than ours ({new_ts}).")
+                return
 
         # Remove old v1/v2 subdirectories if present
         for old_dir in ["v1", "v2"]:
@@ -806,14 +877,15 @@ def push_to_ghpages(html_path: Path):
             print("No changes to push.")
             return
 
+        ts_label = new_meta.get("generated-at", "") or datetime.now().strftime('%Y-%m-%d %H:%M')
         subprocess.run(
             ["git", "-C", tmp, "commit", "-m",
-             f"Update dashboard {datetime.now().strftime('%Y-%m-%d %H:%M')}"],
+             f"Update dashboard {ts_label}"],
             check=True, capture_output=True, text=True)
         subprocess.run(
             ["git", "-C", tmp, "push", "origin", "gh-pages"],
             check=True, capture_output=True, text=True)
-        print("Pushed to gh-pages.")
+        print(f"Pushed to gh-pages (generated at {ts_label}).")
     except subprocess.CalledProcessError as e:
         print(f"Push failed: {e.stderr}")
     finally:
@@ -824,21 +896,82 @@ def push_to_ghpages(html_path: Path):
 # Main
 # ---------------------------------------------------------------------------
 
+def discover_all_pools(base_dir: str = "state") -> list[dict]:
+    """Auto-discover all v4_paper* state directories and build SIMS data for each.
+
+    Looks for directories matching state/v4_paper* that contain state.json.
+    Each pool's config.json (if present) provides pool_name and strategy info.
+    Returns list of SIMS dicts sorted by pool_name.
+    """
+    base = Path(base_dir)
+    sims = []
+    for d in sorted(base.glob("v4_paper*")):
+        if not d.is_dir():
+            continue
+        if not (d / "state.json").exists():
+            continue
+        try:
+            sim = build_sims_from_state_dir(str(d))
+            sims.append(sim)
+            n_trades = len(sim.get("all_trades", []))
+            equity = sim.get("portfolio_equity", sim.get("capital", 0))
+            print(f"  {sim['name']}: {n_trades} trades, equity ${equity:,.0f}")
+        except Exception as e:
+            print(f"  {d.name}: FAILED ({e})")
+    return sims
+
+
+DEFAULT_MULTI_CONFIG = "configs/multi_v4_paper.json"
+
+
+def load_pools_from_multi_config(config_path: str) -> list[dict]:
+    """Load pools from a multi-portfolio config — same path as the runner.
+
+    This is the single source of truth for pool ordering and membership.
+    Both the runner and CLI use this to produce identical dashboards.
+    """
+    with open(config_path) as f:
+        data = json.load(f)
+
+    portfolios = data.get("portfolios", [])
+    sims = []
+    for pf in portfolios:
+        state_dir = pf.get("state_dir", "")
+        if not state_dir or not Path(state_dir).exists():
+            continue
+        if not (Path(state_dir) / "state.json").exists():
+            continue
+        cfg_path = os.path.join(state_dir, "config.json")
+        try:
+            sim = build_sims_from_state_dir(state_dir, cfg_path)
+            sims.append(sim)
+            n_trades = len(sim.get("all_trades", []))
+            equity = sim.get("portfolio_equity", sim.get("capital", 0))
+            print(f"  {sim['name']}: {n_trades} trades, equity ${equity:,.0f}")
+        except Exception as e:
+            print(f"  {pf.get('pool_name', state_dir)}: FAILED ({e})")
+    return sims
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Paper Trading Dashboard V2 Generator"
     )
     parser.add_argument(
         "--config", type=str, default="",
-        help="Path to paper trading config JSON"
+        help="Path to multi-portfolio config JSON (default: configs/multi_v4_paper.json)"
     )
     parser.add_argument(
         "--state-dir", type=str, default="",
-        help="Path to paper trading state directory (state.json, trades.jsonl, equity.csv)"
+        help="Path to a single state directory (state.json, trades.jsonl, equity.csv)"
     )
     parser.add_argument(
         "--push", action="store_true",
         help="Push to GitHub Pages after generating"
+    )
+    parser.add_argument(
+        "--force", action="store_true",
+        help="Force push, bypassing staleness guards"
     )
     parser.add_argument(
         "--output", type=str, default="",
@@ -851,7 +984,7 @@ def main():
     sims_data = []
 
     if args.state_dir:
-        # Direct state directory mode
+        # Single state directory mode
         print(f"Loading paper trading data from {args.state_dir}...")
         sim = build_sims_from_state_dir(args.state_dir, args.config)
         sims_data.append(sim)
@@ -859,33 +992,22 @@ def main():
         equity = sim.get("portfolio_equity", sim.get("capital", 0))
         print(f"  {sim['name']}: {n_trades} trades, equity ${equity:,.0f}")
 
-    elif args.config:
-        # Config mode — try to use engine directly
-        print(f"Loading paper trading data from config {args.config}...")
-        try:
-            sim = build_sims_from_engine(args.config)
-            sims_data.append(sim)
-            n_trades = len(sim.get("all_trades", []))
-            equity = sim.get("portfolio_equity", sim.get("capital", 0))
-            print(f"  {sim['name']}: {n_trades} trades, equity ${equity:,.0f}")
-        except Exception as e:
-            print(f"Could not load engine state: {e}")
-            print("Try --state-dir to load from raw state files.")
-            return
-
     else:
-        print("Error: provide --config or --state-dir")
-        print("Usage:")
-        print("  python tools/generate_dashboard_v2.py --state-dir state/paper/")
-        print("  python tools/generate_dashboard_v2.py --config config.json")
-        return
+        # Load from multi-config (same path as the runner)
+        config_path = args.config or DEFAULT_MULTI_CONFIG
+        if not os.path.exists(config_path):
+            print(f"Config not found: {config_path}")
+            return
+        print(f"Loading pools from {config_path}...")
+        sims_data = load_pools_from_multi_config(config_path)
 
     if not sims_data:
         print("No paper trading data found.")
         return
 
-    # Generate HTML
-    html = generate_html(sims_data)
+    # Generate HTML — CLI always uses source="runner" since it uses the
+    # same config and ordering as the runner (single deployment path)
+    html = generate_html(sims_data, source="runner")
 
     # Write output
     if args.output:
@@ -897,7 +1019,7 @@ def main():
     print(f"\nDashboard: {out} ({len(html)/1024:.0f} KB)")
 
     if args.push:
-        push_to_ghpages(out)
+        push_to_ghpages(out, force=args.force)
 
 
 if __name__ == "__main__":

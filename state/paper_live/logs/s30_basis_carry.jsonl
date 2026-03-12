@@ -1,41 +1,30 @@
-{"tick": "2026-03-07 16:00 UTC", "equity": 200000.14, "unrealized": 0.0, "open_positions": 0}
-{"tick": "2026-03-07 17:00 UTC", "equity": 199999.93, "unrealized": 0.0, "open_positions": 0}
-{"tick": "2026-03-07 18:00 UTC", "equity": 200038.69, "unrealized": 48.96, "open_positions": 1}
-{"tick": "2026-03-07 19:00 UTC", "equity": 200038.18, "unrealized": 48.66, "open_positions": 1}
-{"tick": "2026-03-07 20:00 UTC", "equity": 200037.97, "unrealized": 48.66, "open_positions": 1}
-{"tick": "2026-03-07 21:00 UTC", "equity": 200070.1, "unrealized": 81.0, "open_positions": 1}
-{"tick": "2026-03-07 22:00 UTC", "equity": 200063.95, "unrealized": 85.06, "open_positions": 2}
-{"tick": "2026-03-07 23:00 UTC", "equity": 200081.72, "unrealized": 103.03, "open_positions": 2}
-{"tick": "2026-03-08 00:00 UTC", "equity": 200064.82, "unrealized": 86.35, "open_positions": 2}
-{"tick": "2026-03-08 01:00 UTC", "equity": 200081.21, "unrealized": 102.94, "open_positions": 2}
-{"tick": "2026-03-08 02:00 UTC", "equity": 200025.6, "unrealized": 57.53, "open_positions": 3}
-{"tick": "2026-03-08 03:00 UTC", "equity": 200042.42, "unrealized": 74.57, "open_positions": 3}
-{"tick": "2026-03-08 04:00 UTC", "equity": 200028.53, "unrealized": 60.88, "open_positions": 3}
-{"tick": "2026-03-08 05:00 UTC", "equity": 200021.48, "unrealized": 64.05, "open_positions": 4}
-{"tick": "2026-03-08 06:00 UTC", "equity": 200136.83, "unrealized": 199.59, "open_positions": 6}
-{"tick": "2026-03-08 07:00 UTC", "equity": 200101.96, "unrealized": 174.93, "open_positions": 7}
-{"tick": "2026-03-08 08:00 UTC", "equity": 200167.16, "unrealized": 250.33, "open_positions": 8}
-{"tick": "2026-03-08 09:00 UTC", "equity": 200021.12, "unrealized": 104.5, "open_positions": 8}
-{"tick": "2026-03-08 10:00 UTC", "equity": 200114.28, "unrealized": 197.86, "open_positions": 8}
-{"tick": "2026-03-08 11:00 UTC", "equity": 200121.72, "unrealized": 215.5, "open_positions": 9}
-{"tick": "2026-03-08 12:00 UTC", "equity": 200103.87, "unrealized": 197.86, "open_positions": 9}
-{"tick": "2026-03-08 12:01 UTC", "tokens_scanned": 90, "tokens_with_entry": 0, "opened": [], "closed": [], "equity": 200080.79, "unrealized": 174.78, "open_positions": 9, "closed_trades": 0}
-{"tick": "2026-03-08 12:03 UTC", "tokens_scanned": 90, "tokens_with_entry": 0, "opened": [], "closed": [], "equity": 200080.79, "unrealized": 174.78, "open_positions": 9, "closed_trades": 0}
-{"tick": "2026-03-08 12:28 UTC", "tokens_scanned": 90, "tokens_with_entry": 0, "opened": [], "closed": [], "equity": 200080.79, "unrealized": 174.78, "open_positions": 9, "closed_trades": 0}
-{"tick": "2026-03-08 12:31 UTC", "tokens_scanned": 90, "tokens_with_entry": 0, "opened": [], "closed": [], "equity": 200080.79, "unrealized": 174.78, "open_positions": 9, "closed_trades": 0}
-{"tick": "2026-03-08 12:34 UTC", "tokens_scanned": 90, "tokens_with_entry": 0, "opened": [], "closed": [], "equity": 200080.79, "unrealized": 174.78, "open_positions": 9, "closed_trades": 0}
-{"tick": "2026-03-08 12:37 UTC", "tokens_scanned": 90, "tokens_with_entry": 0, "opened": [], "closed": [], "equity": 200080.79, "unrealized": 174.78, "open_positions": 9, "closed_trades": 0}
-{"tick": "2026-03-08 12:41 UTC", "tokens_scanned": 90, "tokens_with_entry": 0, "opened": [], "closed": [], "equity": 200080.79, "unrealized": 174.78, "open_positions": 9, "closed_trades": 0}
-{"tick": "2026-03-08 12:49 UTC", "tokens_scanned": 90, "tokens_with_entry": 0, "opened": [], "closed": [], "equity": 200080.79, "unrealized": 174.78, "open_positions": 9, "closed_trades": 0}
-{"tick": "2026-03-08 12:52 UTC", "tokens_scanned": 90, "tokens_with_entry": 0, "opened": [], "closed": [], "equity": 200080.79, "unrealized": 174.78, "open_positions": 9, "closed_trades": 0}
-{"tick": "2026-03-08 12:55 UTC", "tokens_scanned": 90, "tokens_with_entry": 0, "opened": [], "closed": [], "equity": 200080.79, "unrealized": 174.78, "open_positions": 9, "closed_trades": 0}
-{"tick": "2026-03-08 12:58 UTC", "tokens_scanned": 90, "tokens_with_entry": 0, "opened": [], "closed": [], "equity": 200080.12, "unrealized": 174.78, "open_positions": 9, "closed_trades": 0}
-{"tick": "2026-03-08 13:03 UTC", "tokens_scanned": 90, "tokens_with_entry": 1, "opened": [], "closed": [], "equity": 200047.58, "unrealized": 142.26, "open_positions": 9, "closed_trades": 0}
-{"tick": "2026-03-08 13:25 UTC", "tokens_scanned": 90, "tokens_with_entry": 1, "opened": [], "closed": [], "equity": 200047.58, "unrealized": 142.26, "open_positions": 9, "closed_trades": 0}
-{"tick": "2026-03-08 13:27 UTC", "tokens_scanned": 90, "tokens_with_entry": 1, "opened": [], "closed": [], "equity": 200047.58, "unrealized": 142.26, "open_positions": 9, "closed_trades": 0}
-{"tick": "2026-03-08 14:00 UTC", "tokens_scanned": 90, "tokens_with_entry": 0, "opened": [], "closed": [], "equity": 200094.8, "unrealized": 190.42, "open_positions": 9, "closed_trades": 0}
-{"tick": "2026-03-08 15:00 UTC", "tokens_scanned": 90, "tokens_with_entry": 2, "opened": ["SAND"], "closed": [], "equity": 200056.28, "unrealized": 172.56, "open_positions": 10, "closed_trades": 0}
-{"tick": "2026-03-08 16:00 UTC", "tokens_scanned": 90, "tokens_with_entry": 0, "opened": [], "closed": [], "equity": 200141.63, "unrealized": 258.24, "open_positions": 10, "closed_trades": 0}
-{"tick": "2026-03-08 17:00 UTC", "tokens_scanned": 90, "tokens_with_entry": 2, "opened": ["AXS"], "closed": [], "equity": 200103.13, "unrealized": 235.77, "open_positions": 11, "closed_trades": 0}
-{"tick": "2026-03-08 18:00 UTC", "tokens_scanned": 90, "tokens_with_entry": 0, "opened": [], "closed": [], "equity": 200098.53, "unrealized": 232.45, "open_positions": 11, "closed_trades": 0}
-{"tick": "2026-03-08 18:02 UTC", "tokens_scanned": 90, "tokens_with_entry": 0, "opened": [], "closed": [], "equity": 200098.53, "unrealized": 232.45, "open_positions": 11, "closed_trades": 0}
+{"tick": "2026-03-08 21:51 UTC", "tokens_scanned": 90, "tokens_with_entry": 1, "opened": ["CRV"], "closed": [], "equity": 199992.08, "unrealized": 0, "open_positions": 1, "closed_trades": 0}
+{"tick": "2026-03-08 22:00 UTC", "tokens_scanned": 90, "tokens_with_entry": 0, "opened": [], "closed": [], "equity": 199992.62, "unrealized": 0.54, "open_positions": 1, "closed_trades": 0}
+{"tick": "2026-03-08 22:22 UTC", "tokens_scanned": 90, "tokens_with_entry": 0, "opened": [], "closed": [], "equity": 199992.62, "unrealized": 0.54, "open_positions": 1, "closed_trades": 0}
+{"tick": "2026-03-08 23:00 UTC", "tokens_scanned": 90, "tokens_with_entry": 1, "opened": [], "closed": [], "equity": 199979.3, "unrealized": -12.78, "open_positions": 1, "closed_trades": 0}
+{"tick": "2026-03-09 00:00 UTC", "tokens_scanned": 90, "tokens_with_entry": 0, "opened": [], "closed": [], "equity": 199985.95, "unrealized": -6.13, "open_positions": 1, "closed_trades": 0}
+{"tick": "2026-03-09 01:00 UTC", "tokens_scanned": 90, "tokens_with_entry": 0, "opened": [], "closed": [], "equity": 199985.96, "unrealized": -6.12, "open_positions": 1, "closed_trades": 0}
+{"tick": "2026-03-09 02:00 UTC", "tokens_scanned": 90, "tokens_with_entry": 0, "opened": [], "closed": [], "equity": 200017.01, "unrealized": 24.93, "open_positions": 1, "closed_trades": 0}
+{"tick": "2026-03-09 03:00 UTC", "tokens_scanned": 90, "tokens_with_entry": 0, "opened": [], "closed": [], "equity": 200001.49, "unrealized": 9.41, "open_positions": 1, "closed_trades": 0}
+{"tick": "2026-03-09 04:00 UTC", "tokens_scanned": 90, "tokens_with_entry": 1, "opened": ["GALA"], "closed": [], "equity": 199983.16, "unrealized": -1.68, "open_positions": 2, "closed_trades": 0}
+{"tick": "2026-03-09 05:00 UTC", "tokens_scanned": 90, "tokens_with_entry": 2, "opened": ["EIGEN"], "closed": [], "equity": 199968.86, "unrealized": -8.35, "open_positions": 3, "closed_trades": 0}
+{"tick": "2026-03-09 06:00 UTC", "tokens_scanned": 90, "tokens_with_entry": 1, "opened": [], "closed": [], "equity": 199959.25, "unrealized": -18.49, "open_positions": 3, "closed_trades": 0}
+{"tick": "2026-03-09 07:00 UTC", "tokens_scanned": 90, "tokens_with_entry": 0, "opened": [], "closed": [], "equity": 199998.61, "unrealized": 20.87, "open_positions": 3, "closed_trades": 0}
+{"tick": "2026-03-09 08:00 UTC", "tokens_scanned": 90, "tokens_with_entry": 3, "opened": ["AGLD", "DYDX"], "closed": [], "equity": 199958.16, "unrealized": -7.5, "open_positions": 5, "closed_trades": 0}
+{"tick": "2026-03-09 08:45 UTC", "tokens_scanned": 90, "tokens_with_entry": 3, "opened": [], "closed": [], "equity": 199932.98, "unrealized": -32.68, "open_positions": 5, "closed_trades": 0}
+{"tick": "2026-03-09 08:48 UTC", "tokens_scanned": 90, "tokens_with_entry": 3, "opened": [], "closed": [], "equity": 199932.98, "unrealized": -32.68, "open_positions": 5, "closed_trades": 0}
+{"tick": "2026-03-09 09:00 UTC", "tokens_scanned": 90, "tokens_with_entry": 1, "opened": [], "closed": [], "equity": 199984.92, "unrealized": 19.26, "open_positions": 5, "closed_trades": 0}
+{"tick": "2026-03-09 09:39 UTC", "tokens_scanned": 90, "tokens_with_entry": 1, "opened": [], "closed": [], "equity": 199984.92, "unrealized": 19.26, "open_positions": 5, "closed_trades": 0, "spot_funds": 99982.83, "perp_funds": 99982.83, "rebalance": null}
+{"tick": "2026-03-09 09:52 UTC", "tokens_scanned": 90, "tokens_with_entry": 1, "opened": [], "closed": [], "equity": 199984.92, "unrealized": 19.26, "open_positions": 5, "closed_trades": 0, "spot_funds": 99982.83, "perp_funds": 99982.83, "rebalance": null}
+{"tick": "2026-03-09 10:00 UTC", "tokens_scanned": 90, "tokens_with_entry": 1, "opened": ["ASTER"], "closed": [], "equity": 200021.19, "unrealized": 65.5, "open_positions": 6, "closed_trades": 0}
+{"tick": "2026-03-09 11:00 UTC", "tokens_scanned": 90, "tokens_with_entry": 1, "opened": [], "closed": [], "equity": 199991.93, "unrealized": 36.24, "open_positions": 6, "closed_trades": 0}
+{"tick": "2026-03-09 11:10 UTC", "tokens_scanned": 90, "tokens_with_entry": 1, "opened": [], "closed": [], "equity": 199991.93, "unrealized": 36.24, "open_positions": 6, "closed_trades": 0, "spot_funds": 99977.85, "perp_funds": 99977.85, "rebalance": null}
+{"tick": "2026-03-09 12:00 UTC", "tokens_scanned": 90, "tokens_with_entry": 1, "opened": [], "closed": [], "equity": 200002.39, "unrealized": 46.22, "open_positions": 6, "closed_trades": 0}
+{"tick": "2026-03-09 13:00 UTC", "tokens_scanned": 90, "tokens_with_entry": 0, "opened": [], "closed": [], "equity": 200013.21, "unrealized": 56.77, "open_positions": 6, "closed_trades": 0}
+{"tick": "2026-03-09 14:00 UTC", "tokens_scanned": 90, "tokens_with_entry": 0, "opened": [], "closed": [], "equity": 200042.11, "unrealized": 85.15, "open_positions": 6, "closed_trades": 0}
+{"tick": "2026-03-09 15:00 UTC", "tokens_scanned": 90, "tokens_with_entry": 1, "opened": ["SNX"], "closed": [], "equity": 199991.85, "unrealized": 41.46, "open_positions": 7, "closed_trades": 0}
+{"tick": "2026-03-09 16:00 UTC", "tokens_scanned": 90, "tokens_with_entry": 1, "opened": [], "closed": [], "equity": 199999.32, "unrealized": 48.11, "open_positions": 7, "closed_trades": 0}
+{"tick": "2026-03-09 17:00 UTC", "tokens_scanned": 90, "tokens_with_entry": 1, "opened": ["SAND"], "closed": [], "equity": 199967.61, "unrealized": 22.8, "open_positions": 8, "closed_trades": 0}
+{"tick": "2026-03-09 18:00 UTC", "tokens_scanned": 90, "tokens_with_entry": 0, "opened": [], "closed": [], "equity": 200001.62, "unrealized": 56.48, "open_positions": 8, "closed_trades": 0}
+{"tick": "2026-03-09 19:00 UTC", "tokens_scanned": 90, "tokens_with_entry": 2, "opened": ["ARB"], "closed": [], "equity": 199943.28, "unrealized": 7.12, "open_positions": 9, "closed_trades": 0}
+{"tick": "2026-03-09 20:00 UTC", "tokens_scanned": 90, "tokens_with_entry": 1, "opened": [], "closed": [], "equity": 199941.05, "unrealized": 4.4, "open_positions": 9, "closed_trades": 0}

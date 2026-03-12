@@ -216,7 +216,12 @@ def _run_walk_forward(engine: Engine, strategy_fn: StrategyFn, ticker: str,
         size_multiplier=result.size_multiplier,
         cap_multiplier=result.cap_multiplier,
         trail_schedule=result.trail_schedule,
+        time_trail_schedule=getattr(result, 'time_trail_schedule', None),
         max_trail_mult=result.max_trail_mult,
+        funding_exit_threshold=getattr(result, 'funding_exit_threshold', 0.0),
+        partial_tp_atr=getattr(result, 'partial_tp_atr', 0.0),
+        partial_tp_pct=getattr(result, 'partial_tp_pct', 0.5),
+        partial_tp_trail=getattr(result, 'partial_tp_trail', 1.5),
     )
 
     trades, final_equity = engine._simulate(ctx, masked_result)
@@ -393,7 +398,12 @@ def _run_walk_forward_combined(engine: Engine, strategy_fn, ticker: str,
         size_multiplier=result.size_multiplier,
         cap_multiplier=result.cap_multiplier,
         trail_schedule=result.trail_schedule,
+        time_trail_schedule=getattr(result, 'time_trail_schedule', None),
         max_trail_mult=result.max_trail_mult,
+        funding_exit_threshold=getattr(result, 'funding_exit_threshold', 0.0),
+        partial_tp_atr=getattr(result, 'partial_tp_atr', 0.0),
+        partial_tp_pct=getattr(result, 'partial_tp_pct', 0.5),
+        partial_tp_trail=getattr(result, 'partial_tp_trail', 1.5),
     )
 
     trades, final_equity = engine._simulate_combined(ctx_spot, ctx_perp, masked_result)

@@ -1,0 +1,171 @@
+status: gate6-monitoring
+goal: Monitor 16-pool paper trading; validate overlays match backtest; identify next mission
+baseline:
+  s58_12mo: s58 (s56+s57) — +689% return, Sharpe 8.25, MaxDD -1.2% (12-month)
+  s58_72mo: s58 (s56+s57) — +1717% return, Sharpe 7.29, MaxDD -1.9% (72-month)
+  s58_s65: s58+s65 — +1217% return, Sharpe 8.52, MaxDD -1.4% (12mo). BEST 2-strategy combo.
+  s58_s63_s65: s58+s63+s65 (4-strategy) — +1684%, Sharpe 8.26, MaxDD -5.0% (12mo). Full portfolio.
+  oos_total: +$131,878 (+66%), $1,912/day avg, 352 trades (Jan-Mar 2026)
+done_when: 50+ trades per overlay pool; overlays match backtest improvement direction
+notes: |
+
+  ╔══════════════════════════════════════════════════════════════════╗
+  ║  PROFIT-TAKING OPTIMIZATION MISSION — CLOSED 2026-03-12        ║
+  ║  All 4 submissions complete. 16 pools in Gate 6 monitoring.    ║
+  ╚══════════════════════════════════════════════════════════════════╝
+
+  === MISSION SUMMARY ===
+
+  Started: 2026-03-12. Triggered by paper trading findings F30-F32:
+    F30. EXIT CLUSTERING — 80% trades exit at no_stop_bars boundary
+    F31. FUNDING DRAG — 67% of gross PnL consumed by funding (small-sample)
+    F32. NO PROFIT-TAKING — zero TP exits, target_mult=999 everywhere
+
+  4 submissions evaluated through gate process. 1 killed, 3 deployed.
+
+  | # | Submission | Class | Result | Gate | Impact |
+  |---|-----------|-------|--------|------|--------|
+  | 1 | Funding-aware exit | C (Overlay) | KILLED | 5O | Calmar degrades at every threshold |
+  | 2 | Time-decayed trail | C (Overlay) | DEPLOYED | 6 | s69: Calmar +33%. s72: Calmar +148% |
+  | 3 | Partial profit-taking | B (Engine+Overlay) | DEPLOYED | 6 | Solo +8.9%, but portfolio-dependent |
+  | 4 | Fixed TP at 3 ATR | C (Overlay) | DEPLOYED | 6 | s75: Calmar +17.6% on s63 base |
+
+  === KEY LEARNINGS (for future missions) ===
+
+  L1. SMALL-SAMPLE PAPER TRADING ARTIFACTS
+      F31 (67% funding drag) was a 15-trade artifact in a sideways March market.
+      Full 12-month backtest showed funding is only 1.2% of total PnL. NEVER
+      build a strategy around a paper trading observation with <50 trades.
+      Rule: Minimum 50 trades before treating paper findings as signal.
+
+  L2. OVERLAY EFFECTS ARE PORTFOLIO-COMPOSITION-DEPENDENT
+      Partial TP (Sub 3) improved solo s56 Calmar +8.9% but DEGRADED s58 combo
+      Calmar -7.8% and s58+s65 Calmar -15.1%. Root cause: freed capital from
+      partial close gets redeployed into other strategies at worse times.
+      Rule: Always test overlays in multi-portfolio context, not just solo.
+      Rule: More strategies in a pool can dilute bad redeployment effects
+      (4-edge improved +7.1% where 2-strategy combos degraded).
+
+  L3. HOLD DURATION DETERMINES OVERLAY EFFECTIVENESS
+      Time trail improved s65 (avg hold 50h) by +148% Calmar but only +0.2%
+      on s63 (avg hold 16h). Fixed TP improved s63 by +17.6% but would hurt
+      momentum strategies. Overlays must match the base strategy's time profile.
+      Rule: Time-based overlays need avg_hold > 2x no_stop_bars to matter.
+      Rule: Fixed TP works for mean-reversion (natural profit cap), not momentum.
+
+  L4. CONSERVATIVE SCHEDULES HAVE ZERO EFFECT
+      Time trail schedules starting at 2x no_stop_bars had literally zero
+      effect because avg hold is 25h with no_stop=24. Trades exit before
+      the overlay even activates. Must start tightening AT no_stop_bars.
+      Rule: Start overlay activation at the boundary, not safely past it.
+
+  L5. ENGINE CAPABILITIES ARE REUSABLE EVEN WHEN OVERLAYS FAIL
+      Funding exit (Sub 1) was killed, but the engine fields remain for future
+      use. Partial TP engine is generic. Time trail schedule is generic.
+      New strategies can use these capabilities at zero implementation cost.
+      Built capabilities: funding_exit_threshold, time_trail_schedule,
+      partial_tp_atr/pct/trail, _partial_close_position().
+
+  L6. CROSS-STRATEGY TOKEN DEDUP IS MANDATORY
+      Bug: Two strategies (s63+s65) both entered TRUMP simultaneously in
+      4-edge+ptp. The simulator only blocked same-strategy re-entry, not
+      cross-strategy. Fixed: v4/simulator.py:567 blocks entry if ANY
+      strategy already holds the token.
+      Rule: Multi-strategy pools need cross-strategy position checks.
+
+  L7. abs() BUGS IN DIRECTIONAL LOGIC
+      Partial TP prototype used abs(close-entry) which triggered on losses.
+      Direction-aware checks are essential for any profit-based logic.
+      Rule: Never use abs() on PnL calculations. Use direction * (close-entry).
+
+  === INFRASTRUCTURE STATE ===
+
+  Runner: PID 262609, 16 pools, $3.2M total paper capital.
+  Dashboard: gh-pages, 16 tabs, hourly push.
+  Config: configs/multi_v4_paper.json
+
+  Pools:
+    BASELINE:     s58, s60, s58+s60, s58+s62, s58+s63, s58+s65, s58+s59, 4-edge
+    TIME TRAIL:   s69 (solo), s58+s69 (combo), s72 (solo), s58+s72 (combo)
+    FIXED TP:     s58+s75 (s63+target_mult=3.0)
+    PARTIAL TP:   s76 (solo), s58+s76 (combo), 4-edge+ptp
+
+  Engine capabilities available for future strategies:
+    - funding_exit_threshold (v3/engine.py, v4/simulator.py) — disabled by default
+    - time_trail_schedule (v3/engine.py, v4/simulator.py) — generic time-based trail
+    - partial_tp_atr/pct/trail (v3/engine.py, v4/simulator.py) — partial position close
+    - cross-strategy token dedup (v4/simulator.py:567)
+
+  === MONITORING CHECKLIST (check weekly) ===
+
+  [ ] s69 vs s58: Does time trail improve Calmar by >10%? (backtest: +33%)
+  [ ] s72 vs s58+s65: Does s65+time_trail improve Calmar? (backtest: +148%)
+  [ ] s75 vs s58+s63: Does fixed TP improve s63? (backtest: +17.6%)
+  [ ] s76 vs s58: Does partial TP match solo improvement? (backtest: +8.9%)
+  [ ] 4-edge+ptp vs 4-edge: Does partial TP help 4-edge? (backtest: +7.1%)
+  [ ] s65 closed trades: 50+ needed. Currently mostly unrealized.
+  [ ] s63 recovery: 0% WR on 2 trades. Need 10+ more.
+  [ ] s56 dry spell: 0 perp entries in 69 ticks. Normal for current conditions?
+
+  Kill triggers:
+    - Any overlay pool Calmar < baseline pool after 50+ trades → remove overlay
+    - Any pool MaxDD > 5% → investigate
+    - Returns < 60% of backtest after 100+ trades → escalate
+
+  === STRATEGY INVENTORY ===
+
+  | ID | Base | Overlay | Class | Status | Pool(s) |
+  |----|------|---------|-------|--------|---------|
+  | s56 | momentum | — | A (signal) | Tier A, paper | s58, s58+s60/s62/s63/s65/s59, 4-edge |
+  | s57 | carry (combined) | — | A (signal) | Tier A, paper | s58, combos |
+  | s59 | funding MR | — | A (signal) | Paper, 1 trade | s58+s59 |
+  | s60 | momentum perp | — | A (signal) | Paper | s60, s58+s60 |
+  | s62 | breakout | — | A (signal) | Paper | s58+s62 |
+  | s63 | vol spike reversal | — | A (signal) | Paper, 0% WR | s58+s63, 4-edge |
+  | s65 | funding carry | — | A (signal) | Paper, BEST MTM | s58+s65, 4-edge |
+  | s69 | s56+time_trail | time_trail | C (overlay) | Paper | s69, s58+s69 |
+  | s72 | s65+time_trail | time_trail | C (overlay) | Paper | s72, s58+s72 |
+  | s75 | s63+fixed_tp(3ATR) | target_mult | C (overlay) | Paper | s58+s75 |
+  | s76 | s56+partial_tp | partial_tp | B (engine+overlay) | Paper | s76, s58+s76, 4-edge+ptp |
+
+  Killed strategies:
+    s67 (funding momentum): Gate 5 kill, Sharpe 1.90
+    s70 (s60+time_trail): Passed 5O but not deployed (s60 not in combos)
+    s71 (s63+time_trail): Negligible effect, avg hold too short
+    s73 (s56+funding_exit): Gate 5O kill, Calmar degrades
+    s74 (s60+funding_exit): Gate 5O kill, Calmar degrades
+
+  === IDEAS FOR NEXT MISSION ===
+
+  These are NOT committed — each must pass Gate 0 screening.
+
+  IDEA A: NEW EDGE FAMILIES (uncorrelated alpha sources)
+    - Cross-sectional momentum (Class B): rank tokens by recent return, long top N
+    - Liquidation cascade detector: entry after large liquidation events
+    - Orderbook imbalance: use bid/ask depth for short-term direction
+    - Inter-exchange basis: cross-exchange arb signals
+
+  IDEA B: PORTFOLIO OPTIMIZATION
+    - Dynamic weight rebalancing across strategies based on recent performance
+    - Regime-aware allocation: reduce s63 (counter-trend) in strong trends
+    - Risk parity: equalize risk contribution across strategies
+    - Correlation-based position limits: reduce when strategies cluster
+
+  IDEA C: EXECUTION IMPROVEMENTS
+    - Smarter entry timing: delay entry by 1-3 bars when vol is spiking
+    - Adaptive sizing: increase size when multiple strategies agree on direction
+    - Staggered entry: split large entries across 2-3 bars to reduce impact
+
+  IDEA D: OVERLAY STACKING
+    - s76+s69 (partial TP + time trail): double overlay on s56 base
+    - s77 (s60+partial_tp): partial TP on high-leverage momentum perp
+    - Adaptive partial TP: vary pct/threshold based on regime or vol
+
+  === PREVIOUS PAPER TRADING OBSERVATIONS (for reference) ===
+
+  F30. EXIT CLUSTERING: 80% trades exit at no_stop_bars boundary
+  F31. FUNDING DRAG: 67% of PnL (SMALL-SAMPLE — see L1)
+  F32. NO PROFIT-TAKING: Zero TP exits (ADDRESSED by Sub 2/3/4)
+  F33. s65 VALIDATING: +4.12% MTM, mostly unrealized
+  F34. s63 STRUGGLING: 0% WR, counter-trend entries may be too early
+  F35. s58 EXPECTED WEAKNESS: -0.74% March matches backtest

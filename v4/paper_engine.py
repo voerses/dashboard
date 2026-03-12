@@ -511,6 +511,16 @@ class PaperPortfolioEngine:
         # Note: walk-forward mask is already applied by precompute_strategy_signals
         self._tick_internal_with_signals(all_signals, strategy_specs, bar_maps)
 
+        # --- Step 6b: Stamp entry_timestamp on ALL positions missing it ---
+        # New positions (entry_bar == tick_counter) get the current timestamp.
+        # Pre-existing positions that were never stamped (e.g., created before
+        # this code existed) get backfilled with the current timestamp so the
+        # dashboard shows *something* rather than "—".
+        for st in self._get_all_states():
+            for pos in st.position_manager.open_positions:
+                if not pos.entry_timestamp:
+                    pos.entry_timestamp = timestamp
+
         # --- Step 7: Update last known prices ---
         self._update_last_known_prices(all_signals, bar_maps)
 

@@ -18,3 +18,8 @@ Strategies killed during the gate process. Learn from the dead.
 | 2026-03-08 | s38_momentum_etf_flow (N2) | Gate 5O | ETF flow data covers only 15 months (Dec 2024–Mar 2026); overlay=1.0 for 85% of backtest period. Cannot validate. Revisit when 2+ years of data accumulates |
 | 2026-03-08 | s42_momentum_defensive_trail (O4) | Gate 5O | Zero marginal improvement on top of O5 trail progression. Per-bar volatility ceiling adds <0.1% equity diff, no validation change. O5 already captures the value. |
 | 2026-03-08 | s43_regime_spot_perp_trail_progression | Gate 5O | Trail progression hurts s32: rate -2.2pp (71.1→68.9%). Trail tightening premature on short legs (downtrend shorts need wider stops to ride the trend). |
+| 2026-03-11 | s66_adx_breakout | Gate 0 | Too few trades: only 38 entries on BTC, expected >30 per token |
+| 2026-03-11 | s68_band_walk | Gate 2 | Momentum family saturated (>2 strategies in Tier A). 80% overlap with s56 within 24h. |
+| 2026-03-11 | s67_funding_momentum_v4 | V4-Gate 5 | Sharpe 1.90 too low for portfolio. Despite excellent decorrelation (all <0.2), capital dilution loses more from s65/s63 than s67 contributes. Need Sharpe >3 to add value. |
+| 2026-03-12 | s73_s56_funding_exit (Sub 1) | Gate 5O | Calmar degrades at every threshold (7 tested: 0.01%–0.5%). Funding is 1.2% of PnL in 12mo backtest — paper F31 (67% drag) was small-sample artifact. High-funding tokens (ARC, PIPPIN) include big winners; exit can't discriminate. |
+| 2026-03-12 | s74_s60_funding_exit (Sub 1) | Gate 5O | Same as s73. Calmar -34% at best Sharpe threshold (0.2%), Return -19%, MaxDD worsens. Funding exit cuts winners alongside losers. |

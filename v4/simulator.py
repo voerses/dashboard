@@ -202,6 +202,95 @@ def _get_bar_data(sig: TokenSignals, local_bar: int, is_primary: bool = True):
     )
 
 
+def _partial_close_position(
+    state: SimulationState,
+    pos: Position,
+    global_bar: int,
+    exit_price: float,
+    exit_adv: float,
+    config: PortfolioConfig,
+) -> ClosedTrade:
+    """Close a fraction of a position (partial profit-taking).
+
+    Books a trade for the closed portion, reduces the remaining position's
+    quantity/margin, and tightens the trail. Does NOT remove the position
+    from open_positions — the remainder stays open.
+    """
+    close_pct = pos.partial_tp_pct
+    notional_closed = abs(pos.quantity * exit_price) * close_pct
+
+    # Exit slippage on the closed portion
+    slip_bps = compute_slippage_bps(
+        notional_closed, exit_adv, config.base_spread_bps,
+        config.impact_coeff, config.max_slip_bps,
+    )
+    slip = exit_price * slip_bps / 10000.0
+    if pos.direction == 1:
+        adj_exit_price = exit_price - slip
+    else:
+        adj_exit_price = exit_price + slip
+
+    # Compute PnL for closed portion
+    closed_qty = pos.quantity * close_pct
+    if pos.direction == 1:
+        pnl = closed_qty * (adj_exit_price - pos.entry_price)
+    else:
+        pnl = abs(closed_qty) * (pos.entry_price - adj_exit_price)
+
+    exit_fee = abs(closed_qty * adj_exit_price) * pos.fee_rate
+    closed_margin = pos.margin_usd * close_pct
+    closed_funding = pos.cumulative_funding * close_pct
+    net_pnl = pnl - exit_fee - closed_funding
+
+    # Book accounting
+    state.realized_pnl += pnl
+    state.total_fees += exit_fee
+
+    # Pro-rate entry fee for the trade record
+    full_entry_fee = state._entry_fees_by_pos.get(pos.position_id, 0.0)
+    partial_entry_fee = full_entry_fee * close_pct
+    state._entry_fees_by_pos[pos.position_id] = full_entry_fee - partial_entry_fee
+
+    # Create trade record for closed portion
+    trade = ClosedTrade(
+        position_id=pos.position_id + ":partial",
+        token=pos.token,
+        strategy_id=pos.strategy_id,
+        leg=pos.leg,
+        entry_bar=pos.entry_bar,
+        exit_bar=global_bar,
+        entry_price=pos.entry_price,
+        exit_price=adj_exit_price,
+        direction=pos.direction,
+        margin_usd=closed_margin,
+        pnl=net_pnl,
+        funding_cost=closed_funding,
+        entry_fee=partial_entry_fee,
+        exit_fee=exit_fee,
+        hold_bars=global_bar - pos.entry_bar,
+        exit_reason="partial_tp",
+        is_perp=pos.is_perp,
+        entry_timestamp=pos.entry_timestamp,
+    )
+    state.position_manager.closed_trades.append(trade)
+
+    # Reduce the remaining position
+    pos.quantity = pos.quantity * (1.0 - close_pct)
+    pos.margin_usd = pos.margin_usd * (1.0 - close_pct)
+    pos.cumulative_funding = pos.cumulative_funding * (1.0 - close_pct)
+
+    # Tighten trail on remainder
+    pos.trail_mult = pos.partial_tp_trail
+    # Clear trail schedule — remainder uses the fixed tighter trail
+    pos.trail_schedule = None
+    pos.time_trail_schedule = None
+
+    # Mark as partially closed (one-time only)
+    pos.partial_closed = True
+
+    return trade
+
+
 def _process_exits(
     state: SimulationState,
     all_signals: dict[str, dict[str, TokenSignals]],
@@ -325,6 +414,17 @@ def _process_exits(
                 else:
                     eff_tm = pos.trail_mult
 
+                # Time-based trail tightening (tighten with elapsed time)
+                if pos.time_trail_schedule is not None:
+                    time_tm = pos.trail_mult  # fallback
+                    for si in range(pos.time_trail_schedule.shape[0]):
+                        if bars_held >= pos.time_trail_schedule[si, 0]:
+                            time_tm = pos.time_trail_schedule[si, 1]
+                        else:
+                            break
+                    if time_tm < eff_tm:
+                        eff_tm = time_tm
+
                 # Per-bar ceiling (defensive stop overlay)
                 if pos.max_trail_mult_arr is not None and local_bar < len(pos.max_trail_mult_arr):
                     if pos.max_trail_mult_arr[local_bar] < eff_tm:
@@ -336,6 +436,17 @@ def _process_exits(
                 else:
                     trail = pos.lowest + eff_tm * cur_atr
                     pos.stop_price = min(pos.stop_price, trail)
+
+        # Step 5.5: Partial profit-taking (before full exit checks)
+        if (pos.partial_tp_atr > 0.0
+                and not pos.partial_closed
+                and bars_held >= pos.no_stop_bars):
+            if d == 1:
+                profit_atr = (close_val - pos.entry_price) / max(cur_atr, 1e-10)
+            else:
+                profit_atr = (pos.entry_price - close_val) / max(cur_atr, 1e-10)
+            if profit_atr >= pos.partial_tp_atr:
+                _partial_close_position(state, pos, global_bar, close_val, adv_val, config)
 
         # Step 6: Check exit conditions (order matters, matches engine.py:438-467)
         exit_signal = False
@@ -396,6 +507,12 @@ def _process_exits(
             exit_signal = True
             exit_reason = "max_hold"
 
+        # 7. Funding ceiling (perp only — exit if cumulative funding drag exceeds threshold)
+        if not exit_signal and pos.funding_exit_threshold > 0.0 and pos.is_perp:
+            if pos.margin_usd > 0.0 and pos.cumulative_funding / pos.margin_usd > pos.funding_exit_threshold:
+                exit_signal = True
+                exit_reason = "funding"
+
         if exit_signal:
             positions_to_close.append((pos, exit_price, exit_reason, adv_val))
             # Close linked position too
@@ -445,6 +562,10 @@ def _process_entries(
 
             # No re-entry while position open for same token+strategy
             if state.position_manager.find_open_for_token_strategy(token, strategy_id):
+                continue
+
+            # No duplicate token across strategies (cross-strategy dedup)
+            if state.position_manager.total_margin_for_token(token) > 0:
                 continue
 
             candidates.append((strategy_id, token, sig))
@@ -631,7 +752,12 @@ def _process_entries(
                 convex_exit=sig.convex_exit,
                 rsi_exit_level=sig.rsi_exit_level,
                 trail_schedule=sig.trail_schedule,
+                time_trail_schedule=sig.time_trail_schedule,
                 max_trail_mult_arr=sig.max_trail_mult,
+                funding_exit_threshold=sig.funding_exit_threshold,
+                partial_tp_atr=sig.partial_tp_atr,
+                partial_tp_pct=sig.partial_tp_pct,
+                partial_tp_trail=sig.partial_tp_trail,
                 stop_price=p_stop,
                 highest=p_high,
                 lowest=p_low,
@@ -702,7 +828,12 @@ def _process_entries(
                 convex_exit=sig.convex_exit,
                 rsi_exit_level=sig.rsi_exit_level,
                 trail_schedule=sig.trail_schedule,
+                time_trail_schedule=sig.time_trail_schedule,
                 max_trail_mult_arr=sig.max_trail_mult,
+                funding_exit_threshold=sig.funding_exit_threshold,
+                partial_tp_atr=sig.partial_tp_atr,
+                partial_tp_pct=sig.partial_tp_pct,
+                partial_tp_trail=sig.partial_tp_trail,
                 stop_price=s_stop,
                 highest=s_high,
                 lowest=s_low,
@@ -822,7 +953,12 @@ def _process_entries(
                 convex_exit=sig.convex_exit,
                 rsi_exit_level=sig.rsi_exit_level,
                 trail_schedule=sig.trail_schedule,
+                time_trail_schedule=sig.time_trail_schedule,
                 max_trail_mult_arr=sig.max_trail_mult,
+                funding_exit_threshold=sig.funding_exit_threshold,
+                partial_tp_atr=sig.partial_tp_atr,
+                partial_tp_pct=sig.partial_tp_pct,
+                partial_tp_trail=sig.partial_tp_trail,
                 stop_price=stop_price,
                 highest=sig.high[local_bar],
                 lowest=sig.low[local_bar],

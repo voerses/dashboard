@@ -1,11 +1,12 @@
 # Project Status — crypto_backtest
 
-> **Last updated:** 2026-03-10
-> **Process mode:** strategy (building s59 funding mean reversion V4)
-> **Active:** V4 paper trading s58 (s56+s57) portfolio live on Binance, $200K capital. s59 funding mean reversion passed V4-Gate 5 (conditional), ready for Gate 6.
-> **V4 Backtest Results:** s58 portfolio: +1717% (12mo), Sharpe 7.29, MaxDD -1.9%, 1856 trades. OOS Jan-Mar: +66% ($131K). s59 standalone: +633% (12mo), Sharpe 3.83, MaxDD -6.5%. Combined s57+s59: +571% (12mo), Sharpe 6.24, Calmar 49.07.
-> **Recent completions:** AIPIP-0016 (V4 gate process), s59 through V4 gates 0→2→V4-3→V4-4→V4-5.
-> **Next step:** s59 Gate 6 paper trading. Monitor V4 paper trading for 50+ trades.
+> **Last updated:** 2026-03-12
+> **Process mode:** strategy (paper trading monitoring + time-trail overlay validation)
+> **Active:** V4 multi-portfolio paper trading: 13 pools. Runner PID 248486.
+> **Overlays deployed:** s69 (s56+time_trail), s72 (s65+time_trail), s75 (s63+fixed_tp=3.0)
+> **Submission 1 (funding exit): KILLED** at Gate 5O — Calmar degrades at every threshold. Funding is 1.2% of PnL.
+> **Submission 4 (fixed TP): PASSED** Gate 5O — s75 vs s63: Calmar +17.6%, Return +18.5%, avg winner +22.7%.
+> **Next step:** Monitor 13 pools for trade accumulation. All submissions resolved except Sub 3 (partial TP, needs engine).
 
 ---
 
@@ -55,6 +56,10 @@
 | Paper Trading Engine Rewrite | `run_paper_live.py`, `v3/paper_engine.py` | Full parity with backtest engine: trade management (stop/trail/target/max_hold per tick), slippage model (3bps + sqrt(participation)), ADV-based Kelly sizing, funding sign fix, edge threshold, regime min hold, capital split, liquidation for all shorts. 10 tests passing. |
 | Live Paper Trading (V3) | `state/paper_live/` | **Superseded by V4.** Previously: 4 strategies (s30, s32, s54, s58), 95 tokens, $800K. |
 | Live Paper Trading (V4) | `state/v4_paper/` | V4 paper trading: s58 portfolio (s56+s57), $200K capital, Binance. Fresh start Mar 10. Dashboard auto-pushed to gh-pages. |
+| Time-Trail Engine Support | `v4/simulator.py`, `v4/signals.py`, `v4/position.py`, `v4/paper_state.py`, `v3/engine.py` | `time_trail_schedule` field on Position, TokenSignals, StrategyResult. Applied as `min(profit_trail, time_trail)` in simulator trailing stop logic. Serialized/deserialized for paper trading state persistence. |
+| Time-Trail Overlay Strategies | `strategies/s69_s56_time_trail.py`, `strategies/s70_s60_time_trail.py`, `strategies/s72_s65_time_trail.py` | Wrapper strategies adding aggressive time-based trail tightening to s56, s60, s65. Gate 5O validated: Calmar +13-148%, DD improved. Deployed to paper trading. |
+| Fixed TP Overlay (s75) | `strategies/s75_s63_fixed_tp.py` | s63 counter-trend + target_mult=3.0. Locks in MR profits before trend resumes. Gate 5O: Calmar +17.6%, Return +18.5%, avg winner +22.7%. Deployed to paper trading. |
+| Funding Exit Engine Support | `v4/simulator.py`, `v4/signals.py`, `v4/position.py`, `v4/paper_state.py`, `v3/engine.py` | `funding_exit_threshold` field (default 0.0 = disabled). Generic exit check if cumulative funding / margin exceeds threshold. s73/s74 KILLED but engine capability preserved. |
 
 ### Infrastructure Roadmap (Next Wave)
 
@@ -106,6 +111,7 @@
 | Strategy | V4 12mo | V4 Sharpe | OOS Jan-Mar | Market | Gate Status |
 |----------|---------|-----------|-------------|--------|-------------|
 | **s59 funding_mean_rev_v4** | **+633%** | **3.83** | **+33.5% (3/3 months positive)** | **perp** | **V4-Gate 5 conditional pass → Gate 6** |
+| **s63 vol_spike_reversal_v4** | **+441% (solo) / +1017% (w/s58)** | **3.94 (solo) / 7.48 (w/s58)** | **TBD** | **perp** | **V4-Gate 5 PASS → Gate 6 (paper trading)** |
 
 ### V4 Candidates (strong in V4 sweep, not yet in portfolio)
 
@@ -202,6 +208,11 @@
 | 2026-03-08 | s56 max_leverage_momentum | 5 | 14% rate, negative mean return. 5x leverage on tight filters amplifies losses. |
 | 2026-03-08 | s42 momentum defensive trail (O4) | 5O | Zero marginal improvement on O5. Per-bar volatility ceiling too rare/small. O5 already captures value. |
 | 2026-03-08 | s43 regime spot/perp trail (O5) | 5O | Rate -2.2pp (71.1→68.9%). Metrics improve (Sharpe +0.08) but lost 2 tokens from validation. Trail tightens short leg prematurely. |
+| 2026-03-11 | s66 adx_breakout | 0 | Too few trades: only 38 entries on BTC. |
+| 2026-03-11 | s68 band_walk | 2 | Momentum family saturated, 80% overlap with s56 within 24h. |
+| 2026-03-11 | s67 funding_momentum_v4 | V4-5 | Sharpe 1.90 too low for portfolio. Decorrelated (all <0.2) but capital dilution hurts. Need Sharpe >3. |
+| 2026-03-12 | s73 s56_funding_exit (Sub 1) | 5O | Calmar degrades at every threshold (7 tested). Funding is 1.2% of PnL — paper F31 was small-sample artifact. Can't discriminate winners from losers by funding. |
+| 2026-03-12 | s74 s60_funding_exit (Sub 1) | 5O | Same. Calmar -34% at best Sharpe threshold. Funding exit cuts big winners alongside losers. |
 
 ---
 
@@ -264,6 +275,32 @@
 23. **Leveraged strategies fail at 5x.** s50 (5x leverage momentum), s52 (5x funding), s56 (5x max leverage) all killed. Fees are amplified more than edge. s57/s58 use 1x leverage with aggressive sizing (size_mult=3.0, cap_mult=15.0) instead — large positions without fee amplification.
 
 24. **CRITICAL: Discovered signals only work as overlays, not standalone strategies.** Raw signal-based entries (e.g., enter when `ret_1_1h_vs_4h` z-score > 2) did not generate positive returns on their own. The signals have genuine IC (predictive power), but the IC translates to edge only when layered on top of existing well-performing strategies as timing/sizing overlays. Standalone signal strategies (s56) were killed. The successful approach is s57/s58: use the existing s44/s30 carry strategies as the base, and apply signal discovery outputs to improve entry timing, position sizing, and regime conditioning. **Lesson: IC != tradeable edge. Signals improve existing strategies, they don't replace them.**
+
+25. **Counter-trend (s63) adds return but increases drawdown.** s63 vol spike reversal fades extreme vol spikes (vol_ratio > 3x). s58+s63: +1017% (+47.5% vs baseline), but MaxDD increases from 1.2% to 6.4%. Worth it in full portfolio but not as clean as s65. s63 collects positive funding on shorts, partially offsetting s58's negative funding.
+
+26. **Funding carry (s65) is the best portfolio complement found.** s65 harvests structural funding rate imbalance (retail long bias). s58+s65: +1217% (+76.7% vs baseline), Sharpe INCREASES from 8.25 to 8.52, MaxDD barely changes (1.2% → 1.4%). Collects $240K in funding income. Different edge family than momentum or counter-trend.
+
+27. **Four genuinely different edge families now validated in V4 portfolio.** (1) Momentum — s56, trend following. (2) Basis carry — s57, premium convergence. (3) Counter-trend — s63, fades extreme vol spikes. (4) Funding carry — s65, harvests structural funding payments. Full 4-strategy portfolio: +1684%, Sharpe 8.26, MaxDD -5.0%, $3.5M from $200K.
+
+28. **V4 portfolio transforms weak V3 strategies into excellent complements.** s25 (killed V3) → s63 (+1017% in portfolio). s29 (Tier B, 20.1% V3 rate) → s65 (+1217% in portfolio, Sharpe increases). The shared capital + multi-token diversification effect is the key enabler.
+
+29. **Portfolio alpha bar is now very high (Sharpe >3 to add value).** s67 funding momentum had excellent decorrelation (all <0.2 vs existing) and was profitable standalone (Sharpe 1.90, +94.6%), but failed V4-Gate 5 because adding it diluted capital from higher-performing s63 (3.95) and s65 (5.65). In the current 4-strategy portfolio, a new strategy needs standalone Sharpe > ~3.0 to overcome capital dilution. Funding momentum (following) is a weaker edge than funding carry (fading): s65 Sharpe 5.65 vs s67 Sharpe 1.90.
+
+30. **PAPER TRADING: 80% of exits cluster at the no_stop_bars boundary.** 12 of 15 closed trades held exactly 24 bars (= no_stop_bars for s56/s60/s59). The trailing stop activates and fires immediately when protection expires. Trades never actually run with an active progressive trail. This suggests the 24h protection period is either too long (positions have already moved past stop) or the initial stop is too tight relative to realized volatility.
+
+31. **PAPER TRADING: Funding costs consume 67% of gross PnL.** Total funding drag: -$1,232 out of +$1,852 gross realized. PIPPIN alone paid $1,071 in funding across 3 trades for just $389 net. For perp longs in tokens with strong retail long bias, funding is the dominant cost — exceeding both entry and exit fees combined. Funding-aware exit logic is a high-priority optimization.
+
+32. **PAPER TRADING: Zero profit-taking exits used.** All strategies have target_mult=999 (disabled). The only exit paths triggered in live trading are trailing stop (93%) and regime exit (7%). No RSI, mean-target, or max-hold exits observed. Win/loss ratio is 0.96x with +$41 expectancy — razor-thin. The exit architecture relies entirely on trailing stops, which fire at the no_stop_bars boundary (finding #30).
+
+33. **PAPER TRADING: s65 funding carry validating as best complement.** s58+s65 pool leads at +4.12% MTM return. The 4-edge portfolio (s56+s57+s63+s65) matches at +4.07% despite s63 being underwater. s65's 48h no_stop_bars means very few closed trades — mostly unrealized gains. Need 50+ closed trades to confirm.
+
+34. **PAPER TRADING: s63 counter-trend struggling (0% win rate).** 2 closed shorts (BERA -$1,149 at 12 bars, RENDER -$441 at 18 bars) both stopped out. Counter-trend entries may be premature — the vol spike signal fires but the reversal hasn't completed before the stop activates. s63's 12h no_stop_bars may be too short for mean reversion to play out.
+
+35. **PAPER TRADING: VVV concentration risk.** VVV accounts for 5 of 15 closed trades and +$6,356 of the +$620 net realized PnL. Without VVV, the portfolio would be -$5,736 on realized trades. Single-token dependency is a concern — need to monitor whether this is VVV-specific alpha or broad strategy alpha.
+
+36. **Fixed TP at 3x ATR is optimal for counter-trend (s63).** Submission 4 (s75) passed Gate 5O: Calmar +17.6%, Return +18.5%, Sharpe +7.8% solo; +31.4% return in s58 combo. Mean reversion trades have a natural profit cap — price reverts to the mean but rarely overshoots. Trail-only exits (target_mult=999) give back gains when the original trend resumes. TP at 3x ATR captures 264 trades (11.8%) that would otherwise trail back to loss. Avg winner INCREASES +22.7% because TP locks in gains the trail would return. Deployed to paper trading as s58+s75 pool.
+
+37. **Funding-aware exit overlay KILLED — funding drag is not addressable via exit timing.** Submission 1 (s73/s74) tested 7 thresholds (0.01%–0.5%) on s56 and s60. Calmar degrades at EVERY threshold. Root cause: funding costs are only 1.2% of total PnL in 12-month backtests. The paper trading finding F31 (67% of PnL consumed by funding) was a small-sample artifact (15 trades, sideways March). More fundamentally, high-funding tokens (ARC, PIPPIN) produce the biggest winners AND losers — a funding-based exit can't discriminate direction. The engine capability (`funding_exit_threshold`) is preserved for potential future use but has no viable threshold on current strategies.
 
 ---
 

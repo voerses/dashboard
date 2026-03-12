@@ -1175,10 +1175,29 @@ class StrategyResult:
     #   0-1 ATR profit → trail = 2.5*ATR, 1-2 ATR → 2.0*ATR, 2+ ATR → 1.5*ATR
     trail_schedule: Optional[np.ndarray] = None
 
+    # Time-based trail tightening — same shape as trail_schedule but keyed on bars_held
+    # Example: [[24, 3.0], [48, 2.5], [72, 2.0], [120, 1.5]]
+    #   24+ bars held → trail = 3.0*ATR, 48+ → 2.5*ATR, etc.
+    # Effective trail = min(profit_based_trail, time_based_trail)
+    time_trail_schedule: Optional[np.ndarray] = None
+
     # Per-bar ceiling on trail multiplier (None = no ceiling)
     # When provided, eff_tm = min(schedule_or_fixed_tm, max_trail_mult[i])
     # Use for volatility-adaptive defensive stops (O4 overlay)
     max_trail_mult: Optional[np.ndarray] = None
+
+    # Funding-aware exit: force close if cumulative funding / margin_usd exceeds threshold
+    # 0.0 = disabled. Example: 0.005 = exit if funding drag > 0.5% of margin
+    funding_exit_threshold: float = 0.0
+
+    # Partial profit-taking: close a fraction of the position at a profit threshold,
+    # then tighten the trail on the remainder.
+    # partial_tp_atr: profit threshold in ATR units (0.0 = disabled). E.g., 2.0 = 2x ATR profit.
+    # partial_tp_pct: fraction to close (0.5 = close 50% of position).
+    # partial_tp_trail: tighter trail mult for the remainder after partial close.
+    partial_tp_atr: float = 0.0
+    partial_tp_pct: float = 0.5
+    partial_tp_trail: float = 1.5
 
     # Futures support (defaults preserve backward compatibility)
     market_type: int = 0        # MarketType.SPOT

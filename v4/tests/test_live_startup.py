@@ -140,7 +140,7 @@ class TestStateRestore:
             # Engine should restore state on initialization
             engine = PaperPortfolioEngine(config)
             # restore_state is a new function in run_paper.py
-            from v4.run_paper import restore_state
+            from v4.paper_utils import restore_state
             restore_state(engine, config)
 
             assert engine.tick_counter == 15
@@ -164,7 +164,7 @@ class TestPIDLock:
     def test_pid_lock_acquired(self):
         """acquire_pid_lock creates paper.pid and acquires exclusive lock."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            from v4.run_paper import acquire_pid_lock
+            from v4.paper_utils import acquire_pid_lock
 
             lock_file = acquire_pid_lock(tmpdir)
 
@@ -181,7 +181,7 @@ class TestPIDLock:
     def test_pid_lock_prevents_duplicate(self):
         """acquire_pid_lock raises SystemExit if another instance holds the lock."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            from v4.run_paper import acquire_pid_lock
+            from v4.paper_utils import acquire_pid_lock
 
             # First lock succeeds
             lock1 = acquire_pid_lock(tmpdir)
@@ -195,7 +195,7 @@ class TestPIDLock:
     def test_pid_lock_cleaned_up_on_shutdown(self):
         """After closing the lock file, the lock is released and can be re-acquired."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            from v4.run_paper import acquire_pid_lock
+            from v4.paper_utils import acquire_pid_lock
 
             lock1 = acquire_pid_lock(tmpdir)
             lock1.close()
@@ -332,7 +332,7 @@ class TestCatchUp:
             config = _make_test_config(state_dir=tmpdir)
             engine = PaperPortfolioEngine(config)
 
-            from v4.run_paper import restore_state
+            from v4.paper_utils import restore_state
             with caplog.at_level(logging.INFO):
                 restore_state(engine, config)
 

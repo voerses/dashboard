@@ -23,7 +23,7 @@ from v4.paper_config import PaperConfig, validate_paper_config
 from v4.config import StrategySpec
 from v4.paper_engine import PaperPortfolioEngine
 from v4.signals import discover_tokens
-from v4.run_paper import restore_state, acquire_pid_lock, compute_sleep_until_next_hour
+from v4.paper_utils import restore_state, acquire_pid_lock, compute_sleep_until_next_hour
 
 logger = logging.getLogger(__name__)
 
@@ -143,7 +143,7 @@ def fetch_all_data(fetcher, all_configs: list[PaperConfig]) -> tuple[int, int, i
     for token in all_tokens:
         for market in ("spot", "perp"):
             try:
-                bars = fetcher.fetch_ohlcv(token, market, limit=10)
+                bars = fetcher.fetch_ohlcv(token, market, limit=24)
                 closed = fetcher.filter_closed_bars(bars)
                 if closed:
                     fetcher.append_to_parquet(token, market, closed)
@@ -156,7 +156,7 @@ def fetch_all_data(fetcher, all_configs: list[PaperConfig]) -> tuple[int, int, i
 
         # Funding rates for perp
         try:
-            rates = fetcher.fetch_funding_rates(token, limit=10)
+            rates = fetcher.fetch_funding_rates(token, limit=24)
             if rates and hasattr(fetcher, 'merge_funding_into_parquet'):
                 fetcher.merge_funding_into_parquet(token, rates)
                 funding_merged += 1
@@ -189,7 +189,7 @@ def push_combined_dashboard(configs: list[PaperConfig]) -> None:
             sim = build_sims_from_state_dir(config.state_dir, cfg_path)
             all_sims.append(sim)
 
-        html = generate_html(all_sims)
+        html = generate_html(all_sims, source="runner")
         out_path = Path("docs") / "index.html"
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(html)
@@ -211,6 +211,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--config", required=True, help="Multi-portfolio config JSON")
     parser.add_argument("--once", action="store_true", help="Single tick then exit")
     parser.add_argument("--status", action="store_true", help="Print status and exit")
+    parser.add_argument("--fetch-only", action="store_true",
+                        help="Fetch latest data only (no tick). No PID lock needed.")
+    parser.add_argument("--prices", action="store_true",
+                        help="Fetch and print current prices for all tokens. No PID lock needed.")
     return parser.parse_args(argv)
 
 
@@ -252,6 +256,49 @@ def main(argv: list[str] | None = None) -> None:
             pnl = sum(s.realized_pnl for s in all_states)
             print(f"[{config.pool_name}] tick={engine.tick_counter} "
                   f"equity=${equity:,.0f} open={open_pos} pnl=${pnl:,.0f}")
+        return
+
+    if args.fetch_only:
+        # Fetch data only — no tick, no PID lock
+        logging.basicConfig(level=logging.INFO,
+                            format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+                            datefmt="%Y-%m-%d %H:%M:%S")
+        ok, err, bars, funding = fetch_all_data(shared_fetcher, configs)
+        pct = ok / max(ok + err, 1) * 100
+        print(f"\nFetch complete: {ok} ok, {err} err ({pct:.0f}% success), "
+              f"{bars} bars appended, {funding} funding merged")
+        if err > ok:
+            print("WARNING: majority of fetches failed — check network/proxy")
+            sys.exit(1)
+        return
+
+    if args.prices:
+        # Fetch and print current prices — no tick, no PID lock
+        from v4.signals import discover_tokens
+        all_tokens: set[str] = set()
+        for config in configs:
+            for spec in config.strategies:
+                try:
+                    all_tokens.update(discover_tokens(spec.market))
+                except Exception:
+                    pass
+        print(f"Fetching prices for {len(all_tokens)} tokens...")
+        prices = {}
+        errors = 0
+        for token in sorted(all_tokens):
+            try:
+                ticker = exchange.fetch_ticker(f"{token}/USDT")
+                prices[token] = ticker.get("last", 0.0)
+            except Exception:
+                errors += 1
+        if prices:
+            max_name = max(len(t) for t in prices)
+            for token, price in sorted(prices.items()):
+                print(f"  {token:<{max_name}} ${price:>12,.6f}")
+            print(f"\n{len(prices)} prices fetched, {errors} errors")
+        else:
+            print(f"All fetches failed ({errors} errors) — check network/proxy")
+            sys.exit(1)
         return
 
     # Setup logging
@@ -299,10 +346,21 @@ def main(argv: list[str] | None = None) -> None:
         while not shutdown.is_set():
             try:
                 # Step 1: Fetch data once for all portfolios
-                fetch_all_data(shared_fetcher, configs)
+                fetch_ok, fetch_err, bars_appended, _ = fetch_all_data(shared_fetcher, configs)
             except Exception:
                 logger.exception("Data fetch failed")
                 if shutdown.wait(60):
+                    break
+                continue
+
+            # Stale-data guard: skip tick if no new bars were appended
+            # (all fetches failed = network down, no point ticking on stale data)
+            if bars_appended == 0 and fetch_ok == 0 and fetch_err > 0:
+                logger.warning(
+                    "All %d fetches failed — network down? Skipping tick, "
+                    "retrying in 5 minutes", fetch_err,
+                )
+                if shutdown.wait(300):
                     break
                 continue
 

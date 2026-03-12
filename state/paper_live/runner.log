@@ -1,0 +1,610 @@
+Paper Trading Runner
+  Strategies: s30, s32, s54, s58
+  Capital: $800,000 total ($200,000 each)
+  Tokens: 95 (0G, AAVE, ADA, AGLD, AIXBT...)
+  Exchange: binance
+  Mode: continuous (hourly)
+
+Starting continuous paper trading (Ctrl+C to stop)...
+
+============================================================
+TICK @ 2026-03-09 08:48 UTC
+============================================================
+
+[1/4] Fetching live data...
+  Fetched: 95/95 tokens OK, 1712 new bars, 0 errors
+
+[2/4] Running strategy scans...
+
+  [s30] Scanned 90 tokens, 3 with ENTRY signal on latest bar
+    >> AGLD: ENTRY SPOT LONG + PERP SHORT | basis=+26.9bps | regime=DOWNTREND
+    >> DYDX: ENTRY SPOT LONG + PERP SHORT | basis=+62.1bps | regime=RANGE
+    >> GALA: ENTRY SPOT LONG + PERP SHORT | basis=+29.9bps | regime=RANGE
+    Regimes: CRISIS:5, DOWNTREND:26, QUIET:2, RANGE:49, UPTREND:8
+    Positions: 5 open, 0 closed | Equity: $199,966 | Realized: $0 | Unrealized: $-33
+
+  [s32] Scanned 90 tokens, 2 with ENTRY signal on latest bar
+    >> AGLD: ENTRY PERP SHORT | basis=+26.9bps | regime=DOWNTREND
+    >> RESOLV: ENTRY SPOT LONG | basis=-21.9bps | regime=UPTREND
+    Regimes: CRISIS:5, DOWNTREND:26, QUIET:2, RANGE:49, UPTREND:8
+    Positions: 11 open, 2 closed | Equity: $200,233 | Realized: $301 | Unrealized: $-1,855
+
+  [s54] Scanned 22 tokens, 0 with ENTRY signal on latest bar
+    Regimes: DOWNTREND:5, RANGE:17
+    Positions: 0 open, 0 closed | Equity: $200,000 | Realized: $0 | Unrealized: $0
+
+  [s58] Scanned 90 tokens, 6 with ENTRY signal on latest bar
+    >> AGLD:carry: ENTRY SPOT LONG + PERP SHORT | basis=+26.9bps | regime=DOWNTREND
+    >> DENT:mom: ENTRY PERP LONG | basis=-202.7bps | regime=CRISIS
+    >> DYDX:carry: ENTRY SPOT LONG + PERP SHORT | basis=+62.1bps | regime=RANGE
+    >> GALA:carry: ENTRY SPOT LONG + PERP SHORT | basis=+29.9bps | regime=RANGE
+    >> PHA:mom: ENTRY PERP LONG | basis=-76.9bps | regime=CRISIS
+    >> RESOLV:mom: ENTRY PERP LONG | basis=-21.9bps | regime=UPTREND
+    Regimes: CRISIS:10, DOWNTREND:52, QUIET:4, RANGE:98, UPTREND:16
+    Positions: 7 open, 1 closed | Equity: $203,280 | Realized: $3,490 | Unrealized: $407
+
+[3/4] State saved to /workspace/crypto_backtest/state/paper_live/
+
+[4/4] Updating dashboard...
+  Loading paper trading data...
+    s30_basis_carry: 5 open, 0 closed, equity $199,966
+    s32_regime_spot_perp: 11 open, 2 closed, equity $200,233
+    s54_turbo_carry: 0 open, 0 closed, equity $200,000
+    s58_multi_strategy_portfolio: 7 open, 1 closed, equity $203,280
+  
+  Dashboard: /workspace/crypto_backtest/docs/index.html (47 KB)
+  
+  Pushing to GitHub Pages...
+  Pushed to gh-pages.
+
+Next tick in 9.9 minutes (at 09:00 UTC)
+
+============================================================
+TICK @ 2026-03-09 09:00 UTC
+============================================================
+
+[1/4] Fetching live data...
+  Fetched: 95/95 tokens OK, 1714 new bars, 0 errors
+
+[2/4] Running strategy scans...
+
+  [s30] Scanned 90 tokens, 1 with ENTRY signal on latest bar
+    >> EIGEN: ENTRY SPOT LONG + PERP SHORT | basis=+32.8bps | regime=DOWNTREND
+    Regimes: CRISIS:4, DOWNTREND:26, QUIET:2, RANGE:49, UPTREND:9
+    Positions: 5 open, 0 closed | Equity: $199,966 | Realized: $0 | Unrealized: $19
+
+  [s32] Scanned 90 tokens, 2 with ENTRY signal on latest bar
+    >> AGLD: ENTRY PERP SHORT | basis=-41.8bps | regime=DOWNTREND
+    >> RESOLV: ENTRY SPOT LONG | basis=-2.6bps | regime=UPTREND
+    Regimes: CRISIS:4, DOWNTREND:26, QUIET:2, RANGE:49, UPTREND:9
+    CLOSED: VIRTUAL
+    Positions: 10 open, 3 closed | Equity: $199,797 | Realized: $-141 | Unrealized: $-1,222
+
+  [s54] Scanned 22 tokens, 0 with ENTRY signal on latest bar
+    Regimes: DOWNTREND:5, RANGE:17
+    Positions: 0 open, 0 closed | Equity: $200,000 | Realized: $0 | Unrealized: $0
+
+  [s58] Scanned 90 tokens, 2 with ENTRY signal on latest bar
+    >> BARD:mom: ENTRY PERP LONG | basis=-50.9bps | regime=CRISIS
+    >> EIGEN:carry: ENTRY SPOT LONG + PERP SHORT | basis=+32.8bps | regime=DOWNTREND
+    Regimes: CRISIS:8, DOWNTREND:52, QUIET:4, RANGE:98, UPTREND:18
+    Positions: 7 open, 1 closed | Equity: $203,280 | Realized: $3,490 | Unrealized: $1,012
+
+[3/4] State saved to /workspace/crypto_backtest/state/paper_live/
+
+[4/4] Updating dashboard...
+  Loading paper trading data...
+    s30_basis_carry: 5 open, 0 closed, equity $199,966
+    s32_regime_spot_perp: 10 open, 3 closed, equity $199,797
+    s54_turbo_carry: 0 open, 0 closed, equity $200,000
+    s58_multi_strategy_portfolio: 7 open, 1 closed, equity $203,280
+  
+  Dashboard: /workspace/crypto_backtest/docs/index.html (47 KB)
+  
+  Pushing to GitHub Pages...
+  Pushed to gh-pages.
+
+Next tick in 57.9 minutes (at 10:00 UTC)
+
+============================================================
+TICK @ 2026-03-09 10:00 UTC
+============================================================
+
+[1/4] Fetching live data...
+  Fetched: 95/95 tokens OK, 1715 new bars, 0 errors
+
+[2/4] Running strategy scans...
+
+  [s30] Scanned 90 tokens, 1 with ENTRY signal on latest bar
+    >> ASTER: ENTRY SPOT LONG + PERP SHORT | basis=+12.8bps | regime=QUIET
+    Regimes: CRISIS:4, DOWNTREND:26, QUIET:2, RANGE:49, UPTREND:9
+    OPENED: ASTER
+    Positions: 6 open, 0 closed | Equity: $199,956 | Realized: $0 | Unrealized: $66
+
+  [s32] Scanned 90 tokens, 4 with ENTRY signal on latest bar
+    >> AGLD: ENTRY PERP SHORT | basis=-38.3bps | regime=DOWNTREND
+    >> RESOLV: ENTRY SPOT LONG | basis=-8.5bps | regime=UPTREND
+    >> SAHARA: ENTRY SPOT LONG | basis=-212.2bps | regime=UPTREND
+    >> SIGN: ENTRY SPOT LONG | basis=-7.3bps | regime=UPTREND
+    Regimes: CRISIS:4, DOWNTREND:26, QUIET:2, RANGE:49, UPTREND:9
+    OPENED: SAHARA
+    Positions: 11 open, 3 closed | Equity: $199,793 | Realized: $-141 | Unrealized: $-983
+
+  [s54] Scanned 22 tokens, 0 with ENTRY signal on latest bar
+    Regimes: DOWNTREND:5, RANGE:17
+    Positions: 0 open, 0 closed | Equity: $200,000 | Realized: $0 | Unrealized: $0
+
+  [s58] Scanned 90 tokens, 2 with ENTRY signal on latest bar
+    >> ASTER:carry: ENTRY SPOT LONG + PERP SHORT | basis=+12.8bps | regime=QUIET
+    >> BARD:mom: ENTRY PERP LONG | basis=-103.8bps | regime=CRISIS
+    Regimes: CRISIS:8, DOWNTREND:52, QUIET:4, RANGE:98, UPTREND:18
+    Positions: 7 open, 1 closed | Equity: $203,280 | Realized: $3,490 | Unrealized: $2,094
+
+[3/4] State saved to /workspace/crypto_backtest/state/paper_live/
+
+[4/4] Updating dashboard...
+  Loading paper trading data...
+    s30_basis_carry: 6 open, 0 closed, equity $199,956
+    s32_regime_spot_perp: 11 open, 3 closed, equity $199,793
+    s54_turbo_carry: 0 open, 0 closed, equity $200,000
+    s58_multi_strategy_portfolio: 7 open, 1 closed, equity $203,280
+  
+  Dashboard: /workspace/crypto_backtest/docs/index.html (50 KB)
+  
+  Pushing to GitHub Pages...
+  Pushed to gh-pages.
+
+Next tick in 58.2 minutes (at 11:00 UTC)
+
+============================================================
+TICK @ 2026-03-09 11:00 UTC
+============================================================
+
+[1/4] Fetching live data...
+  Fetched: 95/95 tokens OK, 1714 new bars, 0 errors
+
+[2/4] Running strategy scans...
+
+  [s30] Scanned 90 tokens, 1 with ENTRY signal on latest bar
+    >> GALA: ENTRY SPOT LONG + PERP SHORT | basis=+30.0bps | regime=RANGE
+    Regimes: CRISIS:4, DOWNTREND:27, QUIET:2, RANGE:49, UPTREND:8
+    Positions: 6 open, 0 closed | Equity: $199,956 | Realized: $0 | Unrealized: $36
+
+  [s32] Scanned 90 tokens, 3 with ENTRY signal on latest bar
+    >> AGLD: ENTRY PERP SHORT | basis=-19.5bps | regime=DOWNTREND
+    >> BANANAS31: ENTRY SPOT LONG | basis=+8.1bps | regime=UPTREND
+    >> SAHARA: ENTRY SPOT LONG | basis=-239.2bps | regime=UPTREND
+    Regimes: CRISIS:4, DOWNTREND:27, QUIET:2, RANGE:49, UPTREND:8
+    OPENED: BANANAS31
+    Positions: 12 open, 3 closed | Equity: $199,786 | Realized: $-141 | Unrealized: $-1,404
+
+  [s54] Scanned 22 tokens, 0 with ENTRY signal on latest bar
+    Regimes: DOWNTREND:5, RANGE:17
+    Positions: 0 open, 0 closed | Equity: $200,000 | Realized: $0 | Unrealized: $0
+
+  [s58] Scanned 90 tokens, 1 with ENTRY signal on latest bar
+    >> GALA:carry: ENTRY SPOT LONG + PERP SHORT | basis=+30.0bps | regime=RANGE
+    Regimes: CRISIS:8, DOWNTREND:54, QUIET:4, RANGE:98, UPTREND:16
+    Positions: 7 open, 1 closed | Equity: $203,279 | Realized: $3,490 | Unrealized: $-539
+
+[3/4] State saved to /workspace/crypto_backtest/state/paper_live/
+
+[4/4] Updating dashboard...
+  Loading paper trading data...
+    s30_basis_carry: 6 open, 0 closed, equity $199,956
+    s32_regime_spot_perp: 12 open, 3 closed, equity $199,786
+    s54_turbo_carry: 0 open, 0 closed, equity $200,000
+    s58_multi_strategy_portfolio: 7 open, 1 closed, equity $203,279
+  
+  Dashboard: /workspace/crypto_backtest/docs/index.html (51 KB)
+  
+  Pushing to GitHub Pages...
+  Pushed to gh-pages.
+
+Next tick in 57.9 minutes (at 12:00 UTC)
+
+============================================================
+TICK @ 2026-03-09 12:00 UTC
+============================================================
+
+[1/4] Fetching live data...
+  Fetched: 95/95 tokens OK, 1714 new bars, 0 errors
+
+[2/4] Running strategy scans...
+
+  [s30] Scanned 90 tokens, 1 with ENTRY signal on latest bar
+    >> ASTER: ENTRY SPOT LONG + PERP SHORT | basis=+11.5bps | regime=QUIET
+    Regimes: CRISIS:4, DOWNTREND:27, QUIET:2, RANGE:49, UPTREND:8
+    Positions: 6 open, 0 closed | Equity: $199,956 | Realized: $0 | Unrealized: $46
+
+  [s32] Scanned 90 tokens, 2 with ENTRY signal on latest bar
+    >> AGLD: ENTRY PERP SHORT | basis=-43.0bps | regime=DOWNTREND
+    >> SIGN: ENTRY SPOT LONG | basis=-9.1bps | regime=UPTREND
+    Regimes: CRISIS:4, DOWNTREND:27, QUIET:2, RANGE:49, UPTREND:8
+    Positions: 12 open, 3 closed | Equity: $199,786 | Realized: $-141 | Unrealized: $-1,257
+
+  [s54] Scanned 22 tokens, 0 with ENTRY signal on latest bar
+    Regimes: DOWNTREND:5, RANGE:17
+    Positions: 0 open, 0 closed | Equity: $200,000 | Realized: $0 | Unrealized: $0
+
+  [s58] Scanned 90 tokens, 1 with ENTRY signal on latest bar
+    >> ASTER:carry: ENTRY SPOT LONG + PERP SHORT | basis=+11.5bps | regime=QUIET
+    Regimes: CRISIS:8, DOWNTREND:54, QUIET:4, RANGE:98, UPTREND:16
+    Positions: 7 open, 1 closed | Equity: $203,282 | Realized: $3,490 | Unrealized: $-673
+
+[3/4] State saved to /workspace/crypto_backtest/state/paper_live/
+
+[4/4] Updating dashboard...
+  Loading paper trading data...
+    s30_basis_carry: 6 open, 0 closed, equity $199,956
+    s32_regime_spot_perp: 12 open, 3 closed, equity $199,786
+    s54_turbo_carry: 0 open, 0 closed, equity $200,000
+    s58_multi_strategy_portfolio: 7 open, 1 closed, equity $203,282
+  
+  Dashboard: /workspace/crypto_backtest/docs/index.html (52 KB)
+  
+  Pushing to GitHub Pages...
+  Pushed to gh-pages.
+
+Next tick in 57.9 minutes (at 13:00 UTC)
+
+============================================================
+TICK @ 2026-03-09 13:00 UTC
+============================================================
+
+[1/4] Fetching live data...
+  Fetched: 95/95 tokens OK, 1713 new bars, 0 errors
+
+[2/4] Running strategy scans...
+
+  [s30] Scanned 90 tokens, 0 with ENTRY signal on latest bar
+    Regimes: CRISIS:4, DOWNTREND:27, QUIET:2, RANGE:49, UPTREND:8
+    Positions: 6 open, 0 closed | Equity: $199,956 | Realized: $0 | Unrealized: $57
+
+  [s32] Scanned 90 tokens, 1 with ENTRY signal on latest bar
+    >> TRUMP: ENTRY PERP SHORT | basis=-16.9bps | regime=DOWNTREND
+    Regimes: CRISIS:4, DOWNTREND:27, QUIET:2, RANGE:49, UPTREND:8
+    OPENED: TRUMP
+    CLOSED: ATOM
+    Positions: 12 open, 4 closed | Equity: $199,518 | Realized: $-405 | Unrealized: $-1,630
+
+  [s54] Scanned 22 tokens, 0 with ENTRY signal on latest bar
+    Regimes: DOWNTREND:5, RANGE:17
+    Positions: 0 open, 0 closed | Equity: $200,000 | Realized: $0 | Unrealized: $0
+
+  [s58] Scanned 90 tokens, 0 with ENTRY signal on latest bar
+    Regimes: CRISIS:8, DOWNTREND:54, QUIET:4, RANGE:98, UPTREND:16
+    CLOSED: RESOLV:mom
+    Positions: 6 open, 2 closed | Equity: $202,290 | Realized: $2,480 | Unrealized: $674
+
+[3/4] State saved to /workspace/crypto_backtest/state/paper_live/
+
+[4/4] Updating dashboard...
+  Loading paper trading data...
+    s30_basis_carry: 6 open, 0 closed, equity $199,956
+    s32_regime_spot_perp: 12 open, 4 closed, equity $199,518
+    s54_turbo_carry: 0 open, 0 closed, equity $200,000
+    s58_multi_strategy_portfolio: 6 open, 2 closed, equity $202,290
+  
+  Dashboard: /workspace/crypto_backtest/docs/index.html (52 KB)
+  
+  Pushing to GitHub Pages...
+  Pushed to gh-pages.
+
+Next tick in 57.9 minutes (at 14:00 UTC)
+
+============================================================
+TICK @ 2026-03-09 14:00 UTC
+============================================================
+
+[1/4] Fetching live data...
+  Fetched: 95/95 tokens OK, 1712 new bars, 0 errors
+
+[2/4] Running strategy scans...
+
+  [s30] Scanned 90 tokens, 0 with ENTRY signal on latest bar
+    Regimes: CRISIS:4, DOWNTREND:25, QUIET:2, RANGE:50, UPTREND:9
+    Positions: 6 open, 0 closed | Equity: $199,957 | Realized: $0 | Unrealized: $85
+
+  [s32] Scanned 90 tokens, 3 with ENTRY signal on latest bar
+    >> AGLD: ENTRY PERP SHORT | basis=-38.9bps | regime=DOWNTREND
+    >> HUMA: ENTRY PERP SHORT | basis=-267.2bps | regime=DOWNTREND
+    >> RESOLV: ENTRY SPOT LONG | basis=-21.8bps | regime=UPTREND
+    Regimes: CRISIS:4, DOWNTREND:25, QUIET:2, RANGE:50, UPTREND:9
+    OPENED: HUMA
+    Positions: 13 open, 4 closed | Equity: $199,515 | Realized: $-405 | Unrealized: $-1,320
+
+  [s54] Scanned 22 tokens, 0 with ENTRY signal on latest bar
+    Regimes: DOWNTREND:5, RANGE:17
+    Positions: 0 open, 0 closed | Equity: $200,000 | Realized: $0 | Unrealized: $0
+
+  [s58] Scanned 90 tokens, 1 with ENTRY signal on latest bar
+    >> ZEC:mom: ENTRY PERP LONG | basis=-7.9bps | regime=RANGE
+    Regimes: CRISIS:8, DOWNTREND:50, QUIET:4, RANGE:100, UPTREND:18
+    Positions: 6 open, 2 closed | Equity: $202,294 | Realized: $2,480 | Unrealized: $1,077
+
+[3/4] State saved to /workspace/crypto_backtest/state/paper_live/
+
+[4/4] Updating dashboard...
+  Loading paper trading data...
+    s30_basis_carry: 6 open, 0 closed, equity $199,957
+    s32_regime_spot_perp: 13 open, 4 closed, equity $199,515
+    s54_turbo_carry: 0 open, 0 closed, equity $200,000
+    s58_multi_strategy_portfolio: 6 open, 2 closed, equity $202,294
+  
+  Dashboard: /workspace/crypto_backtest/docs/index.html (53 KB)
+  
+  Pushing to GitHub Pages...
+  Pushed to gh-pages.
+
+Next tick in 57.9 minutes (at 15:00 UTC)
+
+============================================================
+TICK @ 2026-03-09 15:00 UTC
+============================================================
+
+[1/4] Fetching live data...
+  Fetched: 95/95 tokens OK, 1713 new bars, 0 errors
+
+[2/4] Running strategy scans...
+
+  [s30] Scanned 90 tokens, 1 with ENTRY signal on latest bar
+    >> SNX: ENTRY SPOT LONG + PERP SHORT | basis=+31.4bps | regime=RANGE
+    Regimes: CRISIS:4, DOWNTREND:26, QUIET:2, RANGE:50, UPTREND:8
+    OPENED: SNX
+    Positions: 7 open, 0 closed | Equity: $199,950 | Realized: $0 | Unrealized: $41
+
+  [s32] Scanned 90 tokens, 3 with ENTRY signal on latest bar
+    >> AGLD: ENTRY PERP SHORT | basis=+0.0bps | regime=DOWNTREND
+    >> HUMA: ENTRY PERP SHORT | basis=-289.4bps | regime=DOWNTREND
+    >> SAHARA: ENTRY SPOT LONG | basis=-240.0bps | regime=UPTREND
+    Regimes: CRISIS:4, DOWNTREND:26, QUIET:2, RANGE:50, UPTREND:8
+    Positions: 13 open, 4 closed | Equity: $199,515 | Realized: $-405 | Unrealized: $-1,544
+
+  [s54] Scanned 22 tokens, 0 with ENTRY signal on latest bar
+    Regimes: DOWNTREND:5, RANGE:17
+    Positions: 0 open, 0 closed | Equity: $200,000 | Realized: $0 | Unrealized: $0
+
+  [s58] Scanned 90 tokens, 1 with ENTRY signal on latest bar
+    >> SNX:carry: ENTRY SPOT LONG + PERP SHORT | basis=+31.4bps | regime=RANGE
+    Regimes: CRISIS:8, DOWNTREND:52, QUIET:4, RANGE:100, UPTREND:16
+    Positions: 6 open, 2 closed | Equity: $202,294 | Realized: $2,480 | Unrealized: $961
+
+[3/4] State saved to /workspace/crypto_backtest/state/paper_live/
+
+[4/4] Updating dashboard...
+  Loading paper trading data...
+    s30_basis_carry: 7 open, 0 closed, equity $199,950
+    s32_regime_spot_perp: 13 open, 4 closed, equity $199,515
+    s54_turbo_carry: 0 open, 0 closed, equity $200,000
+    s58_multi_strategy_portfolio: 6 open, 2 closed, equity $202,294
+  
+  Dashboard: /workspace/crypto_backtest/docs/index.html (54 KB)
+  
+  Pushing to GitHub Pages...
+  Pushed to gh-pages.
+
+Next tick in 57.8 minutes (at 16:00 UTC)
+
+============================================================
+TICK @ 2026-03-09 16:00 UTC
+============================================================
+
+[1/4] Fetching live data...
+  Fetched: 95/95 tokens OK, 1712 new bars, 0 errors
+
+[2/4] Running strategy scans...
+
+  [s30] Scanned 90 tokens, 1 with ENTRY signal on latest bar
+    >> GALA: ENTRY SPOT LONG + PERP SHORT | basis=+29.3bps | regime=RANGE
+    Regimes: CRISIS:4, DOWNTREND:25, QUIET:2, RANGE:50, UPTREND:9
+    Positions: 7 open, 0 closed | Equity: $199,951 | Realized: $0 | Unrealized: $48
+
+  [s32] Scanned 90 tokens, 2 with ENTRY signal on latest bar
+    >> AGLD: ENTRY PERP SHORT | basis=-7.8bps | regime=DOWNTREND
+    >> HUMA: ENTRY PERP SHORT | basis=-7.0bps | regime=DOWNTREND
+    Regimes: CRISIS:4, DOWNTREND:25, QUIET:2, RANGE:50, UPTREND:9
+    Positions: 13 open, 4 closed | Equity: $199,524 | Realized: $-405 | Unrealized: $-1,118
+
+  [s54] Scanned 22 tokens, 0 with ENTRY signal on latest bar
+    Regimes: DOWNTREND:5, RANGE:17
+    Positions: 0 open, 0 closed | Equity: $200,000 | Realized: $0 | Unrealized: $0
+
+  [s58] Scanned 90 tokens, 1 with ENTRY signal on latest bar
+    >> GALA:carry: ENTRY SPOT LONG + PERP SHORT | basis=+29.3bps | regime=RANGE
+    Regimes: CRISIS:8, DOWNTREND:50, QUIET:4, RANGE:100, UPTREND:18
+    Positions: 6 open, 2 closed | Equity: $202,298 | Realized: $2,480 | Unrealized: $705
+
+[3/4] State saved to /workspace/crypto_backtest/state/paper_live/
+
+[4/4] Updating dashboard...
+  Loading paper trading data...
+    s30_basis_carry: 7 open, 0 closed, equity $199,951
+    s32_regime_spot_perp: 13 open, 4 closed, equity $199,524
+    s54_turbo_carry: 0 open, 0 closed, equity $200,000
+    s58_multi_strategy_portfolio: 6 open, 2 closed, equity $202,298
+  
+  Dashboard: /workspace/crypto_backtest/docs/index.html (54 KB)
+  
+  Pushing to GitHub Pages...
+  Pushed to gh-pages.
+
+Next tick in 57.9 minutes (at 17:00 UTC)
+
+============================================================
+TICK @ 2026-03-09 17:00 UTC
+============================================================
+
+[1/4] Fetching live data...
+  Fetched: 95/95 tokens OK, 1712 new bars, 0 errors
+
+[2/4] Running strategy scans...
+
+  [s30] Scanned 90 tokens, 1 with ENTRY signal on latest bar
+    >> SAND: ENTRY SPOT LONG + PERP SHORT | basis=+13.6bps | regime=RANGE
+    Regimes: CRISIS:4, DOWNTREND:25, QUIET:3, RANGE:49, UPTREND:9
+    OPENED: SAND
+    Positions: 8 open, 0 closed | Equity: $199,945 | Realized: $0 | Unrealized: $23
+
+  [s32] Scanned 90 tokens, 1 with ENTRY signal on latest bar
+    >> HUMA: ENTRY PERP SHORT | basis=-97.4bps | regime=DOWNTREND
+    Regimes: CRISIS:4, DOWNTREND:25, QUIET:3, RANGE:49, UPTREND:9
+    Positions: 13 open, 4 closed | Equity: $199,524 | Realized: $-405 | Unrealized: $-1,530
+
+  [s54] Scanned 22 tokens, 0 with ENTRY signal on latest bar
+    Regimes: DOWNTREND:5, RANGE:17
+    Positions: 0 open, 0 closed | Equity: $200,000 | Realized: $0 | Unrealized: $0
+
+  [s58] Scanned 90 tokens, 1 with ENTRY signal on latest bar
+    >> SAND:carry: ENTRY SPOT LONG + PERP SHORT | basis=+13.6bps | regime=RANGE
+    Regimes: CRISIS:8, DOWNTREND:50, QUIET:6, RANGE:98, UPTREND:18
+    Positions: 6 open, 2 closed | Equity: $202,298 | Realized: $2,480 | Unrealized: $549
+
+[3/4] State saved to /workspace/crypto_backtest/state/paper_live/
+
+[4/4] Updating dashboard...
+  Loading paper trading data...
+    s30_basis_carry: 8 open, 0 closed, equity $199,945
+    s32_regime_spot_perp: 13 open, 4 closed, equity $199,524
+    s54_turbo_carry: 0 open, 0 closed, equity $200,000
+    s58_multi_strategy_portfolio: 6 open, 2 closed, equity $202,298
+  
+  Dashboard: /workspace/crypto_backtest/docs/index.html (55 KB)
+  
+  Pushing to GitHub Pages...
+  Pushed to gh-pages.
+
+Next tick in 58.0 minutes (at 18:00 UTC)
+
+============================================================
+TICK @ 2026-03-09 18:00 UTC
+============================================================
+
+[1/4] Fetching live data...
+  Fetched: 95/95 tokens OK, 1713 new bars, 0 errors
+
+[2/4] Running strategy scans...
+
+  [s30] Scanned 90 tokens, 0 with ENTRY signal on latest bar
+    Regimes: CRISIS:4, DOWNTREND:25, QUIET:3, RANGE:49, UPTREND:9
+    Positions: 8 open, 0 closed | Equity: $199,945 | Realized: $0 | Unrealized: $56
+
+  [s32] Scanned 90 tokens, 1 with ENTRY signal on latest bar
+    >> HUMA: ENTRY PERP SHORT | basis=-159.6bps | regime=DOWNTREND
+    Regimes: CRISIS:4, DOWNTREND:25, QUIET:3, RANGE:49, UPTREND:9
+    Positions: 13 open, 4 closed | Equity: $199,524 | Realized: $-405 | Unrealized: $-914
+
+  [s54] Scanned 22 tokens, 0 with ENTRY signal on latest bar
+    Regimes: DOWNTREND:5, RANGE:17
+    Positions: 0 open, 0 closed | Equity: $200,000 | Realized: $0 | Unrealized: $0
+
+  [s58] Scanned 90 tokens, 0 with ENTRY signal on latest bar
+    Regimes: CRISIS:8, DOWNTREND:50, QUIET:6, RANGE:98, UPTREND:18
+    Positions: 6 open, 2 closed | Equity: $202,298 | Realized: $2,480 | Unrealized: $393
+
+[3/4] State saved to /workspace/crypto_backtest/state/paper_live/
+
+[4/4] Updating dashboard...
+  Loading paper trading data...
+    s30_basis_carry: 8 open, 0 closed, equity $199,945
+    s32_regime_spot_perp: 13 open, 4 closed, equity $199,524
+    s54_turbo_carry: 0 open, 0 closed, equity $200,000
+    s58_multi_strategy_portfolio: 6 open, 2 closed, equity $202,298
+  
+  Dashboard: /workspace/crypto_backtest/docs/index.html (55 KB)
+  
+  Pushing to GitHub Pages...
+  Pushed to gh-pages.
+
+Next tick in 57.8 minutes (at 19:00 UTC)
+
+============================================================
+TICK @ 2026-03-09 19:00 UTC
+============================================================
+
+[1/4] Fetching live data...
+  Fetched: 95/95 tokens OK, 1713 new bars, 0 errors
+
+[2/4] Running strategy scans...
+
+  [s30] Scanned 90 tokens, 2 with ENTRY signal on latest bar
+    >> AGLD: ENTRY SPOT LONG + PERP SHORT | basis=+19.5bps | regime=DOWNTREND
+    >> ARB: ENTRY SPOT LONG + PERP SHORT | basis=+10.2bps | regime=RANGE
+    Regimes: CRISIS:4, DOWNTREND:25, QUIET:3, RANGE:49, UPTREND:9
+    OPENED: ARB
+    Positions: 9 open, 0 closed | Equity: $199,936 | Realized: $0 | Unrealized: $7
+
+  [s32] Scanned 90 tokens, 1 with ENTRY signal on latest bar
+    >> HUMA: ENTRY PERP SHORT | basis=-158.7bps | regime=DOWNTREND
+    Regimes: CRISIS:4, DOWNTREND:25, QUIET:3, RANGE:49, UPTREND:9
+    Positions: 13 open, 4 closed | Equity: $199,524 | Realized: $-405 | Unrealized: $-751
+
+  [s54] Scanned 22 tokens, 0 with ENTRY signal on latest bar
+    Regimes: DOWNTREND:5, RANGE:17
+    Positions: 0 open, 0 closed | Equity: $200,000 | Realized: $0 | Unrealized: $0
+
+  [s58] Scanned 90 tokens, 2 with ENTRY signal on latest bar
+    >> AGLD:carry: ENTRY SPOT LONG + PERP SHORT | basis=+19.5bps | regime=DOWNTREND
+    >> ARB:carry: ENTRY SPOT LONG + PERP SHORT | basis=+10.2bps | regime=RANGE
+    Regimes: CRISIS:8, DOWNTREND:50, QUIET:6, RANGE:98, UPTREND:18
+    Positions: 6 open, 2 closed | Equity: $202,297 | Realized: $2,480 | Unrealized: $270
+
+[3/4] State saved to /workspace/crypto_backtest/state/paper_live/
+
+[4/4] Updating dashboard...
+  Loading paper trading data...
+    s30_basis_carry: 9 open, 0 closed, equity $199,936
+    s32_regime_spot_perp: 13 open, 4 closed, equity $199,524
+    s54_turbo_carry: 0 open, 0 closed, equity $200,000
+    s58_multi_strategy_portfolio: 6 open, 2 closed, equity $202,297
+  
+  Dashboard: /workspace/crypto_backtest/docs/index.html (56 KB)
+  
+  Pushing to GitHub Pages...
+  Pushed to gh-pages.
+
+Next tick in 57.9 minutes (at 20:00 UTC)
+
+============================================================
+TICK @ 2026-03-09 20:00 UTC
+============================================================
+
+[1/4] Fetching live data...
+  Fetched: 95/95 tokens OK, 1715 new bars, 0 errors
+
+[2/4] Running strategy scans...
+
+  [s30] Scanned 90 tokens, 1 with ENTRY signal on latest bar
+    >> DYDX: ENTRY SPOT LONG + PERP SHORT | basis=+59.9bps | regime=RANGE
+    Regimes: CRISIS:4, DOWNTREND:24, QUIET:3, RANGE:50, UPTREND:9
+    Positions: 9 open, 0 closed | Equity: $199,937 | Realized: $0 | Unrealized: $4
+
+  [s32] Scanned 90 tokens, 0 with ENTRY signal on latest bar
+    Regimes: CRISIS:4, DOWNTREND:24, QUIET:3, RANGE:50, UPTREND:9
+    Positions: 13 open, 4 closed | Equity: $199,524 | Realized: $-405 | Unrealized: $-952
+
+  [s54] Scanned 22 tokens, 0 with ENTRY signal on latest bar
+    Regimes: DOWNTREND:5, RANGE:17
+    Positions: 0 open, 0 closed | Equity: $200,000 | Realized: $0 | Unrealized: $0
+
+  [s58] Scanned 90 tokens, 2 with ENTRY signal on latest bar
+    >> DYDX:carry: ENTRY SPOT LONG + PERP SHORT | basis=+59.9bps | regime=RANGE
+    >> SUI:mom: ENTRY PERP LONG | basis=-4.1bps | regime=RANGE
+    Regimes: CRISIS:8, DOWNTREND:48, QUIET:6, RANGE:100, UPTREND:18
+    Positions: 6 open, 2 closed | Equity: $202,300 | Realized: $2,480 | Unrealized: $372
+
+[3/4] State saved to /workspace/crypto_backtest/state/paper_live/
+
+[4/4] Updating dashboard...
+  Loading paper trading data...
+    s30_basis_carry: 9 open, 0 closed, equity $199,937
+    s32_regime_spot_perp: 13 open, 4 closed, equity $199,524
+    s54_turbo_carry: 0 open, 0 closed, equity $200,000
+    s58_multi_strategy_portfolio: 6 open, 2 closed, equity $202,300
+  
+  Dashboard: /workspace/crypto_backtest/docs/index.html (57 KB)
+  
+  Pushing to GitHub Pages...
+  Pushed to gh-pages.
+
+Next tick in 58.0 minutes (at 21:00 UTC)

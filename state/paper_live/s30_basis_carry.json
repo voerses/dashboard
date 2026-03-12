@@ -1,14 +1,55 @@
 {
   "strategy_id": "s30",
   "capital": 200000.0,
-  "last_tick": "2026-03-08 18:02 UTC",
-  "tick_count": 70,
+  "last_tick": "2026-03-09 20:00 UTC",
+  "tick_count": 30,
   "tokens_scanned": 90,
-  "tokens_with_entry": 0,
-  "equity": 199866.08,
-  "open_positions": 11,
+  "tokens_with_entry": 1,
+  "equity": 199936.65,
+  "open_positions": 9,
   "closed_trades": 0,
   "realized_pnl": 0,
-  "unrealized_pnl": 232.45,
-  "entry_signals": {}
+  "unrealized_pnl": 4.4,
+  "entry_signals": {
+    "DYDX": {
+      "spot_entry": true,
+      "perp_entry": true,
+      "spot_dir": 1,
+      "perp_dir": -1,
+      "regime": "RANGE",
+      "in_exit_regime": false,
+      "basis_bps": 59.88,
+      "spot_close": 0.0835,
+      "perp_close": 0.084,
+      "spot_atr": 0.0015729100495054094,
+      "perp_atr": 0.002569754428177302,
+      "sizing": {
+        "size_multiplier": 1.0,
+        "cap_multiplier": 1.0,
+        "leverage": 1.0,
+        "secondary_leverage": 1.0,
+        "edge": 0.25
+      },
+      "trade_params": {
+        "stop_mult": 4.0,
+        "trail_mult": 3.5,
+        "target_mult": 999.0,
+        "no_stop_bars": 48,
+        "min_hold": 24,
+        "max_hold": 504
+      },
+      "sec_trade_params": {
+        "stop_mult": 3.5,
+        "trail_mult": 3.0,
+        "target_mult": 999.0,
+        "no_stop_bars": 48,
+        "min_hold": 24,
+        "max_hold": 504
+      },
+      "trail_schedule": null,
+      "spot_adv": 1401023.7262859999,
+      "perp_adv": 11723033.6307,
+      "capital_split": 0.5
+    }
+  }
 }

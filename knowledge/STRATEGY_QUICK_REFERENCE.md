@@ -83,6 +83,7 @@ each other. Skip directional overlays at Gate 0 for delta-neutral bases.
 - **s31 hedged momentum is redundant with s11** (corr +0.71) — don't run both
 - **5x leverage kills all strategies** — use 1x with aggressive sizing (size_mult=3, cap_mult=15) instead
 - **Regime-conditional EMAs decay fast** — prefer cross-TF signals (STABLE over time)
+- **Four edge families validated in V4**: momentum (s56), basis carry (s57), counter-trend (s63), funding carry (s65). Next families to explore: cross-sectional, volatility harvesting, pairs/stat arb.
 
 ### Strategy Classes (Gate 0 Routing)
 
@@ -135,6 +136,8 @@ for independent portfolio strategies and per-token robustness testing.
 | Strategy | Tier | Rate | Core Entry Signal | Market | Hold |
 |----------|------|------|-------------------|--------|------|
 | s29 Funding Carry | B | 20.1% | Funding rate z-score (short when positive, long when negative) | perp | 168h |
+| s63 Vol Spike Reversal V4 | V4 | — | vol_ratio > 3x + displacement > 2.5% + ADX > 20, fade the spike | perp | 12-168h |
+| s65 Funding Carry V4 | V4 | — | funding_signed rolling mean, carry = opposite to funding | perp | 24-336h |
 
 ### Per-Token (Spot, Tier B)
 
@@ -157,12 +160,14 @@ for independent portfolio strategies and per-token robustness testing.
 
 ### Paper Trading (Live, Gate 6)
 
-| Strategy | Capital | Status | Tokens |
-|----------|---------|--------|--------|
-| s30 basis_carry | $200K | Running | 90 |
-| s32 regime_spot_perp | $200K | Running | 90 |
-| s54 turbo_carry | $200K | Running | 22 |
-| s58 multi_strategy_portfolio | $200K | Running | 90 |
+| Pool | Capital | Status | Strategies |
+|------|---------|--------|------------|
+| s58 | $200K | Running | s56+s57 |
+| s60 | $200K | Running | s60 solo |
+| s58+s60 | $200K | Running | s56+s57+s60 |
+| s58+s62 | $200K | Running | s56+s57+s62 |
+| s58+s63 | $200K | Running | s56+s57+s63 |
+| s58+s65 | $200K | Running | s56+s57+s65 |
 
 ### Portfolio Assembly (Gate 5.5 Result)
 
@@ -496,7 +501,11 @@ but required for portfolio complement test at V4-Gate 5.
 
 ---
 
-## Gate 6: Paper Trading — Degradation Thresholds (AIPIP-0016 Updated)
+## Gate 6: Paper Trading — Degradation Thresholds (AIPIP-0016 + AIPIP-0024)
+
+**Single deployment path:** `v4/run_paper_multi.py` + `configs/multi_v4_paper.json`.
+NEVER create new runner scripts or alternative dashboard paths. See SKILL.md Gate 6 for
+the full deployment checklist. Do NOT set `gate6` until the strategy is confirmed running.
 
 **Minimum:** 50 trades before any go-live decision. Duration: 1-4 weeks.
 

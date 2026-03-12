@@ -62,13 +62,20 @@ def _serialize_position(pos: Position) -> dict:
         "convex_exit": bool(pos.convex_exit),
         "rsi_exit_level": float(pos.rsi_exit_level),
         "trail_schedule": pos.trail_schedule.tolist() if pos.trail_schedule is not None else None,
+        "time_trail_schedule": pos.time_trail_schedule.tolist() if pos.time_trail_schedule is not None else None,
         "max_trail_mult_arr": pos.max_trail_mult_arr.tolist() if pos.max_trail_mult_arr is not None else None,
+        "funding_exit_threshold": float(pos.funding_exit_threshold),
+        "partial_tp_atr": float(pos.partial_tp_atr),
+        "partial_tp_pct": float(pos.partial_tp_pct),
+        "partial_tp_trail": float(pos.partial_tp_trail),
+        "partial_closed": bool(pos.partial_closed),
         "stop_price": float(pos.stop_price),
         "highest": float(pos.highest),
         "lowest": float(pos.lowest),
         "initial_risk": float(pos.initial_risk),
         "cumulative_funding": float(pos.cumulative_funding),
         "linked_position_id": pos.linked_position_id,
+        "entry_timestamp": pos.entry_timestamp,
     }
     return d
 
@@ -78,6 +85,10 @@ def _deserialize_position(d: dict) -> Position:
     trail_schedule = None
     if d.get("trail_schedule") is not None:
         trail_schedule = np.array(d["trail_schedule"], dtype=np.float64)
+
+    time_trail_schedule = None
+    if d.get("time_trail_schedule") is not None:
+        time_trail_schedule = np.array(d["time_trail_schedule"], dtype=np.float64)
 
     max_trail_mult_arr = None
     if d.get("max_trail_mult_arr") is not None:
@@ -106,13 +117,20 @@ def _deserialize_position(d: dict) -> Position:
         convex_exit=d.get("convex_exit", False),
         rsi_exit_level=d.get("rsi_exit_level", 999.0),
         trail_schedule=trail_schedule,
+        time_trail_schedule=time_trail_schedule,
         max_trail_mult_arr=max_trail_mult_arr,
+        funding_exit_threshold=d.get("funding_exit_threshold", 0.0),
+        partial_tp_atr=d.get("partial_tp_atr", 0.0),
+        partial_tp_pct=d.get("partial_tp_pct", 0.5),
+        partial_tp_trail=d.get("partial_tp_trail", 1.5),
+        partial_closed=d.get("partial_closed", False),
         stop_price=d.get("stop_price", 0.0),
         highest=d.get("highest", 0.0),
         lowest=d.get("lowest", 999999.0),
         initial_risk=d.get("initial_risk", 0.0),
         cumulative_funding=d.get("cumulative_funding", 0.0),
         linked_position_id=d.get("linked_position_id"),
+        entry_timestamp=d.get("entry_timestamp", ""),
     )
 
 
@@ -267,6 +285,7 @@ def _closed_trade_to_dict(trade: ClosedTrade, tick: Optional[int] = None) -> dic
         "hold_bars": int(trade.hold_bars),
         "exit_reason": trade.exit_reason,
         "is_perp": bool(trade.is_perp),
+        "entry_timestamp": trade.entry_timestamp,
     }
     if tick is not None:
         d["tick"] = tick

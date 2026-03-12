@@ -33,14 +33,22 @@ class Position:
     convex_exit: bool = False
     rsi_exit_level: float = 999.0
     trail_schedule: Optional[np.ndarray] = None
+    time_trail_schedule: Optional[np.ndarray] = None
     max_trail_mult_arr: Optional[np.ndarray] = None
+    funding_exit_threshold: float = 0.0
+    # Partial profit-taking params (frozen at entry)
+    partial_tp_atr: float = 0.0       # profit threshold in ATR units (0 = disabled)
+    partial_tp_pct: float = 0.5       # fraction to close
+    partial_tp_trail: float = 1.5     # tighter trail for remainder
     # Mutable state (updated each bar)
+    partial_closed: bool = False      # True after partial close executed
     stop_price: float = 0.0
     highest: float = 0.0
     lowest: float = 999999.0
     initial_risk: float = 0.0    # stop_mult * atr at entry
     cumulative_funding: float = 0.0
     linked_position_id: Optional[str] = None
+    entry_timestamp: str = ""           # wall-clock time when opened (paper trading)
 
 
 @dataclass
@@ -61,8 +69,9 @@ class ClosedTrade:
     entry_fee: float
     exit_fee: float
     hold_bars: int
-    exit_reason: str            # "stop","target","regime","max_hold","liquidation","rsi","mean_target","data_end"
+    exit_reason: str            # "stop","target","regime","max_hold","liquidation","rsi","mean_target","funding","data_end"
     is_perp: bool = False
+    entry_timestamp: str = ""   # wall-clock time when opened (paper trading)
 
 
 class PositionManager:
@@ -105,6 +114,7 @@ class PositionManager:
             hold_bars=exit_bar - pos.entry_bar,
             exit_reason=exit_reason,
             is_perp=pos.is_perp,
+            entry_timestamp=pos.entry_timestamp,
         )
         self.closed_trades.append(trade)
         return trade
