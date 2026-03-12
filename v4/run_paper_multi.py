@@ -66,6 +66,7 @@ def load_multi_config(path: str) -> list[PaperConfig]:
                 weight=s.get("weight", 1.0),
                 max_positions=s.get("max_positions", 15),
                 market=s.get("market", "combined"),
+                strategy_type=s.get("strategy_type", "per_token"),
             ))
 
         config = PaperConfig(
@@ -90,6 +91,10 @@ def load_multi_config(path: str) -> list[PaperConfig]:
             shadow_rebalance_threshold=merged.get("shadow_rebalance_threshold", 100.0),
             state_dir=merged.get("state_dir", f"state/v4_paper_{i}/"),
             dashboard_push=merged.get("dashboard_push", False),
+            dynamic_weights=merged.get("dynamic_weights", False),
+            dynamic_weights_smoothing=merged.get("dynamic_weights_smoothing", 0.3),
+            conviction_mode=merged.get("conviction_mode", "shuffle"),
+            min_conviction_threshold=merged.get("min_conviction_threshold", 0.0),
         )
         config.config_path = path
         configs.append(config)

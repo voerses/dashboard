@@ -1,0 +1,29 @@
+{
+  "shared": {
+    "exchange": "binance",
+    "concentration_limit": 0.10,
+    "adv_cap_pct": 0.05,
+    "min_position_usd": 200.0,
+    "seed": 42,
+    "base_spread_bps": 3.0,
+    "impact_coeff": 0.03,
+    "lookback_months": 12,
+    "enable_purge_windows": false,
+    "drawdown_alert_pct": 5.0,
+    "shadow_rebalance_threshold": 100.0,
+    "dashboard_push": true
+  },
+  "portfolios": [
+    {
+      "pool_name": "s80+s81",
+      "initial_capital": 200000.0,
+      "mode": "pool",
+      "strategies": [
+        {"strategy_id": "s80", "weight": 1.0, "market": "perp", "max_positions": 15, "strategy_type": "portfolio"},
+        {"strategy_id": "s81", "weight": 1.0, "market": "perp", "max_positions": 15, "strategy_type": "portfolio"}
+      ],
+      "max_portfolio_positions": 30,
+      "state_dir": "state/v4_paper_s80_s81/"
+    }
+  ]
+}

@@ -1199,6 +1199,11 @@ class StrategyResult:
     partial_tp_pct: float = 0.5
     partial_tp_trail: float = 1.5
 
+    # Conviction score: per-bar signal strength in [0, 1] for entry prioritization.
+    # When multiple strategies compete for capital, higher conviction entries are processed first.
+    # None = auto-derive from size_multiplier (backward compatible).
+    conviction_score: Optional[np.ndarray] = None
+
     # Futures support (defaults preserve backward compatibility)
     market_type: int = 0        # MarketType.SPOT
     leverage: object = 1.0      # float scalar or per-bar np.ndarray

@@ -34,10 +34,11 @@ class RejectionStats:
     adv_cap: int = 0
     concentration: int = 0
     capital: int = 0
+    conviction: int = 0  # entries below min_conviction_threshold
 
     def total(self) -> int:
         return (self.portfolio_limit + self.strategy_limit + self.min_size +
-                self.adv_cap + self.concentration + self.capital)
+                self.adv_cap + self.concentration + self.capital + self.conviction)
 
     def to_dict(self) -> dict:
         return {
@@ -47,6 +48,7 @@ class RejectionStats:
             "adv_cap": self.adv_cap,
             "concentration": self.concentration,
             "capital": self.capital,
+            "conviction": self.conviction,
             "total": self.total(),
         }
 
@@ -573,9 +575,44 @@ def _process_entries(
     if not candidates:
         return
 
-    # Shuffle with seeded RNG
-    indices = list(range(len(candidates)))
-    rng.shuffle(indices)
+    # Order candidates based on conviction mode
+    if config.conviction_mode == "ranked":
+        # Sort by conviction score descending — highest conviction gets capital first
+        def _get_conviction(c):
+            sid, tok, sig = c
+            bm = bar_maps[tok]
+            lb = int(bm[global_bar])
+            if sig.conviction_score is not None and 0 <= lb < len(sig.conviction_score):
+                return float(sig.conviction_score[lb])
+            return 1.0  # no conviction data → neutral priority
+        indices = sorted(range(len(candidates)), key=lambda i: _get_conviction(candidates[i]), reverse=True)
+    elif config.conviction_mode == "hybrid":
+        # Tier into conviction buckets, shuffle within each tier
+        def _get_conviction(c):
+            sid, tok, sig = c
+            bm = bar_maps[tok]
+            lb = int(bm[global_bar])
+            if sig.conviction_score is not None and 0 <= lb < len(sig.conviction_score):
+                return float(sig.conviction_score[lb])
+            return 1.0
+        # 3 tiers: high (>0.66), medium (0.33-0.66), low (<0.33)
+        tiers = [[], [], []]
+        for i, c in enumerate(candidates):
+            conv = _get_conviction(c)
+            if conv >= 0.66:
+                tiers[0].append(i)
+            elif conv >= 0.33:
+                tiers[1].append(i)
+            else:
+                tiers[2].append(i)
+        indices = []
+        for tier in tiers:
+            rng.shuffle(tier)
+            indices.extend(tier)
+    else:
+        # Default: random shuffle (original behavior)
+        indices = list(range(len(candidates)))
+        rng.shuffle(indices)
 
     for idx in indices:
         strategy_id, token, sig = candidates[idx]
@@ -583,6 +620,15 @@ def _process_entries(
 
         bm = bar_maps[token]
         local_bar = int(bm[global_bar])
+
+        # Constraint 0: minimum conviction threshold
+        if config.min_conviction_threshold > 0:
+            conv = 1.0
+            if sig.conviction_score is not None and 0 <= local_bar < len(sig.conviction_score):
+                conv = float(sig.conviction_score[local_bar])
+            if conv < config.min_conviction_threshold:
+                state.rejections.conviction += 1
+                continue
 
         # Constraint 1: portfolio position limit
         if state.position_manager.total_open() >= config.max_portfolio_positions:

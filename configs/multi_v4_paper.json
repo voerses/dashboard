@@ -196,6 +196,79 @@
       ],
       "max_portfolio_positions": 60,
       "state_dir": "state/v4_paper_4edge_ptp/"
+    },
+    {
+      "pool_name": "s80+s81",
+      "initial_capital": 200000.0,
+      "mode": "pool",
+      "strategies": [
+        {"strategy_id": "s80", "weight": 1.0, "market": "perp", "max_positions": 15, "strategy_type": "portfolio"},
+        {"strategy_id": "s81", "weight": 1.0, "market": "perp", "max_positions": 15, "strategy_type": "portfolio"}
+      ],
+      "max_portfolio_positions": 30,
+      "concentration_limit": 0.10,
+      "state_dir": "state/v4_paper_s80_s81/"
+    },
+    {
+      "pool_name": "s80+s81-dyn",
+      "initial_capital": 200000.0,
+      "mode": "pool",
+      "strategies": [
+        {"strategy_id": "s80", "weight": 1.0, "market": "perp", "max_positions": 15, "strategy_type": "portfolio"},
+        {"strategy_id": "s81", "weight": 1.0, "market": "perp", "max_positions": 15, "strategy_type": "portfolio"}
+      ],
+      "max_portfolio_positions": 30,
+      "concentration_limit": 0.10,
+      "dynamic_weights": true,
+      "dynamic_weights_smoothing": 0.3,
+      "state_dir": "state/v4_paper_s80_s81_dyn/"
+    },
+    {
+      "pool_name": "super5-dyn",
+      "initial_capital": 200000.0,
+      "mode": "pool",
+      "strategies": [
+        {"strategy_id": "s57", "weight": 1.0, "market": "combined", "max_positions": 15},
+        {"strategy_id": "s60", "weight": 1.0, "market": "perp", "max_positions": 15},
+        {"strategy_id": "s63", "weight": 1.0, "market": "perp", "max_positions": 15},
+        {"strategy_id": "s80", "weight": 1.0, "market": "perp", "max_positions": 15, "strategy_type": "portfolio"},
+        {"strategy_id": "s81", "weight": 1.0, "market": "perp", "max_positions": 15, "strategy_type": "portfolio"}
+      ],
+      "max_portfolio_positions": 60,
+      "concentration_limit": 0.10,
+      "dynamic_weights": true,
+      "dynamic_weights_smoothing": 0.3,
+      "state_dir": "state/v4_paper_super5_dyn/"
+    },
+    {
+      "pool_name": "4-edge-conv",
+      "initial_capital": 200000.0,
+      "mode": "pool",
+      "strategies": [
+        {"strategy_id": "s56", "weight": 1.0, "market": "perp", "max_positions": 15},
+        {"strategy_id": "s57", "weight": 1.0, "market": "combined", "max_positions": 15},
+        {"strategy_id": "s63", "weight": 1.0, "market": "perp", "max_positions": 15},
+        {"strategy_id": "s65", "weight": 1.0, "market": "perp", "max_positions": 15}
+      ],
+      "max_portfolio_positions": 60,
+      "conviction_mode": "ranked",
+      "state_dir": "state/v4_paper_4edge_conv/"
+    },
+    {
+      "pool_name": "super5-conv",
+      "initial_capital": 200000.0,
+      "mode": "pool",
+      "strategies": [
+        {"strategy_id": "s57", "weight": 1.0, "market": "combined", "max_positions": 15},
+        {"strategy_id": "s60", "weight": 1.0, "market": "perp", "max_positions": 15},
+        {"strategy_id": "s63", "weight": 1.0, "market": "perp", "max_positions": 15},
+        {"strategy_id": "s80", "weight": 1.0, "market": "perp", "max_positions": 15, "strategy_type": "portfolio"},
+        {"strategy_id": "s81", "weight": 1.0, "market": "perp", "max_positions": 15, "strategy_type": "portfolio"}
+      ],
+      "max_portfolio_positions": 40,
+      "concentration_limit": 0.10,
+      "conviction_mode": "hybrid",
+      "state_dir": "state/v4_paper_super5_conv/"
     }
   ]
 }

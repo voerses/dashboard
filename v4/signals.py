@@ -62,6 +62,7 @@ class TokenSignals:
     cap_multiplier: float
     leverage: np.ndarray
     max_trade_pct: float          # additional sizing cap (0 = disabled)
+    conviction_score: Optional[np.ndarray] = None  # per-bar [0,1] signal strength for entry prioritization
     trail_schedule: Optional[np.ndarray] = None
     time_trail_schedule: Optional[np.ndarray] = None
     max_trail_mult: Optional[np.ndarray] = None
@@ -200,6 +201,11 @@ def precompute_strategy_signals(
     Follows backtest_funds.py pattern:
       _build_context() -> strategy_fn() -> extract arrays -> walk-forward mask
     """
+    # Dispatch to portfolio adapter for Class B strategies
+    if strategy_spec.strategy_type == "portfolio":
+        from .portfolio_signals import precompute_portfolio_signals
+        return precompute_portfolio_signals(strategy_spec, tokens, config, months, end_date)
+
     strategy_fn = _load_strategy_fn(strategy_spec.strategy_id)
     is_single_ctx = len(inspect.signature(strategy_fn).parameters) == 1
     is_combined = strategy_spec.market == "combined"
@@ -404,6 +410,14 @@ def precompute_strategy_signals(
             sr_partial_tp_atr = float(getattr(sr, 'partial_tp_atr', 0.0))
             sr_partial_tp_pct = float(getattr(sr, 'partial_tp_pct', 0.5))
             sr_partial_tp_trail = float(getattr(sr, 'partial_tp_trail', 1.5))
+            # Conviction score: use explicit if provided, else derive from size_multiplier
+            sr_conviction = None
+            if getattr(sr, 'conviction_score', None) is not None:
+                sr_conviction = _to_array(sr.conviction_score, n_safe)
+            elif sr.size_multiplier is not None:
+                sm = _to_array(sr.size_multiplier, n_safe)
+                sm_max = float(np.nanmax(sm)) if len(sm) > 0 else 1.0
+                sr_conviction = sm / max(sm_max, 1e-10)  # normalize to [0, 1]
             sr_sec_leverage = float(getattr(sr, 'secondary_leverage', 1.0))
             sr_capital_split = float(getattr(sr, 'capital_split', 0.5))
             sr_sec_stop = float(sr.secondary_stop_mult) if sr.secondary_stop_mult is not None else None
@@ -440,6 +454,8 @@ def precompute_strategy_signals(
                 sr_trail_mult = sr_trail_mult[s:]
                 sr_size_mult = sr_size_mult[s:]
                 sr_leverage = sr_leverage[s:]
+                if sr_conviction is not None:
+                    sr_conviction = sr_conviction[s:]
                 if mean_target is not None:
                     mean_target = mean_target[s:]
                 if max_trail is not None:
@@ -497,6 +513,7 @@ def precompute_strategy_signals(
                 cap_multiplier=sr_cap_mult,
                 leverage=sr_leverage,
                 max_trade_pct=sr_max_trade_pct,
+                conviction_score=sr_conviction,
                 trail_schedule=trail_sched,
                 time_trail_schedule=time_trail_sched,
                 max_trail_mult=max_trail,

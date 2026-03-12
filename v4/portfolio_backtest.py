@@ -27,6 +27,25 @@ from v4.simulator import simulate_portfolio
 from v4.report import compute_portfolio_metrics, print_report, save_results
 
 
+def _detect_strategy_type(strategy_id: str) -> str:
+    """Detect if a strategy is per_token (Class A) or portfolio (Class B).
+
+    Checks for STRATEGY_TYPE module attribute in the strategy file.
+    """
+    from v3.paper_engine import _load_strategy_fn
+    import importlib.util
+    from v3.engine import BacktestEngine
+    strategies_dir = os.path.join(str(PROJECT_ROOT), "strategies")
+    for fname in os.listdir(strategies_dir):
+        if fname.startswith(strategy_id + "_") and fname.endswith(".py"):
+            fpath = os.path.join(strategies_dir, fname)
+            spec = importlib.util.spec_from_file_location(f"_detect_{strategy_id}", fpath)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            return getattr(mod, 'STRATEGY_TYPE', 'per_token')
+    return 'per_token'
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="V4 Portfolio Backtest Engine")
     parser.add_argument("--strategy", type=str, required=True,
@@ -68,11 +87,13 @@ def run_backtest(
     """
     strategy_specs = {}
     for sid in strategy_ids:
+        stype = _detect_strategy_type(sid)
         spec = StrategySpec(
             strategy_id=sid,
             weight=1.0 / len(strategy_ids),
             max_positions=config.max_portfolio_positions // len(strategy_ids) if len(strategy_ids) > 1 else config.max_portfolio_positions,
             market=config._market_overrides.get(sid, "combined") if hasattr(config, '_market_overrides') else "combined",
+            strategy_type=stype,
         )
         # Use the per-strategy max_positions from config if only 1 strategy
         if len(strategy_ids) == 1:
@@ -150,12 +171,16 @@ def main():
     # Precompute signals once (they don't depend on capital)
     strategy_specs_for_precompute = {}
     for sid in strategy_ids:
+        stype = _detect_strategy_type(sid)
         spec = StrategySpec(
             strategy_id=sid,
             weight=1.0 / len(strategy_ids),
             max_positions=args.max_positions,
             market=market,
+            strategy_type=stype,
         )
+        if stype == "portfolio":
+            print(f"  {sid}: detected as portfolio (Class B) strategy")
         strategy_specs_for_precompute[sid] = spec
 
     all_precomputed = {}

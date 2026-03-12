@@ -1,0 +1,39 @@
+# Strategy Candidate Ranking Table
+# Strategies that reached backtest stage but were killed by gate or mission criteria.
+# Review to evaluate if mission/gate criteria are too strict or to resurrect candidates.
+# Sorted by composite score (descending).
+# Composite: 0.35*calmar_norm + 0.25*sortino_norm + 0.25*return_norm + 0.15*sharpe_norm
+
+candidates:
+  - id: s61_funding_carry_v4
+    killed_at: v4gate5
+    killed_by: mission
+    kill_reason: "Sharpe 6.99 < 7.0 mission threshold; MaxDD -4.71% > -3.0% mission threshold"
+    metrics:
+      sharpe: 6.99
+      calmar: 70.60
+      max_dd: -4.71
+      sortino: 23.86
+      total_return_pct: 862553.6
+      total_trades: 21086
+      profit_factor: 2.45
+      win_rate: 54.7
+    portfolio_metrics:
+      baseline: "s58 (s56+s57)"
+      baseline_sharpe: 7.60
+      baseline_calmar: 47.04
+      baseline_max_dd: -3.93
+      sharpe_delta: -0.61
+      calmar_delta: +23.56
+      max_dd_delta: -0.78
+      return_multiplier: 13.3x
+    standalone_metrics:
+      sharpe: 5.76
+      calmar: 44.95
+      max_dd: -7.45
+      sortino: 16.07
+      total_return_pct: 890855.8
+      total_trades: 11671
+    notes: "Massive return and Calmar improvement but adds too much drawdown risk. Funding carry is structurally crowded. Near-miss on Sharpe (6.99 vs 7.0 threshold)."
+    composite_score: 8.1
+    date: "2026-03-11"

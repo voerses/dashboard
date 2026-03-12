@@ -11,6 +11,7 @@ class StrategySpec:
     weight: float = 1.0           # fraction of portfolio equity
     max_positions: int = 15       # per-strategy position limit
     market: str = "combined"      # "spot", "perp", "combined"
+    strategy_type: str = "per_token"  # "per_token" (Class A) or "portfolio" (Class B)
 
 
 @dataclass
@@ -31,3 +32,7 @@ class PortfolioConfig:
     purge_bars: int = 120               # 5 days purge
     stress_adv_multiplier: float = 1.0  # ADV multiplier for stop/liquidation exits (1.0 = no stress)
     max_slip_bps: float = 300           # max slippage cap in basis points
+    # Conviction-based entry ordering: "shuffle" (random, default), "ranked" (by conviction),
+    # "hybrid" (top-N by conviction tiers, shuffle within tiers)
+    conviction_mode: str = "shuffle"
+    min_conviction_threshold: float = 0.0  # skip entries below this conviction level (0 = no filter)

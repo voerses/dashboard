@@ -32,6 +32,8 @@ class PaperConfig(PortfolioConfig):
     shadow_rebalance_threshold: float = 100.0   # minimum USD for shadow rebalance logging
     state_dir: str = "state/paper/"              # directory for state persistence
     dashboard_push: bool = False                 # push dashboard to GH Pages after tick
+    dynamic_weights: bool = False                # enable regime-conditional dynamic weights
+    dynamic_weights_smoothing: float = 0.3       # EMA smoothing alpha for regime transitions
     config_path: str = ""                        # source file path (set by load_paper_config)
 
 
@@ -59,6 +61,7 @@ def load_paper_config(path: str) -> PaperConfig:
             weight=s.get("weight", 1.0),
             max_positions=s.get("max_positions", 15),
             market=s.get("market", "combined"),
+            strategy_type=s.get("strategy_type", "per_token"),
         ))
 
     # --- Build PaperConfig ---
@@ -84,6 +87,10 @@ def load_paper_config(path: str) -> PaperConfig:
         shadow_rebalance_threshold=data.get("shadow_rebalance_threshold", 100.0),
         state_dir=data.get("state_dir", "state/paper/"),
         dashboard_push=data.get("dashboard_push", False),
+        dynamic_weights=data.get("dynamic_weights", False),
+        dynamic_weights_smoothing=data.get("dynamic_weights_smoothing", 0.3),
+        conviction_mode=data.get("conviction_mode", "shuffle"),
+        min_conviction_threshold=data.get("min_conviction_threshold", 0.0),
     )
 
     config.config_path = path

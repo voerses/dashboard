@@ -368,10 +368,17 @@ body {{ font-family:-apple-system,'Segoe UI',system-ui,sans-serif; background:#0
 .stale-banner {{ background:#5c0a0a; border:1px solid #f85149; color:#f85149; padding:8px 20px; font-size:0.85em; font-weight:600; display:none; }}
 .stale-banner.visible {{ display:block; }}
 
-.sim-tabs {{ display:flex; gap:4px; padding:8px 20px; background:#0d1117; border-bottom:1px solid #21262d; }}
-.stab {{ padding:6px 14px; border-radius:6px; cursor:pointer; background:transparent; color:#484f58; border:1px solid transparent; font-size:0.8em; transition:all 0.15s; }}
-.stab:hover {{ color:#c9d1d9; background:#161b22; }}
-.stab.active {{ background:#1f6feb; color:#fff; font-weight:600; }}
+.sim-tabs {{ display:flex; flex-wrap:wrap; gap:8px; padding:12px 20px; background:#0d1117; border-bottom:1px solid #21262d; }}
+.stab {{ padding:12px 16px; border-radius:8px; cursor:pointer; background:#161b22; color:#c9d1d9; border:1px solid #21262d; transition:all 0.15s; min-width:170px; }}
+.stab:hover {{ border-color:#30363d; background:#1c2128; }}
+.stab.active {{ background:#1f6feb; color:#fff; border-color:#1f6feb; }}
+.stab .tab-name {{ font-weight:700; font-size:1.1em; margin-bottom:4px; white-space:nowrap; }}
+.stab .tab-pnl {{ font-size:1.3em; font-weight:700; margin-bottom:4px; }}
+.stab .tab-row {{ display:flex; justify-content:space-between; align-items:baseline; gap:10px; }}
+.stab .tab-equity {{ font-size:0.9em; font-weight:600; color:#8b949e; }} .stab.active .tab-equity {{ color:rgba(255,255,255,0.7); }}
+.stab .tab-pnl.pos {{ color:#3fb950; }} .stab.active .tab-pnl.pos {{ color:#a5f3c0; }}
+.stab .tab-pnl.neg {{ color:#f85149; }} .stab.active .tab-pnl.neg {{ color:#ffa198; }}
+.stab .tab-days {{ font-size:0.85em; color:#8b949e; }} .stab.active .tab-days {{ color:rgba(255,255,255,0.7); }}
 
 .kpi-row {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:8px; padding:12px 20px; }}
 .kpi {{ background:#161b22; border:1px solid #21262d; border-radius:6px; padding:10px; }}
@@ -448,9 +455,28 @@ const fmtPrice = v => {{if(!v) return '-'; if(v>=1000) return '$'+v.toLocaleStri
 
 /* ---- Tabs ---- */
 function renderTabs() {{
-    document.getElementById('sim-tabs').innerHTML = SIMS.map((s,i) =>
-        `<div class="stab ${{i===activeSim?'active':''}}" onclick="switchSim(${{i}})">${{s.name}}</div>`
-    ).join('');
+    document.getElementById('sim-tabs').innerHTML = SIMS.map((s,i) => {{
+        const eh = s.equity_history||[];
+        const cap = s.capital||200000;
+        const mtm = eh.length > 0 ? eh[eh.length-1].mark_to_market_equity : (s.portfolio_equity||cap);
+        const pnlPct = cap > 0 ? (mtm - cap) / cap * 100 : 0;
+        const pnlStr = (pnlPct >= 0 ? '+' : '') + pnlPct.toFixed(1) + '%';
+        const pnlCls = pnlPct >= 0 ? 'pos' : 'neg';
+        let daysStr = '';
+        if (eh.length > 0) {{
+            const first = new Date(eh[0].timestamp);
+            const days = Math.max(0, Math.floor((Date.now() - first.getTime()) / 86400000));
+            daysStr = days + 'd';
+        }}
+        return `<div class="stab ${{i===activeSim?'active':''}}" onclick="switchSim(${{i}})">
+            <div class="tab-name">${{s.name}}</div>
+            <div class="tab-pnl ${{pnlCls}}">${{pnlStr}}</div>
+            <div class="tab-row">
+                <span class="tab-equity">$${{(mtm/1000).toFixed(1)}}k</span>
+                ${{daysStr ? `<span class="tab-days">${{daysStr}}</span>` : ''}}
+            </div>
+        </div>`;
+    }}).join('');
 }}
 function switchSim(i) {{ activeSim=i; renderTabs(); render(); }}
 

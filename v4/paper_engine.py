@@ -73,6 +73,7 @@ class PaperPortfolioEngine:
         self._alerts: list = []
         self._consecutive_failures: int = 0
         self.fetcher = None  # Set by live integration (Task 7)
+        self._dynamic_allocator = None  # Initialized lazily on first tick
 
         if config.mode == "independent":
             self._init_independent_mode()
@@ -507,6 +508,9 @@ class PaperPortfolioEngine:
         # --- Step 5: Handle disappeared tokens ---
         self._handle_disappeared_tokens(all_signals)
 
+        # --- Step 5b: Dynamic weight adjustment (if enabled) ---
+        self._apply_dynamic_weights(all_signals, bar_maps)
+
         # --- Step 6: Process exits → entries ---
         # Note: walk-forward mask is already applied by precompute_strategy_signals
         self._tick_internal_with_signals(all_signals, strategy_specs, bar_maps)
@@ -863,6 +867,62 @@ class PaperPortfolioEngine:
                     f"Catch-up stopped at bar {i+1}/{n_missed_bars}: {e}"
                 )
                 break
+
+    # ------------------------------------------------------------------
+    # Dynamic weight adjustment
+    # ------------------------------------------------------------------
+
+    def _apply_dynamic_weights(self, all_signals: dict, bar_maps: dict) -> None:
+        """Adjust strategy weights based on current BTC regime (if enabled).
+
+        Reads BTC regime from the latest signal data, then updates each
+        strategy's spec.weight using the DynamicWeightAllocator.
+        """
+        if not getattr(self.config, 'dynamic_weights', False):
+            return
+
+        # Lazy-initialize the allocator on first use
+        if self._dynamic_allocator is None:
+            from v4.dynamic_weights import DynamicWeightAllocator
+            allocator = DynamicWeightAllocator.from_config(
+                self.config,
+                smoothing_alpha=getattr(self.config, 'dynamic_weights_smoothing', 0.3),
+            )
+            if allocator is None:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "Dynamic weights enabled but allocator could not be created "
+                    "(missing heatmap?). Falling back to static weights."
+                )
+                # Disable to avoid re-trying every tick
+                self.config.dynamic_weights = False
+                return
+            self._dynamic_allocator = allocator
+
+        # Get current BTC regime from signals or last known
+        btc_regime = self._last_known_regimes.get('BTC', 3)  # Default: RANGE
+
+        # Also try to read from current tick's signals (more up-to-date)
+        for sid, token_sigs in all_signals.items():
+            if 'BTC' in token_sigs:
+                sig = token_sigs['BTC']
+                bm = bar_maps.get('BTC')
+                if bm is not None and self.tick_counter < len(bm):
+                    local_bar = bm[self.tick_counter]
+                    if 0 <= local_bar < sig.n_bars and hasattr(sig, 'regime') and sig.regime is not None:
+                        btc_regime = int(sig.regime[local_bar])
+                break  # Only need BTC from one strategy
+
+        # Compute dynamic weights
+        new_weights = self._dynamic_allocator.get_weights(btc_regime)
+
+        # Apply to strategy specs
+        for spec in self.config.strategies:
+            if spec.strategy_id in new_weights:
+                spec.weight = new_weights[spec.strategy_id]
+
+        # Log (first tick + regime changes)
+        self._dynamic_allocator.log_weights(btc_regime, new_weights)
 
     # ------------------------------------------------------------------
     # Price tracking
