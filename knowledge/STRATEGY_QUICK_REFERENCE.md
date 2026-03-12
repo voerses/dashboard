@@ -28,6 +28,11 @@ Before proposing a strategy, know what tools and strategy types exist.
 | Signal agreement | `v3/signal_agreement.py` | AND/N-of-M gating. S11+S09 AND: trades -66%, Calmar +0.46, DD +6.7pp |
 | Regime sizing (O2) | wrapper strategy | `size_multiplier` per regime. s34 (s11+O2+O3): Sharpe +0.27, PF +0.08 |
 | Weekend reduction (O3) | wrapper strategy | Reduce size Fri 20:00–Sun 20:00. Part of s34 wrapper |
+| Time-decayed trail | wrapper strategy | Tighten stop by hold time. s69 (s56): Calmar +33%. s72 (s65): Calmar +148% |
+| Fixed take-profit | wrapper strategy | Lock in profits at Nx ATR. s75 (s63, TP=3x): Calmar +17.6% |
+| Partial profit-taking | engine field | Close fraction at target, trail remainder. s76 (s56): +8.9% solo |
+| Dynamic regime weights | `v4/dynamic_weights.py` | Per-tick strategy weighting by regime. super5-dyn: +28% return |
+| Conviction entry scoring | `v4/simulator.py` | Rank entries by conviction (from size_multiplier). 0% seed sensitivity |
 
 **Overlay implementation rule (AIPIP-0018):** NEVER modify base strategies. Create a new
 wrapper file (`strategies/sNN_name.py`) that imports the base, calls `base_strategy(ctx)`,
@@ -42,6 +47,17 @@ each other. Skip directional overlays at Gate 0 for delta-neutral bases.
 | Field | Type | Default | Purpose |
 |-------|------|---------|---------|
 | `size_multiplier` | `float` or `np.ndarray` | `1.0` | Strategy-configured sizing overlay. Applied to Kelly mult in `_simulate` and `_simulate_combined`. |
+| `conviction_score` | `Optional[np.ndarray]` | `None` | Per-bar [0,1] signal strength. Auto-derived from size_multiplier if not set. Used for entry ordering. |
+| `partial_tp_trail` | `Optional[np.ndarray]` | `None` | Partial profit-taking: close fraction at target, trail remainder with tighter stop. |
+| `time_trail_schedule` | `Optional[np.ndarray]` | `None` | Time-decayed trail tightening by hold duration. |
+| `funding_exit_threshold` | `float` | `0.0` | Exit if cumulative funding / margin exceeds threshold. Disabled by default (KILLED at 5O). |
+
+### V4 Portfolio Config Options
+
+| Field | Default | Purpose |
+|-------|---------|---------|
+| `conviction_mode` | `"shuffle"` | Entry ordering: `shuffle` (random), `ranked` (conviction descending), `hybrid` (3 tiers) |
+| `min_conviction_threshold` | `0.0` | Skip entries below this conviction score |
 
 ### Portfolio Tools
 

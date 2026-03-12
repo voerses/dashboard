@@ -2,6 +2,7 @@
 
 > **TL;DR** Trend following is the only consistent edge in crypto at swing timeframes.
 > S56+S57 (momentum+carry) is the production portfolio running in V4. Sharpe 7.29, +1717% (12mo).
+> **21 paper trading pools** active (Mar 12): s58 base, 12 strategy combos, overlays, dynamic weights, conviction scoring.
 > Mean reversion loses money at 18-720hr holds. Simple beats complex (4 conditions > 10).
 > ALL spot-only strategies lose money in Jan-Mar 2026 sideways market. Only perp/combined survive.
 > **Full details + 67 citations:** `knowledge/archive/STRATEGY_CATALOG_DETAILS.md`
@@ -9,6 +10,7 @@
 **Context:** Crypto swing trading, $200K capital, 1H timeframe, 18-720hr holds, 6-111 tokens
 **Last validated:** March 2026, V4 portfolio backtest (12-month + Jan-Mar 2026 OOS)
 **V4 engine:** Portfolio-level simulation with shared capital, concentration limits, ADV caps, slippage model. See `knowledge/V4_ENGINE.md`.
+**Engine enhancements (Mar 12):** conviction entry scoring (shuffle/ranked/hybrid), dynamic regime weights, partial profit-taking.
 
 ---
 
@@ -76,6 +78,43 @@
 | 5 | s29 funding_carry | +$8,100 | perp | Funding harvesting regime-stable |
 
 **Critical Finding: ALL spot-only strategies lose money Jan-Mar 2026.** Only perp and combined strategies remain profitable in the sideways/selloff market. The carry strategies (s29, s44, s54, s57) are regime-stable. Momentum strategies need bidirectional capability (perp shorts) to survive sideways.
+
+### V4 Additional Strategies (deployed to paper trading Mar 12)
+
+| Strategy | Type | Market | Entry Logic | Paper Pool |
+|----------|------|--------|-------------|------------|
+| **s59** funding_mean_rev_v4 | Mean reversion | perp | Fade extreme funding rates (z-score > 2), expect mean reversion. 72h lookback. | s58+s59 |
+| **s60** momentum_burst_perp_v4 | Momentum | perp | Bidirectional perp momentum burst: ADX>20, vol_ratio>1.0, regime-scaled. Catches both long and short moves. | s60, s58+s60, super5 |
+| **s62** conservative_funding_carry | Carry | perp | Conservative funding carry: higher threshold than s65, tighter stops, lower position sizes. Regime-gated. | s58+s62 |
+| **s63** vol_spike_reversal_v4 | Counter-trend | perp | Fade extreme vol spikes (vol_ratio > 3x). Bidirectional: short after up-spikes, long after down-spikes. Collects positive funding on shorts. | s58+s63, 4-edge |
+| **s65** funding_carry_v4 | Carry | perp | Harvest structural funding rate imbalance (retail long bias). s58+s65: Sharpe INCREASES from 8.25→8.52, best 2-strategy complement found. | s58+s65, 4-edge |
+| **s80** xsec_momentum | Cross-sectional | perp | Rank all tokens by trailing return, long top quintile on perps. Weekly rebalance. V4-native. Regime-gated. | s80+s81, super5 |
+| **s81** sector_rotation | Sector momentum | perp | 10 sectors (L1, DeFi, Meme, AI, etc.), category-level momentum, top 2 sectors. V4-native. Regime-gated. | s80+s81, super5 |
+
+### V4 Overlay Wrappers (deployed to paper trading Mar 12)
+
+| Strategy | Base | Overlay | Effect | Paper Pool |
+|----------|------|---------|--------|------------|
+| **s69** s56_time_trail | s56 | Time-decayed trail: tighten stop progressively by hold time | Calmar +33% on s56 solo | s69, s58+s69 |
+| **s72** s65_time_trail | s65 | Time-decayed trail on funding carry | Calmar +148% on s65 solo | s72, s58+s72 |
+| **s75** s63_fixed_tp | s63 | Fixed take-profit at 3x ATR | Calmar +17.6%, locks in MR profits before trend resumes | s58+s75 |
+| **s76** partial_tp | s56 | Partial profit-taking: close 50% at 2x ATR, trail remainder | Solo +8.9%, portfolio-dependent | s76, s58+s76 |
+
+### V4 Engine-Level Overlays (portfolio-wide, not per-strategy)
+
+| Overlay | Module | Effect | Paper Pool |
+|---------|--------|--------|------------|
+| **Dynamic regime weights** | `v4/dynamic_weights.py` | Per-tick strategy weights based on BTC regime + historical profit factors. super5-dyn: +28% return in backtest. | s80+s81-dyn, super5-dyn |
+| **Conviction entry scoring** | `v4/simulator.py` | 3 modes: shuffle (random), ranked (conviction descending), hybrid (3 tiers). Ranked eliminates seed sensitivity (0% CV). Calmar +59-281% on diverse portfolios. Not universal — regressions on some combos. | 4-edge-conv (ranked), super5-conv (hybrid) |
+
+### V4 Portfolio Configurations (paper trading)
+
+| Portfolio | Strategies | Conviction | Dynamic Weights | Edge Count |
+|-----------|-----------|-----------|-----------------|------------|
+| **4-edge** | s56+s57+s63+s65 | shuffle | static | 4 families: momentum, carry, counter-trend, funding |
+| **4-edge-conv** | s56+s57+s63+s65 | **ranked** | static | Same strategies, deterministic ordering |
+| **super5-dyn** | s57+s60+s63+s80+s81 | shuffle | **dynamic** | 5 families: carry, perp momentum, counter-trend, cross-sectional, sector |
+| **super5-conv** | s57+s60+s63+s80+s81 | **hybrid** | static | Same strategies, tiered ordering |
 
 ---
 
@@ -550,10 +589,18 @@ Note: s31 excluded — redundant with s11 (corr +0.71).
 | s55 leveraged_carry_momentum | 2-5x leverage carry | -7pp MaxDD degradation exposed by intra-bar liquidation fix | FAILED |
 | s56 max_leverage_momentum | 5x signal-enhanced | 14% rate, negative mean return. Leverage amplifies losses | FAILED |
 | **Standalone signal strategies** | Signal discovery entries | IC != tradeable edge. Signals only work as overlays on proven strategies | FAILED |
+| s61 funding_carry_v4 | Funding carry variant | Overlap >80% with s65; no improvement on Calmar or DD | DEDUP |
+| s66 adx_breakout | ADX breakout entries | Too few trades: only 38 entries on BTC | KILLED Gate 0 |
+| s67 funding_momentum_v4 | Funding momentum (following) | Sharpe 1.90 too low for portfolio (need >3.0). Capital dilution hurts. | KILLED V4-Gate 5 |
+| s68 band_walk | Bollinger band walk | Momentum family saturated, 80% overlap with s56 within 24h | KILLED Gate 2 |
+| s70 s60_time_trail | s60 + time trail | Marginal improvement, not deployed | NOT DEPLOYED |
+| s71 s63_time_trail | s63 + time trail | Counter-trend + time trail conflicts (MR needs different exit) | NOT DEPLOYED |
+| s73 s56_funding_exit | s56 + funding-aware exit | Calmar degrades at every threshold (7 tested). Funding is 1.2% of PnL. | KILLED 5O |
+| s74 s60_funding_exit | s60 + funding-aware exit | Same. Calmar -34% at best threshold. High-funding tokens are best winners AND losers. | KILLED 5O |
 
 ---
 
-### Overlay Wrappers (s34-s44, s54, s56-s58)
+### Overlay Wrappers (s34-s44, s54, s56-s81)
 
 | Strategy | Base | Overlay | Result | Status |
 |----------|------|---------|--------|--------|
@@ -567,6 +614,12 @@ Note: s31 excluded — redundant with s11 (corr +0.71).
 | **s56 signal_enhanced_momentum** | s11 | Signal discovery timing + perp | V4: component of s58 portfolio | **V4 Production** |
 | **s57 signal_timed_turbo_carry** | s44 | Signal discovery timing | V4: component of s58 portfolio | **V4 Production** |
 | **s58 multi_strategy_portfolio** | s56+s57 | Multi-strategy portfolio | V4: +1717% 12mo, Sharpe 7.29 | **V4 Paper Trading** |
+| **s69 s56_time_trail** | s56 | Time-decayed trailing stop | Calmar +33% | **V4 Paper Trading** |
+| **s72 s65_time_trail** | s65 | Time-decayed trailing stop | Calmar +148% | **V4 Paper Trading** |
+| **s75 s63_fixed_tp** | s63 | Fixed TP at 3x ATR | Calmar +17.6%, Return +18.5% | **V4 Paper Trading** |
+| **s76 partial_tp** | s56 | Close 50% at 2x ATR, trail rest | Solo +8.9% | **V4 Paper Trading** |
+| **s80 xsec_momentum** | — | V4-native cross-sectional | New edge family | **V4 Paper Trading** |
+| **s81 sector_rotation** | — | V4-native sector momentum | New edge family | **V4 Paper Trading** |
 
 ---
 
@@ -594,6 +647,15 @@ Note: s31 excluded — redundant with s11 (corr +0.71).
 | Only 23% of signals are genuinely causal | Lead/lag analysis, 57 of 252 | Prioritize HIGH-confidence LEADING signals |
 | Regime-conditional EMAs decay fast | `ema_50_in_QUIET` lost 77% IC | Cross-TF signals more temporally robust |
 | Progressive trailing stops are universal | s37-s44 all improved | Strongest single overlay: +21.5pp avg, 93% win rate |
+| Conviction entry scoring eliminates seed sensitivity | Ranked mode: 0% CV across 10 seeds | Use ranked for diverse portfolios (4+ strategies) |
+| Conviction scoring is NOT universal | Regressions on solo + some 2-strat combos | Only deploy selectively on proven winners |
+| Dynamic regime weights improve multi-strategy | super5-dyn: +28% return vs static | Works when strategies have different regime profiles |
+| Funding carry is best s58 complement | s58+s65: Sharpe 8.25→8.52, MTM +5.1% in paper | Different edge family, collects positive funding |
+| 4-edge portfolio leads paper trading | s56+s57+s63+s65: MTM +5.4% after 46 ticks | Four distinct edge families outperform narrower combos |
+| Time-trail on carry is highest Calmar boost | s72 (s65+time_trail): Calmar +148% | Carry positions benefit from progressive exit tightening |
+| Fixed TP suits counter-trend | s75 (s63+TP=3x ATR): Calmar +17.6% | MR has natural profit cap; trails give back gains |
+| Funding-aware exits don't work | s73/s74 killed at every threshold | Funding is 1.2% of PnL; can't discriminate winners vs losers |
+| Regime blocks explain low utilization in downtrends | s56 REGIME_SIZE=0.0 blocks all entries | Not a bug — correct risk management |
 
 ### What Fails in Crypto (Swing TF)
 
@@ -610,6 +672,9 @@ Note: s31 excluded — redundant with s11 (corr +0.71).
 | Standalone signal entries | s56: 14% rate, negative mean | IC predicts returns but not enough edge after costs |
 | 5x leverage on any strategy | s50/s52/s56: all killed | Fees amplified 5x eat the edge; use 1x with aggressive sizing instead |
 | Cross-TF signals as standalone | Discovery showed IC=-0.376 | Genuine IC but only ~14% of return variance; needs base strategy |
+| Funding-aware exit timing | s73/s74: Calmar degrades at all 7 thresholds | High-funding tokens produce best winners AND losers; can't discriminate |
+| Conviction scoring on narrow portfolios | s72 solo: DD 3x, s58+s65: DD blows up | Conviction ranking can starve minority strategies of capital |
+| Funding momentum (following) | s67: Sharpe 1.90, decorrelated but dilutes | Need Sharpe >3.0 to add value to current portfolio (capital dilution) |
 
 ### RSI Regime Dependency
 
