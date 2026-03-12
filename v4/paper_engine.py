@@ -945,6 +945,75 @@ class PaperPortfolioEngine:
                             self._last_known_regimes[token] = int(sig.regime[local_bar])
 
     # ------------------------------------------------------------------
+    # Quick price refresh — update MTM without running a full tick
+    # ------------------------------------------------------------------
+
+    def update_prices(self, exchange) -> dict:
+        """Fetch live prices for open positions, update MTM and heartbeat.
+
+        Does NOT run signals, entries, exits, or increment tick_counter.
+        Returns dict with updated MTM info for logging.
+        """
+        import time as _time
+        from datetime import datetime, timezone
+
+        t0 = _time.perf_counter()
+
+        # Collect tokens with open positions
+        tokens_needed: set[str] = set()
+        for st in self._get_all_states():
+            for pos in st.position_manager.open_positions:
+                tokens_needed.add(pos.token)
+
+        if not tokens_needed:
+            return {"tokens": 0, "mtm": self._compute_mark_to_market()}
+
+        # Fetch live prices via ccxt tickers
+        updated = 0
+        for token in tokens_needed:
+            try:
+                ticker = exchange.fetch_ticker(f"{token}/USDT")
+                price = ticker.get("last")
+                if price:
+                    self._last_known_prices[token] = float(price)
+                    updated += 1
+            except Exception:
+                pass  # Keep last known price
+
+        mtm = self._compute_mark_to_market()
+        elapsed = _time.perf_counter() - t0
+
+        # Update heartbeat with fresh MTM (no tick_counter change)
+        state_dir = self.config.state_dir
+        os.makedirs(state_dir, exist_ok=True)
+        heartbeat = {
+            "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "tick_counter": int(self.tick_counter),
+            "open_positions": int(self._aggregate_open_positions()),
+            "portfolio_equity": float(self._aggregate_portfolio_equity()),
+            "mark_to_market_equity": float(mtm),
+            "processing_time_s": float(elapsed),
+            "errors": None,
+            "price_refresh": True,
+        }
+        heartbeat_path = os.path.join(state_dir, "heartbeat.json")
+        import tempfile as _tmpfile
+        fd, tmp = _tmpfile.mkstemp(dir=state_dir, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(heartbeat, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.rename(tmp, heartbeat_path)
+        except Exception:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+
+        return {"tokens": updated, "mtm": mtm, "elapsed": elapsed}
+
+    # ------------------------------------------------------------------
     # process_tick — deterministic tick for testing (Task 12)
     # ------------------------------------------------------------------
 

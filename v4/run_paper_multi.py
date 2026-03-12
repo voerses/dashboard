@@ -220,6 +220,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="Fetch latest data only (no tick). No PID lock needed.")
     parser.add_argument("--prices", action="store_true",
                         help="Fetch and print current prices for all tokens. No PID lock needed.")
+    parser.add_argument("--refresh", action="store_true",
+                        help="Send SIGUSR1 to running process to trigger a live price refresh + dashboard push.")
     return parser.parse_args(argv)
 
 
@@ -306,6 +308,23 @@ def main(argv: list[str] | None = None) -> None:
             sys.exit(1)
         return
 
+    if args.refresh:
+        # Send SIGUSR1 to the running paper trader to trigger a price refresh
+        lock_dir = "state/v4_paper_multi/"
+        pid_file = os.path.join(lock_dir, "paper.pid")
+        if not os.path.exists(pid_file):
+            print("No running paper trader found (no paper.pid)")
+            sys.exit(1)
+        with open(pid_file) as f:
+            pid = int(f.read().strip())
+        try:
+            os.kill(pid, signal.SIGUSR1)
+            print(f"Sent SIGUSR1 to PID {pid} — price refresh + dashboard push triggered")
+        except ProcessLookupError:
+            print(f"PID {pid} not running — stale paper.pid")
+            sys.exit(1)
+        return
+
     # Setup logging
     logging.basicConfig(
         level=logging.INFO,
@@ -318,14 +337,20 @@ def main(argv: list[str] | None = None) -> None:
     os.makedirs(lock_dir, exist_ok=True)
     lock_file = acquire_pid_lock(lock_dir)
 
-    # Graceful shutdown
+    # Graceful shutdown + price refresh signal
     shutdown = threading.Event()
+    refresh_requested = threading.Event()
 
     def shutdown_handler(signum, frame):
         shutdown.set()
 
+    def refresh_handler(signum, frame):
+        refresh_requested.set()
+        logger.info("SIGUSR1 received — price refresh requested")
+
     signal.signal(signal.SIGINT, shutdown_handler)
     signal.signal(signal.SIGTERM, shutdown_handler)
+    signal.signal(signal.SIGUSR1, refresh_handler)
 
     portfolio_names = [c.pool_name for c in configs]
     logger.info(
@@ -401,10 +426,32 @@ def main(argv: list[str] | None = None) -> None:
             if any_success:
                 push_combined_dashboard(configs)
 
-            # Sleep until next hour
+            # Sleep until next hour (wake on shutdown or refresh signal)
             sleep_s = compute_sleep_until_next_hour(time.time())
             logger.info("Sleeping %.0fs until next hour", sleep_s)
-            if shutdown.wait(sleep_s):
+            deadline = time.time() + sleep_s
+            while time.time() < deadline and not shutdown.is_set():
+                # Short waits so SIGUSR1 handler's event gets picked up quickly
+                shutdown.wait(2.0)
+
+                if refresh_requested.is_set():
+                    refresh_requested.clear()
+                    logger.info("Price refresh starting...")
+                    t0 = time.time()
+                    for engine, config in zip(engines, configs):
+                        try:
+                            info = engine.update_prices(exchange)
+                            logger.info(
+                                "[%s] Price refresh — %d tokens updated, mtm=$%.0f (%.1fs)",
+                                config.pool_name, info["tokens"],
+                                info["mtm"], info.get("elapsed", 0),
+                            )
+                        except Exception:
+                            logger.exception("[%s] Price refresh failed", config.pool_name)
+                    push_combined_dashboard(configs)
+                    logger.info("Price refresh complete (%.1fs total)", time.time() - t0)
+
+            if shutdown.is_set():
                 break
 
     finally:

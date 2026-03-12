@@ -59,6 +59,17 @@ each other. Skip directional overlays at Gate 0 for delta-neutral bases.
 | `conviction_mode` | `"shuffle"` | Entry ordering: `shuffle` (random), `ranked` (conviction descending), `hybrid` (3 tiers) |
 | `min_conviction_threshold` | `0.0` | Skip entries below this conviction score |
 
+### Paper Trader Operations
+
+| Command | What it does |
+|---------|-------------|
+| `python -m v4.run_paper_multi --config <cfg>` | Start continuous paper trading (hourly ticks) |
+| `python -m v4.run_paper_multi --config <cfg> --once` | Single tick then exit |
+| `python -m v4.run_paper_multi --config <cfg> --refresh` | Live price refresh + dashboard push (no tick/trading, ~22s) |
+| `python -m v4.run_paper_multi --config <cfg> --status` | Print equity/positions for all pools |
+| `python -m v4.run_paper_multi --config <cfg> --fetch-only` | Fetch data only (no tick) |
+| `python -m v4.run_paper_multi --config <cfg> --prices` | Print current token prices |
+
 ### Portfolio Tools
 
 | Tool | Module | Purpose |

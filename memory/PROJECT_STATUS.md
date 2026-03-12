@@ -68,6 +68,7 @@
 | Conviction-Based Entry Scoring | `v4/simulator.py`, `v4/signals.py`, `v4/config.py` | 3 modes: shuffle (random), ranked (conviction descending), hybrid (3 tiers). Auto-derives conviction from size_multiplier. Eliminates seed sensitivity (0% CV in ranked mode). |
 | Dashboard V2 Redesign | `tools/generate_dashboard_v2.py` | Tabs now show % P/L, equity, days running per portfolio. Supports 21 tabs with wrapping layout. |
 | Multi-Portfolio Expansion | `configs/multi_v4_paper.json` | 21 paper trading pools: 19 strategy combos + 2 conviction variants (4-edge-conv, super5-conv). |
+| Live Price Refresh (SIGUSR1) | `v4/run_paper_multi.py`, `v4/paper_engine.py` | `--refresh` sends SIGUSR1 to running process. Fetches live ticker prices for open positions, updates MTM + heartbeat, pushes dashboard. No tick/trading — just price view. ~22s for 21 pools. Usage: `python -m v4.run_paper_multi --config configs/multi_v4_paper.json --refresh` |
 
 ### Infrastructure Roadmap (Next Wave)
 
