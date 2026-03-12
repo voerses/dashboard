@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-generated-at="2026-03-12T21:16:04Z" data-source="runner" data-pools="21">
+<html lang="en" data-generated-at="2026-03-12T21:21:33Z" data-source="runner" data-pools="21">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -19,16 +19,17 @@ body { font-family:-apple-system,'Segoe UI',system-ui,sans-serif; background:#0a
 .stale-banner { background:#5c0a0a; border:1px solid #f85149; color:#f85149; padding:8px 20px; font-size:0.85em; font-weight:600; display:none; }
 .stale-banner.visible { display:block; }
 
-.sim-tabs { display:flex; flex-wrap:wrap; gap:6px; padding:10px 20px; background:#0d1117; border-bottom:1px solid #21262d; }
-.stab { padding:8px 14px; border-radius:8px; cursor:pointer; background:#161b22; color:#c9d1d9; border:1px solid #21262d; font-size:0.8em; transition:all 0.15s; min-width:140px; }
+.sim-tabs { display:flex; flex-wrap:wrap; gap:8px; padding:12px 20px; background:#0d1117; border-bottom:1px solid #21262d; }
+.stab { padding:12px 16px; border-radius:8px; cursor:pointer; background:#161b22; color:#c9d1d9; border:1px solid #21262d; transition:all 0.15s; min-width:170px; }
 .stab:hover { border-color:#30363d; background:#1c2128; }
-.stab.active { background:#1f6feb; color:#fff; font-weight:600; border-color:#1f6feb; }
-.stab .tab-name { font-weight:600; margin-bottom:3px; white-space:nowrap; }
-.stab .tab-meta { display:flex; gap:8px; font-size:0.85em; opacity:0.8; white-space:nowrap; }
-.stab .tab-pnl { font-weight:700; }
+.stab.active { background:#1f6feb; color:#fff; border-color:#1f6feb; }
+.stab .tab-name { font-weight:700; font-size:1em; margin-bottom:6px; white-space:nowrap; }
+.stab .tab-equity { font-size:1.3em; font-weight:700; margin-bottom:4px; }
+.stab .tab-row { display:flex; justify-content:space-between; align-items:baseline; gap:10px; }
+.stab .tab-pnl { font-size:1.2em; font-weight:700; }
 .stab .tab-pnl.pos { color:#3fb950; } .stab.active .tab-pnl.pos { color:#a5f3c0; }
 .stab .tab-pnl.neg { color:#f85149; } .stab.active .tab-pnl.neg { color:#ffa198; }
-.stab .tab-days { color:#8b949e; } .stab.active .tab-days { color:rgba(255,255,255,0.7); }
+.stab .tab-days { font-size:0.85em; color:#8b949e; } .stab.active .tab-days { color:rgba(255,255,255,0.7); }
 
 .kpi-row { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:8px; padding:12px 20px; }
 .kpi { background:#161b22; border:1px solid #21262d; border-radius:6px; padding:10px; }
@@ -77,7 +78,7 @@ tr.trade-row { cursor:pointer; }
 
 <div class="header">
     <h1>Paper Trading Dashboard V2</h1>
-    <div class="meta">Updated: 2026-03-12 21:16 UTC</div>
+    <div class="meta">Updated: 2026-03-12 21:21 UTC</div>
 </div>
 <div class="stale-banner" id="stale-banner">
     Data is stale — last update was more than 2 hours ago. Check paper trading engine.
@@ -120,9 +121,9 @@ function renderTabs() {
         }
         return `<div class="stab ${i===activeSim?'active':''}" onclick="switchSim(${i})">
             <div class="tab-name">${s.name}</div>
-            <div class="tab-meta">
+            <div class="tab-equity">$${(mtm/1000).toFixed(1)}k</div>
+            <div class="tab-row">
                 <span class="tab-pnl ${pnlCls}">${pnlStr}</span>
-                <span>$${(mtm/1000).toFixed(1)}k</span>
                 ${daysStr ? `<span class="tab-days">${daysStr}</span>` : ''}
             </div>
         </div>`;
