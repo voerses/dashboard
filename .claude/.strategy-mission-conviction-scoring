@@ -1,5 +1,11 @@
-status: active
+status: closed
 goal: Build conviction-based entry scoring system that prioritizes high-confidence trades when strategies compete for limited capital, improving Calmar and reducing wasted entries
+closed: 2026-03-12
+outcome: |
+  DEPLOYED. 3 modes implemented (shuffle/ranked/hybrid). Auto-derivation from size_multiplier.
+  Ranked mode: 0% seed sensitivity (fully deterministic), Calmar +59-281% on diverse portfolios.
+  Deployed: 4-edge-conv (ranked), super5-conv (hybrid) to paper trading.
+  Mixed results across all 19 portfolios — not universal. Selective deployment only.
 baseline:
   s58_4mo: s58 (s56+s57) static — +161.6% return, Sharpe 5.69, MaxDD -1.1% (4mo OOS)
   s58_s60_4mo: s58+s60 static — +480.7% return, Sharpe 5.12, MaxDD -2.0% (4mo OOS)

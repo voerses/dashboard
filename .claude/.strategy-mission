@@ -1,12 +1,13 @@
 status: gate6-monitoring
-goal: Monitor 16-pool paper trading; validate overlays match backtest; identify next mission
+goal: Monitor 21-pool paper trading; validate overlays + conviction + dynamic weights match backtest
 baseline:
   s58_12mo: s58 (s56+s57) — +689% return, Sharpe 8.25, MaxDD -1.2% (12-month)
   s58_72mo: s58 (s56+s57) — +1717% return, Sharpe 7.29, MaxDD -1.9% (72-month)
   s58_s65: s58+s65 — +1217% return, Sharpe 8.52, MaxDD -1.4% (12mo). BEST 2-strategy combo.
   s58_s63_s65: s58+s63+s65 (4-strategy) — +1684%, Sharpe 8.26, MaxDD -5.0% (12mo). Full portfolio.
   oos_total: +$131,878 (+66%), $1,912/day avg, 352 trades (Jan-Mar 2026)
-done_when: 50+ trades per overlay pool; overlays match backtest improvement direction
+done_when: 50+ trades per pool; overlays/conviction/dynamic-weights match backtest improvement direction
+paper_trader_pid: 283875
 notes: |
 
   ╔══════════════════════════════════════════════════════════════════╗

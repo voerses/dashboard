@@ -1,12 +1,13 @@
 # Project Status — crypto_backtest
 
-> **Last updated:** 2026-03-12
-> **Process mode:** strategy (paper trading monitoring + time-trail overlay validation)
-> **Active:** V4 multi-portfolio paper trading: 13 pools. Runner PID 248486.
-> **Overlays deployed:** s69 (s56+time_trail), s72 (s65+time_trail), s75 (s63+fixed_tp=3.0)
-> **Submission 1 (funding exit): KILLED** at Gate 5O — Calmar degrades at every threshold. Funding is 1.2% of PnL.
-> **Submission 4 (fixed TP): PASSED** Gate 5O — s75 vs s63: Calmar +17.6%, Return +18.5%, avg winner +22.7%.
-> **Next step:** Monitor 13 pools for trade accumulation. All submissions resolved except Sub 3 (partial TP, needs engine).
+> **Last updated:** 2026-03-12T21:30Z
+> **Process mode:** strategy (paper trading monitoring — Gate 6)
+> **Active:** V4 multi-portfolio paper trading: **21 pools**. Runner PID 283875.
+> **Overlays deployed:** s69 (s56+time_trail), s72 (s65+time_trail), s75 (s63+fixed_tp=3.0), s76 (partial TP)
+> **Dynamic weights deployed:** s80+s81-dyn (regime-weighted), super5-dyn (5-strategy dynamic)
+> **Conviction scoring deployed:** 4-edge-conv (ranked mode), super5-conv (hybrid mode)
+> **All missions closed.** Profit-taking (4 submissions), dynamic weights, conviction scoring — all resolved.
+> **Next step:** Monitor 21 pools for 50+ trades each. Dashboard redesigned with per-tab metrics.
 
 ---
 
@@ -60,6 +61,13 @@
 | Time-Trail Overlay Strategies | `strategies/s69_s56_time_trail.py`, `strategies/s70_s60_time_trail.py`, `strategies/s72_s65_time_trail.py` | Wrapper strategies adding aggressive time-based trail tightening to s56, s60, s65. Gate 5O validated: Calmar +13-148%, DD improved. Deployed to paper trading. |
 | Fixed TP Overlay (s75) | `strategies/s75_s63_fixed_tp.py` | s63 counter-trend + target_mult=3.0. Locks in MR profits before trend resumes. Gate 5O: Calmar +17.6%, Return +18.5%, avg winner +22.7%. Deployed to paper trading. |
 | Funding Exit Engine Support | `v4/simulator.py`, `v4/signals.py`, `v4/position.py`, `v4/paper_state.py`, `v3/engine.py` | `funding_exit_threshold` field (default 0.0 = disabled). Generic exit check if cumulative funding / margin exceeds threshold. s73/s74 KILLED but engine capability preserved. |
+| Partial Profit-Taking | `v4/simulator.py`, `v4/signals.py`, `v3/engine.py` | `partial_tp_trail` field on StrategyResult/TokenSignals. Closes fraction of position at profit target, trails remainder. s76 overlay deployed. |
+| Cross-Sectional Momentum V4 | `strategies/s80_xsec_momentum.py` | V4-native cross-sectional momentum: rank tokens by trailing return, long top quintile on perps. Regime-gated. |
+| Sector Rotation V4 | `strategies/s81_sector_rotation.py` | V4-native sector rotation: 10 sectors, category-level momentum, top 2 sectors. Regime-gated. |
+| Dynamic Weight Allocation | `v4/dynamic_weights.py` | Regime-aware strategy weighting. Computes per-strategy weights based on BTC regime + historical profit factors. Applied per-tick in paper trading. |
+| Conviction-Based Entry Scoring | `v4/simulator.py`, `v4/signals.py`, `v4/config.py` | 3 modes: shuffle (random), ranked (conviction descending), hybrid (3 tiers). Auto-derives conviction from size_multiplier. Eliminates seed sensitivity (0% CV in ranked mode). |
+| Dashboard V2 Redesign | `tools/generate_dashboard_v2.py` | Tabs now show % P/L, equity, days running per portfolio. Supports 21 tabs with wrapping layout. |
+| Multi-Portfolio Expansion | `configs/multi_v4_paper.json` | 21 paper trading pools: 19 strategy combos + 2 conviction variants (4-edge-conv, super5-conv). |
 
 ### Infrastructure Roadmap (Next Wave)
 
@@ -80,12 +88,11 @@
 
 | Priority | Item | Blocker | Notes |
 |----------|------|---------|-------|
-| **HIGH** | Monitor V4 paper trading for 50+ trades | Time | s58 portfolio started fresh Mar 10. Need 1-4 weeks before evaluation. |
-| **HIGH** | Develop sideways-market strategies for V4 | None | V3-killed strategies (s27, s28, s25, s29) profitable in V4 portfolio context. Build V4-native versions targeting choppy/sideways regimes. |
-| **HIGH** | Run signal portfolio pipeline end-to-end | None | Cluster 55 tokens by signal profile, generate IC-weighted composite strategies, optimize, backtest |
+| **HIGH** | Monitor 21 paper trading pools for 50+ trades | Time | 21 pools running (PID 283875). Oldest (s58) at tick 78, newest (4-edge-conv, super5-conv) at tick 3. Need 1-4 weeks. |
+| **HIGH** | Evaluate conviction scoring paper results | Time + trades | 4-edge-conv (ranked) and super5-conv (hybrid) deployed. Compare vs shuffle counterparts (4-edge, super5-dyn). |
 | **MED** | Dashboard GH Pages CDN stale cache | Mirror sync delay | Gitea→GitHub mirror not propagating gh-pages changes fast enough |
 | **MED** | Hyperliquid data gap | No spot data | Only 23 perp tokens (Aug 2025-Mar 5), no spot. s57 can't run on HL. Not worth building fetcher yet. |
-| **LOW** | s33 strategy investigation | None | -15.1% P&L, 27% win rate. Low priority — V4 approach preferred over fixing individual V3 strategies. |
+| **LOW** | Run signal portfolio pipeline end-to-end | None | Cluster 55 tokens by signal profile, generate IC-weighted composite strategies, optimize, backtest |
 
 ### Blocked
 
@@ -96,32 +103,59 @@
 
 ---
 
-## Strategy Tiers (March 10, 2026)
+## Strategy Tiers (March 12, 2026)
 
-### V4 Production (portfolio-level, paper trading)
+### V4 Paper Trading — 21 Pools Active (PID 283875)
 
-| Strategy | V4 12mo Return | V4 Sharpe | OOS (Jan-Mar) | Paper Status |
-|----------|---------------|-----------|---------------|--------------|
-| **s58 (s56+s57)** | **+1717%** | **7.29** | **+66%** | **Live (fresh Mar 10)** |
-| s56 signal_enhanced_momentum | Component of s58 | — | +$72K | Via s58 |
-| s57 signal_timed_turbo_carry | Component of s58 | — | +$60K | Via s58 |
+| Pool | Strategies | Tick | Equity | MTM | Status |
+|------|-----------|------|--------|-----|--------|
+| s58 | s56+s57 | 78 | $198,546 | $198,962 | Running since Mar 10 |
+| s60 | s60 | 73 | $202,004 | $195,752 | Running |
+| s58+s60 | s56+s57+s60 | 73 | $199,325 | $195,883 | Running |
+| s58+s62 | s56+s57+s62 | 57 | $205,418 | $206,780 | Running |
+| s58+s63 | s56+s57+s63 | 50 | $201,887 | $203,395 | Running |
+| s58+s65 | s56+s57+s65 | 49 | $204,483 | $210,167 | **Best MTM: +5.1%** |
+| s58+s59 | s56+s57+s59 | 46 | $199,738 | $200,297 | Running |
+| 4-edge | s56+s57+s63+s65 | 46 | $200,461 | $210,833 | **Best MTM: +5.4%** |
+| s69 | s56_time_trail | 18 | $199,991 | $200,439 | Running |
+| s58+s69 | s56+s57+s69 | 18 | $199,951 | $200,367 | Running |
+| s72 | s65_time_trail | 17 | $200,362 | $202,091 | Running |
+| s58+s72 | s56+s57+s72 | 17 | $200,362 | $202,091 | Running |
+| s58+s75 | s56+s57+s75 | 15 | $204,936 | $205,473 | Running |
+| s76 | partial_tp | 13 | $199,991 | $200,439 | Running |
+| s58+s76 | s56+s57+s76 | 13 | $199,951 | $200,367 | Running |
+| 4-edge+ptp | s56+s57+s63+s65+ptp | 11 | $200,210 | $205,107 | Running |
+| s80+s81 | xsec_mom+sector_rot | 6 | $199,923 | $201,093 | Running |
+| s80+s81-dyn | s80+s81 dynamic weights | 4 | $199,923 | $201,093 | DOWNTREND: w=1.0/1.0 |
+| super5-dyn | s57+s60+s63+s80+s81 dyn | 4 | $199,914 | $201,264 | Dynamic weights active |
+| 4-edge-conv | 4-edge + conviction ranked | 3 | $200,163 | $200,261 | **NEW: conviction ranked** |
+| super5-conv | super5 + conviction hybrid | 2 | $199,904 | $199,065 | **NEW: conviction hybrid** |
 
-### V4 Validated (passed V4 gates, ready for paper trading)
+### V4 Production Components
 
-| Strategy | V4 12mo | V4 Sharpe | OOS Jan-Mar | Market | Gate Status |
-|----------|---------|-----------|-------------|--------|-------------|
-| **s59 funding_mean_rev_v4** | **+633%** | **3.83** | **+33.5% (3/3 months positive)** | **perp** | **V4-Gate 5 conditional pass → Gate 6** |
-| **s63 vol_spike_reversal_v4** | **+441% (solo) / +1017% (w/s58)** | **3.94 (solo) / 7.48 (w/s58)** | **TBD** | **perp** | **V4-Gate 5 PASS → Gate 6 (paper trading)** |
+| Strategy | V4 12mo Return | V4 Sharpe | OOS (Jan-Mar) | Role |
+|----------|---------------|-----------|---------------|------|
+| **s56** signal_enhanced_momentum | Component of s58 | — | +$72K | Momentum (spot+perp) |
+| **s57** signal_timed_turbo_carry | Component of s58 | — | +$60K | Carry (combined) |
+| **s60** momentum_burst_perp_v4 | +3157% | 5.2 | +157% | Perp momentum (bidirectional) |
+| **s62** conservative_funding_carry | +269% | 3.1 | +50% | Funding carry |
+| **s63** vol_spike_reversal_v4 | +441% solo | 3.94 | TBD | Counter-trend |
+| **s65** funding_carry_v4 | +1217% (w/s58) | 8.52 | TBD | Funding carry complement |
+| **s80** xsec_momentum | New | — | — | Cross-sectional ranking |
+| **s81** sector_rotation | New | — | — | Sector momentum |
 
-### V4 Candidates (strong in V4 sweep, not yet in portfolio)
+### V4 Overlays & Variants
 
-| Strategy | V4 12mo | OOS | March PnL | Market | Notes |
-|----------|---------|-----|-----------|--------|-------|
-| s28 momentum_burst_perp | +3157% | +157% | +$15.2K | perp | Best overall but failed V3 gate |
-| s27 funding_mean_rev | — | — | +$16.2K | perp | Best March performer, failed V3 |
-| s51 regime_momentum | +238% | — | +$14.3K | perp | Regime-gated shorts |
-| s25 vol_spike_reversal | — | +67% | +$8.4K | perp | Vol spikes both directions |
-| s29 funding_carry | +269% | +50% | +$8.1K | perp | Regime-stable, near-zero corr |
+| Strategy | Base | Overlay | Paper Pool |
+|----------|------|---------|------------|
+| s69 | s56 | time_trail | s69, s58+s69 |
+| s72 | s65 | time_trail | s72, s58+s72 |
+| s75 | s63 | fixed_tp=3.0 | s58+s75 |
+| s76 | s56 | partial_tp | s76, s58+s76 |
+| s80+s81-dyn | s80+s81 | dynamic regime weights | s80+s81-dyn |
+| super5-dyn | s57+s60+s63+s80+s81 | dynamic regime weights | super5-dyn |
+| 4-edge-conv | s56+s57+s63+s65 | conviction ranked | 4-edge-conv |
+| super5-conv | s57+s60+s63+s80+s81 | conviction hybrid | super5-conv |
 
 ### V3 Tier A (>50% per-token validation rate)
 
@@ -299,6 +333,14 @@
 35. **PAPER TRADING: VVV concentration risk.** VVV accounts for 5 of 15 closed trades and +$6,356 of the +$620 net realized PnL. Without VVV, the portfolio would be -$5,736 on realized trades. Single-token dependency is a concern — need to monitor whether this is VVV-specific alpha or broad strategy alpha.
 
 36. **Fixed TP at 3x ATR is optimal for counter-trend (s63).** Submission 4 (s75) passed Gate 5O: Calmar +17.6%, Return +18.5%, Sharpe +7.8% solo; +31.4% return in s58 combo. Mean reversion trades have a natural profit cap — price reverts to the mean but rarely overshoots. Trail-only exits (target_mult=999) give back gains when the original trend resumes. TP at 3x ATR captures 264 trades (11.8%) that would otherwise trail back to loss. Avg winner INCREASES +22.7% because TP locks in gains the trail would return. Deployed to paper trading as s58+s75 pool.
+
+38. **Conviction-based entry scoring eliminates seed sensitivity.** Ranked mode (pure conviction ordering) produces 0% return variation across 10 seeds — fully deterministic. Hybrid mode (3 tiers, shuffle within) has ~3% variation. On diverse multi-strategy portfolios (4-edge, super5), conviction scoring improves Calmar +59-281% and DD by up to -67%. However, results are NOT universal: solo strategies and some 2-strategy combos regress. Deployed selectively: 4-edge-conv (ranked), super5-conv (hybrid).
+
+39. **Dynamic regime-weighted allocation works for multi-strategy portfolios.** super5-dyn (5-strategy dynamic) improved return +28% over static allocation in backtest. Regime weights shift capital toward strategies that perform well in current BTC regime (DOWNTREND currently: s80=0.79, s81=0.80, s57=1.20, s60=1.44, s63=0.77). s80+s81-dyn uses equal weights (1.0/1.0) since both perform similarly across regimes.
+
+40. **s80 cross-sectional momentum + s81 sector rotation add genuine diversification.** Both are V4-native strategies using perps. Different edge families (cross-token ranking, sector narrative) vs per-token signals. Paper trading started Mar 12.
+
+41. **Regime blocks explain non-redeployment of older strategies.** s58 and older pools showing 0 entries is correct behavior: 29 tokens in DOWNTREND, s56's REGIME_SIZE=0.0 completely blocks entries. s57 carry can still enter but needs specific basis conditions. Not a bug.
 
 37. **Funding-aware exit overlay KILLED — funding drag is not addressable via exit timing.** Submission 1 (s73/s74) tested 7 thresholds (0.01%–0.5%) on s56 and s60. Calmar degrades at EVERY threshold. Root cause: funding costs are only 1.2% of total PnL in 12-month backtests. The paper trading finding F31 (67% of PnL consumed by funding) was a small-sample artifact (15 trades, sideways March). More fundamentally, high-funding tokens (ARC, PIPPIN) produce the biggest winners AND losers — a funding-based exit can't discriminate direction. The engine capability (`funding_exit_threshold`) is preserved for potential future use but has no viable threshold on current strategies.
 
