@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-generated-at="2026-03-12T21:06:02Z" data-source="runner" data-pools="21">
+<html lang="en" data-generated-at="2026-03-12T21:08:21Z" data-source="runner" data-pools="21">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -19,10 +19,16 @@ body { font-family:-apple-system,'Segoe UI',system-ui,sans-serif; background:#0a
 .stale-banner { background:#5c0a0a; border:1px solid #f85149; color:#f85149; padding:8px 20px; font-size:0.85em; font-weight:600; display:none; }
 .stale-banner.visible { display:block; }
 
-.sim-tabs { display:flex; gap:4px; padding:8px 20px; background:#0d1117; border-bottom:1px solid #21262d; }
-.stab { padding:6px 14px; border-radius:6px; cursor:pointer; background:transparent; color:#484f58; border:1px solid transparent; font-size:0.8em; transition:all 0.15s; }
-.stab:hover { color:#c9d1d9; background:#161b22; }
-.stab.active { background:#1f6feb; color:#fff; font-weight:600; }
+.sim-tabs { display:flex; flex-wrap:wrap; gap:6px; padding:10px 20px; background:#0d1117; border-bottom:1px solid #21262d; }
+.stab { padding:8px 14px; border-radius:8px; cursor:pointer; background:#161b22; color:#c9d1d9; border:1px solid #21262d; font-size:0.8em; transition:all 0.15s; min-width:140px; }
+.stab:hover { border-color:#30363d; background:#1c2128; }
+.stab.active { background:#1f6feb; color:#fff; font-weight:600; border-color:#1f6feb; }
+.stab .tab-name { font-weight:600; margin-bottom:3px; white-space:nowrap; }
+.stab .tab-meta { display:flex; gap:8px; font-size:0.85em; opacity:0.8; white-space:nowrap; }
+.stab .tab-pnl { font-weight:700; }
+.stab .tab-pnl.pos { color:#3fb950; } .stab.active .tab-pnl.pos { color:#a5f3c0; }
+.stab .tab-pnl.neg { color:#f85149; } .stab.active .tab-pnl.neg { color:#ffa198; }
+.stab .tab-days { color:#8b949e; } .stab.active .tab-days { color:rgba(255,255,255,0.7); }
 
 .kpi-row { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:8px; padding:12px 20px; }
 .kpi { background:#161b22; border:1px solid #21262d; border-radius:6px; padding:10px; }
@@ -71,7 +77,7 @@ tr.trade-row { cursor:pointer; }
 
 <div class="header">
     <h1>Paper Trading Dashboard V2</h1>
-    <div class="meta">Updated: 2026-03-12 21:06 UTC</div>
+    <div class="meta">Updated: 2026-03-12 21:08 UTC</div>
 </div>
 <div class="stale-banner" id="stale-banner">
     Data is stale — last update was more than 2 hours ago. Check paper trading engine.
@@ -99,9 +105,28 @@ const fmtPrice = v => {if(!v) return '-'; if(v>=1000) return '$'+v.toLocaleStrin
 
 /* ---- Tabs ---- */
 function renderTabs() {
-    document.getElementById('sim-tabs').innerHTML = SIMS.map((s,i) =>
-        `<div class="stab ${i===activeSim?'active':''}" onclick="switchSim(${i})">${s.name}</div>`
-    ).join('');
+    document.getElementById('sim-tabs').innerHTML = SIMS.map((s,i) => {
+        const eh = s.equity_history||[];
+        const cap = s.capital||200000;
+        const mtm = eh.length > 0 ? eh[eh.length-1].mark_to_market_equity : (s.portfolio_equity||cap);
+        const pnlPct = cap > 0 ? (mtm - cap) / cap * 100 : 0;
+        const pnlStr = (pnlPct >= 0 ? '+' : '') + pnlPct.toFixed(1) + '%';
+        const pnlCls = pnlPct >= 0 ? 'pos' : 'neg';
+        let daysStr = '';
+        if (eh.length > 0) {
+            const first = new Date(eh[0].timestamp);
+            const days = Math.max(0, Math.floor((Date.now() - first.getTime()) / 86400000));
+            daysStr = days + 'd';
+        }
+        return `<div class="stab ${i===activeSim?'active':''}" onclick="switchSim(${i})">
+            <div class="tab-name">${s.name}</div>
+            <div class="tab-meta">
+                <span class="tab-pnl ${pnlCls}">${pnlStr}</span>
+                <span>$${(mtm/1000).toFixed(1)}k</span>
+                ${daysStr ? `<span class="tab-days">${daysStr}</span>` : ''}
+            </div>
+        </div>`;
+    }).join('');
 }
 function switchSim(i) { activeSim=i; renderTabs(); render(); }
 
