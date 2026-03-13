@@ -183,6 +183,9 @@ def fetch_all_data(fetcher, all_configs: list[PaperConfig]) -> tuple[int, int, i
 def push_combined_dashboard(configs: list[PaperConfig]) -> None:
     """Generate dashboard with all portfolios as tabs and push to gh-pages."""
     try:
+        import importlib
+        import tools.generate_dashboard_v2 as _dash_mod
+        importlib.reload(_dash_mod)
         from tools.generate_dashboard_v2 import (
             build_sims_from_state_dir, generate_html, push_to_ghpages,
         )
@@ -351,6 +354,8 @@ def main(argv: list[str] | None = None) -> None:
     signal.signal(signal.SIGINT, shutdown_handler)
     signal.signal(signal.SIGTERM, shutdown_handler)
     signal.signal(signal.SIGUSR1, refresh_handler)
+
+
 
     portfolio_names = [c.pool_name for c in configs]
     logger.info(

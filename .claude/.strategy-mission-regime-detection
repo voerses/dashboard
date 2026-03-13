@@ -1,0 +1,286 @@
+status: active
+goal: Research and improve regime detection. Current logic uses single-token ADX+EMA+vol on daily bars. Investigate whether a basket of tokens, stablecoin volume, on-chain signals, or other methods produce faster/more accurate regime identification.
+started: 2026-03-13
+type: research
+baseline:
+  current_method: detect_daily_regime() in v3/engine.py lines 224-258
+  indicators: ADX(14), EMA(20), EMA(50), rolling vol(20d)
+  states: 5 (CRISIS=0, QUIET=1, UPTREND=2, RANGE=3, DOWNTREND=4)
+  thresholds: CRISIS vol>p75*2.0, QUIET vol<p25*0.7, TREND ADX>25+EMA cross
+  scope: per-token (each token gets its own regime independently)
+  usage: 60 strategies reference regime for gating, exit, or sizing
+  known_issue: BTC 100% DOWNTREND since Feb 2026 but many altcoins diverge
+done_when: |
+  1. Documented strengths and weaknesses of current regime detection
+  2. Tested at least 3 alternative regime detection methods
+  3. Measured regime detection quality: transition speed, false positive rate,
+     stability (no flip-flopping), and downstream strategy performance
+  4. Identified whether a basket/composite is better than per-token detection
+  5. Recommendation: keep current, replace, or add as secondary regime signal
+  6. If replacement identified: backtest s56+s57 with new regime and compare
+kill_criteria: |
+  1. No alternative beats current regime on downstream strategy Calmar
+  2. All alternatives have worse transition speed (detect regimes later)
+  3. Regime changes don't materially affect portfolio performance (<2% Calmar delta)
+notes: |
+
+  ======================================================================
+    REGIME DETECTION RESEARCH MISSION
+    Started: 2026-03-13
+  ======================================================================
+
+  === WHY THIS MATTERS ===
+
+  Regime detection is the foundation of the entire strategy stack:
+  - s56 sizes 0x in DOWNTREND, 3x in UPTREND (all-or-nothing)
+  - s57 sizes 0x in CRISIS, 6x in UPTREND
+  - 60 strategies use regime for gating, exit, or sizing
+  - A 1-day faster regime transition = enter/exit 24 bars earlier
+
+  Current pain points discovered:
+  - BTC has been 100% DOWNTREND since Feb 2026, but many altcoins are in
+    RANGE/QUIET/UPTREND. Per-token regime diverges from "market regime."
+  - s56 is fully blocked in DOWNTREND but still finds 45-54 trades/month
+    on tokens whose per-token regime is non-DT. This suggests the per-token
+    regime is working (not just BTC-driven).
+  - Regime transitions are slow: ADX(14) on daily bars = ~2-week lag.
+    By the time DOWNTREND is detected, the move is often half over.
+  - No regime for "RECOVERY" or "BOTTOM" — transitions go straight from
+    DOWNTREND to RANGE to UPTREND, missing the early bounce phase.
+
+  === CURRENT IMPLEMENTATION DETAIL ===
+
+  File: v3/engine.py, detect_daily_regime(ind_d), lines 224-258
+
+  ```
+  vol_p75 = expanding_quantile(vol_20, 0.75, min_periods=60)
+  vol_p25 = expanding_quantile(vol_20, 0.25, min_periods=60)
+
+  CRISIS    = vol_20 > vol_p75 * 2.0
+  QUIET     = vol_20 < vol_p25 * 0.7
+  UPTREND   = (ADX > 25) & (EMA20 > EMA50)
+  DOWNTREND = (ADX > 25) & (EMA20 <= EMA50)
+  RANGE     = default (everything else)
+  ```
+
+  Applied on DAILY bars, forward-filled to 1H bars.
+  Per-token: each token gets its own regime independently.
+  First 20 bars always RANGE (insufficient history).
+
+  Strengths:
+  - Causal (expanding percentiles, no look-ahead)
+  - Simple, fast, interpretable
+  - Per-token captures altcoin divergence from BTC
+  - ADX threshold (25) is well-established for trend strength
+
+  Weaknesses:
+  - SLOW transition: daily bars + ADX(14) + EMA(20/50) = multi-week lag
+  - Binary trend detection: ADX > 25 is on/off, no gradient
+  - No RECOVERY state: can't distinguish early bounce from continued down
+  - Vol-based CRISIS/QUIET use expanding percentiles which adapt very slowly
+    to structural vol regime changes (e.g., post-ETF vol compression)
+  - Per-token misses market-wide regime shifts that affect correlation structure
+  - EMA cross is a lagging indicator by definition
+
+  === RESEARCH DIRECTIONS ===
+
+  R1. BASKET/COMPOSITE REGIME DETECTION
+  ──────────────────────────────────────
+  Instead of per-token regime, detect regime from a basket of tokens.
+
+  Ideas:
+  a) BTC-weighted composite: BTC dominance * BTC regime + (1-dom) * altcoin median
+  b) Top-10 market cap basket: aggregate regime across top 10 tokens
+  c) Sector-weighted: compute regime per sector (L1, DeFi, Meme, AI),
+     use sector regime for tokens in that sector
+  d) Correlation-based: when cross-token correlation spikes → CRISIS,
+     when correlation drops → QUIET/RANGE
+  e) Breadth indicator: % of tokens above their 50-day EMA
+     >70% = UPTREND, <30% = DOWNTREND, 30-70% = RANGE
+
+  Questions:
+  - Does a basket detect regime changes FASTER than per-token?
+  - Does a basket reduce flip-flopping (false regime transitions)?
+  - Should basket regime REPLACE per-token or be a SECONDARY signal?
+
+  R2. STABLECOIN/VOLUME-BASED REGIME
+  ──────────────────────────────────────
+  Stablecoin flows and volume patterns as regime indicators.
+
+  Ideas:
+  a) USDT/USDC market cap changes: growing = inflow (bullish), shrinking = outflow
+  b) Stablecoin dominance: stablecoin mcap / total crypto mcap
+     Rising dominance = risk-off (DOWNTREND/CRISIS)
+     Falling dominance = risk-on (UPTREND)
+  c) Exchange stablecoin reserves: rising = dry powder (accumulation)
+  d) Volume regime: aggregate exchange volume vs rolling average
+     High volume + price up = UPTREND confirmation
+     High volume + price down = CRISIS/capitulation
+     Low volume = QUIET
+  e) Spot vs derivatives volume ratio: high derivatives = speculative (fragile)
+  f) Funding rate aggregate: market-wide funding rate as sentiment proxy
+     Persistently positive = retail long bias (bull), negative = bear
+
+  Data availability:
+  - We already have per-token volume in OHLCV data
+  - Funding rates available for perp tokens
+  - Stablecoin data would need new data pipeline (CoinGecko/CMC API)
+
+  R3. FASTER REGIME DETECTION (same indicators, better method)
+  ──────────────────────────────────────
+  Keep current indicators but detect transitions faster.
+
+  Ideas:
+  a) 4H bars instead of daily: 6x faster regime updates
+  b) Shorter EMAs: EMA(8)/EMA(21) instead of EMA(20)/EMA(50)
+  c) ADX threshold gradient: instead of binary ADX>25, use
+     strength = max(0, ADX-15) / 35 for continuous trend score
+  d) Rate-of-change: detect regime TRANSITIONS (acceleration) not just states
+     ΔVolatility > threshold = entering CRISIS (before vol reaches extreme)
+  e) Multi-timeframe confirmation: 4H regime + daily regime + weekly regime
+     All agree = high confidence. Divergence = RANGE.
+  f) Kalman filter on regime probability: smooth regime assignments,
+     reduce flip-flopping, allow gradual transitions
+
+  R4. MARKET MICROSTRUCTURE REGIME
+  ──────────────────────────────────────
+  Structural market indicators beyond price/volume.
+
+  Ideas:
+  a) Bid-ask spread regime: widening spreads = CRISIS, tight = QUIET
+  b) Order book depth: thin books = fragile (vol spike risk)
+  c) Liquidation cascades: large liquidation events as CRISIS trigger
+  d) Open interest: rising OI + rising price = UPTREND confirmation
+     Rising OI + falling price = forced selling (DOWNTREND)
+  e) ETF flows (we have this data): sustained inflows = macro UPTREND
+
+  Data availability:
+  - ETF flow data available (tools/fetch_etf_flows.py)
+  - Open interest available from some exchange APIs
+  - Bid-ask/depth would need new data pipeline
+
+  R5. HIDDEN MARKOV MODEL / STATISTICAL REGIME
+  ──────────────────────────────────────
+  Replace rule-based regime with statistical model.
+
+  Ideas:
+  a) 2-3 state HMM on returns: let the model learn regime boundaries
+  b) Gaussian mixture on (return, vol, volume): cluster into regimes
+  c) Change-point detection (PELT algorithm): detect structural breaks
+  d) Rolling PCA on cross-token returns: PC1 magnitude = trend regime,
+     PC2 = sector rotation, explained variance = correlation regime
+
+  Trade-offs:
+  - More adaptive to changing market structure
+  - Risk of overfitting to training data
+  - Harder to interpret (what does "state 2" mean?)
+  - Need walk-forward validation to avoid look-ahead
+
+  R6. HYBRID: MARKET REGIME + TOKEN REGIME
+  ──────────────────────────────────────
+  Use a GLOBAL market regime (from basket/composite) as context,
+  and PER-TOKEN regime for fine-grained entry decisions.
+
+  Ideas:
+  a) Two-layer: global_regime gates strategy activation, token_regime gates entries
+     - Global CRISIS → all strategies reduce size
+     - Global UPTREND + token UPTREND → full size
+     - Global UPTREND + token DOWNTREND → reduced size (laggard)
+  b) Conditional regime: token regime is weighted by agreement with global
+     - Token in UPTREND + market in UPTREND → high confidence UPTREND
+     - Token in UPTREND + market in DOWNTREND → low confidence (divergence)
+  c) Regime strength = agreement score across N tokens
+     - 90% tokens in UPTREND → strong UPTREND regime
+     - 60% tokens in UPTREND → weak/transitioning UPTREND
+
+  === EVALUATION METHODOLOGY ===
+
+  For each alternative regime method:
+
+  1. REGIME QUALITY METRICS
+     - Transition speed: how many bars before detecting a known regime change?
+       Compare vs current method on historical turning points.
+     - Stability: regime flip-flop rate (changes per month). Lower = better.
+     - Coverage: % of bars assigned to actionable regimes (not just RANGE).
+     - Regime P&L separation: do different regimes actually have different
+       strategy performance? Measure PF/Sharpe per regime.
+
+  2. DOWNSTREAM STRATEGY IMPACT
+     - Run s56 with current regime vs alternative → compare Calmar, DD, trades
+     - Run s57 with current regime vs alternative → compare
+     - Run s56+s57 combo → does the alternative regime help them coexist better?
+     - Check: does faster regime detection actually improve returns, or does
+       it cause more false transitions that hurt?
+
+  3. ROBUSTNESS
+     - Walk-forward: train regime parameters on 2020-2024, test on 2024-2026
+     - Sensitivity: +/-20% on thresholds → how much do metrics change?
+     - Cross-token: does the method work across all 138 tokens or only majors?
+
+  === IMPLEMENTATION PLAN ===
+
+  Phase 1: Characterize Current Regime (< 1 hour)
+  - Compute regime statistics across all tokens and time periods
+  - Map historical turning points (crashes, rallies, ETF approval)
+  - Measure current method's transition speed on known events
+  - Identify worst-case flip-flop periods
+
+  Phase 2: Quick Wins — Faster Detection (< 1 hour)
+  - R3 options: test 4H bars, shorter EMAs, ADX gradient
+  - These don't need new data, just parameter changes
+  - Backtest s56 with each variant, compare vs current
+
+  Phase 3: Basket/Breadth Regime (< 2 hours)
+  - R1 options: breadth indicator, sector composite
+  - Build from existing data (no new fetchers needed)
+  - Compare transition speed vs per-token regime
+
+  Phase 4: Volume/Funding Regime (< 1 hour)
+  - R2 options using existing volume and funding data
+  - Aggregate funding rate as market sentiment proxy
+  - Volume regime from existing OHLCV data
+
+  Phase 5: Statistical Methods (< 2 hours, if Phase 2-4 show promise)
+  - R5 options: HMM, change-point detection
+  - Only pursue if simpler methods don't improve enough
+
+  Phase 6: Hybrid Implementation (< 1 hour)
+  - R6: combine best global regime with per-token regime
+  - Backtest the combined approach on s56+s57 portfolio
+
+  Phase 7: Recommendation & Deployment
+  - Summarize findings in evaluation grid
+  - If improvement found: implement, backtest, deploy to paper trading
+  - If no improvement: document why current method is sufficient
+
+  === DATA AVAILABLE ===
+
+  Already have:
+  - 1H OHLCV for 116 spot tokens, 138 perp tokens (2020-2026)
+  - Per-token funding rates (perp tokens, 1H)
+  - ETF flow data (BTC+ETH, daily, Dec 2024-Mar 2026)
+  - Per-token regime arrays (current method)
+  - Volume data embedded in OHLCV
+
+  Would need to build:
+  - Stablecoin market cap/dominance data pipeline
+  - Open interest data pipeline
+  - Cross-exchange aggregate volume
+
+  === FILES TO EXAMINE ===
+
+  - v3/engine.py (lines 224-258): detect_daily_regime()
+  - v3/engine.py (lines 75-80): regime constants
+  - v3/regime_analysis.py: regime performance analysis
+  - v4/signals.py (line 320, 330): regime propagation to V4
+  - v4/dynamic_weights.py: regime-weighted allocation
+  - strategies/s56_signal_enhanced_momentum.py: REGIME_SIZE usage
+  - strategies/s57_signal_timed_turbo_carry.py: REGIME_SIZE usage
+  - strategies/s32_regime_spot_perp.py: core regime strategy
+
+  === EXCLUDED DIRECTIONS ===
+
+  - Changing regime constants/naming (cosmetic, no value)
+  - Sentiment analysis from social media (no data pipeline, out of scope)
+  - On-chain analysis (no data pipeline, out of scope for now)
+  - Real-time regime (paper trading already re-computes each tick)

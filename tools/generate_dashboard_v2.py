@@ -324,7 +324,7 @@ def generate_html(sims_data: list[dict], source: str = "manual") -> str:
                 Used by push_to_ghpages staleness guard to prevent manual pushes
                 from overwriting runner-generated dashboards.
     """
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     # Slim down data for embedding
     slim = json.loads(json.dumps(sims_data, default=str))
@@ -427,7 +427,7 @@ tr.trade-row {{ cursor:pointer; }}
 
 <div class="header">
     <h1>Paper Trading Dashboard V2</h1>
-    <div class="meta">Updated: {now}</div>
+    <div class="meta" id="hdr-time">Updated: {now_iso}</div>
 </div>
 <div class="stale-banner" id="stale-banner">
     Data is stale — last update was more than 2 hours ago. Check paper trading engine.
@@ -437,7 +437,9 @@ tr.trade-row {{ cursor:pointer; }}
 
 <script>
 const SIMS = {data_json};
-let activeSim = 0;
+let activeSim = (() => {{const h=decodeURIComponent(location.hash.slice(1)); if(!h) return 0; const i=SIMS.findIndex(s=>s.name===h); return i>=0?i:0;}})();
+/* Convert header time to user locale */
+{{const el=document.getElementById('hdr-time');if(el){{const m=el.textContent.match(/Updated:\\s*(.+)/);if(m){{const d=new Date(m[1]);if(!isNaN(d))el.textContent='Updated: '+d.toLocaleString();}}}}}}
 
 const DK = {{
     paper_bgcolor:'transparent', plot_bgcolor:'transparent',
@@ -478,7 +480,7 @@ function renderTabs() {{
         </div>`;
     }}).join('');
 }}
-function switchSim(i) {{ activeSim=i; renderTabs(); render(); }}
+function switchSim(i) {{ activeSim=i; location.hash=encodeURIComponent(SIMS[i].name); renderTabs(); render(); }}
 
 /* ---- Imbalance color ---- */
 function imbClass(pct) {{
@@ -626,7 +628,7 @@ function render() {{
         <h2>Trade Log</h2>
         <div class="frow">
             <div class="fb active" onclick="setF(this,'open')">Open (${{nOpen}})</div>
-            <div class="fb" onclick="setF(this,'all')">All (${{nT}})</div>
+            <div class="fb" onclick="setF(this,'all')">All (${{trades.length}})</div>
             <div class="fb" onclick="setF(this,'winners')">Winners (${{nW}})</div>
             <div class="fb" onclick="setF(this,'losers')">Losers (${{nT-nW}})</div>
         </div>
