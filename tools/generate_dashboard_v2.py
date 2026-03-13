@@ -807,6 +807,20 @@ function drawEquity() {{
 
 renderTabs();
 render();
+
+/* ---- Auto-refresh: poll for new dashboard version every 60s ---- */
+(function() {{
+    const cur = document.documentElement.getAttribute('data-generated-at');
+    if (!cur) return;
+    setInterval(async () => {{
+        try {{
+            const r = await fetch(location.href, {{cache:'no-store'}});
+            const txt = await r.text();
+            const m = txt.match(/data-generated-at="([^"]+)"/);
+            if (m && m[1] !== cur) location.reload();
+        }} catch(e) {{}}
+    }}, 60000);
+}})();
 </script>
 </body>
 </html>"""

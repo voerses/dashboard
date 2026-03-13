@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-generated-at="2026-03-13T11:09:29Z" data-source="runner" data-pools="21">
+<html lang="en" data-generated-at="2026-03-13T11:35:12Z" data-source="runner" data-pools="21">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -78,7 +78,7 @@ tr.trade-row { cursor:pointer; }
 
 <div class="header">
     <h1>Paper Trading Dashboard V2</h1>
-    <div class="meta" id="hdr-time">Updated: 2026-03-13T11:09:29Z</div>
+    <div class="meta" id="hdr-time">Updated: 2026-03-13T11:35:12Z</div>
 </div>
 <div class="stale-banner" id="stale-banner">
     Data is stale — last update was more than 2 hours ago. Check paper trading engine.
@@ -458,6 +458,20 @@ function drawEquity() {
 
 renderTabs();
 render();
+
+/* ---- Auto-refresh: poll for new dashboard version every 60s ---- */
+(function() {
+    const cur = document.documentElement.getAttribute('data-generated-at');
+    if (!cur) return;
+    setInterval(async () => {
+        try {
+            const r = await fetch(location.href, {cache:'no-store'});
+            const txt = await r.text();
+            const m = txt.match(/data-generated-at="([^"]+)"/);
+            if (m && m[1] !== cur) location.reload();
+        } catch(e) {}
+    }, 60000);
+})();
 </script>
 </body>
 </html>
