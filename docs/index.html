@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-generated-at="2026-03-13T10:48:17Z" data-source="runner" data-pools="21">
+<html lang="en" data-generated-at="2026-03-13T10:53:07Z" data-source="runner" data-pools="21">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -78,7 +78,7 @@ tr.trade-row { cursor:pointer; }
 
 <div class="header">
     <h1>Paper Trading Dashboard V2</h1>
-    <div class="meta" id="hdr-time">Updated: 2026-03-13T10:48:17Z</div>
+    <div class="meta" id="hdr-time">Updated: 2026-03-13T10:53:07Z</div>
 </div>
 <div class="stale-banner" id="stale-banner">
     Data is stale — last update was more than 2 hours ago. Check paper trading engine.
@@ -279,7 +279,7 @@ function render() {
         <h2>Trade Log</h2>
         <div class="frow">
             <div class="fb active" onclick="setF(this,'open')">Open (${nOpen})</div>
-            <div class="fb" onclick="setF(this,'all')">All (${nT})</div>
+            <div class="fb" onclick="setF(this,'all')">All (${trades.length})</div>
             <div class="fb" onclick="setF(this,'winners')">Winners (${nW})</div>
             <div class="fb" onclick="setF(this,'losers')">Losers (${nT-nW})</div>
         </div>
