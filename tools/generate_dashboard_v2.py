@@ -625,8 +625,8 @@ function render() {{
     h += `<div class="sec">
         <h2>Trade Log</h2>
         <div class="frow">
-            <div class="fb active" onclick="setF(this,'all')">All (${{nT}})</div>
-            <div class="fb" onclick="setF(this,'open')">Open (${{nOpen}})</div>
+            <div class="fb active" onclick="setF(this,'open')">Open (${{nOpen}})</div>
+            <div class="fb" onclick="setF(this,'all')">All (${{nT}})</div>
             <div class="fb" onclick="setF(this,'winners')">Winners (${{nW}})</div>
             <div class="fb" onclick="setF(this,'losers')">Losers (${{nT-nW}})</div>
         </div>
@@ -661,13 +661,13 @@ function render() {{
     </div>`;
 
     document.getElementById('app').innerHTML = h;
-    renderTrades(trades, 'all');
+    renderTrades(trades, 'open');
     renderTokens(trades);
     setTimeout(() => drawEquity(), 0);
 }}
 
 /* ---- Filter ---- */
-let curFilter = 'all';
+let curFilter = 'open';
 function setF(el, f) {{
     curFilter = f;
     _tradeLimit = 50;
@@ -681,8 +681,8 @@ let _allFiltered = [];
 let _tradeLimit = 50;
 function renderTrades(trades, filter) {{
     let ft = trades;
-    if (filter==='winners') ft = trades.filter(t=>(t.pnl||0)>0);
-    else if (filter==='losers') ft = trades.filter(t=>(t.pnl||0)<=0);
+    if (filter==='winners') ft = trades.filter(t=>t.status!=='open'&&(t.pnl||0)>0);
+    else if (filter==='losers') ft = trades.filter(t=>t.status!=='open'&&(t.pnl||0)<=0);
     else if (filter==='open') ft = trades.filter(t=>t.status==='open');
     // Sort: open positions first, then by exit_bar desc
     _allFiltered = [...ft].sort((a,b)=>{{
