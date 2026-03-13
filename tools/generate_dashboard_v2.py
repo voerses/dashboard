@@ -491,8 +491,9 @@ function imbClass(pct) {{
 function render() {{
     const s = SIMS[activeSim];
     const trades = s.all_trades||[];
-    const nT = trades.length;
-    const nW = trades.filter(t=>(t.pnl||0)>0).length;
+    const closedTrades = trades.filter(t=>t.status!=='open');
+    const nT = closedTrades.length;
+    const nW = closedTrades.filter(t=>(t.pnl||0)>0).length;
     const wr = nT>0?(nW/nT*100):0;
     const totalPnl = s.realized_pnl !== undefined ? s.realized_pnl : trades.reduce((a,t)=>a+(t.pnl||0),0);
     const totalFees = s.total_fees || trades.reduce((a,t)=>a+(t.entry_fee||0)+(t.exit_fee||0),0);
@@ -751,7 +752,7 @@ function showMore() {{
 /* ---- Per-token table ---- */
 function renderTokens(trades) {{
     const m = {{}};
-    trades.forEach(t => {{
+    trades.filter(t=>t.status!=='open').forEach(t => {{
         const tk = t.token||'?';
         if(!m[tk]) m[tk]={{pnl:0,n:0,wins:0,fees:0,best:-Infinity,worst:Infinity}};
         const p = t.pnl||0;
