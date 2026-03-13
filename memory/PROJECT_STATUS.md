@@ -1,13 +1,14 @@
 # Project Status — crypto_backtest
 
-> **Last updated:** 2026-03-12T21:30Z
+> **Last updated:** 2026-03-13T22:00Z
 > **Process mode:** strategy (paper trading monitoring — Gate 6)
-> **Active:** V4 multi-portfolio paper trading: **21 pools**. Runner PID 283875.
+> **Active:** V4 multi-portfolio paper trading: **21 pools**. Runner PID 341250.
 > **Overlays deployed:** s69 (s56+time_trail), s72 (s65+time_trail), s75 (s63+fixed_tp=3.0), s76 (partial TP)
 > **Dynamic weights deployed:** s80+s81-dyn (regime-weighted), super5-dyn (5-strategy dynamic)
 > **Conviction scoring deployed:** 4-edge-conv (ranked mode), super5-conv (hybrid mode)
-> **All missions closed.** Profit-taking (4 submissions), dynamic weights, conviction scoring — all resolved.
-> **Next step:** Monitor 21 pools for 50+ trades each. Dashboard redesigned with per-tab metrics.
+> **Breakeven ratchet (BE=0.5 ATR):** Deployed universally to ALL strategies on 2026-03-13. Tested 16/16 portfolios improved (median +82% PnL, 15/16 DD improved). s83-BE/s84-BE removed (redundant).
+> **Missions:** Profit-taking (closed), dynamic weights (closed), conviction scoring (closed). **Regime-adaptive exits (ACTIVE)** — breakeven deployed, Chandelier/volume/acceleration/triple barrier still to test.
+> **Next step:** Monitor 21 pools for 50+ trades each. Comprehensive rankings saved to results/v4/portfolio_rankings.json.
 
 ---
 
@@ -69,6 +70,8 @@
 | Dashboard V2 Redesign | `tools/generate_dashboard_v2.py` | Tabs now show % P/L, equity, days running per portfolio. Supports 21 tabs with wrapping layout. |
 | Multi-Portfolio Expansion | `configs/multi_v4_paper.json` | 21 paper trading pools: 19 strategy combos + 2 conviction variants (4-edge-conv, super5-conv). |
 | Live Price Refresh (SIGUSR1) | `v4/run_paper_multi.py`, `v4/paper_engine.py` | `--refresh` sends SIGUSR1 to running process. Fetches live ticker prices for open positions, updates MTM + heartbeat, pushes dashboard. No tick/trading — just price view. ~22s for 21 pools. Usage: `python -m v4.run_paper_multi --config configs/multi_v4_paper.json --refresh` |
+| Breakeven Ratchet (universal) | `v3/engine.py`, `v4/signals.py`, `v4/position.py`, `v4/portfolio_signals.py`, `v4/paper_state.py` | `breakeven_atr` default changed from 0.0 to 0.5 across entire pipeline. After trade reaches +0.5 ATR, stop moves to entry price. Converts ~13.7% of losing trades to scratch. 16/16 portfolios improved (median PnL +82%, 15/16 DD improved). |
+| Portfolio Rankings Script | `v4/rank_all_portfolios.py` | Runs 4 separate backtests per strategy (months=60/12/3/1), each starting fresh at $200K. Ranked by % return. Saves to `results/v4/portfolio_rankings.json`. 28 strategies × 4 periods = 112 backtests. |
 
 ### Infrastructure Roadmap (Next Wave)
 
@@ -89,8 +92,10 @@
 
 | Priority | Item | Blocker | Notes |
 |----------|------|---------|-------|
-| **HIGH** | Monitor 21 paper trading pools for 50+ trades | Time | 21 pools running (PID 283875). Oldest (s58) at tick 78, newest (4-edge-conv, super5-conv) at tick 3. Need 1-4 weeks. |
+| **HIGH** | Monitor 21 paper trading pools for 50+ trades | Time | 21 pools running (PID 341250). Oldest (s58) at tick 107, newest (super5-conv) at tick 32. Need 1-3 weeks for 50+ trades on newer pools. |
 | **HIGH** | Evaluate conviction scoring paper results | Time + trades | 4-edge-conv (ranked) and super5-conv (hybrid) deployed. Compare vs shuffle counterparts (4-edge, super5-dyn). |
+| **DONE** | Breakeven ratchet universal deployment | — | Deployed 2026-03-13. Default breakeven_atr=0.5 across all strategies. 16/16 portfolios improved. s83-BE/s84-BE removed (redundant). |
+| **DONE** | Comprehensive portfolio rankings | — | 28 strategies ranked across 4 periods (all-time, 12mo, 3mo, 1mo). Each starts fresh at $200K. Saved to results/v4/portfolio_rankings.json. |
 | **MED** | Dashboard GH Pages CDN stale cache | Mirror sync delay | Gitea→GitHub mirror not propagating gh-pages changes fast enough |
 | **MED** | Hyperliquid data gap | No spot data | Only 23 perp tokens (Aug 2025-Mar 5), no spot. s57 can't run on HL. Not worth building fetcher yet. |
 | **LOW** | Run signal portfolio pipeline end-to-end | None | Cluster 55 tokens by signal profile, generate IC-weighted composite strategies, optimize, backtest |
@@ -106,31 +111,33 @@
 
 ## Strategy Tiers (March 12, 2026)
 
-### V4 Paper Trading — 21 Pools Active (PID 283875)
+### V4 Paper Trading — 21 Pools Active (PID 341250)
+
+Updated 2026-03-13. Breakeven ratchet (BE=0.5) deployed universally.
 
 | Pool | Strategies | Tick | Equity | MTM | Status |
 |------|-----------|------|--------|-----|--------|
-| s58 | s56+s57 | 78 | $198,546 | $198,962 | Running since Mar 10 |
-| s60 | s60 | 73 | $202,004 | $195,752 | Running |
-| s58+s60 | s56+s57+s60 | 73 | $199,325 | $195,883 | Running |
-| s58+s62 | s56+s57+s62 | 57 | $205,418 | $206,780 | Running |
-| s58+s63 | s56+s57+s63 | 50 | $201,887 | $203,395 | Running |
-| s58+s65 | s56+s57+s65 | 49 | $204,483 | $210,167 | **Best MTM: +5.1%** |
-| s58+s59 | s56+s57+s59 | 46 | $199,738 | $200,297 | Running |
-| 4-edge | s56+s57+s63+s65 | 46 | $200,461 | $210,833 | **Best MTM: +5.4%** |
-| s69 | s56_time_trail | 18 | $199,991 | $200,439 | Running |
-| s58+s69 | s56+s57+s69 | 18 | $199,951 | $200,367 | Running |
-| s72 | s65_time_trail | 17 | $200,362 | $202,091 | Running |
-| s58+s72 | s56+s57+s72 | 17 | $200,362 | $202,091 | Running |
-| s58+s75 | s56+s57+s75 | 15 | $204,936 | $205,473 | Running |
-| s76 | partial_tp | 13 | $199,991 | $200,439 | Running |
-| s58+s76 | s56+s57+s76 | 13 | $199,951 | $200,367 | Running |
-| 4-edge+ptp | s56+s57+s63+s65+ptp | 11 | $200,210 | $205,107 | Running |
-| s80+s81 | xsec_mom+sector_rot | 6 | $199,923 | $201,093 | Running |
-| s80+s81-dyn | s80+s81 dynamic weights | 4 | $199,923 | $201,093 | DOWNTREND: w=1.0/1.0 |
-| super5-dyn | s57+s60+s63+s80+s81 dyn | 4 | $199,914 | $201,264 | Dynamic weights active |
-| 4-edge-conv | 4-edge + conviction ranked | 3 | $200,163 | $200,261 | **NEW: conviction ranked** |
-| super5-conv | super5 + conviction hybrid | 2 | $199,904 | $199,065 | **NEW: conviction hybrid** |
+| s58 | s56+s57 | 107 | $201,203 | $200,109 | +0.6% realized |
+| s60 | s60 | 102 | $201,021 | $201,297 | +0.5% realized |
+| s58+s60 | s56+s57+s60 | 103 | $209,653 | $209,653 | **+4.8% realized** |
+| s58+s62 | s56+s57+s62 | 87 | $209,746 | $220,184 | **+10.1% MTM** |
+| s58+s63 | s56+s57+s63 | 80 | $204,027 | $201,741 | +2.0% realized |
+| s58+s65 | s56+s57+s65 | 79 | $214,973 | $224,549 | **+12.3% MTM** |
+| s58+s59 | s56+s57+s59 | 76 | $197,922 | $200,087 | -1.0% realized |
+| 4-edge | s56+s57+s63+s65 | 76 | $215,280 | $214,120 | **+7.6% realized** |
+| s69 | s56_time_trail | 48 | $202,443 | $202,124 | +1.2% realized |
+| s58+s69 | s56+s57+s69 | 48 | $202,647 | $202,104 | +1.3% realized |
+| s72 | s65_time_trail | 47 | $201,539 | $226,305 | **+13.2% MTM** |
+| s58+s72 | s56+s57+s72 | 47 | $201,540 | $226,313 | **+13.2% MTM** |
+| s58+s75 | s56+s57+s75 | 45 | $204,436 | $203,997 | +2.2% realized |
+| s76 | partial_tp | 43 | $202,123 | $201,806 | +1.1% realized |
+| s58+s76 | s56+s57+s76 | 43 | $202,012 | $200,714 | +1.0% realized |
+| 4-edge+ptp | s56+s57+s63+s65+ptp | 41 | $203,727 | $219,240 | **+9.6% MTM** |
+| s80+s81 | xsec_mom+sector_rot | 36 | $207,315 | $207,316 | +3.7% realized |
+| s80+s81-dyn | s80+s81 dynamic weights | 34 | $208,609 | $208,931 | +4.3% realized, DOWNTREND |
+| super5-dyn | s57+s60+s63+s80+s81 dyn | 34 | $208,200 | $211,820 | +4.1% realized |
+| 4-edge-conv | 4-edge + conviction ranked | 32 | $201,283 | $213,800 | +6.9% MTM |
+| super5-conv | super5 + conviction hybrid | 32 | $203,944 | $203,121 | +2.0% realized |
 
 ### V4 Production Components
 
@@ -272,6 +279,49 @@
 5. **Market-neutral carry unlocked:** s29 funding carry is the first genuinely market-neutral strategy (beta=0.0000, corr=+0.002). Harvests structural funding payments from retail long bias. 66/328 tokens validated (20.1%), but 91.2% pass rate among tokens with sufficient funding data. Mean MaxDD only -1.26%.
 
 6. **Combined spot+perp engine works:** Three combined strategies validated end-to-end through Gate 5. s30 basis carry has highest Calmar ever (12.76 mean, max DD -0.4%). s32 regime selection has highest validation rate (78.9%) with negative beta. Combined WF+CPCV validation pipeline fully operational for all three engine patterns (simultaneous, conditional, alternating legs).
+
+8. **Breakeven ratchet (BE=0.5 ATR) universally improves all strategies.** After trade reaches +0.5 ATR profit, stop moves to entry price. Converts ~13.7% of losing trades to scratch. Tested across 16/16 portfolios: median PnL +82%, 15/16 DD improved. Deployed as default on 2026-03-13. All strategies and paper trading pools now have breakeven enabled.
+
+9. **Comprehensive rankings (March 13, 2026, $200K fresh start per period):**
+
+   **ALL TIME (~5 years)** — Top 5:
+   | # | Name | Return | MaxDD |
+   |---|------|--------|-------|
+   | 1 | 4-edge-conv | +1,901,656% | -5.7% |
+   | 2 | 4-edge+ptp | +1,886,215% | -4.7% |
+   | 3 | s58+s65 | +1,836,961% | -6.3% |
+   | 4 | s58+s72 | +1,782,492% | -5.0% |
+   | 5 | 4-edge | +1,738,115% | -5.6% |
+
+   **LAST 12 MONTHS** — Top 5:
+   | # | Name | Return | MaxDD |
+   |---|------|--------|-------|
+   | 1 | s60 | +16,013% | -7.2% |
+   | 2 | s58+s60 | +12,956% | -4.2% |
+   | 3 | super5-dyn | +11,536% | -34.5% |
+   | 4 | super5-conv | +10,475% | -38.1% |
+   | 5 | 4-edge+ptp | +7,281% | -10.3% |
+
+   **LAST 3 MONTHS** — Top 5:
+   | # | Name | Return | MaxDD |
+   |---|------|--------|-------|
+   | 1 | s60 | +659% | -2.8% |
+   | 2 | super5-conv | +556% | -0.4% |
+   | 3 | super5-dyn | +450% | -4.4% |
+   | 4 | s58+s60 | +297% | -1.1% |
+   | 5 | s58+s65 | +273% | -0.5% |
+
+   **MARCH 2026** — Top 5:
+   | # | Name | Return | MaxDD |
+   |---|------|--------|-------|
+   | 1 | s60 | +109% | -0.7% |
+   | 2 | super5-dyn | +103% | -0.2% |
+   | 3 | super5-conv | +100% | -2.1% |
+   | 4 | s80+s81-dyn | +90% | -1.1% |
+   | 5 | s80+s81 | +90% | -1.1% |
+
+   Key insights: s60 dominates recent periods (1/3/12mo). 4-edge family leads all-time. super5 portfolios strong recently. All 28 strategies profitable across all 4 periods.
+   Full rankings: `results/v4/portfolio_rankings.json`.
 
 7. **Portfolio assembly (Gate 5.5) — UPDATED with trail progression overlays:** Previous allocation: s30(40%)+s32(25%)+s29(20%)+s11(15%), Sharpe ~4.4. **New optimal 4-strat portfolio:** s44(35%)+s29(30%)+s37(20%)+s32(15%). Combined Sharpe 6.53, MaxDD -2.2%. Trail overlays s44 and s37 replace base s30 and s11 respectively. Correlation structure: median pairwise +0.19, no pairs >0.7. s44 (delta-neutral carry + trail) is the anchor (Sharpe 5.80, final equity $8.5M on $200K). s29 has highest marginal Sharpe (+1.21) due to near-zero correlation with everything. Greedy forward selection adds all 4 strategies with positive cumulative improvement.
 

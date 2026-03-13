@@ -1199,6 +1199,14 @@ class StrategyResult:
     partial_tp_pct: float = 0.5
     partial_tp_trail: float = 1.5
 
+    # Breakeven ratchet: after trade reaches +breakeven_atr * ATR profit,
+    # move stop to entry price (breakeven). 0.0 = disabled.
+    breakeven_atr: float = 0.5
+
+    # Regime-conditional target: tighter TP in DOWNTREND regime.
+    # 0.0 = disabled (use target_mult everywhere). E.g., 1.5 = exit at 1.5 ATR in bear.
+    bear_target_mult: float = 0.0
+
     # Conviction score: per-bar signal strength in [0, 1] for entry prioritization.
     # When multiple strategies compete for capital, higher conviction entries are processed first.
     # None = auto-derive from size_multiplier (backward compatible).

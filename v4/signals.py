@@ -72,6 +72,10 @@ class TokenSignals:
     partial_tp_atr: float = 0.0
     partial_tp_pct: float = 0.5
     partial_tp_trail: float = 1.5
+    # Breakeven ratchet
+    breakeven_atr: float = 0.5
+    # Regime-conditional target: tighter TP in bear regimes (0 = disabled, use target_mult)
+    bear_target_mult: float = 0.0
     # Exit mode fields
     convex_exit: bool = False
     rsi: Optional[np.ndarray] = None
@@ -410,6 +414,8 @@ def precompute_strategy_signals(
             sr_partial_tp_atr = float(getattr(sr, 'partial_tp_atr', 0.0))
             sr_partial_tp_pct = float(getattr(sr, 'partial_tp_pct', 0.5))
             sr_partial_tp_trail = float(getattr(sr, 'partial_tp_trail', 1.5))
+            sr_breakeven_atr = float(getattr(sr, 'breakeven_atr', 0.5))
+            sr_bear_target_mult = float(getattr(sr, 'bear_target_mult', 0.0))
             # Conviction score: use explicit if provided, else derive from size_multiplier
             sr_conviction = None
             if getattr(sr, 'conviction_score', None) is not None:
@@ -521,6 +527,8 @@ def precompute_strategy_signals(
                 partial_tp_atr=sr_partial_tp_atr,
                 partial_tp_pct=sr_partial_tp_pct,
                 partial_tp_trail=sr_partial_tp_trail,
+                breakeven_atr=sr_breakeven_atr,
+                bear_target_mult=sr_bear_target_mult,
                 convex_exit=sr_convex_exit,
                 rsi=p_rsi,
                 rsi_exit_level=sr_rsi_exit_level,

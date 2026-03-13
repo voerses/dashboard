@@ -40,6 +40,9 @@ class Position:
     partial_tp_atr: float = 0.0       # profit threshold in ATR units (0 = disabled)
     partial_tp_pct: float = 0.5       # fraction to close
     partial_tp_trail: float = 1.5     # tighter trail for remainder
+    # Breakeven ratchet
+    breakeven_atr: float = 0.5        # profit threshold in ATR to trigger breakeven (0 = disabled)
+    breakeven_triggered: bool = False  # True after stop moved to entry price
     # Mutable state (updated each bar)
     partial_closed: bool = False      # True after partial close executed
     stop_price: float = 0.0

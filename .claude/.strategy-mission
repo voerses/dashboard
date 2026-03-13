@@ -6,9 +6,58 @@ baseline:
   s58_s65: s58+s65 — +1217% return, Sharpe 8.52, MaxDD -1.4% (12mo). BEST 2-strategy combo.
   s58_s63_s65: s58+s63+s65 (4-strategy) — +1684%, Sharpe 8.26, MaxDD -5.0% (12mo). Full portfolio.
   oos_total: +$131,878 (+66%), $1,912/day avg, 352 trades (Jan-Mar 2026)
+  best_all_time: 4-edge-conv — +1,901,656% ($200K→$3.8B), MaxDD -5.7% (~5yr)
+  best_12mo: s60 — +16,013% ($200K→$32M), MaxDD -7.2%
+  best_march: s60 — +109% ($200K→$419K), MaxDD -0.7%
 done_when: 50+ trades per pool; overlays/conviction/dynamic-weights match backtest improvement direction
-paper_trader_pid: 283875
+paper_trader_pid: 341250
 notes: |
+
+  ╔══════════════════════════════════════════════════════════════════╗
+  ║  BREAKEVEN RATCHET — DEPLOYED UNIVERSALLY 2026-03-13           ║
+  ║  BE=0.5 ATR default. 16/16 portfolios improved. Median +82%.  ║
+  ╚══════════════════════════════════════════════════════════════════╝
+
+  === BREAKEVEN RATCHET DEPLOYMENT ===
+
+  Mechanism: After trade reaches +0.5 ATR profit, stop moves to entry price.
+  Effect: Converts ~13.7% of losing trades into scratch (breakeven) trades.
+
+  Test results (16/16 portfolios improved):
+  - Median PnL improvement: +82%
+  - 15/16 portfolios had improved max drawdown
+  - Largest improvement: solo s60 PnL +1136%
+  - Smallest improvement: 4-edge PnL +3.8%
+
+  Files changed (default breakeven_atr 0.0 → 0.5):
+  - v3/engine.py: StrategyResult.breakeven_atr default
+  - v4/signals.py: TokenSignals.breakeven_atr default + extraction fallback
+  - v4/position.py: Position.breakeven_atr default
+  - v4/portfolio_signals.py: extraction fallback
+  - v4/paper_state.py: deserialization fallback
+  - configs/multi_v4_paper.json: removed s83-BE/s84-BE pools (redundant)
+
+  L8. BREAKEVEN RATCHET IS A UNIVERSAL IMPROVEMENT
+      Unlike other overlays (partial TP, time trail, fixed TP) which are
+      portfolio-composition-dependent (L2), breakeven ratchet improves every
+      single portfolio tested. It has no negative interactions with any
+      strategy combination. This is because it only converts losing trades
+      to scratch — it never reduces the upside of winning trades.
+      Rule: Breakeven ratchet should be default-on for all future strategies.
+
+  === COMPREHENSIVE PORTFOLIO RANKINGS (2026-03-13) ===
+
+  28 strategies × 4 periods, each starting fresh at $200K.
+  Full results: results/v4/portfolio_rankings.json
+
+  Key findings from rankings:
+  - ALL 28 strategies are profitable across ALL 4 time periods
+  - s60 (momentum perp) dominates recent performance (#1 in 12mo/3mo/1mo)
+  - 4-edge family (s56+s57+s63+s65) dominates all-time
+  - super5 portfolios (5-strategy with cross-sectional) are strong recently
+  - s80+s81 portfolio strategies have high recent returns but poor all-time DD
+  - Biggest return gap: s60 (+16,013% 12mo) vs s57 (+895% 12mo) = 18x
+  - Best risk-adjusted: s58+s62 has only -2.6% all-time DD with +1,659,878% return
 
   ╔══════════════════════════════════════════════════════════════════╗
   ║  PROFIT-TAKING OPTIMIZATION MISSION — CLOSED 2026-03-12        ║
@@ -81,21 +130,28 @@ notes: |
 
   === INFRASTRUCTURE STATE ===
 
-  Runner: PID 262609, 16 pools, $3.2M total paper capital.
-  Dashboard: gh-pages, 16 tabs, hourly push.
+  Runner: PID 341250, 21 pools, $4.2M total paper capital.
+  Dashboard: gh-pages, 21 tabs, hourly push.
   Config: configs/multi_v4_paper.json
+  Breakeven: BE=0.5 ATR default-on for ALL strategies (deployed 2026-03-13).
 
   Pools:
     BASELINE:     s58, s60, s58+s60, s58+s62, s58+s63, s58+s65, s58+s59, 4-edge
     TIME TRAIL:   s69 (solo), s58+s69 (combo), s72 (solo), s58+s72 (combo)
     FIXED TP:     s58+s75 (s63+target_mult=3.0)
     PARTIAL TP:   s76 (solo), s58+s76 (combo), 4-edge+ptp
+    PORTFOLIO:    s80+s81 (xsec+sector), s80+s81-dyn (dynamic weights)
+    MULTI-DYN:    super5-dyn (5-strategy dynamic), super5-conv (conviction hybrid)
+    CONVICTION:   4-edge-conv (ranked mode)
 
   Engine capabilities available for future strategies:
+    - breakeven_atr (v3/engine.py, v4/simulator.py) — default 0.5, moves stop to entry
     - funding_exit_threshold (v3/engine.py, v4/simulator.py) — disabled by default
     - time_trail_schedule (v3/engine.py, v4/simulator.py) — generic time-based trail
     - partial_tp_atr/pct/trail (v3/engine.py, v4/simulator.py) — partial position close
     - cross-strategy token dedup (v4/simulator.py:567)
+    - conviction scoring (v4/simulator.py) — shuffle/ranked/hybrid modes
+    - dynamic weights (v4/dynamic_weights.py) — regime-aware strategy weighting
 
   === MONITORING CHECKLIST (check weekly) ===
 
@@ -128,6 +184,8 @@ notes: |
   | s72 | s65+time_trail | time_trail | C (overlay) | Paper | s72, s58+s72 |
   | s75 | s63+fixed_tp(3ATR) | target_mult | C (overlay) | Paper | s58+s75 |
   | s76 | s56+partial_tp | partial_tp | B (engine+overlay) | Paper | s76, s58+s76, 4-edge+ptp |
+  | s80 | xsec_momentum | — | B (portfolio) | Paper | s80+s81, s80+s81-dyn, super5-dyn, super5-conv |
+  | s81 | sector_rotation | — | B (portfolio) | Paper | s80+s81, s80+s81-dyn, super5-dyn, super5-conv |
 
   Killed strategies:
     s67 (funding momentum): Gate 5 kill, Sharpe 1.90
@@ -198,14 +256,12 @@ notes: |
       but portfolio still skews heavily to trend continuation.
       FIX: Need 2-3 genuinely uncorrelated strategy families.
 
-  G2. NO CROSS-SECTIONAL STRATEGIES IN PRODUCTION
-      HIGH. We BUILT cross-sectional momentum (Sharpe +1.54, corr +0.25
-      vs momentum) and sector rotation (Sharpe +1.31, corr +0.20).
-      NEITHER is in production or paper trading.
-      Academic validation: Han, Kang, Ryu 2023 confirm crypto cross-
-      sectional momentum. Amphibian Capital (2024 award winner) uses it.
-      These are our best diversification opportunities, sitting idle.
-      FIX: Deploy cross-sectional + sector rotation through V4 gate.
+  G2. CROSS-SECTIONAL STRATEGIES NOW IN PAPER TRADING — ✅ RESOLVED
+      s80 (cross-sectional momentum) and s81 (sector rotation) deployed
+      in 4 paper pools: s80+s81, s80+s81-dyn, super5-dyn, super5-conv.
+      March performance: +90% ($200K start). 12mo backtest: +3,741%.
+      REMAINING ISSUE: All-time DD is -54.3% — needs investigation.
+      DD comes from pre-2024 data when crypto was less liquid.
 
   G3. NO PAIRS/STAT ARB IN PRODUCTION
       MEDIUM-HIGH. Built (v3/pairs_trading.py), corr -0.06 vs momentum.
@@ -389,7 +445,7 @@ notes: |
   | Dimension | Top Funds | Us | Gap |
   |-----------|-----------|-----|-----|
   | Strategy mix | 60% neutral + 20% arb + 20% trend | ~50% trend + 40% carry + 10% MR | Need more neutral |
-  | Uncorrelated alphas | 5+ families | 4 families (momentum, carry, funding, vol fade) | Need cross-sectional, pairs |
+  | Uncorrelated alphas | 5+ families | 6 families (momentum, carry, funding, vol fade, cross-sectional, sector) | Need pairs |
   | Sharpe (funding arb) | 1.5-3.0 | 7.29 (s57, aggressive sizing) | AHEAD (but sizing risk) |
   | Sharpe (long-short) | Undisclosed (~1.0-2.0) | 2.58 (s11 per-token) | Competitive |
   | Validation | Train/test, some walk-forward | WF + CPCV + PBO + dual gate | AHEAD |
@@ -398,6 +454,7 @@ notes: |
   | ML integration | Meta-learning, RL execution | None | BEHIND (G6) |
   | Execution | TWAP/VWAP, smart routing | Market orders at 1H | N/A for swing |
   | Pairs/stat arb | Core allocation 10-20% | Built but not deployed | BEHIND (G3) |
+  | Exit management | Multi-stage exits | Breakeven + trail + partial TP + fixed TP | AHEAD |
   | Risk management | DD circuit breakers, ADL protection | Regime exits, stop losses | BEHIND (G7) |
 
   Overall: We are AHEAD on validation rigor and carry returns.
@@ -419,21 +476,29 @@ notes: |
 
   Full web research report: research/raw/crypto-quant-landscape-2025-2026.md
 
-  === RECOMMENDED MISSION PRIORITIES ===
+  === RECOMMENDED MISSION PRIORITIES (updated 2026-03-13) ===
 
   These are ranked by expected portfolio improvement per effort:
 
   TIER 1 — DEPLOY WHAT'S ALREADY BUILT (1-2 weeks)
-    1. Cross-sectional momentum (v3/cross_sectional.py → V4 gate)
-    2. Sector rotation (v3/sector_rotation.py → V4 gate)
-    3. Pairs trading (v3/pairs_trading.py → V4 gate)
-    Rationale: All three are coded, backtested, have positive Sharpe,
-    and provide genuine diversification. Zero new research needed.
+    1. Cross-sectional momentum — ✅ DONE (s80, deployed in s80+s81 pools)
+    2. Sector rotation — ✅ DONE (s81, deployed in s80+s81 pools)
+    3. Pairs trading (v3/pairs_trading.py → V4 gate) — NOT YET DEPLOYED
+    Rationale: s80+s81 are running. Pairs trading (-0.06 corr) still the
+    best remaining diversifier. Only strategy with negative correlation.
+
+  TIER 1.5 — EXIT STRATEGY IMPROVEMENTS (completed)
+    ✅ Breakeven ratchet (BE=0.5) — deployed universally, +82% median PnL
+    ✅ Time-trail overlays (s69, s72) — deployed
+    ✅ Fixed TP (s75) — deployed
+    ✅ Partial TP (s76) — deployed
+    ✅ Dynamic weights — deployed (s80+s81-dyn, super5-dyn)
+    ✅ Conviction scoring — deployed (4-edge-conv, super5-conv)
 
   TIER 2 — NEW ALPHA SOURCES (2-4 weeks)
     4. Liquidation cascade contrarian (new strategy, needs data)
     5. On-chain flow overlay (new data pipeline + overlay)
-    6. Regime-aware strategy rotation (extend regime_analysis.py)
+    6. Regime-aware strategy rotation — PARTIALLY DONE (dynamic weights deployed)
     Rationale: Genuine new edge sources. Higher effort but higher ceiling.
 
   TIER 3 — RISK MANAGEMENT (1 week)
@@ -446,6 +511,35 @@ notes: |
     10. Multi-timeframe entry refinement (4H+1D filters)
     11. Overlay stacking experiments (s76+s69 combo)
     Rationale: Incremental improvements on existing strategies.
+
+  === IMPROVEMENT OPPORTUNITIES IDENTIFIED FROM RANKINGS ===
+
+  IO1. s60 IS THE DOMINANT RECENT STRATEGY
+       s60 (+16,013% 12mo, +109% March) crushes everything recently.
+       BUT it's only in 2 pools (s60 solo, s58+s60). Consider making
+       s60 a core component of more multi-strategy pools.
+
+  IO2. PORTFOLIO STRATEGIES HAVE HIGH DD HISTORICALLY
+       s80+s81 have 90% March return but -54% all-time DD. The dynamic
+       weights variant (s80+s81-dyn) reduces DD to -48% but still bad.
+       Consider: tighter stop loss on portfolio strategies, or smaller
+       allocation weight in multi-strategy pools.
+
+  IO3. s58+s62 HAS BEST RISK-ADJUSTED ALL-TIME
+       +1,659,878% return with only -2.6% MaxDD all-time. This is the
+       best risk-adjusted combo. Consider this as an alternative anchor
+       to 4-edge (which has -5.6% DD).
+
+  IO4. SUPER5 PORTFOLIOS OUTPERFORM RECENTLY BUT LAG ALL-TIME
+       super5-dyn: #3 last 12mo but #14 all-time. Portfolio strategy
+       components (s80/s81) drag down long-term performance.
+       Dynamic weights help slightly (+50K vs +44K all-time).
+
+  IO5. BREAKEVEN + OTHER EXITS = STACKING OPPORTUNITY
+       Breakeven is now default-on. It works independently of other exits.
+       s69 (time-trail) + breakeven = both active. s75 (fixed TP) +
+       breakeven = both active. Testing stacked exit combinations could
+       yield further improvements.
 
   === PREVIOUS PAPER TRADING OBSERVATIONS (for reference) ===
 

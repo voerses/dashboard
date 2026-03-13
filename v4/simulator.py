@@ -393,6 +393,20 @@ def _process_exits(
         if np.isnan(cur_atr):
             cur_atr = abs(pos.entry_price) * 0.02
 
+        # Step 4.5: Breakeven ratchet
+        if pos.breakeven_atr > 0.0 and not pos.breakeven_triggered:
+            if d == 1:
+                be_profit_atr = (pos.highest - pos.entry_price) / max(cur_atr, 1e-10)
+            else:
+                be_profit_atr = (pos.entry_price - pos.lowest) / max(cur_atr, 1e-10)
+            if be_profit_atr >= pos.breakeven_atr:
+                # Move stop to entry price (breakeven)
+                if d == 1:
+                    pos.stop_price = max(pos.stop_price, pos.entry_price)
+                else:
+                    pos.stop_price = min(pos.stop_price, pos.entry_price)
+                pos.breakeven_triggered = True
+
         # Step 5: Update trailing stop
         if pos.convex_exit:
             if bars_held >= 48 and d == 1:
@@ -467,16 +481,21 @@ def _process_exits(
             exit_reason = "stop"
             exit_price = pos.stop_price
 
-        # 2. Take-profit
+        # 2. Take-profit (regime-conditional: use tighter target in bear)
         if not exit_signal:
-            if pos.convex_exit and d == 1 and close_val > pos.entry_price + pos.target_mult * pos.initial_risk:
+            eff_target = pos.target_mult
+            if sig.bear_target_mult > 0.0:
+                regime_val_tp = int(sig.regime[local_bar])
+                if regime_val_tp == 4:  # DOWNTREND
+                    eff_target = sig.bear_target_mult
+            if pos.convex_exit and d == 1 and close_val > pos.entry_price + eff_target * pos.initial_risk:
                 exit_signal = True
                 exit_reason = "target"
                 exit_price = close_val
-            elif not pos.convex_exit and d == 1 and high_val >= pos.entry_price + pos.target_mult * cur_atr:
+            elif not pos.convex_exit and d == 1 and high_val >= pos.entry_price + eff_target * cur_atr:
                 exit_signal = True
                 exit_reason = "target"
-                exit_price = pos.entry_price + pos.target_mult * cur_atr
+                exit_price = pos.entry_price + eff_target * cur_atr
 
         # 3. Regime exit
         if not exit_signal:
@@ -804,6 +823,7 @@ def _process_entries(
                 partial_tp_atr=sig.partial_tp_atr,
                 partial_tp_pct=sig.partial_tp_pct,
                 partial_tp_trail=sig.partial_tp_trail,
+                breakeven_atr=sig.breakeven_atr,
                 stop_price=p_stop,
                 highest=p_high,
                 lowest=p_low,
@@ -880,6 +900,7 @@ def _process_entries(
                 partial_tp_atr=sig.partial_tp_atr,
                 partial_tp_pct=sig.partial_tp_pct,
                 partial_tp_trail=sig.partial_tp_trail,
+                breakeven_atr=sig.breakeven_atr,
                 stop_price=s_stop,
                 highest=s_high,
                 lowest=s_low,
@@ -1005,6 +1026,7 @@ def _process_entries(
                 partial_tp_atr=sig.partial_tp_atr,
                 partial_tp_pct=sig.partial_tp_pct,
                 partial_tp_trail=sig.partial_tp_trail,
+                breakeven_atr=sig.breakeven_atr,
                 stop_price=stop_price,
                 highest=sig.high[local_bar],
                 lowest=sig.low[local_bar],
