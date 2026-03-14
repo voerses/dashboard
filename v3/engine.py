@@ -446,10 +446,17 @@ def _simulate_core_jit(close, high, low, atr, entry_mask, direction,
             elif convex_exit and d == 1 and close[i] > entry_price + target_mult * initial_risk:
                 exit_signal = True
                 exit_code = 1
+            elif convex_exit and d == -1 and close[i] < entry_price - target_mult * initial_risk:
+                exit_signal = True
+                exit_code = 1
             elif not convex_exit and d == 1 and high[i] >= entry_price + target_mult * cur_atr:
                 exit_signal = True
                 exit_code = 2
                 exit_price = entry_price + target_mult * cur_atr
+            elif not convex_exit and d == -1 and low[i] <= entry_price - target_mult * cur_atr:
+                exit_signal = True
+                exit_code = 2
+                exit_price = entry_price - target_mult * cur_atr
             elif exit_regime_mask[i] and bars_held > 6:
                 exit_signal = True
                 exit_code = 3

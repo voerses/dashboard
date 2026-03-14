@@ -454,13 +454,14 @@ def _process_exits(
                     pos.stop_price = min(pos.stop_price, trail)
 
         # Step 5.5: Partial profit-taking (before full exit checks)
+        # Use intra-bar high/low to detect threshold touches, not just close
         if (pos.partial_tp_atr > 0.0
                 and not pos.partial_closed
                 and bars_held >= pos.no_stop_bars):
             if d == 1:
-                profit_atr = (close_val - pos.entry_price) / max(cur_atr, 1e-10)
+                profit_atr = (high_val - pos.entry_price) / max(cur_atr, 1e-10)
             else:
-                profit_atr = (pos.entry_price - close_val) / max(cur_atr, 1e-10)
+                profit_atr = (pos.entry_price - low_val) / max(cur_atr, 1e-10)
             if profit_atr >= pos.partial_tp_atr:
                 _partial_close_position(state, pos, global_bar, close_val, adv_val, config)
 
@@ -492,10 +493,18 @@ def _process_exits(
                 exit_signal = True
                 exit_reason = "target"
                 exit_price = close_val
+            elif pos.convex_exit and d == -1 and close_val < pos.entry_price - eff_target * pos.initial_risk:
+                exit_signal = True
+                exit_reason = "target"
+                exit_price = close_val
             elif not pos.convex_exit and d == 1 and high_val >= pos.entry_price + eff_target * cur_atr:
                 exit_signal = True
                 exit_reason = "target"
                 exit_price = pos.entry_price + eff_target * cur_atr
+            elif not pos.convex_exit and d == -1 and low_val <= pos.entry_price - eff_target * cur_atr:
+                exit_signal = True
+                exit_reason = "target"
+                exit_price = pos.entry_price - eff_target * cur_atr
 
         # 3. Regime exit
         if not exit_signal:
