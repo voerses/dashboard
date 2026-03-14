@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-generated-at="2026-03-14T09:05:41Z" data-source="runner" data-pools="21">
+<html lang="en" data-generated-at="2026-03-14T09:56:26Z" data-source="runner" data-pools="21">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -78,7 +78,7 @@ tr.trade-row { cursor:pointer; }
 
 <div class="header">
     <h1>Paper Trading Dashboard V2</h1>
-    <div class="meta" id="hdr-time">Updated: 2026-03-14T09:05:41Z</div>
+    <div class="meta" id="hdr-time">Updated: 2026-03-14T09:56:26Z</div>
 </div>
 <div class="stale-banner" id="stale-banner">
     Data is stale — last update was more than 2 hours ago. Check paper trading engine.
@@ -413,8 +413,8 @@ function renderTokens(trades) {
         m[tk].n++;
         m[tk].fees += (t.entry_fee||0)+(t.exit_fee||0)+Math.abs(t.funding_cost||0);
         if(p>0) m[tk].wins++;
-        if(p>m[tk].best) m[tk].best=p;
-        if(p<m[tk].worst) m[tk].worst=p;
+        if(p>0 && p>m[tk].best) m[tk].best=p;
+        if(p<0 && p<m[tk].worst) m[tk].worst=p;
     });
     const tks = Object.keys(m).sort((a,b)=>m[b].pnl-m[a].pnl);
     document.getElementById('tb-tokens').innerHTML = tks.map(tk => {
