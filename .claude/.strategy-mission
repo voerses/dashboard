@@ -10,7 +10,7 @@ baseline:
   best_12mo: s60 — +16,013% ($200K→$32M), MaxDD -7.2%
   best_march: s60 — +109% ($200K→$419K), MaxDD -0.7%
 done_when: 50+ trades per pool; overlays/conviction/dynamic-weights match backtest improvement direction
-paper_trader_pid: 341250
+paper_trader_pid: 381557
 notes: |
 
   ╔══════════════════════════════════════════════════════════════════╗
@@ -130,10 +130,13 @@ notes: |
 
   === INFRASTRUCTURE STATE ===
 
-  Runner: PID 341250, 21 pools, $4.2M total paper capital.
+  Runner: PID 381557, 21 pools, $4.2M total paper capital.
   Dashboard: gh-pages, 21 tabs, hourly push.
   Config: configs/multi_v4_paper.json
   Breakeven: BE=0.5 ATR default-on for ALL strategies (deployed 2026-03-13).
+  Engine: v5.0 — v3→v4 migration COMPLETE (2026-03-14). Single simulation path.
+  Data pipeline: kdb+-inspired RDB/HDB. Live→data/{market}/live/, Historical→1h_cache/.
+  v3/ is FROZEN LEGACY — no longer imported by any production code.
 
   Pools:
     BASELINE:     s58, s60, s58+s60, s58+s62, s58+s63, s58+s65, s58+s59, 4-edge

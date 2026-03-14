@@ -1,15 +1,15 @@
 # Project Status — crypto_backtest
 
-> **Last updated:** 2026-03-14T00:00Z
+> **Last updated:** 2026-03-14T13:15Z
 > **Process mode:** strategy (paper trading monitoring — Gate 6)
-> **Active:** V4 multi-portfolio paper trading: **21 pools**. Runner PID 341250.
+> **Active:** V4 multi-portfolio paper trading: **21 pools**. Runner PID 381557.
 > **Engine consolidation (v3→v4):** Completed 2026-03-14. Single simulation path via v4/simulator.py.
 > **v3/ is FROZEN LEGACY — do NOT modify.** All imports point to v4/. v3/ exists only as historical reference.
 > **Overlays deployed:** s69 (s56+time_trail), s72 (s65+time_trail), s75 (s63+fixed_tp=3.0), s76 (partial TP)
 > **Dynamic weights deployed:** s80+s81-dyn (regime-weighted), super5-dyn (5-strategy dynamic)
 > **Conviction scoring deployed:** 4-edge-conv (ranked mode), super5-conv (hybrid mode)
 > **Breakeven ratchet (BE=0.5 ATR):** Deployed universally to ALL strategies on 2026-03-13. Tested 16/16 portfolios improved (median +82% PnL, 15/16 DD improved). s83-BE/s84-BE removed (redundant).
-> **Missions:** Profit-taking (closed), dynamic weights (closed), conviction scoring (closed), **data pipeline (COMPLETE)**. **Regime-adaptive exits (ACTIVE)** — breakeven deployed, Chandelier/volume/acceleration/triple barrier still to test.
+> **Missions:** Profit-taking (closed), dynamic weights (closed), conviction scoring (closed), data pipeline (closed), **engine consolidation v3→v4 (CLOSED)**. **Regime-adaptive exits (ACTIVE)** — breakeven deployed, Chandelier/volume/acceleration/triple barrier still to test.
 > **Data pipeline (COMPLETE):** kdb+-inspired RDB/HDB pattern. Live→`data/{market}/live/`, historical→`1h_cache/`. `load_token_data()` merges at read time. `promote_live.py` rolls with QC+manifests. `load_token_data_at(as_of)` for reproducible backtests.
 > **Next step:** Monitor 21 pools for 50+ trades each. Comprehensive rankings saved to results/v4/portfolio_rankings.json.
 
@@ -38,7 +38,7 @@
 | Combined Portfolio Tools | `v3/portfolio.py`, `v3/correlation.py`, `v3/regime_analysis.py` | All three tools updated to support combined market: detect 2-arg strategy signature, load both spot+perp data, align timeframes, mask both legs, call `_simulate_combined`. |
 | Gate 5.5 Portfolio Assembly | `results/correlation_*.json`, `results/regime_analysis_*.json` | **Updated with trail overlays.** Optimal 4-strat: s44(35%)+s29(30%)+s37(20%)+s32(15%). Sharpe 6.53, MaxDD -2.2%. Previous: s30(40%)+s32(25%)+s29(20%)+s11(15%), Sharpe ~4.4. |
 | Data Infrastructure | `data/1h_cache/` | Spot: Binance 116 tokens. Perp: Binance 165, Kraken 314, Hyperliquid 52. 1H candles 2020-2026. |
-| Data Pipeline Separation | `v4/data_loader.py`, `v4/live_fetcher.py`, `v4/manifest.py`, `v4/signals.py`, `v4/portfolio_signals.py`, `tools/promote_live.py` | kdb+-inspired RDB/HDB pattern. Live fetcher writes to `data/{market}/live/`, historical stays in `1h_cache/`. `load_token_data()` merges at read time. `promote_live.py` rolls live→historical with QC + SHA-256 manifests. `load_token_data_at(as_of)` enables reproducible backtests. 617 tests pass. |
+| Data Pipeline Separation (v5.0) | `v4/data_loader.py`, `v4/live_fetcher.py`, `v4/manifest.py`, `v4/signals.py`, `v4/portfolio_signals.py`, `tools/promote_live.py`, `tools/build_parquet_cache.py` | kdb+-inspired RDB/HDB pattern. Live fetcher writes to `data/{market}/live/`, historical stays in `1h_cache/`. `load_token_data()` merges at read time with memory-efficient overlap handling (split into update/gap-fill/new). `promote_live.py` rolls live→historical with QC + SHA-256 manifests + atomic writes. `load_token_data_at(as_of, use_manifest)` enables reproducible backtests. 4 adversarial review rounds, 35 fixes (4 CRITICAL, 8 HIGH, 12 MEDIUM, 11 LOW). 627 tests pass. Tagged v5.0. |
 | Dashboard (GitHub Pages) | `tools/generate_dashboard.py`, `simulations.json` | Self-contained HTML dashboard for monitoring simulation runs. Signal enrichment (indicators at entry), open positions panel, equity curve, daily P&L, expandable trade details. Deployed to `voerses.github.io/dashboard/`. |
 | s33 Engine Support | `v3/engine.py` | Array support for `stop_mult`/`trail_mult` in StrategyResult + JIT. Enables per-bar dynamic stops (needed for leverage-scaled stops). |
 | s33 Leveraged Conviction Perp | `strategies/s33_leveraged_conviction_perp.py` | Conviction-scored leverage (1-10x), Moreira-Muir inverse vol scaling, bidirectional. **Currently losing -15.1% in backtest — needs investigation before paper trading.** |
@@ -55,7 +55,7 @@
 | Temporal Analysis Layer | `tools/signal_discovery/analysis.py` | Rolling IC stability (STABLE/DECAYING/DEAD), lead/lag causality (57 LEADING, 16 HIGH confidence), IC decay curves (92% sign-consistent across horizons). |
 | Signal-Enhanced Strategies | `strategies/s56-s58` | s56 signal_enhanced_momentum (V4 component), s57 signal_timed_turbo_carry (V4 component), s58 multi_strategy_portfolio (V4 production). s57/s58 use signal discovery outputs for timing. |
 | V4 Portfolio Backtest Engine | `v4/` | Portfolio-level simulator: shared capital pool, concentration limits, ADV caps, partial fills, square-root slippage. Replaces V3 per-token validation with end-to-end simulation. See `knowledge/V4_ENGINE.md`. |
-| V3→V4 Engine Consolidation | `v4/engine.py`, `v4/universe.py`, `v4/metrics.py`, `v4/cpcv.py`, `v4/validation.py` | Single simulation path: all validation and backtesting now uses v4/simulator.py. v3/ kept as legacy reference, no longer imported. Eliminates 6 v3-only exit features divergence (breakeven ratchet, partial TP, bear_target_mult, time-trail, short RSI exit, funding ceiling). |
+| V3→V4 Engine Consolidation | `v4/engine.py`, `v4/universe.py`, `v4/metrics.py`, `v4/cpcv.py`, `v4/validation.py` | **COMPLETE.** Single simulation path: all validation, backtesting, and paper trading now uses v4/simulator.py. Zero `from v3.` imports remain in v4/ or tools/. v3/ is frozen legacy (not imported by any production code). Eliminates 6 v3-only exit features divergence. Strategy files unchanged — `from engine import ...` resolves to v4/engine.py via sys.path. |
 | V4 Paper Trading | `v4/paper_engine.py`, `v4/run_paper.py` | Same simulator code with live data via ccxt. Per-tick execution, state persistence, deterministic RNG, dashboard push to gh-pages. |
 | Quant Review Fixes (Mar 10) | `v4/simulator.py`, `v4/paper_engine.py`, `strategies/s56,s57` | M2: symmetric RSI exit for shorts. M4: removed dead `_apply_walk_forward_mask_live()`. H3: fixed deprecated `reindex(method='ffill')`. C2/C3/H1/H2: verified as false positives. |
 | V4 Strategy Sweep | `knowledge/STRATEGY_CATALOG.md` | All 37 strategies run through V4 12-month + Jan-Mar OOS backtests. Key finding: spot-only fails in sideways; perp/combined survive. |

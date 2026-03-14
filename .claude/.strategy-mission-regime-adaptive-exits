@@ -391,6 +391,11 @@ notes: |
   - v4/paper_state.py: breakeven_atr serialization/deserialization
   - v4/engine.py: StrategyResult.breakeven_atr default
 
+  Infrastructure (updated 2026-03-14):
+  - Runner: PID 381557 (restarted on v5.0 code)
+  - v3→v4 migration COMPLETE — all imports now v4, v3/ is frozen legacy
+  - Data pipeline: v5.0 with 4 adversarial review rounds, 627 tests
+
   Testing tools created:
   - v4/test_breakeven_all_portfolios.py: batch test across all portfolios
   - v4/rank_all_portfolios.py: comprehensive multi-period ranking
