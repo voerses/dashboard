@@ -1,0 +1,117 @@
+status: parked
+goal: Build position aggregation layer for live trading — virtual positions per strategy, net execution on exchange, reconciliation
+priority: DEFERRED — tackle when ready to move from paper to real capital
+started: 2026-03-14
+type: infrastructure
+
+trigger: |
+  Paper trading runs 21 pools with multiple strategies trading the same tokens.
+  Multiple strategies can hold positions in the same token simultaneously.
+  In paper trading these are independent virtual positions — correct and matching
+  institutional best practices. But when going live on Binance, the exchange sees
+  a single net position per token. Need an aggregation layer between virtual books
+  and exchange execution.
+
+architecture: |
+
+  === CURRENT STATE (paper trading — correct) ===
+
+  v4/position.py PositionManager tracks per-strategy virtual positions.
+  Each Position has strategy_id, direction, quantity, margin, funding.
+  Multiple strategies can hold the same token independently.
+  This IS the institutional "virtual position book" pattern.
+
+  === TARGET STATE (live trading) ===
+
+  Strategy A: virtual +2 BTC  ──┐
+  Strategy B: virtual -0.5 BTC ─┤── Aggregation Layer ── Exchange: +1.5 BTC
+  Strategy C: virtual +0.3 BTC ─┘
+
+  Virtual positions (strategy-level) → Net position (exchange-level)
+  Delta execution: only trade the difference between desired net and current exchange position.
+
+  === BINANCE SPECIFICS ===
+
+  Use ONE-WAY MODE (not Hedge Mode). Reasons:
+  - Hedge Mode only gives 2 slots (long+short), doesn't help with 3+ strategies same direction
+  - Hedge Mode doubles margin (gross vs net) and doubles funding costs
+  - All institutional firms use virtual books + net execution in one-way mode
+
+  Consider PORTFOLIO MARGIN when going live:
+  - 350+ collateral assets, cross-product PnL offset
+  - Unified maintenance margin ratio (uniMMR)
+  - Significantly reduces capital requirements for hedged portfolios
+
+implementation_phases: |
+
+  PHASE 1: Net Position Dashboard (LOW effort, do during paper trading)
+  ────────────────────────────────────────────────────────────────────
+  Add NetPositionTracker alongside existing PositionManager.
+  For each token: sum all virtual positions → show net on dashboard.
+  Show margin-with-netting vs gross margin (capital planning metric).
+  No execution changes — pure visibility.
+
+  PHASE 2: Position Aggregation Layer (MEDIUM effort, pre-live)
+  ──────────────────────────────────────────────────────────────
+  PositionAggregator sits between virtual books and exchange API.
+  - compute_desired_net(token) → sum of virtual positions
+  - compute_delta(token, exchange_position) → order to send
+  - allocate_fill(fill, strategies) → proportional attribution
+  - reconcile(token, exchange_position) → alert on mismatch
+
+  PHASE 3: Order Management (HIGH effort, for live)
+  ─────────────────────────────────────────────────
+  Full order lifecycle: place → partial fill → complete → allocate.
+  Partial fill handling: keep strategy position "partially closed" until full exit.
+  Liquidation propagation: detect exchange liquidation → allocate loss proportionally.
+  Consider NautilusTrader or Talos as alternatives to building from scratch.
+
+key_challenges: |
+
+  C1. FUNDING RATE ALLOCATION
+      Each strategy's funding = funding_rate × virtual_qty × mark_price.
+      Sum of strategy-level funding == exchange-level funding. Mathematically exact.
+      Current v4/position.py cumulative_funding tracking is already correct.
+
+  C2. MARGIN NETTING BENEFIT
+      Net position margin < sum of gross position margins.
+      Paper trading is CONSERVATIVE on margin — live will use ~40% less in hedged cases.
+      Good problem to have (paper results understate capital efficiency).
+
+  C3. PARTIAL FILLS
+      Strategy A exits → sell order partially fills → virtual position is
+      "partially closed" until remainder fills. Must track fill allocation.
+      This is the hardest operational problem.
+
+  C4. LIQUIDATION PROPAGATION
+      Net position liquidated → ALL strategies with positions in that token affected.
+      Must allocate liquidation loss proportionally across contributing strategies.
+      Set liquidation buffers at aggregation layer level, not strategy level.
+
+  C5. ONE STRATEGY'S EXIT FLIPPING NET DIRECTION
+      Strategy A long +2, Strategy B short -0.5. Net = +1.5.
+      Strategy A exits → net = -0.5. Exchange must sell 2.0 to go from +1.5 to -0.5.
+      Aggregation layer handles this naturally via delta computation.
+
+references: |
+
+  Industry pattern: Jump, Wintermute, Cumberland/DRW, Millennium, Citadel all use
+  virtual position books + net execution. This is the "pod model" from TradFi multi-
+  strategy hedge funds (Aurum, CAIS research).
+
+  Binance docs:
+  - Hedge Mode: binance.com/en/support/faq/360041513552
+  - Portfolio Margin: binance.com/en/portfolio-margin
+  - Multi-Assets Mode: binance.com/en/blog/futures/multiassets-mode
+  - Position Mode API: POST /fapi/v1/positionSide/dual
+
+  Open source alternatives for Phase 3:
+  - NautilusTrader (nautilustrader.io) — full OMS with multi-venue support
+  - Talos (talos.com) — commercial institutional crypto OMS
+
+files_relevant: |
+  v4/position.py        — PositionManager, Position (virtual books — keep as-is)
+  v4/paper_engine.py    — PaperPortfolioEngine (pool vs independent mode)
+  v4/paper_shadow.py    — Shadow reconciliation concepts (extend for Phase 2)
+  v4/simulator.py       — Simulation engine (no changes needed)
+  v4/run_paper_multi.py — Multi-portfolio runner (add net position metrics in Phase 1)
