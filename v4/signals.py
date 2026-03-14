@@ -157,7 +157,7 @@ def discover_tokens(market: str = "combined") -> list[str]:
         perp = discover_tokens_from_data("perp", data_dir=DATA_DIR)
         return sorted(spot & perp)
     else:
-        return get_all_tradeable(market)
+        return sorted(discover_tokens_from_data(market, data_dir=DATA_DIR))
 
 
 def precompute_strategy_signals(
