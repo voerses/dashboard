@@ -19,7 +19,6 @@ import pandas as pd
 # Ensure project root is importable
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
-sys.path.insert(0, str(PROJECT_ROOT / "v3"))
 
 from v4.config import PortfolioConfig, StrategySpec
 from v4.signals import precompute_strategy_signals, discover_tokens, infer_data_end_date
@@ -32,9 +31,7 @@ def _detect_strategy_type(strategy_id: str) -> str:
 
     Checks for STRATEGY_TYPE module attribute in the strategy file.
     """
-    from v3.paper_engine import _load_strategy_fn
     import importlib.util
-    from v3.engine import BacktestEngine
     strategies_dir = os.path.join(str(PROJECT_ROOT), "strategies")
     for fname in os.listdir(strategies_dir):
         if fname.startswith(strategy_id + "_") and fname.endswith(".py"):

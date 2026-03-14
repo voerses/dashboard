@@ -24,7 +24,7 @@ from unittest.mock import MagicMock, patch
 
 _project_root = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_project_root))
-sys.path.insert(0, str(_project_root / "v3"))
+sys.path.insert(0, str(_project_root / "v4"))
 
 import numpy as np
 import pandas as pd
@@ -215,7 +215,8 @@ class TestAppendToParquet:
                  "close": 106, "volume": 1200},
             ]
 
-            parquet_path = os.path.join(tmpdir, "spot", "1h_cache", "BTC_1h.parquet")
+            # Live fetcher now writes to data/{market}/live/{TOKEN}.parquet
+            parquet_path = os.path.join(tmpdir, "spot", "live", "BTC.parquet")
             fetcher.append_to_parquet("BTC", "spot", bars)
 
             assert os.path.exists(parquet_path)
@@ -225,11 +226,11 @@ class TestAppendToParquet:
     def test_empty_bars_list_no_crash(self):
         """append_to_parquet with empty bars list does not crash (review I2)."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            cache_dir = os.path.join(tmpdir, "spot", "1h_cache")
-            os.makedirs(cache_dir, exist_ok=True)
-            parquet_path = os.path.join(cache_dir, "BTC_1h.parquet")
+            live_dir = os.path.join(tmpdir, "spot", "live")
+            os.makedirs(live_dir, exist_ok=True)
+            parquet_path = os.path.join(live_dir, "BTC.parquet")
 
-            # Create existing parquet with some data
+            # Create existing live parquet with some data
             existing_df = _make_parquet_df(1_000_000, 3)
             existing_df.to_parquet(parquet_path)
 
@@ -243,12 +244,12 @@ class TestAppendToParquet:
             assert len(df) == 3, "Empty bars append should not change existing data"
 
     def test_appends_new_bars_to_existing(self):
-        """append_to_parquet appends new bars to an existing parquet file."""
+        """append_to_parquet appends new bars to an existing live buffer file."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Create existing parquet
-            cache_dir = os.path.join(tmpdir, "spot", "1h_cache")
-            os.makedirs(cache_dir, exist_ok=True)
-            parquet_path = os.path.join(cache_dir, "BTC_1h.parquet")
+            # Create existing live buffer parquet
+            live_dir = os.path.join(tmpdir, "spot", "live")
+            os.makedirs(live_dir, exist_ok=True)
+            parquet_path = os.path.join(live_dir, "BTC.parquet")
 
             existing_df = _make_parquet_df(1_000_000, 3)
             existing_df.to_parquet(parquet_path)
@@ -272,9 +273,9 @@ class TestAppendToParquet:
     def test_deduplicates_on_timestamp(self):
         """append_to_parquet deduplicates — no duplicate timestamp rows."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            cache_dir = os.path.join(tmpdir, "spot", "1h_cache")
-            os.makedirs(cache_dir, exist_ok=True)
-            parquet_path = os.path.join(cache_dir, "BTC_1h.parquet")
+            live_dir = os.path.join(tmpdir, "spot", "live")
+            os.makedirs(live_dir, exist_ok=True)
+            parquet_path = os.path.join(live_dir, "BTC.parquet")
 
             existing_df = _make_parquet_df(1_000_000, 3)
             existing_df.to_parquet(parquet_path)
@@ -310,10 +311,10 @@ class TestAppendToParquet:
 
             fetcher.append_to_parquet("BTC", "spot", bars)
 
-            parquet_path = os.path.join(tmpdir, "spot", "1h_cache", "BTC_1h.parquet")
+            parquet_path = os.path.join(tmpdir, "spot", "live", "BTC.parquet")
             # No .tmp files should remain after successful write
-            cache_dir = os.path.dirname(parquet_path)
-            tmp_files = [f for f in os.listdir(cache_dir) if f.endswith(".tmp")]
+            live_dir = os.path.dirname(parquet_path)
+            tmp_files = [f for f in os.listdir(live_dir) if f.endswith(".tmp")]
             assert len(tmp_files) == 0
 
 
@@ -325,24 +326,28 @@ class TestMergeFundingIntoParquet:
     """Funding merge: merge_funding_into_parquet adds funding_1h column."""
 
     def test_merge_funding_adds_column(self):
-        """merge_funding_into_parquet adds funding_1h column to perp parquet."""
+        """merge_funding_into_parquet adds funding_1h column to perp live buffer."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            cache_dir = os.path.join(tmpdir, "perp", "1h_cache")
-            os.makedirs(cache_dir, exist_ok=True)
-            parquet_path = os.path.join(cache_dir, "BTC_1h.parquet")
+            live_dir = os.path.join(tmpdir, "perp", "live")
+            os.makedirs(live_dir, exist_ok=True)
+            parquet_path = os.path.join(live_dir, "BTC.parquet")
 
-            # Create existing perp parquet without funding_1h
-            existing_df = _make_parquet_df(1_000_000, 5)
+            # Use hour-aligned timestamps (matching production data format).
+            # Funding timestamps floor to hours, so parquet index must be on
+            # hour boundaries for the merge to match.
+            hour_ms = 3_600_000
+            base = 0  # 1970-01-01 00:00:00 — on the hour
+            existing_df = _make_parquet_df(base, 5, interval_ms=hour_ms)
             existing_df.to_parquet(parquet_path)
 
             fetcher = LiveFetcher.__new__(LiveFetcher)
             fetcher.data_dir = tmpdir
 
-            # Funding rates aligned with some of the bar timestamps
+            # Funding rates with slight jitter (simulating exchange timestamp drift)
             funding_rates = [
-                {"timestamp": 1_000_000, "fundingRate": 0.0001},
-                {"timestamp": 1_000_000 + 3_600_000, "fundingRate": 0.00015},
-                {"timestamp": 1_000_000 + 2 * 3_600_000, "fundingRate": -0.00005},
+                {"timestamp": base + 3, "fundingRate": 0.0001},         # ~0ms jitter
+                {"timestamp": base + hour_ms + 4, "fundingRate": 0.00015},  # ~4ms jitter
+                {"timestamp": base + 2 * hour_ms + 2, "fundingRate": -0.00005},
             ]
 
             fetcher.merge_funding_into_parquet("BTC", funding_rates)
@@ -350,9 +355,8 @@ class TestMergeFundingIntoParquet:
             df = pd.read_parquet(parquet_path)
             assert "funding_1h" in df.columns, "funding_1h column not added to perp parquet"
 
-            # Verify actual funding values (not just column existence — review C7)
-            # The first bar at timestamp 1000000 should have fundingRate 0.0001
-            ts_index = pd.to_datetime(1_000_000, unit="ms")
+            # Verify actual funding values after floor-to-hour alignment
+            ts_index = pd.to_datetime(base, unit="ms")
             if ts_index in df.index:
                 assert df.loc[ts_index, "funding_1h"] == pytest.approx(0.0001, abs=1e-8), \
                     "funding_1h value incorrect for timestamp matching funding rate"
@@ -360,9 +364,9 @@ class TestMergeFundingIntoParquet:
     def test_merge_funding_empty_rates(self):
         """merge_funding_into_parquet with empty rates does not crash or corrupt data."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            cache_dir = os.path.join(tmpdir, "perp", "1h_cache")
-            os.makedirs(cache_dir, exist_ok=True)
-            parquet_path = os.path.join(cache_dir, "BTC_1h.parquet")
+            live_dir = os.path.join(tmpdir, "perp", "live")
+            os.makedirs(live_dir, exist_ok=True)
+            parquet_path = os.path.join(live_dir, "BTC.parquet")
 
             existing_df = _make_parquet_df(1_000_000, 3)
             existing_df.to_parquet(parquet_path)

@@ -33,10 +33,7 @@ from v4.paper_state import (
     _closed_trade_to_dict,
 )
 
-_v3_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "v3")
-if _v3_dir not in sys.path:
-    sys.path.insert(0, _v3_dir)
-from universe import get_fee_rate
+from v4.universe import get_fee_rate
 
 
 @dataclass

@@ -17,13 +17,13 @@ from .optimizer import OptimizationResult
 
 
 def _load_v3_module(name: str):
-    """Load a v3 module by name."""
-    full_name = f'v3_{name}'
+    """Load a v4 module by name (legacy function name kept for compatibility)."""
+    full_name = f'v4_{name}'
     if full_name in sys.modules:
         return sys.modules[full_name]
-    _v3_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'v3')
+    _v4_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'v4')
     spec = importlib.util.spec_from_file_location(
-        full_name, os.path.join(_v3_dir, f'{name}.py'))
+        full_name, os.path.join(_v4_dir, f'{name}.py'))
     mod = importlib.util.module_from_spec(spec)
     sys.modules[full_name] = mod
     sys.modules[name] = mod

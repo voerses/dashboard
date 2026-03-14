@@ -31,7 +31,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-sys.path.insert(0, str(Path(__file__).parent.parent / "v3"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "v4"))
 
 PROJECT_ROOT = Path(__file__).parent.parent
 DOCS_DIR = PROJECT_ROOT / "docs"
@@ -762,8 +762,8 @@ function renderTokens(trades) {{
         m[tk].n++;
         m[tk].fees += (t.entry_fee||0)+(t.exit_fee||0)+Math.abs(t.funding_cost||0);
         if(p>0) m[tk].wins++;
-        if(p>m[tk].best) m[tk].best=p;
-        if(p<m[tk].worst) m[tk].worst=p;
+        if(p>0 && p>m[tk].best) m[tk].best=p;
+        if(p<0 && p<m[tk].worst) m[tk].worst=p;
     }});
     const tks = Object.keys(m).sort((a,b)=>m[b].pnl-m[a].pnl);
     document.getElementById('tb-tokens').innerHTML = tks.map(tk => {{

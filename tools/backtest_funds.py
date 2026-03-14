@@ -23,13 +23,11 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
-sys.path.insert(0, str(PROJECT_ROOT / "v3"))
 
 import numpy as np
 import pandas as pd
-from v3.engine import Engine
-from v3.paper_engine import _load_strategy_fn
-from v3.universe import get_fee_rate
+from v4.engine import Engine, _load_strategy_fn
+from v4.universe import get_fee_rate
 
 # ---------------------------------------------------------------------------
 # Configuration — mirrors run_paper_live.py RUNS

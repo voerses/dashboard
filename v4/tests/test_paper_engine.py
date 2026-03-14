@@ -31,7 +31,7 @@ from unittest.mock import MagicMock, patch
 
 _project_root = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_project_root))
-sys.path.insert(0, str(_project_root / "v3"))
+sys.path.insert(0, str(_project_root / "v4"))
 
 import numpy as np
 import pytest
@@ -512,78 +512,6 @@ class TestCombinedPositionAtomic:
 
 
 # ===================================================================
-# Test: Walk-forward -- entries masked for first train_bars (H3 fix)
-# ===================================================================
-
-class TestWalkForwardMasking:
-    """Entries masked during initial train_bars window (AC15)."""
-
-    def test_no_entry_when_n_bars_less_than_train_bars(self):
-        """Tokens with n_bars < train_bars should NOT get entries (H3).
-
-        Create signals with n_bars=50, train_bars=100. Process tick.
-        Verify NO entry because the token doesn't have enough history.
-        """
-        config = _make_test_config(train_bars=100)
-        engine = PaperPortfolioEngine.__new__(PaperPortfolioEngine)
-        engine.config = config
-        engine.state = SimulationState(initial_capital=200_000.0)
-        engine.tick_counter = 5
-        engine._last_known_prices = {}
-        engine._alerts = []
-
-        # n_bars=50 < train_bars=100 -- all entries should be masked
-        sig = _make_mock_token_signals(
-            token="BTC", strategy_id="s56", n_bars=50,
-            entry_at=49, close_price=50_000.0,
-        )
-        # Walk-forward should mask ALL bars since n_bars < train_bars
-        # Simulate the engine applying walk-forward masking
-        all_signals = {"s56": {"BTC": sig}}
-        strategy_specs = {"s56": config.strategies[0]}
-        bar_maps = engine._build_bar_maps(all_signals, 5)
-
-        # Engine should apply walk-forward mask before calling _process_entries.
-        # With train_bars=100 and n_bars=50, ALL entries are masked.
-        engine._apply_walk_forward_mask_live(all_signals)
-
-        rng = np.random.RandomState(config.seed + engine.tick_counter)
-        from v4.simulator import _process_entries
-        _process_entries(engine.state, all_signals, strategy_specs, bar_maps, 5, config, rng)
-
-        # No positions should be opened
-        assert engine.state.position_manager.total_open() == 0
-
-    def test_entry_allowed_when_n_bars_exceeds_train_bars(self):
-        """Tokens with n_bars > train_bars CAN get entries (H3).
-
-        Create signals with n_bars=200, train_bars=100. Verify entry IS possible
-        (entry mask at bar 199 is beyond train_bars window).
-        """
-        config = _make_test_config(train_bars=100)
-        engine = PaperPortfolioEngine.__new__(PaperPortfolioEngine)
-        engine.config = config
-        engine.state = SimulationState(initial_capital=200_000.0)
-        engine.tick_counter = 5
-        engine._last_known_prices = {}
-        engine._alerts = []
-
-        # n_bars=200 > train_bars=100 -- entry at bar 199 should be allowed
-        sig = _make_mock_token_signals(
-            token="BTC", strategy_id="s56", n_bars=200,
-            entry_at=199, close_price=50_000.0,
-        )
-
-        all_signals = {"s56": {"BTC": sig}}
-
-        # Engine applies walk-forward mask: bars 0..99 masked, bars 100+ allowed
-        engine._apply_walk_forward_mask_live(all_signals)
-
-        # Verify bar 199 entry mask is still True after masking
-        assert sig.entry_mask[199] is True or sig.entry_mask[199] == True
-
-
-# ===================================================================
 # Test: Purge windows disabled
 # ===================================================================
 
@@ -606,50 +534,14 @@ class TestPurgeWindowsDisabled:
 # ===================================================================
 
 class TestPurgeWindowsEnabled:
-    """When enable_purge_windows=True, entries during purge window bars are blocked."""
+    """When enable_purge_windows=True, entries during purge window bars are blocked.
 
-    def test_entries_blocked_during_purge_window(self):
-        """Set enable_purge_windows=True, train_bars=100, recal_bars=200, purge_bars=20.
-
-        After the initial training window, purge windows start at bar 100, 300, 500, ...
-        Each purge window is 20 bars. Entry at bar 105 (within first purge window)
-        should be blocked.
-        """
-        config = _make_test_config(
-            train_bars=100,
-            recal_bars=200,
-            purge_bars=20,
-            enable_purge_windows=True,
-        )
-        engine = PaperPortfolioEngine.__new__(PaperPortfolioEngine)
-        engine.config = config
-        engine.state = SimulationState(initial_capital=200_000.0)
-        engine.tick_counter = 5
-        engine._last_known_prices = {}
-        engine._alerts = []
-
-        # Create signals with entry at bar 105 (within purge window 100-119)
-        sig = _make_mock_token_signals(
-            token="BTC", strategy_id="s56", n_bars=500,
-            entry_at=105, close_price=50_000.0,
-        )
-
-        all_signals = {"s56": {"BTC": sig}}
-
-        # Apply purge windows
-        engine._apply_walk_forward_mask_live(all_signals)
-
-        # Bar 105 is within purge window [100, 120) -- should be masked
-        assert sig.entry_mask[105] == False
-
-        # Bar 150 is outside purge window -- should remain unmasked if originally True
-        sig_check = _make_mock_token_signals(
-            token="ETH", strategy_id="s56", n_bars=500,
-            entry_at=150, close_price=3_000.0,
-        )
-        all_signals_check = {"s56": {"ETH": sig_check}}
-        engine._apply_walk_forward_mask_live(all_signals_check)
-        assert sig_check.entry_mask[150] == True
+    NOTE: _apply_walk_forward_mask_live was removed in Quant Review Fixes (Mar 10).
+    Purge window masking is now handled during signal precomputation, not at
+    the paper engine level. These tests are placeholders for future purge-window
+    tests that exercise the precomputation path.
+    """
+    pass
 
 
 # ===================================================================

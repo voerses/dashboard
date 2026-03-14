@@ -16,10 +16,10 @@ import sys
 import os
 from pathlib import Path
 
-# Ensure v3 is importable for adv_to_sizing / get_fee_rate etc.
+# Ensure v4 is importable for adv_to_sizing / get_fee_rate etc.
 _project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_project_root))
-sys.path.insert(0, str(_project_root / "v3"))
+sys.path.insert(0, str(_project_root / "v4"))
 
 import numpy as np
 import pandas as pd

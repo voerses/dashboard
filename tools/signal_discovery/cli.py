@@ -36,11 +36,11 @@ from .analysis import run_full_analysis
 # Engine imports (read-only)
 # ---------------------------------------------------------------------------
 def _load_engine():
-    """Load v3/engine.py via importlib (same pattern as engine itself)."""
-    v3_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'v3')
-    v3_dir = os.path.abspath(v3_dir)
+    """Load v4/engine.py via importlib."""
+    v4_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'v4')
+    v4_dir = os.path.abspath(v4_dir)
     spec = importlib.util.spec_from_file_location(
-        'v3_engine', os.path.join(v3_dir, 'engine.py'))
+        'v4_engine', os.path.join(v4_dir, 'engine.py'))
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod

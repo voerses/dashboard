@@ -1,4 +1,4 @@
-"""V4 Portfolio Backtest — Signal precomputation from v3 contexts.
+"""V4 Portfolio Backtest — Signal precomputation.
 
 Follows backtest_funds.py pattern: _build_context() -> strategy_fn() -> extract arrays.
 Walk-forward masking applied during precomputation (matches v3/portfolio.py:152-169).
@@ -17,17 +17,13 @@ import pandas as pd
 
 from .config import PortfolioConfig, StrategySpec
 
-# Ensure v3 is importable
 _project_root = Path(__file__).resolve().parent.parent
-_v3_dir = str(_project_root / "v3")
-if _v3_dir not in sys.path:
-    sys.path.insert(0, _v3_dir)
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from v3.engine import Engine, MarketType
-from v3.paper_engine import _load_strategy_fn
-from v3.universe import get_all_tradeable
+from v4.engine import Engine, MarketType, _load_strategy_fn
+from v4.universe import get_all_tradeable
+from v4.data_loader import load_token_data, discover_tokens_from_data, infer_data_end_date as _infer_end
 
 
 DATA_DIR = str(_project_root / "data")
@@ -142,47 +138,23 @@ def _apply_walk_forward_mask(
 
 
 def infer_data_end_date(market: str = "combined") -> pd.Timestamp:
-    """Get the latest timestamp in the parquet data for deterministic backtesting.
+    """Get the latest timestamp across historical + live data.
 
-    Reads the index of a few liquid reference tokens to find the data boundary.
-    Falls back to pd.Timestamp.now() if no data is found.
+    Delegates to v4.data_loader which checks both 1h_cache and live directories.
     """
-    ref_tokens = ["BTC", "ETH", "SOL"]
-    latest = pd.Timestamp.min
-
-    for mkt in (["spot", "perp"] if market == "combined" else [market]):
-        cache_dir = Path(DATA_DIR) / mkt / "1h_cache"
-        if not cache_dir.is_dir():
-            continue
-        for token in ref_tokens:
-            pq = cache_dir / f"{token}_1h.parquet"
-            if pq.exists():
-                idx = pd.read_parquet(pq, columns=[]).index
-                if len(idx) > 0:
-                    ts = idx[-1]
-                    if hasattr(ts, 'tz') and ts.tz is not None:
-                        ts = ts.tz_localize(None)
-                    if ts > latest:
-                        latest = ts
-
-    if latest == pd.Timestamp.min:
-        return pd.Timestamp.now().tz_localize(None)
-    return latest
+    return _infer_end(market=market, data_dir=DATA_DIR)
 
 
 def discover_tokens(market: str = "combined") -> list[str]:
     """Find tokens with data for the given market type.
 
-    Combined strategies require both spot and perp parquets.
+    Scans both historical (1h_cache) and live buffer directories.
+    Combined strategies require both spot and perp data.
     Single-market strategies use corresponding market only.
     """
     if market == "combined":
-        spot_dir = Path(DATA_DIR) / "spot" / "1h_cache"
-        perp_dir = Path(DATA_DIR) / "perp" / "1h_cache"
-        spot = {f.replace("_1h.parquet", "") for f in os.listdir(spot_dir)
-                if f.endswith(".parquet")} if spot_dir.is_dir() else set()
-        perp = {f.replace("_1h.parquet", "") for f in os.listdir(perp_dir)
-                if f.endswith(".parquet")} if perp_dir.is_dir() else set()
+        spot = discover_tokens_from_data("spot", data_dir=DATA_DIR)
+        perp = discover_tokens_from_data("perp", data_dir=DATA_DIR)
         return sorted(spot & perp)
     else:
         return get_all_tradeable(market)
@@ -221,17 +193,18 @@ def precompute_strategy_signals(
 
     for token in tokens:
         try:
-            spot_pq = Path(DATA_DIR) / "spot" / "1h_cache" / f"{token}_1h.parquet"
-            perp_pq = Path(DATA_DIR) / "perp" / "1h_cache" / f"{token}_1h.parquet"
+            # Load data via data_loader (merges historical + live buffer)
+            df_spot_full = load_token_data(token, "spot", data_dir=DATA_DIR)
+            df_perp_full = load_token_data(token, "perp", data_dir=DATA_DIR)
 
             if is_combined:
-                if not spot_pq.exists() or not perp_pq.exists():
+                if df_spot_full is None or df_perp_full is None:
                     continue
             elif strategy_spec.market == "spot":
-                if not spot_pq.exists():
+                if df_spot_full is None:
                     continue
             else:  # perp
-                if not perp_pq.exists():
+                if df_perp_full is None:
                     continue
 
             # Compute cutoff for the simulation window.  We load extra
@@ -255,12 +228,10 @@ def precompute_strategy_signals(
             ctx_spot = None
             ctx_perp = None
 
-            if spot_pq.exists():
-                df_spot = pd.read_parquet(spot_pq)
-                df_spot = df_spot[df_spot.index >= load_from]
-            if perp_pq.exists():
-                df_perp = pd.read_parquet(perp_pq)
-                df_perp = df_perp[df_perp.index >= load_from]
+            if df_spot_full is not None:
+                df_spot = df_spot_full[df_spot_full.index >= load_from]
+            if df_perp_full is not None:
+                df_perp = df_perp_full[df_perp_full.index >= load_from]
 
             if is_combined:
                 if df_spot is None or df_perp is None or len(df_spot) < 500 or len(df_perp) < 500:

@@ -18,11 +18,8 @@ from .position import Position, ClosedTrade, PositionManager
 from .signals import TokenSignals
 from .sizing import compute_position_size, compute_slippage_bps
 
-# Import fee/MMR lookups from v3
-_v3_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "v3")
-if _v3_dir not in sys.path:
-    sys.path.insert(0, _v3_dir)
-from universe import get_fee_rate, get_maint_margin_rate, get_liquidation_fee_rate
+# Import fee/MMR lookups from v4
+from v4.universe import get_fee_rate, get_maint_margin_rate, get_liquidation_fee_rate
 
 
 @dataclass

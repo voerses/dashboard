@@ -35,7 +35,7 @@ OHLCV_DIR = os.path.join(BASE_DIR, "1h_ohlcv")
 HISTORY_START_MS = int(datetime(2020, 1, 1, tzinfo=timezone.utc).timestamp() * 1000)
 
 # Import universe tokens
-sys.path.insert(0, os.path.join(_PROJECT_DIR, "v3"))
+sys.path.insert(0, os.path.join(_PROJECT_DIR, "v4"))
 from universe import LIQUID_TOKENS
 
 # Rate limit / retry settings

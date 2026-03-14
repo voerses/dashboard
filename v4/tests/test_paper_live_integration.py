@@ -20,7 +20,7 @@ from unittest.mock import MagicMock, patch, call
 
 _project_root = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_project_root))
-sys.path.insert(0, str(_project_root / "v3"))
+sys.path.insert(0, str(_project_root / "v4"))
 
 import numpy as np
 import pytest

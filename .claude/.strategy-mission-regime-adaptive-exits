@@ -329,7 +329,7 @@ notes: |
   | (12 more...)  | all improved | median +82% | all +       | 15/16 +   |
 
   Changed defaults in 5 files (breakeven_atr 0.0 → 0.5):
-  - v3/engine.py: StrategyResult.breakeven_atr default
+  - v4/engine.py: StrategyResult.breakeven_atr default
   - v4/signals.py: TokenSignals.breakeven_atr default + extraction fallback
   - v4/position.py: Position.breakeven_atr default
   - v4/portfolio_signals.py: extraction fallback
@@ -389,7 +389,7 @@ notes: |
   - v4/signals.py: breakeven_atr on TokenSignals + extraction
   - v4/portfolio_signals.py: breakeven_atr extraction fallback
   - v4/paper_state.py: breakeven_atr serialization/deserialization
-  - v3/engine.py: StrategyResult.breakeven_atr default
+  - v4/engine.py: StrategyResult.breakeven_atr default
 
   Testing tools created:
   - v4/test_breakeven_all_portfolios.py: batch test across all portfolios

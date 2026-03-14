@@ -1,0 +1,129 @@
+status: complete
+goal: Separate live and historical data paths. Eliminate two-writer conflict. Implement kdb+-inspired RDB/HDB pattern adapted for 24/7 crypto with hourly bar granularity.
+started: 2026-03-14
+type: infrastructure
+trigger: |
+  Quant data review found two-writer conflict: build_parquet_cache.py and live_fetcher.py both
+  write to data/{market}/1h_cache/*.parquet with no coordination. Race condition causes data loss.
+  Research into kdb+ (KX Systems), ArcticDB (Man Group), and quant best practices all converge on
+  the same solution: separate live and historical data stores, merge at read time.
+baseline:
+  current_architecture: |
+    CSV (fetch scripts) → build_parquet_cache.py → data/{market}/1h_cache/*.parquet ← live_fetcher.py also writes
+    Two writers, no coordination, no reconciliation, no versioning.
+  bugs_found: |
+    - Mixed index types (integer vs DatetimeIndex) when live_fetcher appends to historical parquet
+    - Binance funding timestamp jitter (3-4ms offset) causes missed funding merges
+    - 101-hour data gap (Mar 5-10) from fetch scripts not running
+    - 3 problem tokens (LIT, XMR, PAXG) with spot/perp data incompatibility
+  references: |
+    - kdb+ tick architecture: TP → RDB (live, in-memory) → HDB (historical, on-disk)
+    - ArcticDB (Man Group): versioned, append-only, bi-temporal time series
+    - Two Sigma: data-as-a-service with immutable lake + live overlay
+    - Citadel Securities: cloud-native hot/cold tiers with reconciliation gates
+
+progress: |
+  Phase 1: ✅ COMPLETE — Live buffer separation + read-time merge (2026-03-14)
+    - Created v4/data_loader.py with load_token_data(), discover_tokens_from_data(), infer_data_end_date()
+    - Modified live_fetcher.py to write to data/{market}/live/{TOKEN}.parquet
+    - Updated signals.py and portfolio_signals.py to use load_token_data()
+    - Updated discover_tokens() to scan both historical and live directories
+    - 15 new data_loader tests + 14 updated live_fetcher tests = all pass
+    - Full test suite: 583 passed, 0 failures
+  Phase 2: ✅ COMPLETE — Promotion script with quality checks (2026-03-14)
+    - Created tools/promote_live.py: CLI with --market, --tokens, --dry-run, --verbose
+    - Per-token promotion: identify new bars, QC check, fix, append to historical, trim live
+    - Quality checks: OHLC consistency, duplicates, gaps >6h, NaN prices
+    - Automated fixes: dedup, sort, clamp OHLC
+    - Atomic writes for both historical update and live buffer trim
+    - Promotion log: data/promotions.jsonl (token, bars, timestamps, issues)
+    - 17 new tests, full suite: 600 passed, 0 failures
+  Phase 3: ✅ COMPLETE — Version manifests for reproducibility (2026-03-14)
+    - Created v4/manifest.py: write_manifest_entry, read_manifest, verify_integrity, get_data_boundary_at
+    - SHA-256 hash of historical parquet recorded per promotion
+    - Integrity verification: detects tampered or missing historical files
+    - Point-in-time boundary queries: "what data existed at time T?"
+    - Added load_token_data_at(token, market, as_of) to data_loader.py
+    - Integrated manifest writing into promote_live.py (automatic on every promotion)
+    - 17 new tests + full roundtrip test, full suite: 617 passed, 0 failures
+
+done_when: |
+  1. Live fetcher writes ONLY to data/{market}/live/{TOKEN}.parquet (never touches 1h_cache)
+  2. build_parquet_cache writes ONLY to data/{market}/1h_cache/ (never touches live)
+  3. A single load_token_data() function merges historical + live at read time
+  4. All consumers (signals.py, portfolio_signals.py, paper_engine.py) use load_token_data()
+  5. No two processes ever write to the same file
+  6. All existing tests pass
+  7. Paper trader works correctly with new data path
+
+kill_criteria: |
+  1. Separation adds >500ms latency to paper trader tick cycle
+  2. Read-time merge produces different results than current approach
+  3. Migration breaks >5% of existing tests
+  4. Complexity exceeds benefit (if the fix is worse than the problem)
+
+phases:
+  phase1:
+    name: Live buffer separation + read-time merge
+    status: complete
+    tasks: |
+      1. Create data/{market}/live/ directory structure
+      2. Modify live_fetcher.py to write to live/ instead of 1h_cache/
+      3. Create v4/data_loader.py with load_token_data() that merges historical + live
+      4. Update v4/signals.py to use load_token_data()
+      5. Update v4/portfolio_signals.py to use load_token_data()
+      6. Update all tests
+      7. Verify paper trader works
+
+  phase2:
+    name: Promotion script with quality checks
+    status: complete
+    tasks: |
+      1. ✅ Create tools/promote_live.py
+      2. ✅ Quality checks on promoted bars (OHLC, gaps, dupes, NaN)
+      3. ✅ Append reconciled bars to historical parquet (atomic write)
+      4. ✅ Trim promoted bars from live buffer (or remove if empty)
+      5. ✅ Promotion log to data/promotions.jsonl
+      6. ✅ CLI: --market, --tokens, --dry-run, --verbose
+      7. ✅ 17 tests all passing
+
+  phase3:
+    name: Version manifests for reproducibility
+    status: complete
+    tasks: |
+      1. ✅ Created v4/manifest.py with manifest schema + JSONL storage
+      2. ✅ SHA-256 hash of historical parquet per promotion
+      3. ✅ Integrity verification (verify_integrity)
+      4. ✅ Point-in-time boundary queries (get_data_boundary_at)
+      5. ✅ Point-in-time data loading (load_token_data_at in data_loader.py)
+      6. ✅ Integrated into promote_live.py (automatic manifest on promotion)
+      7. ✅ 17 tests + full roundtrip, 617 tests total pass
+
+notes: |
+  === ARCHITECTURE ===
+
+  AFTER migration:
+
+  Layer 1: LIVE BUFFER (mutable, ephemeral)
+    Location: data/{market}/live/{TOKEN}.parquet
+    Writer:   live_fetcher.py (ONLY writer)
+    Contains: bars newer than last historical bar
+    Lifetime: until promoted to historical
+
+  Layer 2: HISTORICAL STORE (immutable, append-only)
+    Location: data/{market}/1h_cache/{TOKEN}_1h.parquet (existing)
+    Writer:   build_parquet_cache.py for initial load, promote_live.py for ongoing
+    Rule:     once written, NEVER modified by live_fetcher
+
+  Layer 3: READ-TIME MERGE (virtual, no files)
+    Function: v4/data_loader.py:load_token_data(token, market) → pd.DataFrame
+    Used by:  signals.py, portfolio_signals.py, paper_engine.py
+    Guarantees: deduped, sorted, type-consistent DatetimeIndex
+
+  === KEY DESIGN DECISIONS ===
+
+  D1. Parquet format preserved — no schema changes, no new dependencies
+  D2. Historical files unchanged — build_parquet_cache.py continues to own them
+  D3. Live buffer is small (hours to days of data) — fast reads
+  D4. Read-time merge is cheap (concat + dedup + sort on small live buffer)
+  D5. Backward compatible — if live/ doesn't exist, just read historical

@@ -18,7 +18,7 @@ from pathlib import Path
 
 _project_root = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_project_root))
-sys.path.insert(0, str(_project_root / "v3"))
+sys.path.insert(0, str(_project_root / "v4"))
 
 import numpy as np
 import pytest
@@ -27,7 +27,7 @@ from v4.config import PortfolioConfig, StrategySpec
 from v4.position import Position, PositionManager
 from v4.simulator import SimulationState, _process_exits, _close_position
 from v4.signals import TokenSignals
-from v3.universe import get_liquidation_fee_rate, EXCHANGE_LIQUIDATION_FEE
+from v4.universe import get_liquidation_fee_rate, EXCHANGE_LIQUIDATION_FEE
 
 
 # ---------------------------------------------------------------------------

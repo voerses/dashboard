@@ -2,6 +2,10 @@
 
 > Single-file gate reference. Load this instead of 15 separate files.
 > Deep dives linked where needed — read them only when investigating specifics.
+>
+> **v3/ is FROZEN LEGACY.** All engine, validation, and simulation code lives in v4/.
+> Do NOT modify any v3/ files. Strategy modules (`v3/cross_sectional.py`, etc.) still
+> live in v3/ but are read-only — new strategies go in `strategies/sNN_*.py` or `v4/`.
 
 ---
 
@@ -131,7 +135,7 @@ for independent portfolio strategies and per-token robustness testing.
 - **Conditional secondary:** Primary always, secondary only when condition met (e.g., s31 hedged momentum)
 - **Alternating:** One or the other based on regime (e.g., s32 regime spot/perp)
 
-**Combined validation:** `python v3/validation.py --strategy sNN --market combined --workers 4`
+**Combined validation:** `python v4/validation.py --strategy sNN --market combined --workers 4`
 
 > Deep dive: `memory/PROJECT_STATUS.md` (full capability inventory + open tasks)
 
@@ -396,8 +400,8 @@ def strategy(ctx_spot: StrategyContext, ctx_perp: StrategyContext) -> StrategyRe
 
 ## Gate 4: Quick Validate (BTC) — Dual Gate
 
-**Run:** `python v3/validation.py --strategy sNN --tokens BTC --workers 1`
-**Combined:** `python v3/validation.py --strategy sNN --tokens BTC --market combined --workers 1`
+**Run:** `python v4/validation.py --strategy sNN --tokens BTC --workers 1`
+**Combined:** `python v4/validation.py --strategy sNN --tokens BTC --market combined --workers 1`
 
 **BTC must pass BOTH:**
 1. Walk-Forward: positive OOS PnL
@@ -414,8 +418,8 @@ def strategy(ctx_spot: StrategyContext, ctx_perp: StrategyContext) -> StrategyRe
 
 ## Gate 5: Full Validate (111 Tokens) — Tier Assignment
 
-**Run:** `python v3/validation.py --strategy sNN --workers 4`
-**Combined:** `python v3/validation.py --strategy sNN --market combined --workers 4` (111 tokens with both spot+perp)
+**Run:** `python v4/validation.py --strategy sNN --workers 4`
+**Combined:** `python v4/validation.py --strategy sNN --market combined --workers 4` (111 tokens with both spot+perp)
 
 **Return-First Metrics:**
 

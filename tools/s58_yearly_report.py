@@ -14,7 +14,7 @@ from datetime import datetime
 from strategies.s58_multi_strategy_portfolio import (
     _get_momentum_trades, _get_carry_trades, _load_v3
 )
-from v3.universe import get_fee_rate, get_all_tradeable
+from v4.universe import get_fee_rate, get_all_tradeable
 
 
 def run_filtered(capital=200_000, year=2025, exchange='binance'):

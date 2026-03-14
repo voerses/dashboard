@@ -101,9 +101,15 @@ class LiveFetcher:
     # ------------------------------------------------------------------
 
     def _parquet_path(self, token: str, market: str) -> str:
-        """Return the parquet cache path for a token/market."""
+        """Return the live buffer parquet path for a token/market.
+
+        Live data is written to data/{market}/live/{TOKEN}.parquet,
+        separate from the immutable historical cache in 1h_cache/.
+        Consumers use v4/data_loader.load_token_data() to merge both
+        at read time.
+        """
         return os.path.join(
-            self.data_dir, market, "1h_cache", f"{token}_1h.parquet",
+            self.data_dir, market, "live", f"{token}.parquet",
         )
 
     def append_to_parquet(
@@ -131,6 +137,9 @@ class LiveFetcher:
         # Read existing data if present
         if os.path.exists(path):
             existing_df = pd.read_parquet(path)
+            # Ensure index types match: convert integer index to DatetimeIndex
+            if not isinstance(existing_df.index, pd.DatetimeIndex):
+                existing_df.index = pd.to_datetime(existing_df.index, unit="ms")
             combined = pd.concat([existing_df, new_df])
         else:
             combined = new_df
@@ -176,18 +185,22 @@ class LiveFetcher:
 
         df = pd.read_parquet(path)
 
-        # Build mapping: round exchange ms timestamps to nearest hour, then
-        # convert to tz-naive Timestamp to match the parquet index type.
+        # Ensure index is DatetimeIndex so timestamp lookups match
+        if not isinstance(df.index, pd.DatetimeIndex):
+            df.index = pd.to_datetime(df.index, unit="ms")
+
+        # Build mapping: convert ms timestamps to tz-naive Timestamp to match
+        # the parquet DatetimeIndex.  Floor to the nearest hour so that
+        # settlement timestamps (e.g. 00:00:03.456) align with the hourly
+        # OHLCV index (00:00:00).
         funding_map = {}
         for r in funding_rates:
             ts_ms = int(r["timestamp"])
-            # Round to nearest hour boundary (floor to 3600s)
-            rounded_ms = (ts_ms // _HOUR_MS) * _HOUR_MS
-            ts = pd.Timestamp(rounded_ms, unit="ms")
+            ts = pd.Timestamp(ts_ms, unit="ms").floor("h")
             funding_map[ts] = float(r["fundingRate"])
 
         # Map parquet index to funding values
-        new_funding = df.index.map(lambda ts: funding_map.get(ts))
+        new_funding = df.index.map(lambda idx: funding_map.get(idx))
         mask = new_funding.notna()
         if not mask.any():
             return  # No matching timestamps — skip write

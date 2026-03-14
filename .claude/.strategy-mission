@@ -30,7 +30,7 @@ notes: |
   - Smallest improvement: 4-edge PnL +3.8%
 
   Files changed (default breakeven_atr 0.0 → 0.5):
-  - v3/engine.py: StrategyResult.breakeven_atr default
+  - v4/engine.py: StrategyResult.breakeven_atr default
   - v4/signals.py: TokenSignals.breakeven_atr default + extraction fallback
   - v4/position.py: Position.breakeven_atr default
   - v4/portfolio_signals.py: extraction fallback
@@ -145,10 +145,10 @@ notes: |
     CONVICTION:   4-edge-conv (ranked mode)
 
   Engine capabilities available for future strategies:
-    - breakeven_atr (v3/engine.py, v4/simulator.py) — default 0.5, moves stop to entry
-    - funding_exit_threshold (v3/engine.py, v4/simulator.py) — disabled by default
-    - time_trail_schedule (v3/engine.py, v4/simulator.py) — generic time-based trail
-    - partial_tp_atr/pct/trail (v3/engine.py, v4/simulator.py) — partial position close
+    - breakeven_atr (v4/engine.py, v4/simulator.py) — default 0.5, moves stop to entry
+    - funding_exit_threshold (v4/engine.py, v4/simulator.py) — disabled by default
+    - time_trail_schedule (v4/engine.py, v4/simulator.py) — generic time-based trail
+    - partial_tp_atr/pct/trail (v4/engine.py, v4/simulator.py) — partial position close
     - cross-strategy token dedup (v4/simulator.py:567)
     - conviction scoring (v4/simulator.py) — shuffle/ranked/hybrid modes
     - dynamic weights (v4/dynamic_weights.py) — regime-aware strategy weighting

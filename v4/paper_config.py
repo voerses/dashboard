@@ -133,17 +133,11 @@ def validate_paper_config(config: PaperConfig) -> None:
 
     # --- Strategy loadability ---
     # Import here to avoid circular imports at module level
-    _v3_dir = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "v3"
-    )
-    if _v3_dir not in sys.path:
-        sys.path.insert(0, _v3_dir)
-
-    from v3.engine import BacktestEngine
+    from v4.engine import _load_strategy_fn
 
     for spec in config.strategies:
         try:
-            BacktestEngine._load_strategy(spec.strategy_id)
+            _load_strategy_fn(spec.strategy_id)
         except FileNotFoundError as e:
             raise ValueError(
                 f"Strategy '{spec.strategy_id}' could not be loaded: {e}. "

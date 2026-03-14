@@ -18,11 +18,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-# Import v3 metrics
-_v3_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "v3")
-if _v3_dir not in sys.path:
-    sys.path.insert(0, _v3_dir)
-from metrics import compute_metrics, build_equity_curve, PerformanceMetrics, load_benchmark_returns
+from v4.metrics import compute_metrics, build_equity_curve, PerformanceMetrics, load_benchmark_returns
 
 from .position import ClosedTrade
 from .simulator import SimulationState, RejectionStats

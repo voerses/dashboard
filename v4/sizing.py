@@ -6,16 +6,9 @@ Matches v3 JIT (engine.py:502-546) with two additions:
 """
 from __future__ import annotations
 
-import sys
-import os
-
 import numpy as np
 
-# Import adv_to_sizing from v3
-_v3_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "v3")
-if _v3_dir not in sys.path:
-    sys.path.insert(0, _v3_dir)
-from universe import adv_to_sizing
+from v4.universe import adv_to_sizing
 
 
 def compute_position_size(

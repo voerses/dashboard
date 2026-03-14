@@ -31,16 +31,12 @@ from .signals import (
     DATA_DIR,
 )
 
-# Ensure v3 is importable
 _project_root = Path(__file__).resolve().parent.parent
-_v3_dir = str(_project_root / "v3")
-if _v3_dir not in sys.path:
-    sys.path.insert(0, _v3_dir)
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from v3.engine import Engine, MarketType
-from v3.paper_engine import _load_strategy_fn
+from v4.engine import Engine, MarketType, _load_strategy_fn
+from v4.data_loader import load_token_data
 
 
 def _load_all_contexts(
@@ -73,28 +69,27 @@ def _load_all_contexts(
 
     for token in tokens:
         try:
-            spot_pq = Path(DATA_DIR) / "spot" / "1h_cache" / f"{token}_1h.parquet"
-            perp_pq = Path(DATA_DIR) / "perp" / "1h_cache" / f"{token}_1h.parquet"
+            # Load data via data_loader (merges historical + live buffer)
+            df_spot_full = load_token_data(token, "spot", data_dir=DATA_DIR)
+            df_perp_full = load_token_data(token, "perp", data_dir=DATA_DIR)
 
             if is_combined:
-                if not spot_pq.exists() or not perp_pq.exists():
+                if df_spot_full is None or df_perp_full is None:
                     continue
             elif strategy_spec.market == "spot":
-                if not spot_pq.exists():
+                if df_spot_full is None:
                     continue
             else:
-                if not perp_pq.exists():
+                if df_perp_full is None:
                     continue
 
             df_spot = None
             df_perp = None
 
-            if spot_pq.exists():
-                df_spot = pd.read_parquet(spot_pq)
-                df_spot = df_spot[df_spot.index >= load_from]
-            if perp_pq.exists():
-                df_perp = pd.read_parquet(perp_pq)
-                df_perp = df_perp[df_perp.index >= load_from]
+            if df_spot_full is not None:
+                df_spot = df_spot_full[df_spot_full.index >= load_from]
+            if df_perp_full is not None:
+                df_perp = df_perp_full[df_perp_full.index >= load_from]
 
             if is_combined:
                 if df_spot is None or df_perp is None or len(df_spot) < 500 or len(df_perp) < 500:

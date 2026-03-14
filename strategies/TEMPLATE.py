@@ -39,7 +39,7 @@ Steps:
 3. Follow the signal stack: Regime → Trend → Entry → Volume
 4. Performance check:
    python -c "
-     import sys; sys.path.insert(0, 'v3'); sys.path.insert(0, 'v2')
+     import sys; sys.path.insert(0, 'v4')
      from engine import Engine
      import pandas as pd, time
      eng = Engine(data_dir='data', market='spot')
@@ -50,10 +50,9 @@ Steps:
      for _ in range(1000): strategy(ctx)
      print(f'{(time.perf_counter()-t0)/1000*1000:.3f}ms/call')
    "
-5a. V3 path: python v3/validation.py --strategy sNN --tokens BTC --workers 1
-5b. V4 path: python v4/portfolio_backtest.py --strategy sNN --months 12 --capital 200000
-6. Full validate (V3): python v3/validation.py --strategy sNN --workers 4
-7. V4 OOS test: see knowledge/process/STRATEGY_PIPELINE_GATES.md § V4 OOS Test Template
+5. Quick validate: python v4/validation.py --strategy sNN --tokens BTC --workers 1
+6. Portfolio backtest: python v4/portfolio_backtest.py --strategy sNN --months 12 --capital 200000
+7. Full validate: python v4/validation.py --strategy sNN --workers 4
 
 SIDEWAYS MARKET STRATEGIES (complementing s58):
 - Must use perp or combined market (bidirectional for short capability)

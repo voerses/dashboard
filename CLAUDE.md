@@ -7,6 +7,7 @@
 3. **Check blast radius.** Before changing a shared package, check downstream dependents. Document high-impact packages in your project's blast radius list.
 4. **Trace before coding.** For cross-service changes, understand the end-to-end flow before modifying code.
 5. **Test like we test.** Follow existing test patterns in the codebase.
+6. **v3/ is FROZEN.** Never modify files in `v3/`. All engine, validation, simulation, and universe code lives in `v4/`. The `v3/` directory is legacy reference only — all imports have been migrated to `v4/`.
 
 ## Slash Commands
 

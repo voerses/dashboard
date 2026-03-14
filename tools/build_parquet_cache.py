@@ -694,6 +694,32 @@ def process_token(token, force=False, verbose=False, market='perp', cache_dir=No
                           f'max |rate|={max_funding:.6f}')
 
     # 4. Save 1h parquet
+    # Preserve promoted bars: if existing historical extends beyond CSV data,
+    # keep those extra bars (they came from live buffer promotion)
+    if out_path.exists():
+        try:
+            existing = pd.read_parquet(out_path)
+            if not isinstance(existing.index, pd.DatetimeIndex):
+                existing.index = pd.to_datetime(existing.index, unit="ms")
+            if hasattr(existing.index, "tz") and existing.index.tz is not None:
+                existing.index = existing.index.tz_convert("UTC").tz_localize(None)
+            if len(existing) > 0 and len(df) > 0:
+                csv_max = df.index.max()
+                promoted_tail = existing[existing.index > csv_max]
+                if len(promoted_tail) > 0:
+                    df = pd.concat([df, promoted_tail])
+                    df = df[~df.index.duplicated(keep="last")]
+                    df = df.sort_index()
+                    # Fill NaN in funding columns from column mismatch
+                    for col in ("funding_rate", "funding_1h"):
+                        if col in df.columns:
+                            df[col] = df[col].fillna(0.0)
+                    if verbose:
+                        print(f'    Preserved {len(promoted_tail)} promoted bars beyond CSV range')
+        except Exception as e:
+            if verbose:
+                print(f'    Warning: could not read existing parquet for merge: {e}')
+
     df.to_parquet(out_path, engine='pyarrow')
     issues['output_bars'] = len(df)
     issues['output_path'] = str(out_path)
@@ -719,7 +745,7 @@ def main():
     args = parser.parse_args()
 
     # Load universe
-    sys.path.insert(0, str(BASE_DIR / 'v3'))
+    sys.path.insert(0, str(BASE_DIR / 'v4'))
     # universe imported for symbol maps only — token lists discovered from data
 
     if args.tokens:
