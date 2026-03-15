@@ -23,13 +23,9 @@ from engine import (StrategyContext, StrategyResult, MarketType,
 # Module-level marker for V4 portfolio adapter dispatch
 STRATEGY_TYPE = "portfolio"
 
-# Progressive trailing stop
-TRAIL_SCHEDULE = np.array([
-    [0.0, 3.5],
-    [1.0, 2.5],
-    [2.0, 2.0],
-    [4.0, 1.5],
-], dtype=np.float64)
+# Exit ablation (v2/v3): flat 1.5 ATR trail + breakeven beats progressive schedule.
+# bear_max_hold=12: force exit after 12 bars in DOWNTREND (halves max DD for s80+s81).
+TRAIL_SCHEDULE = None
 
 TIME_TRAIL_SCHEDULE = np.array([
     [48, 3.5],
@@ -236,7 +232,7 @@ def strategy(contexts: dict) -> dict:
             market_type=MarketType.PERP,
             leverage=LEVERAGE,
             stop_mult=3.0,
-            trail_mult=3.0,
+            trail_mult=1.5,
             target_mult=999,
             no_stop_bars=24,
             min_hold=12,
@@ -247,6 +243,7 @@ def strategy(contexts: dict) -> dict:
             name='s81_sector_rotation',
             trail_schedule=TRAIL_SCHEDULE,
             time_trail_schedule=TIME_TRAIL_SCHEDULE,
+            bear_max_hold=12,
             size_multiplier=regime_size,
             cap_multiplier=2.5,
         )

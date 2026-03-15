@@ -29,13 +29,8 @@ import numpy as np
 from engine import (StrategyContext, StrategyResult, MarketType,
                     CRISIS)
 
-# Progressive trail schedule (proven in s37/s44/s56)
-TRAIL_SCHEDULE = np.array([
-    [0.0, 3.0],   # Entry: wide trail
-    [1.0, 2.5],   # 1 ATR profit: tighten
-    [2.0, 2.0],   # 2 ATR profit: moderate
-    [3.0, 1.5],   # 3+ ATR: lock in winners
-], dtype=np.float64)
+# Exit ablation (v2/v3): flat 1.5 ATR trail + breakeven beats progressive schedule.
+TRAIL_SCHEDULE = None
 
 # Regime sizing — boosted for sideways/choppy mission
 # Index:         CRISIS  QUIET  UPTREND  RANGE  DOWNTREND
@@ -146,7 +141,7 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
 
         # Trade management
         stop_mult=3.0,        # 3x ATR initial stop (Tier A proven)
-        trail_mult=3.0,       # 3x ATR trailing
+        trail_mult=1.5,       # 1.5x ATR flat trail (exit ablation winner)
         target_mult=999,      # Trail only, no fixed target
         no_stop_bars=24,      # 24h protection (biggest single lever)
         min_hold=18,          # Min 18 hours

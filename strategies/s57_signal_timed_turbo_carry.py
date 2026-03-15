@@ -24,13 +24,8 @@ from engine import (StrategyContext, StrategyResult, MarketType,
 from strategies.s30_basis_carry import _fast_rolling_zscore
 
 
-# Progressive trailing (from s44)
-TRAIL_SCHEDULE = np.array([
-    [0.0, 3.0],
-    [1.0, 2.5],
-    [2.0, 2.0],
-    [3.0, 1.5],
-], dtype=np.float64)
+# Exit ablation (v2/v3): flat 1.5 ATR trail + breakeven beats progressive schedule.
+TRAIL_SCHEDULE = None
 
 # Turbo regime sizing (from s54)
 REGIME_SIZE = np.array([0.0, 3.0, 6.0, 3.0, 2.0], dtype=np.float64)
@@ -141,7 +136,7 @@ def strategy(ctx_spot: StrategyContext, ctx_perp: StrategyContext) -> StrategyRe
 
         # Primary trade management (spot long)
         stop_mult=4.0,
-        trail_mult=3.5,
+        trail_mult=1.5,
         target_mult=999,
         no_stop_bars=48,
         min_hold=24,

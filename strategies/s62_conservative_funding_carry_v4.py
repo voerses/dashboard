@@ -26,13 +26,8 @@ from engine import (StrategyContext, StrategyResult, MarketType,
                     rolling_mean, rolling_std)
 
 
-# Progressive trail schedule (same as s61 — proven universal)
-TRAIL_SCHEDULE = np.array([
-    [0.0, 3.5],   # Entry: wide trail (carry needs room)
-    [1.0, 3.0],   # 1 ATR profit: start tightening
-    [2.0, 2.5],   # 2 ATR profit: moderate
-    [3.0, 2.0],   # 3+ ATR: lock in winners
-], dtype=np.float64)
+# Exit ablation (v2/v3): flat 1.5 ATR trail + breakeven beats progressive schedule.
+TRAIL_SCHEDULE = None
 
 # Regime sizing — HALVED from s61 to control MaxDD
 REGIME_SIZE = np.array([0.0, 1.0, 0.75, 1.25, 0.75], dtype=np.float64)
@@ -93,7 +88,7 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
 
         # ── TRADE MANAGEMENT (same as s61) ─────────────────────
         stop_mult=4.0,
-        trail_mult=3.5,
+        trail_mult=1.5,
         target_mult=999,
         no_stop_bars=48,
         min_hold=24,

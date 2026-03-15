@@ -347,16 +347,19 @@ Layer 6: Position sizing → ADV-based Kelly (engine computes from volume data)
 
 **Regime Constants:** 0=CRISIS, 1=QUIET, 2=UPTREND, 3=RANGE, 4=DOWNTREND
 
-**Standard Exit Parameters (from Tier A):**
+**Standard Exit Parameters (updated 2026-03-15, exit ablation winner):**
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
-| stop_mult | 3.0 | Universal across Tier A |
-| trail_mult | 2.5 | Trailing stop |
-| target_mult | 5.0 | Profit target |
-| min_hold | 6 | Hours minimum |
-| max_hold | 720 | 30 days maximum |
-| exit_regimes | {CRISIS, DOWNTREND} | Force exit |
+| stop_mult | 3.0 | Universal across all strategies |
+| trail_mult | 1.5 | Flat 1.5 ATR trail (replaces progressive schedule) |
+| trail_schedule | None | Progressive schedule RETIRED — flat trail beats it |
+| target_mult | 999 | Trail only, no fixed target |
+| breakeven_atr | 0.5 | Move stop to entry after +0.5 ATR profit |
+| min_hold | 6-12 | Hours minimum |
+| max_hold | 504-720 | 21-30 days maximum |
+| exit_regimes | {CRISIS} | Force exit (most V4 strategies) |
+| bear_max_hold | 12 | s80/s81 only: force exit after 12h in DOWNTREND |
 
 **Performance Requirements:**
 

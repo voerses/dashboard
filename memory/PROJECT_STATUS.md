@@ -1,15 +1,16 @@
 # Project Status — crypto_backtest
 
-> **Last updated:** 2026-03-15T12:30Z
+> **Last updated:** 2026-03-15T20:00Z
 > **Process mode:** strategy (paper trading monitoring — Gate 6)
-> **Active:** V4 multi-portfolio paper trading: **21 pools**. Runner: `ps aux | grep run_paper_multi | grep -v grep` to find current PID. If restart needed: `kill <PID> && nohup /workspace/venv/bin/python -m v4.run_paper_multi --config configs/multi_v4_paper.json >> paper_multi.log 2>&1 &`
+> **Active:** V4 multi-portfolio paper trading: **21 pools**. Runner: `ps aux | grep run_paper_multi | grep -v grep` to find current PID. If restart needed: `kill <PID> && nohup /workspace/venv/bin/python -m v4.run_paper_multi --config configs/multi_v4_paper.json > /tmp/paper_trader.log 2>&1 &`
 > **Engine consolidation (v3→v4):** Completed 2026-03-14. Single simulation path via v4/simulator.py.
 > **v3/ is FROZEN LEGACY — do NOT modify.** All imports point to v4/. v3/ exists only as historical reference.
 > **Overlays deployed:** s69 (s56+time_trail), s72 (s65+time_trail), s75 (s63+fixed_tp=3.0), s76 (partial TP)
 > **Dynamic weights deployed:** s80+s81-dyn (regime-weighted), super5-dyn (5-strategy dynamic)
 > **Conviction scoring deployed:** 4-edge-conv (ranked mode), super5-conv (hybrid mode)
 > **Breakeven ratchet (BE=0.5 ATR):** Deployed universally to ALL strategies on 2026-03-13. Tested 16/16 portfolios improved (median +82% PnL, 15/16 DD improved). s83-BE/s84-BE removed (redundant).
-> **Missions:** Profit-taking (closed), dynamic weights (closed), conviction scoring (closed), data pipeline (closed), engine consolidation v3→v4 (closed). **Regime-adaptive exits (CLOSED)** — breakeven deployed (+82% median PnL). Chandelier stop KILLED (cuts winners short, -162% return at 12mo). Triple barrier KILLED (bear_target_mult + bear_max_hold both hurt, -246% at 12mo). Volume-spike and acceleration trail skipped (same restrictive-exit pattern, current exit stack at local optimum). Engine plumbing for chandelier_lookback and bear_max_hold kept (backward-compatible, disabled by default). **Spot-long/perp-short (KILLED)** — hypothesis falsified for ALL strategy classes (carry needs funding income, momentum needs low fees). **Live trading infrastructure (PARKED)** — deferred until ready for real capital. **Per-portfolio concentration tuning (CLOSED)** — cross-strategy dedup removed (industry best practice); swept concentration_limit per portfolio using Calmar ratio selection; independent quant review rated 6 STRONG, 5 MODERATE, 2 WEAK, 2 REJECT; applied 11 changes to paper config. Tool: `tools/concentration_sweep.py`. See finding #42.
+> **Exit ablation (trail 1.5 + BE):** Deployed 2026-03-15. Progressive trail schedule retired → flat 1.5 ATR trail. All 9 base strategies + engine default updated. bear_max_hold=12 for s80/s81. Backtest: 20/24 BETTER, 4 MIXED+, 0 WORSE at all-time. 24/24 improved at 12mo.
+> **Missions:** Profit-taking (closed), dynamic weights (closed), conviction scoring (closed), data pipeline (closed), engine consolidation v3→v4 (closed). **Exit ablation (CLOSED 2026-03-15)** — comprehensive 3-round study: trail(1.5)+BE is universal winner. Progressive trail retired. Chandelier KILLED, triple barrier KILLED, regime-adaptive REJECTED. bear_max_hold=12 deployed for s80/s81. **Spot-long/perp-short (KILLED)** — hypothesis falsified for ALL strategy classes. **Live trading infrastructure (PARKED)** — deferred. **Per-portfolio concentration tuning (CLOSED)** — 11 changes applied. See finding #42.
 > **Data pipeline (COMPLETE):** kdb+-inspired RDB/HDB pattern. Live→`data/{market}/live/`, historical→`1h_cache/`. `load_token_data()` merges at read time. `promote_live.py` rolls with QC+manifests. `load_token_data_at(as_of)` for reproducible backtests.
 > **Next step:** Monitor 21 pools for 50+ trades each. Comprehensive rankings saved to results/v4/portfolio_rankings.json.
 
@@ -78,6 +79,7 @@
 | Live Price Refresh (SIGUSR1) | `v4/run_paper_multi.py`, `v4/paper_engine.py` | `--refresh` sends SIGUSR1 to running process. Fetches live ticker prices for open positions, updates MTM + heartbeat, pushes dashboard. No tick/trading — just price view. ~22s for 21 pools. Usage: `python -m v4.run_paper_multi --config configs/multi_v4_paper.json --refresh` |
 | Breakeven Ratchet (universal) | `v3/engine.py`, `v4/signals.py`, `v4/position.py`, `v4/portfolio_signals.py`, `v4/paper_state.py` | `breakeven_atr` default changed from 0.0 to 0.5 across entire pipeline. After trade reaches +0.5 ATR, stop moves to entry price. Converts ~13.7% of losing trades to scratch. 16/16 portfolios improved (median PnL +82%, 15/16 DD improved). |
 | Portfolio Rankings Script | `v4/rank_all_portfolios.py` | Runs 4 separate backtests per strategy (months=60/12/3/1), each starting fresh at $200K. Ranked by % return. Saves to `results/v4/portfolio_rankings.json`. 28 strategies × 4 periods = 112 backtests. |
+| Exit Ablation Deployment | `strategies/s56-s65,s80,s81`, `v4/engine.py` | Progressive trail schedule retired → flat 1.5 ATR trail across ALL 9 base strategies. bear_max_hold=12 for s80/s81. 3-round ablation study (v1/v2/v3): 10-16 configs × 28 portfolios × 4 periods. Backtest: 20/24 BETTER all-time, 24/24 improved at 12mo, 0 WORSE. Crash stress test: zero liquidations. Tools: `tools/exit_ablation_v3.py`, `tools/crash_stress_test.py`. |
 
 ### Infrastructure Roadmap (Next Wave)
 
@@ -103,6 +105,7 @@
 | **HIGH** | Evaluate conviction scoring paper results | Time + trades | 4-edge-conv (ranked) and super5-conv (hybrid) deployed. Compare vs shuffle counterparts (4-edge, super5-dyn). |
 | **DONE** | Breakeven ratchet universal deployment | — | Deployed 2026-03-13. Default breakeven_atr=0.5 across all strategies. 16/16 portfolios improved. s83-BE/s84-BE removed (redundant). |
 | **DONE** | Comprehensive portfolio rankings | — | 28 strategies ranked across 4 periods (all-time, 12mo, 3mo, 1mo). Each starts fresh at $200K. Saved to results/v4/portfolio_rankings.json. |
+| **DONE** | Exit ablation + deployment | — | 3-round ablation (v1/v2/v3). trail(1.5)+BE deployed to all 9 base strategies. bear_max_hold=12 for s80/s81. 20/24 BETTER, 0 WORSE at all-time. |
 | **MED** | Dashboard GH Pages CDN stale cache | Mirror sync delay | Gitea→GitHub mirror not propagating gh-pages changes fast enough |
 | **MED** | Hyperliquid data gap | No spot data | Only 23 perp tokens (Aug 2025-Mar 5), no spot. s57 can't run on HL. Not worth building fetcher yet. |
 | **LOW** | Run signal portfolio pipeline end-to-end | None | Cluster 55 tokens by signal profile, generate IC-weighted composite strategies, optimize, backtest |

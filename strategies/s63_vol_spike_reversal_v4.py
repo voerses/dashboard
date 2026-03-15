@@ -31,14 +31,8 @@ import numpy as np
 from engine import (StrategyContext, StrategyResult, MarketType,
                     CRISIS)
 
-# Progressive trail schedule — tighter than momentum because MR has
-# shorter expected hold and smaller expected profit per trade
-TRAIL_SCHEDULE = np.array([
-    [0.0, 3.5],   # Entry: wide trail (let reversion develop)
-    [1.0, 2.5],   # 1 ATR profit: moderate tighten
-    [2.0, 2.0],   # 2 ATR profit: lock in
-    [3.0, 1.5],   # 3+ ATR: aggressive lock
-], dtype=np.float64)
+# Exit ablation (v2/v3): flat 1.5 ATR trail + breakeven beats progressive schedule.
+TRAIL_SCHEDULE = None
 
 # Regime sizing — moderate because mean reversion is inherently riskier
 # Index:         CRISIS  QUIET  UPTREND  RANGE  DOWNTREND
@@ -114,7 +108,7 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
 
         # Trade management — wider stops for MR (needs room to breathe)
         stop_mult=4.0,        # 4x ATR (wider than momentum — MR needs slack)
-        trail_mult=3.5,       # 3.5x ATR trailing
+        trail_mult=1.5,       # 1.5x ATR flat trail (exit ablation winner)
         target_mult=999,      # Trail only
         no_stop_bars=12,      # 12h protection (reversion starts quickly)
         min_hold=12,          # Min 12h

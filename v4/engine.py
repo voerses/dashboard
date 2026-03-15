@@ -322,7 +322,7 @@ class StrategyResult:
     direction: np.ndarray
 
     stop_mult: object = 3.0      # float scalar or per-bar np.ndarray
-    trail_mult: object = 3.0     # float scalar or per-bar np.ndarray
+    trail_mult: object = 1.5     # float scalar or per-bar np.ndarray (exit ablation: 1.5 ATR flat)
     target_mult: float = 999.0
     no_stop_bars: int = 0
     min_hold: int = 6

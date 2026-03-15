@@ -30,13 +30,9 @@ from engine import (StrategyContext, StrategyResult,
 
 from strategies.s11_momentum_burst import strategy as s11_strategy
 
-# Progressive trail schedule (proven in s37)
-TRAIL_SCHEDULE = np.array([
-    [0.0, 3.0],   # Entry: wide trail
-    [1.0, 2.5],   # 1 ATR profit: start tightening
-    [2.0, 2.0],   # 2 ATR profit: moderate
-    [3.0, 1.5],   # 3+ ATR: lock in winners
-], dtype=np.float64)
+# Exit ablation (v2/v3): flat 1.5 ATR trail + breakeven beats progressive schedule
+# on Calmar across all periods and portfolios. Progressive schedule retired.
+TRAIL_SCHEDULE = None
 
 # Regime sizing from signal discovery per-regime IC data
 # s11 is long-only momentum — size up in regimes where momentum signals are strongest
@@ -121,7 +117,7 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
         entry_mask=result.entry_mask,
         direction=result.direction,
         stop_mult=3.0,
-        trail_mult=3.0,
+        trail_mult=1.5,
         target_mult=999,
         no_stop_bars=24,          # CRITICAL: 24h protection
         min_hold=18,

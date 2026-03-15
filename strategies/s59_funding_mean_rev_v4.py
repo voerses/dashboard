@@ -60,7 +60,7 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
         return StrategyResult(
             entry_mask=entry,
             direction=np.zeros(n, dtype=np.int8),
-            stop_mult=4.0, trail_mult=3.0, target_mult=999,
+            stop_mult=4.0, trail_mult=1.5, target_mult=999,
             no_stop_bars=24, min_hold=12, max_hold=168, edge=0.30,
             exit_regimes={CRISIS}, name='funding_mean_rev_v4',
             market_type=MarketType.PERP, leverage=1.0, exchange='binance',
@@ -102,7 +102,7 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
 
         # Trade management — wider stops for mean reversion
         stop_mult=4.0,        # 4x ATR (funding MR needs room)
-        trail_mult=3.0,       # 3x ATR trailing
+        trail_mult=1.5,       # 1.5x ATR flat trail (exit ablation winner)
         target_mult=999,      # Trail only, no fixed target
         no_stop_bars=24,      # 24h protection (biggest lever, finding from Tier A)
         min_hold=12,          # Min 12h (funding takes time to normalize)

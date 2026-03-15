@@ -31,13 +31,8 @@ import numpy as np
 from engine import (StrategyContext, StrategyResult, MarketType,
                     CRISIS, rolling_mean)
 
-# Progressive trail schedule — wider than momentum because carry holds need time
-TRAIL_SCHEDULE = np.array([
-    [0.0, 4.0],   # Entry: wide trail (let carry accumulate)
-    [1.0, 3.0],   # 1 ATR profit: moderate tighten
-    [2.0, 2.5],   # 2 ATR profit: lock in
-    [3.0, 2.0],   # 3+ ATR: aggressive lock
-], dtype=np.float64)
+# Exit ablation (v2/v3): flat 1.5 ATR trail + breakeven beats progressive schedule.
+TRAIL_SCHEDULE = None
 
 # Regime sizing — carry works in all non-crisis regimes
 # Index:         CRISIS  QUIET  UPTREND  RANGE  DOWNTREND
@@ -113,7 +108,7 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
 
         # Trade management — wider stops, longer holds for carry
         stop_mult=4.5,        # 4.5x ATR (wider — carry compensates for noise)
-        trail_mult=4.0,       # 4.0x ATR trailing (wide to let carry accumulate)
+        trail_mult=1.5,       # 1.5x ATR flat trail (exit ablation winner)
         target_mult=999,      # Trail only (carry accumulates, no fixed target)
         no_stop_bars=48,      # 48h protection (need time for funding to accumulate)
         min_hold=24,          # Min 24h (at least 3 funding periods)
