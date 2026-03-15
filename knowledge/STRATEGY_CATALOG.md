@@ -2,9 +2,11 @@
 
 > **TL;DR** Trend following is the only consistent edge in crypto at swing timeframes.
 > S56+S57 (momentum+carry) is the production portfolio running in V4. Sharpe 7.29, +1717% (12mo).
-> **21 paper trading pools** active (Mar 12): s58 base, 12 strategy combos, overlays, dynamic weights, conviction scoring.
+> **21 paper trading pools** active (Mar 15): s58 base, 12 strategy combos, overlays, dynamic weights, conviction scoring.
 > Mean reversion loses money at 18-720hr holds. Simple beats complex (4 conditions > 10).
 > ALL spot-only strategies lose money in Jan-Mar 2026 sideways market. Only perp/combined survive.
+> **Exit ablation (Mar 15):** Progressive trail retired → flat 1.5 ATR trail universally. trail(1.5)+BE confirmed optimal for ALL strategies including s65 carry (144-run sweep).
+> **Calmar caveat:** Backtested Calmar inflated ~100-1000x by compounding + capacity assumptions. Realistic Calmar likely 1-5. See finding #30 in PROJECT_STATUS.
 > **Full details + 67 citations:** `knowledge/archive/STRATEGY_CATALOG_DETAILS.md`
 
 **Context:** Crypto swing trading, $200K capital, 1H timeframe, 18-720hr holds, 6-111 tokens

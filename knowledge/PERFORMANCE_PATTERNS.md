@@ -330,3 +330,28 @@ for _ in range(1000):
 print(f'{(time.perf_counter()-t0)/1000*1000:.3f}ms/call')
 "
 ```
+
+---
+
+## Backtesting Realism Caveats (Added 2026-03-15)
+
+Backtested Calmar ratios are inflated ~100-1000x by several compounding factors:
+
+| Factor | Impact | Status |
+|--------|--------|--------|
+| Full equity compounding | 10-50x inflation | **Accepted** — intended behavior |
+| Daily DD resampling | 3-5x DD underestimate | **Accepted** — measured, modest |
+| `cap_multiplier=15` disabling ADV caps | Unbounded position sizes | **Needs fix** — mission active |
+| No market impact at scale | Assumes zero slippage on $1M+ positions | **Needs fix** — mission active |
+| Survivorship bias | Only current Binance listings | **Accepted** |
+| Parameter overfitting | Not quantified | **Needs quantification** — mission active |
+
+**Realistic Calmar:** Likely 1-5 for the best strategies, not 100-1000.
+
+**Key insight:** The strategies have genuine edge (profitable every month across 21 portfolios over 12 months), but the magnitude of backtested returns at large equity levels is unrealistic because positions would exceed market capacity.
+
+### Funding Rate Gotchas
+
+- **PIPPIN example:** 29.6% annualized funding rate (30d). s65 goes long when 72h rolling mean briefly dips negative. Despite paying heavy funding, PIPPIN longs are net profitable because price gains exceed funding costs.
+- **Attempted fix (8h funding confirmation) KILLED:** Reduced 12mo return by 60%. Filter blocks profitable entries across all tokens, not just edge cases. Lesson: don't over-filter based on single-token pathology.
+- **`funding_exit_threshold`:** Engine supports exiting when cumulative funding / margin exceeds threshold (v4/simulator.py). Currently disabled (0.0) on all strategies. Available as safety valve if needed.

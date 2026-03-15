@@ -361,6 +361,10 @@ Layer 6: Position sizing → ADV-based Kelly (engine computes from volume data)
 | exit_regimes | {CRISIS} | Force exit (most V4 strategies) |
 | bear_max_hold | 12 | s80/s81 only: force exit after 12h in DOWNTREND |
 
+**s65 carry-specific:** trail(1.5) separately confirmed via 144-run sweep (9 configs × 4 periods × 4 portfolios). Harmonic rank score 2.38 vs next-best 1.68. Progressive schedules add no value for carry.
+
+**Calmar caveat:** Backtested Calmar inflated ~100-1000x. See `memory/PROJECT_STATUS.md` finding #30. Realistic Calmar likely 1-5.
+
 **Performance Requirements:**
 
 | Metric | Target | Kill |

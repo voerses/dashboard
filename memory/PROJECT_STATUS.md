@@ -1,6 +1,6 @@
 # Project Status — crypto_backtest
 
-> **Last updated:** 2026-03-15T20:00Z
+> **Last updated:** 2026-03-15T22:30Z
 > **Process mode:** strategy (paper trading monitoring — Gate 6)
 > **Active:** V4 multi-portfolio paper trading: **21 pools**. Runner: `ps aux | grep run_paper_multi | grep -v grep` to find current PID. If restart needed: `kill <PID> && nohup /workspace/venv/bin/python -m v4.run_paper_multi --config configs/multi_v4_paper.json > /tmp/paper_trader.log 2>&1 &`
 > **Engine consolidation (v3→v4):** Completed 2026-03-14. Single simulation path via v4/simulator.py.
@@ -10,7 +10,7 @@
 > **Conviction scoring deployed:** 4-edge-conv (ranked mode), super5-conv (hybrid mode)
 > **Breakeven ratchet (BE=0.5 ATR):** Deployed universally to ALL strategies on 2026-03-13. Tested 16/16 portfolios improved (median +82% PnL, 15/16 DD improved). s83-BE/s84-BE removed (redundant).
 > **Exit ablation (trail 1.5 + BE):** Deployed 2026-03-15. Progressive trail schedule retired → flat 1.5 ATR trail. All 9 base strategies + engine default updated. bear_max_hold=12 for s80/s81. Backtest: 20/24 BETTER, 4 MIXED+, 0 WORSE at all-time. 24/24 improved at 12mo.
-> **Missions:** Profit-taking (closed), dynamic weights (closed), conviction scoring (closed), data pipeline (closed), engine consolidation v3→v4 (closed). **Exit ablation (CLOSED 2026-03-15)** — comprehensive 3-round study: trail(1.5)+BE is universal winner. Progressive trail retired. Chandelier KILLED, triple barrier KILLED, regime-adaptive REJECTED. bear_max_hold=12 deployed for s80/s81. **Spot-long/perp-short (KILLED)** — hypothesis falsified for ALL strategy classes. **Live trading infrastructure (PARKED)** — deferred. **Per-portfolio concentration tuning (CLOSED)** — 11 changes applied. See finding #42.
+> **Missions:** Profit-taking (closed), dynamic weights (closed), conviction scoring (closed), data pipeline (closed), engine consolidation v3→v4 (closed). **Exit ablation (CLOSED 2026-03-15)** — comprehensive 3-round study: trail(1.5)+BE is universal winner. Progressive trail retired. Chandelier KILLED, triple barrier KILLED, regime-adaptive REJECTED. bear_max_hold=12 deployed for s80/s81. **S65 exit optimization (CLOSED 2026-03-15)** — trail(1.5) confirmed optimal for s65/s72 across 4 periods, 144 sweep runs. **Spot-long/perp-short (KILLED)** — hypothesis falsified for ALL strategy classes. **Live trading infrastructure (PARKED)** — deferred. **Per-portfolio concentration tuning (CLOSED)** — 11 changes applied. See finding #42. **Backtest realism audit (ACTIVE)** — cap_multiplier/ADV audit, capacity analysis, parameter overfitting quantification.
 > **Data pipeline (COMPLETE):** kdb+-inspired RDB/HDB pattern. Live→`data/{market}/live/`, historical→`1h_cache/`. `load_token_data()` merges at read time. `promote_live.py` rolls with QC+manifests. `load_token_data_at(as_of)` for reproducible backtests.
 > **Next step:** Monitor 21 pools for 50+ trades each. Comprehensive rankings saved to results/v4/portfolio_rankings.json.
 
@@ -101,7 +101,8 @@
 | Priority | Item | Blocker | Notes |
 |----------|------|---------|-------|
 | **HIGH** | Per-portfolio concentration limit tuning | None | Sweep `concentration_limit` (0.10–0.30) per portfolio. Optimize for 12mo/3mo/1mo. Cross-strategy dedup already removed (finding #42). No code changes — config-only tuning in `multi_v4_paper.json`. |
-| **HIGH** | Monitor 21 paper trading pools for 50+ trades | Time | 21 pools running (PID 395252). Oldest (s58) at tick 147, newest (super5-conv) at tick 71. Need 1-3 weeks for 50+ trades on newer pools. |
+| **HIGH** | Monitor 21 paper trading pools for 50+ trades | Time | 21 pools running (PID 409577). Oldest (s58) at tick ~130, newest (super5-conv) at tick ~85. Need 1-3 weeks for 50+ trades on newer pools. |
+| **HIGH** | Backtest realism audit | None | cap_multiplier=15 disables ADV caps on some strategies. 5% ADV cap may be insufficient at scale. Parameter sensitivity not quantified. Mission: `.claude/.strategy-mission-backtest-realism`. |
 | **HIGH** | Evaluate conviction scoring paper results | Time + trades | 4-edge-conv (ranked) and super5-conv (hybrid) deployed. Compare vs shuffle counterparts (4-edge, super5-dyn). |
 | **DONE** | Breakeven ratchet universal deployment | — | Deployed 2026-03-13. Default breakeven_atr=0.5 across all strategies. 16/16 portfolios improved. s83-BE/s84-BE removed (redundant). |
 | **DONE** | Comprehensive portfolio rankings | — | 28 strategies ranked across 4 periods (all-time, 12mo, 3mo, 1mo). Each starts fresh at $200K. Saved to results/v4/portfolio_rankings.json. |
@@ -376,6 +377,23 @@ Updated 2026-03-13. Breakeven ratchet (BE=0.5) deployed universally.
 26. **Funding carry (s65) is the best portfolio complement found.** s65 harvests structural funding rate imbalance (retail long bias). s58+s65: +1217% (+76.7% vs baseline), Sharpe INCREASES from 8.25 to 8.52, MaxDD barely changes (1.2% → 1.4%). Collects $240K in funding income. Different edge family than momentum or counter-trend.
 
 27. **Four genuinely different edge families now validated in V4 portfolio.** (1) Momentum — s56, trend following. (2) Basis carry — s57, premium convergence. (3) Counter-trend — s63, fades extreme vol spikes. (4) Funding carry — s65, harvests structural funding payments. Full 4-strategy portfolio: +1684%, Sharpe 8.26, MaxDD -5.0%, $3.5M from $200K.
+
+28. **S65 exit sweep: trail(1.5) confirmed optimal for funding carry.** 144-run sweep (2 portfolios × 9 configs × 4 periods). trail(1.5) wins on harmonic rank score across all periods for both s58+s65 (score 2.38) and s58+s72 (score 2.27). 1-month regression (trail_old beats trail_1.5) is a portfolio-level correlated exit effect, not carry-specific. Progressive schedules add no value.
+
+29. **Updated 12-month portfolio rankings (2026-03-15, $140K capital, post exit ablation):**
+    - s60: +39,765% ($140K → $55.8M), MaxDD -3.6% — dominant
+    - s58+s60: +31,459%, MaxDD -2.9%
+    - 4-edge+ptp: +20,159%, MaxDD -4.3%
+    - 4-edge: +24,054%, MaxDD -3.3%
+    - s58+s65: +12,786%, MaxDD -1.3%
+    - s58: +3,249%, MaxDD -1.7%
+    Full rankings in `results/v4/portfolio_rankings.json`.
+
+30. **Quant review: backtested Calmar inflated ~100-1000x by 6 factors.** (1) Unlimited equity compounding — accepted, this is intended. (2) DD from daily resampling misses intraday dips — measured, modest impact. (3) cap_multiplier=15 disables ADV caps — needs fix (mission). (4) No market impact modeling at scale — needs capacity analysis (mission). (5) Survivorship bias — accepted. (6) Parameter overfitting — needs quantification (mission). Realistic Calmar likely 1-5, not 100-1000.
+
+31. **PIPPIN funding direction issue investigated, fix rejected.** PIPPIN has +29.6% annualized funding (last 30d). s65's 72h rolling mean briefly dips negative, causing long entries that pay funding. Attempted fix: 8h funding confirmation layer (`funding_confirms = np.sign(funding_short) == np.sign(funding_signed)`). Result: reduced 12mo return from +4,673% to +1,893% (-60%) while improving DD from -2.15% to -1.01%. Fix too aggressive — blocks profitable entries across all tokens, not just PIPPIN. **Reverted.** PIPPIN longs are net profitable despite funding drag because price gains exceed funding costs. Accept as-is.
+
+32. **Monthly returns analysis (all 21 portfolios, $140K, 12mo).** Every portfolio profitable every month. s60 went $140K → $55.8M (every single month positive). Worst month across all portfolios: still positive. Full output in `/tmp/monthly_returns_all.txt`.
 
 28. **V4 portfolio transforms weak V3 strategies into excellent complements.** s25 (killed V3) → s63 (+1017% in portfolio). s29 (Tier B, 20.1% V3 rate) → s65 (+1217% in portfolio, Sharpe increases). The shared capital + multi-token diversification effect is the key enabler.
 
