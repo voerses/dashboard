@@ -43,6 +43,8 @@ class Position:
     # Breakeven ratchet
     breakeven_atr: float = 0.5        # profit threshold in ATR to trigger breakeven (0 = disabled)
     breakeven_triggered: bool = False  # True after stop moved to entry price
+    # Chandelier stop: trail from highest-high over N-bar lookback (0 = disabled)
+    chandelier_lookback: int = 0
     # Mutable state (updated each bar)
     partial_closed: bool = False      # True after partial close executed
     stop_price: float = 0.0

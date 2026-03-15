@@ -360,8 +360,14 @@ class StrategyResult:
     # Breakeven ratchet
     breakeven_atr: float = 0.5
 
+    # Chandelier stop: trail from highest-high (or lowest-low for shorts) over N-bar lookback
+    # 0 = disabled (use standard trail from pos.highest). Typical values: 10-24 bars.
+    chandelier_lookback: int = 0
+
     # Regime-conditional target: tighter TP in DOWNTREND regime.
     bear_target_mult: float = 0.0
+    # Regime-conditional max hold: shorter hold in DOWNTREND (0 = use max_hold)
+    bear_max_hold: int = 0
 
     # Conviction score: per-bar signal strength in [0, 1] for entry prioritization.
     conviction_score: Optional[np.ndarray] = None

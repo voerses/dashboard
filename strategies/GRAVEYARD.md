@@ -28,3 +28,5 @@ Strategies killed during the gate process. Learn from the dead.
 | 2026-03-15 | s88_s72_spot_long_perp_short | Gate 5O | Wraps s86 with time trail — killed because base (s86) is killed. |
 | 2026-03-15 | s56_spot_routing | Gate 5O | Spot fees 2x perp fees ($438K vs $256K). For 24h-hold momentum, fee delta ($182K) dwarfs funding savings ($33K). Perp return +72% higher. |
 | 2026-03-15 | s11_spot_routing | Gate 5O | Same fee economics as s56. Perp return +127% higher. Perp has stronger momentum dynamics from leveraged traders. |
+2026-03-15 | s85_chandelier | Killed at Gate 3O | Cuts winners short in crypto momentum — return -162% at 12mo, win rate drops 10pp. Progressive trail already optimal.
+2026-03-15 | s86_triple_barrier | Killed at Gate 3O | bear_target_mult and bear_max_hold both hurt s58. Return drops 246% at 12mo, DD improvement negligible. Existing exit stack already optimal.

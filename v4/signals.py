@@ -70,8 +70,12 @@ class TokenSignals:
     partial_tp_trail: float = 1.5
     # Breakeven ratchet
     breakeven_atr: float = 0.5
+    # Chandelier stop: trail from highest-high over N-bar lookback window (0 = disabled)
+    chandelier_lookback: int = 0
     # Regime-conditional target: tighter TP in bear regimes (0 = disabled, use target_mult)
     bear_target_mult: float = 0.0
+    # Regime-conditional max hold: shorter hold in DOWNTREND (0 = use max_hold)
+    bear_max_hold: int = 0
     # Exit mode fields
     convex_exit: bool = False
     rsi: Optional[np.ndarray] = None
@@ -398,7 +402,9 @@ def precompute_strategy_signals(
             sr_partial_tp_pct = float(getattr(sr, 'partial_tp_pct', 0.5))
             sr_partial_tp_trail = float(getattr(sr, 'partial_tp_trail', 1.5))
             sr_breakeven_atr = float(getattr(sr, 'breakeven_atr', 0.5))
+            sr_chandelier_lookback = int(getattr(sr, 'chandelier_lookback', 0))
             sr_bear_target_mult = float(getattr(sr, 'bear_target_mult', 0.0))
+            sr_bear_max_hold = int(getattr(sr, 'bear_max_hold', 0))
             # Conviction score: use explicit if provided, else derive from size_multiplier
             sr_conviction = None
             if getattr(sr, 'conviction_score', None) is not None:
@@ -513,7 +519,9 @@ def precompute_strategy_signals(
                 partial_tp_pct=sr_partial_tp_pct,
                 partial_tp_trail=sr_partial_tp_trail,
                 breakeven_atr=sr_breakeven_atr,
+                chandelier_lookback=sr_chandelier_lookback,
                 bear_target_mult=sr_bear_target_mult,
+                bear_max_hold=sr_bear_max_hold,
                 convex_exit=sr_convex_exit,
                 rsi=p_rsi,
                 rsi_exit_level=sr_rsi_exit_level,

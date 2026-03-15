@@ -454,11 +454,27 @@ def _process_exits(
                     if pos.max_trail_mult_arr[local_bar] < eff_tm:
                         eff_tm = pos.max_trail_mult_arr[local_bar]
 
+                # Chandelier: use lookback-window high/low instead of all-time
+                # When bars_held > lookback, old peaks fall out → stop tightens passively
+                if pos.chandelier_lookback > 0 and bars_held > pos.chandelier_lookback:
+                    lb = pos.chandelier_lookback
+                    start = max(0, local_bar - lb)
+                    want_perp = pos.is_perp if sig.per_bar_is_perp is not None else (pos.leg == "secondary")
+                    if want_perp and sig.perp_high is not None:
+                        h_arr, l_arr = sig.perp_high, sig.perp_low
+                    else:
+                        h_arr, l_arr = sig.high, sig.low
+                    ref_high = float(np.max(h_arr[start:local_bar + 1]))
+                    ref_low = float(np.min(l_arr[start:local_bar + 1]))
+                else:
+                    ref_high = pos.highest
+                    ref_low = pos.lowest
+
                 if d == 1:
-                    trail = pos.highest - eff_tm * cur_atr
+                    trail = ref_high - eff_tm * cur_atr
                     pos.stop_price = max(pos.stop_price, trail)
                 else:
-                    trail = pos.lowest + eff_tm * cur_atr
+                    trail = ref_low + eff_tm * cur_atr
                     pos.stop_price = min(pos.stop_price, trail)
 
         # Step 5.5: Partial profit-taking (before full exit checks)
@@ -540,10 +556,16 @@ def _process_exits(
                     exit_signal = True
                     exit_reason = "mean_target"
 
-        # 6. Max hold
-        if not exit_signal and bars_held >= pos.max_hold:
-            exit_signal = True
-            exit_reason = "max_hold"
+        # 6. Max hold (regime-conditional: shorter hold in DOWNTREND)
+        if not exit_signal:
+            eff_max_hold = pos.max_hold
+            if sig.bear_max_hold > 0:
+                regime_val_mh = int(sig.regime[local_bar])
+                if regime_val_mh == 4:  # DOWNTREND
+                    eff_max_hold = sig.bear_max_hold
+            if bars_held >= eff_max_hold:
+                exit_signal = True
+                exit_reason = "max_hold"
 
         # 7. Funding ceiling (perp only — exit if cumulative funding drag exceeds threshold)
         if not exit_signal and pos.funding_exit_threshold > 0.0 and pos.is_perp:
@@ -837,6 +859,7 @@ def _process_entries(
                 partial_tp_pct=sig.partial_tp_pct,
                 partial_tp_trail=sig.partial_tp_trail,
                 breakeven_atr=sig.breakeven_atr,
+                chandelier_lookback=sig.chandelier_lookback,
                 stop_price=p_stop,
                 highest=p_high,
                 lowest=p_low,
@@ -914,6 +937,7 @@ def _process_entries(
                 partial_tp_pct=sig.partial_tp_pct,
                 partial_tp_trail=sig.partial_tp_trail,
                 breakeven_atr=sig.breakeven_atr,
+                chandelier_lookback=sig.chandelier_lookback,
                 stop_price=s_stop,
                 highest=s_high,
                 lowest=s_low,
@@ -1065,6 +1089,7 @@ def _process_entries(
                 partial_tp_pct=sig.partial_tp_pct,
                 partial_tp_trail=sig.partial_tp_trail,
                 breakeven_atr=sig.breakeven_atr,
+                chandelier_lookback=sig.chandelier_lookback,
                 stop_price=stop_price,
                 highest=sig.high[local_bar],
                 lowest=sig.low[local_bar],
