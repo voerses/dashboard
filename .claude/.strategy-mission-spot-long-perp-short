@@ -1,6 +1,6 @@
-status: active
-goal: Create combined spot-long/perp-short variants of s65, s72, s62 to eliminate funding drag on long positions while keeping perp for shorts
-priority: HIGH — s65/s72/s62 are top P&L contributors, funding drag is measurable
+status: KILLED
+goal: Create combined spot-long/perp-short variants to eliminate funding drag
+priority: CLOSED — hypothesis falsified for ALL strategy classes
 started: 2026-03-15
 type: strategy development (Class A → Gate 0→1→2→3→4→5→6→7)
 
@@ -137,3 +137,34 @@ files_to_check: |
   strategies/s57_signal_timed_turbo_carry.py — reference for COMBINED market usage
   v4/simulator.py — how combined market positions are handled
   v4/universe.py — spot vs perp fee rates, ADV data
+
+kill_report: |
+  === KILLED 2026-03-15 — ALL VARIANTS ===
+
+  Tested 5 strategies across 2 strategy classes. ALL failed Gate 5O.
+
+  CARRY STRATEGIES (s86/s87/s88 — carry signal + spot longs):
+    s86 vs s65: Return -34% (s86 $3.4M vs s65 $5.2M). Carry strategies position
+    to RECEIVE funding on longs. Spot removes $6M funding income.
+    s87/s88: Killed with s86 (same root cause).
+
+  MOMENTUM STRATEGIES (s56/s11 on spot vs perp):
+    s56 spot vs perp: Return -42% ($3.6M vs $6.0M). Spot fees $438K vs perp $256K.
+    Fee delta ($182K) dwarfs funding savings ($33K). Perp has better momentum dynamics.
+    s11 spot vs perp: Return -56% ($844K vs $1.9M). Same fee economics. Perp MaxDD
+    also better (-17.8% vs -26.6%).
+
+  ROOT CAUSES:
+  1. Carry: Longs receive funding (opposite of hypothesis)
+  2. Momentum: Spot fees ~2x perp fees on Binance (0.1% vs 0.05% taker)
+  3. Momentum: Short holds (16-24h) = 1-3 funding settlements = negligible drag
+  4. Momentum: Perp markets have stronger momentum from leveraged traders
+
+  CONCLUSION: No current strategy class benefits from spot venue routing.
+  Engine per-bar routing capability is technically correct but has no use case.
+
+  FUTURE CONDITIONS WHERE THIS MIGHT WORK:
+  - Fee structure reversal (spot < perp fees)
+  - Strategy with >7 day avg hold AND directional bias
+  - Spot-only tokens with no perpetual market
+  - Regulatory changes affecting perp availability

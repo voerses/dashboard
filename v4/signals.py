@@ -98,6 +98,8 @@ class TokenSignals:
     perp_atr: Optional[np.ndarray] = None
     perp_rolling_adv: Optional[np.ndarray] = None
     perp_funding_1h: Optional[np.ndarray] = None
+    # Per-bar venue routing (adaptive spot/perp strategies)
+    per_bar_is_perp: Optional[np.ndarray] = None  # bool array: True=perp, False=spot
 
 
 def _to_array(val, n: int) -> np.ndarray:
@@ -340,10 +342,20 @@ def precompute_strategy_signals(
                 perp_funding_arr = _copy_f32(ctx_perp.funding_1h, n_safe) if ctx_perp.funding_1h is not None else np.zeros(n_safe, dtype=np.float32)
 
                 # Determine which leg is perp
-                is_perp_primary = (sr.market_type == MarketType.PERP)
+                is_perp_primary = (sr.market_type == MarketType.PERP) if not isinstance(sr.market_type, np.ndarray) else False
                 is_perp_secondary = (getattr(sr, 'secondary_market_type', MarketType.PERP) == MarketType.PERP)
             elif strategy_spec.market == "perp":
                 is_perp_primary = True
+
+            # Per-bar venue routing: detect per-bar market_type (adaptive spot/perp)
+            per_bar_is_perp_arr = None
+            ts_is_combined = is_combined
+            if is_combined and isinstance(sr.market_type, np.ndarray):
+                # Strategy returns per-bar market routing (SPOT for longs, PERP for shorts)
+                # Use single-leg path with per-bar fee/funding/price routing
+                per_bar_is_perp_arr = (sr.market_type[:n_safe] == MarketType.PERP).astype(bool)
+                ts_is_combined = False  # single-leg path, NOT atomic two-leg
+                is_perp_primary = False  # per_bar_is_perp overrides this
 
             # Mean target values
             mean_target = None
@@ -448,6 +460,8 @@ def precompute_strategy_signals(
                     perp_atr_arr = perp_atr_arr[s:]
                     perp_adv_arr = perp_adv_arr[s:]
                     perp_funding_arr = perp_funding_arr[s:]
+                if per_bar_is_perp_arr is not None:
+                    per_bar_is_perp_arr = per_bar_is_perp_arr[s:]
                 n_safe = n_safe - s
 
             # Skip token if trimmed window is too short for walk-forward training
@@ -504,7 +518,7 @@ def precompute_strategy_signals(
                 rsi=p_rsi,
                 rsi_exit_level=sr_rsi_exit_level,
                 mean_target_vals=mean_target,
-                is_combined=is_combined,
+                is_combined=ts_is_combined,
                 secondary_entry_mask=sec_entry,
                 secondary_direction=sec_dir,
                 secondary_leverage=sr_sec_leverage,
@@ -523,6 +537,7 @@ def precompute_strategy_signals(
                 perp_atr=perp_atr_arr,
                 perp_rolling_adv=perp_adv_arr,
                 perp_funding_1h=perp_funding_arr,
+                per_bar_is_perp=per_bar_is_perp_arr,
             )
             results[token] = ts
 

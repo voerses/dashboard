@@ -55,6 +55,7 @@ each other. Skip directional overlays at Gate 0 for delta-neutral bases.
 | `partial_tp_trail` | `Optional[np.ndarray]` | `None` | Partial profit-taking: close fraction at target, trail remainder with tighter stop. |
 | `time_trail_schedule` | `Optional[np.ndarray]` | `None` | Time-decayed trail tightening by hold duration. |
 | `funding_exit_threshold` | `float` | `0.0` | Exit if cumulative funding / margin exceeds threshold. Disabled by default (KILLED at 5O). |
+| `market_type` (per-bar) | `int` or `np.ndarray` | scalar | Per-bar venue routing: SPOT(0) or PERP(1) per entry. Engine routes fees/funding/prices per position. No current use case (KILLED at 5O — spot fees 2x perp). |
 
 ### V4 Portfolio Config Options
 
@@ -115,6 +116,7 @@ each other. Skip directional overlays at Gate 0 for delta-neutral bases.
 - **5x leverage kills all strategies** — use 1x with aggressive sizing (size_mult=3, cap_mult=15) instead
 - **Regime-conditional EMAs decay fast** — prefer cross-TF signals (STABLE over time)
 - **Four edge families validated in V4**: momentum (s56), basis carry (s57), counter-trend (s63), funding carry (s65). Next families to explore: cross-sectional, volatility harvesting, pairs/stat arb.
+- **Spot venue routing is a dead end** — tested 5 strategies across carry + momentum classes, ALL killed. Carry longs RECEIVE funding (removing it costs 34% return). Spot fees are 2x perp fees on Binance (0.1% vs 0.05%), overwhelming funding savings for short-hold strategies. Don't retry unless fee structure changes or strategy holds >7 days.
 
 ### Strategy Classes (Gate 0 Routing)
 

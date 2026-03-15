@@ -1438,3 +1438,143 @@ class TestDataEndForcesClose:
         data_end_trades = [t for t in trades if t.exit_reason == "data_end"]
         assert len(data_end_trades) >= 1
         assert state.position_manager.total_open() == 0
+
+
+# ===================================================================
+# 21. Per-bar venue routing (per_bar_is_perp)
+# ===================================================================
+
+class TestPerBarVenueRouting:
+    """Test 21: per_bar_is_perp routes entries to correct venue."""
+
+    def _make_per_bar_signals(
+        self, n=200, entry_bar=10, direction=1, per_bar_perp=False,
+        funding_rate=0.0001, perp_price_offset=0.5,
+    ):
+        """Build TokenSignals with per_bar_is_perp set."""
+        close_arr = np.full(n, 100.0, dtype=np.float64)
+        atr_arr = np.full(n, 2.0, dtype=np.float64)
+
+        # Perp prices slightly different from spot
+        perp_close = close_arr + perp_price_offset
+        perp_high = perp_close + 1.0
+        perp_low = perp_close - 1.0
+        perp_atr = atr_arr.copy()
+        perp_adv = np.full(n, 5_000_000.0, dtype=np.float64)
+        perp_funding = np.full(n, funding_rate, dtype=np.float64)
+
+        per_bar_arr = np.full(n, per_bar_perp, dtype=bool)
+
+        sig = _make_token_signals(
+            n_bars=n,
+            entry_bar=entry_bar,
+            direction=direction,
+            close_price=100.0,
+            is_perp_primary=False,   # base is spot
+            funding_rate=0.0,        # spot funding = 0
+            max_hold=50,
+            perp_close=perp_close,
+            perp_high=perp_high,
+            perp_low=perp_low,
+            perp_atr=perp_atr,
+            perp_rolling_adv=perp_adv,
+            perp_funding_1h=perp_funding,
+        )
+        # Inject per_bar_is_perp (not exposed in _make_token_signals helper)
+        sig.per_bar_is_perp = per_bar_arr
+        return sig
+
+    def test_spot_entry_pays_zero_funding(self):
+        """When per_bar_is_perp=False at entry bar, position is spot → no funding."""
+        sig = self._make_per_bar_signals(
+            entry_bar=10, direction=1, per_bar_perp=False,
+            funding_rate=0.0005,  # high funding — should NOT apply
+        )
+        config = _default_config()
+        spec = StrategySpec(strategy_id="s30", weight=1.0, max_positions=15)
+        state = simulate_portfolio({"s30": {"BTC": sig}}, {"s30": spec}, config)
+        trades = state.position_manager.closed_trades
+        assert len(trades) >= 1
+        # Spot position should pay zero funding
+        assert state.total_funding == pytest.approx(0.0)
+        assert trades[0].is_perp is False
+
+    def test_perp_entry_accrues_funding(self):
+        """When per_bar_is_perp=True at entry bar, position is perp → funding accrues."""
+        sig = self._make_per_bar_signals(
+            entry_bar=10, direction=1, per_bar_perp=True,
+            funding_rate=0.0001,
+        )
+        config = _default_config()
+        spec = StrategySpec(strategy_id="s30", weight=1.0, max_positions=15)
+        state = simulate_portfolio({"s30": {"BTC": sig}}, {"s30": spec}, config)
+        trades = state.position_manager.closed_trades
+        assert len(trades) >= 1
+        # Perp position should accrue funding
+        assert state.total_funding > 0.0
+        assert trades[0].is_perp is True
+
+    def test_per_bar_routing_direction_split(self):
+        """Different directions on different bars route to correct venues."""
+        n = 200
+        close_arr = np.full(n, 100.0, dtype=np.float64)
+        perp_close = close_arr + 0.5
+        perp_high = perp_close + 1.0
+        perp_low = perp_close - 1.0
+        perp_atr = np.full(n, 2.0, dtype=np.float64)
+        perp_adv = np.full(n, 5_000_000.0, dtype=np.float64)
+        perp_funding = np.full(n, 0.0001, dtype=np.float64)
+
+        # Two entries: bar 10 (spot) and bar 80 (perp)
+        entry_mask = np.zeros(n, dtype=bool)
+        entry_mask[10] = True
+        entry_mask[80] = True
+
+        per_bar = np.zeros(n, dtype=bool)
+        per_bar[80] = True  # bar 80 entry goes to perp
+
+        sig = _make_token_signals(
+            n_bars=n,
+            entry_mask_array=entry_mask,
+            direction=1,
+            close_price=100.0,
+            is_perp_primary=False,
+            funding_rate=0.0,
+            max_hold=30,
+            perp_close=perp_close,
+            perp_high=perp_high,
+            perp_low=perp_low,
+            perp_atr=perp_atr,
+            perp_rolling_adv=perp_adv,
+            perp_funding_1h=perp_funding,
+        )
+        sig.per_bar_is_perp = per_bar
+
+        config = _default_config()
+        spec = StrategySpec(strategy_id="s30", weight=1.0, max_positions=15)
+        state = simulate_portfolio({"s30": {"BTC": sig}}, {"s30": spec}, config)
+        trades = state.position_manager.closed_trades
+        # Should have 2 trades: one spot, one perp
+        assert len(trades) == 2
+        perp_trades = [t for t in trades if t.is_perp]
+        spot_trades = [t for t in trades if not t.is_perp]
+        assert len(perp_trades) == 1
+        assert len(spot_trades) == 1
+
+    def test_none_per_bar_uses_primary(self):
+        """When per_bar_is_perp is None, falls back to is_perp_primary."""
+        sig = _make_token_signals(
+            n_bars=200, entry_bar=10,
+            is_perp_primary=True,
+            funding_rate=0.0001,
+            max_hold=50,
+        )
+        assert sig.per_bar_is_perp is None
+        config = _default_config()
+        spec = StrategySpec(strategy_id="s30", weight=1.0, max_positions=15)
+        state = simulate_portfolio({"s30": {"BTC": sig}}, {"s30": spec}, config)
+        trades = state.position_manager.closed_trades
+        assert len(trades) >= 1
+        # Should be perp (is_perp_primary=True)
+        assert trades[0].is_perp is True
+        assert state.total_funding > 0.0

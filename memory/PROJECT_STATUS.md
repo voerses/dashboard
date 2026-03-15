@@ -1,6 +1,6 @@
 # Project Status — crypto_backtest
 
-> **Last updated:** 2026-03-14T13:15Z
+> **Last updated:** 2026-03-15T12:30Z
 > **Process mode:** strategy (paper trading monitoring — Gate 6)
 > **Active:** V4 multi-portfolio paper trading: **21 pools**. Runner PID 381557.
 > **Engine consolidation (v3→v4):** Completed 2026-03-14. Single simulation path via v4/simulator.py.
@@ -9,7 +9,7 @@
 > **Dynamic weights deployed:** s80+s81-dyn (regime-weighted), super5-dyn (5-strategy dynamic)
 > **Conviction scoring deployed:** 4-edge-conv (ranked mode), super5-conv (hybrid mode)
 > **Breakeven ratchet (BE=0.5 ATR):** Deployed universally to ALL strategies on 2026-03-13. Tested 16/16 portfolios improved (median +82% PnL, 15/16 DD improved). s83-BE/s84-BE removed (redundant).
-> **Missions:** Profit-taking (closed), dynamic weights (closed), conviction scoring (closed), data pipeline (closed), engine consolidation v3→v4 (closed). **Regime-adaptive exits (ACTIVE)** — breakeven deployed, Chandelier/volume/acceleration/triple barrier still to test. **Spot-long/perp-short (ACTIVE)** — s65/s62/s72 spot longs to eliminate funding drag (~0.4-0.7% notional). **Live trading infrastructure (PARKED)** — deferred until ready for real capital.
+> **Missions:** Profit-taking (closed), dynamic weights (closed), conviction scoring (closed), data pipeline (closed), engine consolidation v3→v4 (closed). **Regime-adaptive exits (ACTIVE)** — breakeven deployed, Chandelier/volume/acceleration/triple barrier still to test. **Spot-long/perp-short (KILLED)** — hypothesis falsified for ALL strategy classes (carry needs funding income, momentum needs low fees). **Live trading infrastructure (PARKED)** — deferred until ready for real capital.
 > **Data pipeline (COMPLETE):** kdb+-inspired RDB/HDB pattern. Live→`data/{market}/live/`, historical→`1h_cache/`. `load_token_data()` merges at read time. `promote_live.py` rolls with QC+manifests. `load_token_data_at(as_of)` for reproducible backtests.
 > **Next step:** Monitor 21 pools for 50+ trades each. Comprehensive rankings saved to results/v4/portfolio_rankings.json.
 
@@ -68,6 +68,7 @@
 | Fixed TP Overlay (s75) | `strategies/s75_s63_fixed_tp.py` | s63 counter-trend + target_mult=3.0. Locks in MR profits before trend resumes. Gate 5O: Calmar +17.6%, Return +18.5%, avg winner +22.7%. Deployed to paper trading. |
 | Funding Exit Engine Support | `v4/simulator.py`, `v4/signals.py`, `v4/position.py`, `v4/paper_state.py`, `v3/engine.py` | `funding_exit_threshold` field (default 0.0 = disabled). Generic exit check if cumulative funding / margin exceeds threshold. s73/s74 KILLED but engine capability preserved. |
 | Partial Profit-Taking | `v4/simulator.py`, `v4/signals.py`, `v3/engine.py` | `partial_tp_trail` field on StrategyResult/TokenSignals. Closes fraction of position at profit target, trails remainder. s76 overlay deployed. |
+| Per-Bar Venue Routing | `v4/simulator.py`, `v4/signals.py` | `per_bar_is_perp` field on TokenSignals. Per-position spot/perp routing: fees, funding, and prices per venue. `market_type` as np.ndarray on StrategyResult triggers per-bar mode. s86/s87/s88 KILLED at Gate 5O (spot fees 2x perp, carry needs funding income). Engine capability preserved but unused. |
 | Cross-Sectional Momentum V4 | `strategies/s80_xsec_momentum.py` | V4-native cross-sectional momentum: rank tokens by trailing return, long top quintile on perps. Regime-gated. |
 | Sector Rotation V4 | `strategies/s81_sector_rotation.py` | V4-native sector rotation: 10 sectors, category-level momentum, top 2 sectors. Regime-gated. |
 | Dynamic Weight Allocation | `v4/dynamic_weights.py` | Regime-aware strategy weighting. Computes per-strategy weights based on BTC regime + historical profit factors. Applied per-tick in paper trading. |
@@ -391,6 +392,8 @@ Updated 2026-03-13. Breakeven ratchet (BE=0.5) deployed universally.
 36. **Fixed TP at 3x ATR is optimal for counter-trend (s63).** Submission 4 (s75) passed Gate 5O: Calmar +17.6%, Return +18.5%, Sharpe +7.8% solo; +31.4% return in s58 combo. Mean reversion trades have a natural profit cap — price reverts to the mean but rarely overshoots. Trail-only exits (target_mult=999) give back gains when the original trend resumes. TP at 3x ATR captures 264 trades (11.8%) that would otherwise trail back to loss. Avg winner INCREASES +22.7% because TP locks in gains the trail would return. Deployed to paper trading as s58+s75 pool.
 
 38. **Conviction-based entry scoring eliminates seed sensitivity.** Ranked mode (pure conviction ordering) produces 0% return variation across 10 seeds — fully deterministic. Hybrid mode (3 tiers, shuffle within) has ~3% variation. On diverse multi-strategy portfolios (4-edge, super5), conviction scoring improves Calmar +59-281% and DD by up to -67%. However, results are NOT universal: solo strategies and some 2-strategy combos regress. Deployed selectively: 4-edge-conv (ranked), super5-conv (hybrid).
+
+39. **VENUE ROUTING DEAD END: Spot routing provides no benefit for ANY current strategy class.** Tested 5 strategies across 2 classes (carry: s86/s87/s88, momentum: s56/s11 on spot vs perp). ALL killed at Gate 5O. Two root causes: (1) **Carry strategies receive funding on longs** — they position opposite to funding direction, so longs collect funding income. Spot removes this income, reducing s65 returns by 34%. (2) **Spot fees ~2x perp fees on Binance** (0.1% vs 0.05% taker). For short-hold momentum (16-24h avg), fee delta ($182K on s56) vastly exceeds funding savings ($33K). Perp also shows stronger momentum dynamics (leveraged traders amplify moves). Engine per-bar market_type routing capability is technically correct (v4/signals.py `per_bar_is_perp`, v4/simulator.py per-position venue routing) but has no current use case. May become relevant if: fee structures change, strategy holds >7 days with directional bias, or spot-only tokens emerge.
 
 39. **Dynamic regime-weighted allocation works for multi-strategy portfolios.** super5-dyn (5-strategy dynamic) improved return +28% over static allocation in backtest. Regime weights shift capital toward strategies that perform well in current BTC regime (DOWNTREND currently: s80=0.79, s81=0.80, s57=1.20, s60=1.44, s63=0.77). s80+s81-dyn uses equal weights (1.0/1.0) since both perform similarly across regimes.
 

@@ -180,9 +180,15 @@ def _close_position(
     )
 
 
-def _get_bar_data(sig: TokenSignals, local_bar: int, is_primary: bool = True):
-    """Get price/indicator data for a bar, choosing primary or secondary arrays."""
-    if not is_primary and sig.perp_close is not None:
+def _get_bar_data(sig: TokenSignals, local_bar: int, is_primary: bool = True, use_perp: bool | None = None):
+    """Get price/indicator data for a bar, choosing primary or secondary arrays.
+
+    Args:
+        use_perp: Explicit override for adaptive strategies. When set, selects
+            perp arrays (True) or spot arrays (False) regardless of is_primary.
+    """
+    want_perp = use_perp if use_perp is not None else (not is_primary)
+    if want_perp and sig.perp_close is not None:
         return (
             sig.perp_close[local_bar],
             sig.perp_high[local_bar],
@@ -329,7 +335,8 @@ def _process_exits(
                     break
             if last_valid >= 0:
                 is_secondary = (pos.leg == "secondary")
-                close_p, _, _, _, adv_p, _ = _get_bar_data(sig, last_valid, not is_secondary)
+                _up = pos.is_perp if sig.per_bar_is_perp is not None else None
+                close_p, _, _, _, adv_p, _ = _get_bar_data(sig, last_valid, not is_secondary, use_perp=_up)
             else:
                 close_p = pos.entry_price
                 adv_p = 1_000_000.0
@@ -340,14 +347,17 @@ def _process_exits(
                 if linked and not any(p is linked for p, _, _, _ in positions_to_close):
                     is_linked_secondary = (linked.leg == "secondary")
                     if last_valid >= 0:
-                        lc, _, _, _, la, _ = _get_bar_data(sig, last_valid, not is_linked_secondary)
+                        _lup = linked.is_perp if sig.per_bar_is_perp is not None else None
+                        lc, _, _, _, la, _ = _get_bar_data(sig, last_valid, not is_linked_secondary, use_perp=_lup)
                     else:
                         lc, la = linked.entry_price, 1_000_000.0
                     positions_to_close.append((linked, lc, "data_end", la))
             continue
 
         is_secondary = (pos.leg == "secondary")
-        close_val, high_val, low_val, atr_val, adv_val, funding_val = _get_bar_data(sig, local_bar, not is_secondary)
+        # For adaptive strategies (per_bar_is_perp), use pos.is_perp for price routing
+        _use_perp = pos.is_perp if sig.per_bar_is_perp is not None else None
+        close_val, high_val, low_val, atr_val, adv_val, funding_val = _get_bar_data(sig, local_bar, not is_secondary, use_perp=_use_perp)
 
         bars_held = global_bar - pos.entry_bar
         d = pos.direction
@@ -375,7 +385,8 @@ def _process_exits(
                     linked = state.position_manager.get_linked(pos.linked_position_id)
                     if linked and not any(p is linked for p, _, _, _ in positions_to_close):
                         is_lk_sec = (linked.leg == "secondary")
-                        lc, _, _, _, la, _ = _get_bar_data(sig, local_bar, not is_lk_sec)
+                        _lkup = linked.is_perp if sig.per_bar_is_perp is not None else None
+                        lc, _, _, _, la, _ = _get_bar_data(sig, local_bar, not is_lk_sec, use_perp=_lkup)
                         positions_to_close.append((linked, lc, "linked_exit", la))
                 continue
 
@@ -923,6 +934,31 @@ def _process_entries(
 
         else:
             # Single-leg entry
+
+            # Per-bar venue routing for adaptive strategies (spot longs, perp shorts)
+            is_perp_this_bar = sig.is_perp_primary
+            if sig.per_bar_is_perp is not None:
+                is_perp_this_bar = bool(sig.per_bar_is_perp[local_bar])
+                # Override price/ADV with correct venue data
+                if is_perp_this_bar and sig.perp_close is not None:
+                    close_val = float(sig.perp_close[local_bar])
+                    atr_val = float(sig.perp_atr[local_bar])
+                    if np.isnan(atr_val):
+                        atr_val = close_val * 0.02
+                    adv_val = float(sig.perp_rolling_adv[local_bar])
+                    volatility = atr_val / max(close_val, 1e-10)
+                    # Recompute position size with perp venue data
+                    pos_usd = compute_position_size(
+                        strategy_equity=strategy_equity,
+                        rolling_adv=adv_val,
+                        volatility=volatility,
+                        edge=sig.edge,
+                        size_multiplier=sm_val,
+                        cap_multiplier=sig.cap_multiplier,
+                        max_trade_pct=sig.max_trade_pct,
+                        adv_cap_pct=config.adv_cap_pct,
+                    )
+
             # Constraint 5: min position size
             if pos_usd < config.min_position_usd:
                 state.rejections.min_size += 1
@@ -935,7 +971,7 @@ def _process_entries(
 
             # Leverage: amplify notional, margin stays same
             margin_usd = pos_usd
-            if sig.is_perp_primary and lev_val > 1.0:
+            if is_perp_this_bar and lev_val > 1.0:
                 notional_usd = pos_usd * lev_val
             else:
                 notional_usd = pos_usd
@@ -950,14 +986,14 @@ def _process_entries(
                 # Scale down to fit concentration limit
                 pos_usd = max_for_token
                 margin_usd = pos_usd
-                if sig.is_perp_primary and lev_val > 1.0:
+                if is_perp_this_bar and lev_val > 1.0:
                     notional_usd = pos_usd * lev_val
                 else:
                     notional_usd = pos_usd
                 state.partial_fills += 1
 
             # Fee
-            if sig.is_perp_primary:
+            if is_perp_this_bar:
                 fee_rate = get_fee_rate(config.exchange, "perp", "taker")
             else:
                 fee_rate = get_fee_rate(config.exchange, "spot", "taker")
@@ -973,7 +1009,7 @@ def _process_entries(
                     state.rejections.capital += 1
                     continue
                 # Compute affordable margin given fee structure
-                if sig.is_perp_primary and lev_val > 1.0:
+                if is_perp_this_bar and lev_val > 1.0:
                     affordable = usable / (1.0 + lev_val * fee_rate)
                 else:
                     affordable = usable / (1.0 + fee_rate)
@@ -983,7 +1019,7 @@ def _process_entries(
                 # Scale down to affordable size
                 pos_usd = affordable
                 margin_usd = pos_usd
-                if sig.is_perp_primary and lev_val > 1.0:
+                if is_perp_this_bar and lev_val > 1.0:
                     notional_usd = pos_usd * lev_val
                 else:
                     notional_usd = pos_usd
@@ -1014,7 +1050,7 @@ def _process_entries(
                 quantity=quantity,
                 margin_usd=margin_usd,
                 leverage=lev_val,
-                is_perp=sig.is_perp_primary,
+                is_perp=is_perp_this_bar,
                 fee_rate=fee_rate,
                 stop_mult=float(sig.stop_mult[local_bar]),
                 trail_mult=float(sig.trail_mult[local_bar]),
@@ -1118,6 +1154,7 @@ def _close_all_remaining(
                 local_bar = max(sig.n_bars - 1, 0)
 
         is_secondary = (pos.leg == "secondary")
-        close_val, _, _, _, adv_val, _ = _get_bar_data(sig, local_bar, not is_secondary)
+        _use_perp = pos.is_perp if sig.per_bar_is_perp is not None else None
+        close_val, _, _, _, adv_val, _ = _get_bar_data(sig, local_bar, not is_secondary, use_perp=_use_perp)
 
         _close_position(state, pos, last_bar, close_val, "data_end", adv_val, config)
