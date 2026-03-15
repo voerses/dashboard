@@ -1,0 +1,107 @@
+status: closed
+goal: Find optimal exit configuration specifically for s65 (funding carry) and its wrappers (s72) and combos (s58+s65, s58+s72). The universal trail(1.5) deployment massively improved all-time return (+532K%) but worsened max DD (-4.7%→-6.7%) and hurt 1-month returns (-21%). s65 previously had the widest trail (4.0 ATR) of any strategy — funding carry may need different exit treatment than momentum.
+started: 2026-03-15
+type: research+implementation
+trigger: |
+  Exit ablation deployed trail_mult=1.5 universally. For s65 specifically:
+  - ALL TIME:  +532K% return improvement, but DD -4.7%→-6.7% (MIXED+)
+  - 12 MONTHS: +2.3K% return, DD -3.3%→-1.8% (BETTER)
+  - 3 MONTHS:  +101% return, DD -5.0%→-0.8% (BETTER)
+  - 1 MONTH:   -21% return degradation (WORSE)
+  s72 (s65+time_trail) shows same pattern: -22% at 1mo.
+  s58+s65: -12% at 3mo, -22% at 1mo (the only WORSE portfolio at 3mo).
+  s58+s72: -37% at 1mo, DD -1.6%→-5.3% (worst 1mo regression of any portfolio).
+
+  s65 had trail_mult=4.0 (widest of any strategy). Funding carry generates
+  steady income from funding payments — wider trails let carry accumulate.
+  The 1.5 ATR trail may be cutting carry trades before they collect enough
+  funding to justify the position.
+baseline:
+  s65_old_trail: 4.0 ATR (widest of any strategy)
+  s65_new_trail: 1.5 ATR (universal default)
+  s65_old_trail_schedule: [[0,3.0],[1,2.5],[2,2.0],[3,1.5]] (progressive)
+  s65_new_trail_schedule: None
+  s65_breakeven: 0.5 ATR (universal)
+  s65_stop_mult: 4.5 (wider than momentum strategies)
+  s65_no_stop_bars: 48 (wider protection — carry needs time)
+  s65_min_hold: 24 (longer than momentum)
+  s65_max_hold: 336 (14 days)
+  affected_portfolios: [s65, s72, s58+s65, s58+s72]
+progress: |
+  PHASE 1 COMPLETE — trail_mult sweep (1.5, 2.0, 2.5, 3.0, 3.5, 4.0)
+  Also tested 3 progressive schedules: 3.0→1.5, 4.0→2.0, 3.0→2.0
+  Tested on: s65_solo, s72, s58+s65, s58+s72 × 4 periods (60/12/3/1 month)
+  144 total simulation runs. Results in results/v4/s65_exit_sweep.json.
+
+  FINDINGS:
+  F1. trail(1.5) IS the best overall config (harmonic rank #1 for all 4 portfolios)
+  F2. trail(4.0) [old] is consistently WORST at long periods — confirms exit ablation correct
+  F3. The 1-month regression is ONLY in combo portfolios, not solo s65:
+      - s65_solo 1mo: trail(1.5) = #2 Calmar (257.06) — FINE
+      - s58+s65 1mo: trail(1.5) = #8 Calmar (5.88, DD -6.61%) — BAD
+      - s58+s72 1mo: trail(1.5) = #7 Calmar (4.31, DD -7.14%) — BAD
+  F4. Progressive schedule prog:3.0→1.5 beats current at ALL-TIME:
+      - Solo Calmar: 144.63 vs 104.17 (+38%), DD: -2.77% vs -4.09% (better)
+      - But 35% less return (1.55M% vs 2.07M%)
+      - Consistently top-3 at all periods
+  F5. s58+s72 has unique problem: trail(1.5) is #8 at 3mo (DD -4.05%)
+      This is the only portfolio where trail(1.5) fails at 3-month horizon.
+  F6. Wider trails help combos at 1-month by keeping s65 positions open longer,
+      providing diversification when other strategy trades are also in drawdown.
+
+  HYPOTHESIS VERDICT: PARTIALLY WRONG
+  - Carry does NOT need wider trails for steady-state income accumulation
+  - trail(1.5) wins at all horizons for solo s65
+  - The 1-month combo regression is a portfolio-level interaction effect,
+    not a carry-specific exit timing issue
+  - The tight trail in combos causes correlated position exits → DD spike
+done_when: |
+  1. [DONE] Tested trail_mult values between 1.5 and 4.0 specifically for s65
+  2. [DONE] Tested whether s65 benefits from progressive trail schedule (vs flat)
+     → prog:3.0→1.5 beats at all-time Calmar (+38%) but loses at 12mo/3mo
+  3. [SKIP] bear_max_hold not needed — carry exit timing not the issue
+  4. [DONE] Measured impact on s72, s58+s65, s58+s72 — all 4 portfolios tested
+  5. [DONE] CONFIRMED: trail(1.5) is optimal. No deployment needed.
+  6. [DONE] 1-month regression EXPLAINED: combo portfolio interaction effect,
+     not s65-specific. Solo s65 is fine at 1mo. Acceptable tradeoff given
+     massive improvements at 12mo/60mo.
+kill_criteria: |
+  1. All s65-specific configs degrade 12mo performance (the period where it matters)
+  2. s65-specific trail improves solo but hurts s58+s65 combo
+  3. Improvement is <5% Calmar delta — not worth the complexity of per-strategy exits
+notes: |
+  HYPOTHESIS: Funding carry has fundamentally different exit requirements than momentum.
+  Momentum trades spike and reverse — tight trails capture the spike.
+  Carry trades accumulate steady income — wider trails let funding payments accumulate.
+  The 1-month regression suggests the 1.5 ATR trail is cutting profitable carry
+  trades that would have collected more funding over time.
+
+  APPROACH:
+  Phase 1: Sweep trail_mult for s65 specifically (1.5, 2.0, 2.5, 3.0, 3.5, 4.0)
+           Test across 4 periods. Measure per-period impact.
+  Phase 2: Test progressive vs flat trail schedules for carry strategies
+  Phase 3: Test on all affected portfolios (s65, s72, s58+s65, s58+s72)
+  Phase 4: If s65-specific trail found, implement as strategy-level override
+           (s65 already sets trail_mult explicitly — just change the value)
+
+  CONSTRAINT: s65 sets its own trail_mult in the strategy file. We can
+  change it without affecting other strategies. Same for s62 (conservative
+  funding carry). This is different from the universal deployment problem
+  where shared strategies affected multiple portfolios.
+
+  LEARNINGS:
+  L1. Carry strategies do NOT need wider trails than momentum. The tight
+      trail(1.5) works BETTER for carry at all horizons (solo).
+  L2. The "1-month regression" is a combo portfolio interaction effect,
+      not a strategy-level exit problem. When trail is tight, s65 positions
+      exit simultaneously with other strategy positions → correlated DD.
+  L3. Progressive schedules (start wide, tighten) are competitive at all-time
+      but trail(1.5) flat dominates at recent periods (12mo, 3mo).
+  L4. s72's TIME_TRAIL_SCHEDULE is effectively inactive since all values
+      (3.5, 3.0, 2.5, 2.0) are wider than trail_mult=1.5.
+  L5. The sweep tool pattern (precompute once, override in-memory, simulate many)
+      works well for s65-specific parameter testing.
+
+  FILES:
+  - tools/s65_exit_sweep.py — sweep tool (reusable for other strategies)
+  - results/v4/s65_exit_sweep.json — raw results (144 runs)
