@@ -532,6 +532,38 @@ but required for portfolio complement test at V4-Gate 5.
 
 > Deep dive: `knowledge/process/STRATEGY_PIPELINE_GATES.md` (V4 OOS test template)
 
+### V4-Gate 5.5: Per-Portfolio Concentration Tuning
+
+**Tool:** `python tools/concentration_sweep.py`
+
+**Method:** Sweep `concentration_limit` per portfolio across [0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.50, 1.0],
+test across 3 periods (12mo, 3mo, 1mo). Select by **maximum Calmar ratio** (return / |max_dd|).
+
+**Selection criterion:** Calmar ratio (NOT "max return where DD < Xpp worse").
+Rationale: absolute DD thresholds treat 1% and 30% DD portfolios equally. Calmar naturally
+balances return vs risk and is the primary metric at Gates 3-5.
+
+**Cross-period consistency:** Require the recommended value does not LOSE on return in more
+than 1 of 3 periods. Flag extreme path sensitivity (small value change causing >5x DD swing).
+
+**Current optimal values (March 2026):**
+
+| Portfolio | concentration_limit | Rationale |
+|-----------|-------------------|-----------|
+| s58+s62 | 0.20 | STRONG — consistent all periods |
+| s58+s63 | 0.15 | MODERATE — 3mo/1mo win, 12mo return lower but Calmar better |
+| s58+s59 | 0.15 | STRONG — 4x Calmar improvement at 12mo |
+| s58+s72 | 0.20 | STRONG — consistent all periods |
+| s58+s75 | 0.25 | MODERATE — 12mo/3mo win, 1mo mixed |
+| s58+s76 | 0.15 | MODERATE — 12mo Calmar +70%, return -13% |
+| 4-edge+ptp | 0.15 | STRONG — consistent all 3 periods |
+| s80+s81 | 0.50 | STRONG — 0.10 was catastrophically restrictive (3592 rejections) |
+| s80+s81-dyn | 0.50 | MODERATE — 0.50 more consistent than 1.0 across periods |
+| super5-dyn | 0.30 | STRONG — conservative loosening, Calmar improves |
+| super5-conv | 0.50 | MODERATE — massive return uplift, DD +4pp acceptable |
+
+**Unchanged:** s58 (1.0), s58+s60 (1.0), s58+s65 (1.0), s58+s69 (1.0), 4-edge (1.0), 4-edge-conv (1.0)
+
 ---
 
 ## Gate 6: Paper Trading — Degradation Thresholds (AIPIP-0016 + AIPIP-0024)

@@ -57,6 +57,7 @@
         {"strategy_id": "s62", "weight": 1.0, "market": "perp", "max_positions": 15}
       ],
       "max_portfolio_positions": 50,
+      "concentration_limit": 0.20,
       "state_dir": "state/v4_paper_s62/"
     },
     {
@@ -69,6 +70,7 @@
         {"strategy_id": "s63", "weight": 1.0, "market": "perp", "max_positions": 15}
       ],
       "max_portfolio_positions": 50,
+      "concentration_limit": 0.15,
       "state_dir": "state/v4_paper_s63/"
     },
     {
@@ -93,6 +95,7 @@
         {"strategy_id": "s59", "weight": 1.0, "market": "perp", "max_positions": 15}
       ],
       "max_portfolio_positions": 50,
+      "concentration_limit": 0.15,
       "state_dir": "state/v4_paper_s59/"
     },
     {
@@ -149,6 +152,7 @@
         {"strategy_id": "s72", "weight": 1.0, "market": "perp", "max_positions": 15}
       ],
       "max_portfolio_positions": 50,
+      "concentration_limit": 0.20,
       "state_dir": "state/v4_paper_s72_combo/"
     },
     {
@@ -161,6 +165,7 @@
         {"strategy_id": "s75", "weight": 1.0, "market": "perp", "max_positions": 15}
       ],
       "max_portfolio_positions": 50,
+      "concentration_limit": 0.25,
       "state_dir": "state/v4_paper_s75/"
     },
     {
@@ -182,6 +187,7 @@
         {"strategy_id": "s57", "weight": 1.0, "market": "combined", "max_positions": 15}
       ],
       "max_portfolio_positions": 40,
+      "concentration_limit": 0.15,
       "state_dir": "state/v4_paper_s76_combo/"
     },
     {
@@ -195,6 +201,7 @@
         {"strategy_id": "s65", "weight": 1.0, "market": "perp", "max_positions": 15}
       ],
       "max_portfolio_positions": 60,
+      "concentration_limit": 0.15,
       "state_dir": "state/v4_paper_4edge_ptp/"
     },
     {
@@ -206,7 +213,7 @@
         {"strategy_id": "s81", "weight": 1.0, "market": "perp", "max_positions": 15, "strategy_type": "portfolio"}
       ],
       "max_portfolio_positions": 30,
-      "concentration_limit": 0.10,
+      "concentration_limit": 0.50,
       "state_dir": "state/v4_paper_s80_s81/"
     },
     {
@@ -218,7 +225,7 @@
         {"strategy_id": "s81", "weight": 1.0, "market": "perp", "max_positions": 15, "strategy_type": "portfolio"}
       ],
       "max_portfolio_positions": 30,
-      "concentration_limit": 0.10,
+      "concentration_limit": 0.50,
       "dynamic_weights": true,
       "dynamic_weights_smoothing": 0.3,
       "state_dir": "state/v4_paper_s80_s81_dyn/"
@@ -235,7 +242,7 @@
         {"strategy_id": "s81", "weight": 1.0, "market": "perp", "max_positions": 15, "strategy_type": "portfolio"}
       ],
       "max_portfolio_positions": 60,
-      "concentration_limit": 0.10,
+      "concentration_limit": 0.30,
       "dynamic_weights": true,
       "dynamic_weights_smoothing": 0.3,
       "state_dir": "state/v4_paper_super5_dyn/"
@@ -266,7 +273,7 @@
         {"strategy_id": "s81", "weight": 1.0, "market": "perp", "max_positions": 15, "strategy_type": "portfolio"}
       ],
       "max_portfolio_positions": 40,
-      "concentration_limit": 0.10,
+      "concentration_limit": 0.50,
       "conviction_mode": "hybrid",
       "state_dir": "state/v4_paper_super5_conv/"
     }
