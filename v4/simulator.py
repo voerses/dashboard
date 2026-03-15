@@ -602,10 +602,6 @@ def _process_entries(
             if state.position_manager.find_open_for_token_strategy(token, strategy_id):
                 continue
 
-            # No duplicate token across strategies (cross-strategy dedup)
-            if state.position_manager.total_margin_for_token(token) > 0:
-                continue
-
             candidates.append((strategy_id, token, sig))
 
     if not candidates:

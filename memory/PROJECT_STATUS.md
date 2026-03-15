@@ -2,14 +2,14 @@
 
 > **Last updated:** 2026-03-15T12:30Z
 > **Process mode:** strategy (paper trading monitoring — Gate 6)
-> **Active:** V4 multi-portfolio paper trading: **21 pools**. Runner PID 381557.
+> **Active:** V4 multi-portfolio paper trading: **21 pools**. Runner PID 395252.
 > **Engine consolidation (v3→v4):** Completed 2026-03-14. Single simulation path via v4/simulator.py.
 > **v3/ is FROZEN LEGACY — do NOT modify.** All imports point to v4/. v3/ exists only as historical reference.
 > **Overlays deployed:** s69 (s56+time_trail), s72 (s65+time_trail), s75 (s63+fixed_tp=3.0), s76 (partial TP)
 > **Dynamic weights deployed:** s80+s81-dyn (regime-weighted), super5-dyn (5-strategy dynamic)
 > **Conviction scoring deployed:** 4-edge-conv (ranked mode), super5-conv (hybrid mode)
 > **Breakeven ratchet (BE=0.5 ATR):** Deployed universally to ALL strategies on 2026-03-13. Tested 16/16 portfolios improved (median +82% PnL, 15/16 DD improved). s83-BE/s84-BE removed (redundant).
-> **Missions:** Profit-taking (closed), dynamic weights (closed), conviction scoring (closed), data pipeline (closed), engine consolidation v3→v4 (closed). **Regime-adaptive exits (ACTIVE)** — breakeven deployed, Chandelier/volume/acceleration/triple barrier still to test. **Spot-long/perp-short (KILLED)** — hypothesis falsified for ALL strategy classes (carry needs funding income, momentum needs low fees). **Live trading infrastructure (PARKED)** — deferred until ready for real capital.
+> **Missions:** Profit-taking (closed), dynamic weights (closed), conviction scoring (closed), data pipeline (closed), engine consolidation v3→v4 (closed). **Regime-adaptive exits (ACTIVE)** — breakeven deployed, Chandelier/volume/acceleration/triple barrier still to test. **Spot-long/perp-short (KILLED)** — hypothesis falsified for ALL strategy classes (carry needs funding income, momentum needs low fees). **Live trading infrastructure (PARKED)** — deferred until ready for real capital. **Per-portfolio concentration tuning (ACTIVE)** — cross-strategy dedup removed (industry best practice); now sweep concentration_limit per portfolio (0.10→0.30) optimizing for recent periods (12mo/3mo/1mo). See finding #42.
 > **Data pipeline (COMPLETE):** kdb+-inspired RDB/HDB pattern. Live→`data/{market}/live/`, historical→`1h_cache/`. `load_token_data()` merges at read time. `promote_live.py` rolls with QC+manifests. `load_token_data_at(as_of)` for reproducible backtests.
 > **Next step:** Monitor 21 pools for 50+ trades each. Comprehensive rankings saved to results/v4/portfolio_rankings.json.
 
@@ -98,7 +98,8 @@
 
 | Priority | Item | Blocker | Notes |
 |----------|------|---------|-------|
-| **HIGH** | Monitor 21 paper trading pools for 50+ trades | Time | 21 pools running (PID 341250). Oldest (s58) at tick 107, newest (super5-conv) at tick 32. Need 1-3 weeks for 50+ trades on newer pools. |
+| **HIGH** | Per-portfolio concentration limit tuning | None | Sweep `concentration_limit` (0.10–0.30) per portfolio. Optimize for 12mo/3mo/1mo. Cross-strategy dedup already removed (finding #42). No code changes — config-only tuning in `multi_v4_paper.json`. |
+| **HIGH** | Monitor 21 paper trading pools for 50+ trades | Time | 21 pools running (PID 395252). Oldest (s58) at tick 147, newest (super5-conv) at tick 71. Need 1-3 weeks for 50+ trades on newer pools. |
 | **HIGH** | Evaluate conviction scoring paper results | Time + trades | 4-edge-conv (ranked) and super5-conv (hybrid) deployed. Compare vs shuffle counterparts (4-edge, super5-dyn). |
 | **DONE** | Breakeven ratchet universal deployment | — | Deployed 2026-03-13. Default breakeven_atr=0.5 across all strategies. 16/16 portfolios improved. s83-BE/s84-BE removed (redundant). |
 | **DONE** | Comprehensive portfolio rankings | — | 28 strategies ranked across 4 periods (all-time, 12mo, 3mo, 1mo). Each starts fresh at $200K. Saved to results/v4/portfolio_rankings.json. |
@@ -402,6 +403,8 @@ Updated 2026-03-13. Breakeven ratchet (BE=0.5) deployed universally.
 41. **Regime blocks explain non-redeployment of older strategies.** s58 and older pools showing 0 entries is correct behavior: 29 tokens in DOWNTREND, s56's REGIME_SIZE=0.0 completely blocks entries. s57 carry can still enter but needs specific basis conditions. Not a bug.
 
 37. **Funding-aware exit overlay KILLED — funding drag is not addressable via exit timing.** Submission 1 (s73/s74) tested 7 thresholds (0.01%–0.5%) on s56 and s60. Calmar degrades at EVERY threshold. Root cause: funding costs are only 1.2% of total PnL in 12-month backtests. The paper trading finding F31 (67% of PnL consumed by funding) was a small-sample artifact (15 trades, sideways March). More fundamentally, high-funding tokens (ARC, PIPPIN) produce the biggest winners AND losers — a funding-based exit can't discriminate direction. The engine capability (`funding_exit_threshold`) is preserved for potential future use but has no viable threshold on current strategies.
+
+42. **Cross-strategy dedup removal + concentration limit is the real lever.** Extensive 6-variant × 13-portfolio × 4-period experiment (Mar 15). Two independent levers discovered: (1) cross-strategy token dedup (blocking entry if any strategy holds the token) and (2) concentration limit enforcement (`total_margin_for_token` in concentration checks). **Dedup removed** — industry best practice confirmed by Man Group, D.E. Shaw, Morgan Stanley research: multi-strategy funds do NOT block same-asset entries across strategies, they manage risk through aggregate concentration limits. **Concentration limit is the bigger lever** — when monkey-patched to zero, some portfolios jumped +20-40% returns because multiple strategies could load more margin into the same winning token. But it's risky: removing concentration limits entirely increases tail risk. **Correct approach:** tune `concentration_limit` per portfolio (currently global 0.10 = 10%). Sweep 0.10–0.30 optimizing for recent periods. Results by period: 12mo showed 8/11 portfolios improved with relaxed concentration (best ratio); 3mo and 1mo showed 5/11 improved. Portfolios with diverse strategy mixes (4-edge, super5) benefit most from relaxed limits; solo strategies and carry-heavy combos don't.
 
 ---
 
