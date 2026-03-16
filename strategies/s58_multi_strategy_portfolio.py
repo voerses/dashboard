@@ -22,7 +22,6 @@ import time
 import json
 import argparse
 import importlib.util
-import numpy as np
 import pandas as pd
 from dataclasses import asdict
 from typing import Dict, List, Optional

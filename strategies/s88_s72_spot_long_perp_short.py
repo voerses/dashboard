@@ -17,15 +17,11 @@ Base: s86_s65_spot_long_perp_short (spot longs / perp shorts carry)
 Status: EXPERIMENTAL (Gate 3O prototype)
 """
 
-import numpy as np
 from strategies.s86_s65_spot_long_perp_short import strategy as base_strategy
 
-TIME_TRAIL_SCHEDULE = np.array([
-    [48,  3.5],
-    [96,  3.0],
-    [168, 2.5],
-    [240, 2.0],
-], dtype=np.float64)
+# Time trail disabled — base trail_mult=1.5 post-ablation makes all schedule
+# values (3.5, 3.0, 2.5, 2.0) > trail_mult, so min() was always trail_mult.
+TIME_TRAIL_SCHEDULE = None
 
 
 def strategy(ctx_spot, ctx_perp):

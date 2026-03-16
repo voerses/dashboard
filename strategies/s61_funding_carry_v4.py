@@ -29,13 +29,8 @@ from engine import (StrategyContext, StrategyResult, MarketType,
                     rolling_mean, rolling_std)
 
 
-# Progressive trail schedule (proven universal)
-TRAIL_SCHEDULE = np.array([
-    [0.0, 3.5],   # Entry: wide trail (carry needs room)
-    [1.0, 3.0],   # 1 ATR profit: start tightening
-    [2.0, 2.5],   # 2 ATR profit: moderate
-    [3.0, 2.0],   # 3+ ATR: lock in winners
-], dtype=np.float64)
+# Flat trail — exit ablation winner (trail_mult=1.5 across all strategies)
+TRAIL_SCHEDULE = None
 
 # Regime sizing — carry works in ALL regimes except CRISIS
 # Boost in RANGE/QUIET where carry is steadiest and momentum/carry strategies flatten
@@ -104,7 +99,7 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
 
         # ── TRADE MANAGEMENT ────────────────────────────────────
         stop_mult=4.0,        # 4x ATR initial stop (carry needs room)
-        trail_mult=3.5,       # 3.5x ATR trailing (wide for carry)
+        trail_mult=1.5,       # 1.5x ATR flat trail (exit ablation winner)
         target_mult=999,      # No fixed target — let carry accumulate
         no_stop_bars=48,      # 48h protection (funding accumulates over time)
         min_hold=24,          # Minimum 24 hours

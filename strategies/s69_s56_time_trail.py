@@ -20,18 +20,9 @@ Base: s56_signal_enhanced_momentum (Tier A, perp, long-only momentum)
 Status: EXPERIMENTAL (Gate 3O prototype)
 """
 
-import numpy as np
 from strategies.s56_signal_enhanced_momentum import strategy as base_strategy
 
-# Time-based trail schedule: [bars_held_threshold, trail_mult]
-# Aggressive: most s56 trades exit near bar 24 (no_stop_bars), so
-# tightening must begin immediately after protection expires.
-TIME_TRAIL_SCHEDULE = np.array([
-    [24,  2.5],   # Immediately after protection: begin tightening (was 3.0)
-    [30,  2.0],   # 1.25 days: moderate
-    [36,  1.5],   # 1.5 days: aggressive
-    [48,  1.0],   # 2 days: very tight — force resolution
-], dtype=np.float64)
+TIME_TRAIL_SCHEDULE = None  # exit ablation: flat 1.5 ATR trail, schedule is dead no-op
 
 
 def strategy(ctx):

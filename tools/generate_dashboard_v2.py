@@ -75,6 +75,8 @@ def load_equity_csv(path: str) -> list[dict]:
                 "perp_deployed": float(row.get("perp_deployed", 0)),
                 "imbalance_pct": float(row.get("imbalance_pct", 0)),
             })
+    # Sort by timestamp to prevent backwards-tick display issues on dashboard
+    snapshots.sort(key=lambda s: s["timestamp"])
     return snapshots
 
 

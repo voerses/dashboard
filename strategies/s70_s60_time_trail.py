@@ -24,18 +24,9 @@ Base: s60_momentum_burst_perp_v4 (bidirectional perp, 1x leverage)
 Status: EXPERIMENTAL (Gate 3O prototype)
 """
 
-import numpy as np
 from strategies.s60_momentum_burst_perp_v4 import strategy as base_strategy
 
-# Time-based trail schedule: [bars_held_threshold, trail_mult]
-# Aggressive: s60 exits cluster near bar 24 (no_stop_bars), so
-# tightening must begin immediately after protection expires.
-TIME_TRAIL_SCHEDULE = np.array([
-    [24,  2.5],   # Immediately after protection: begin tightening (was 3.0)
-    [36,  2.0],   # 1.5 days: moderate
-    [48,  1.5],   # 2 days: aggressive
-    [72,  1.0],   # 3 days: very tight — force resolution
-], dtype=np.float64)
+TIME_TRAIL_SCHEDULE = None  # exit ablation: flat 1.5 ATR trail, schedule is dead no-op
 
 
 def strategy(ctx):

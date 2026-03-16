@@ -27,12 +27,9 @@ STRATEGY_TYPE = "portfolio"
 # bear_max_hold=12: force exit after 12 bars in DOWNTREND (halves max DD for s80+s81).
 TRAIL_SCHEDULE = None
 
-TIME_TRAIL_SCHEDULE = np.array([
-    [48, 3.5],
-    [120, 2.5],
-    [240, 2.0],
-    [480, 1.5],
-], dtype=np.float64)
+# Time trail disabled — trail_mult=1.5 post-ablation makes all schedule
+# values (3.5, 2.5, 2.0, 1.5) >= trail_mult, so min() was always trail_mult.
+TIME_TRAIL_SCHEDULE = None
 
 # ── Sector Map ───────────────────────────────────────────────────
 SECTOR_MAP = {

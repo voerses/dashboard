@@ -499,6 +499,23 @@ class PaperPortfolioEngine:
         if not any_tokens_found:
             logger.warning("No parquet cache data found — cold start or missing data directory")
 
+        # --- Step 3b: Derive bar close timestamp from signal data ---
+        # Use the latest bar's timestamp from the signal arrays instead of
+        # wall-clock time. This ensures equity.csv timestamps are monotonically
+        # increasing and aligned to candle close times (e.g., 00:00, 01:00, ...)
+        # regardless of when processing actually runs.
+        if not bar_timestamp:
+            latest_bar_ts = None
+            for _sid, token_sigs in all_signals.items():
+                for _tok, sig in token_sigs.items():
+                    if sig.n_bars > 0 and sig.timestamps is not None and len(sig.timestamps) > 0:
+                        ts_val = sig.timestamps[-1]
+                        if latest_bar_ts is None or ts_val > latest_bar_ts:
+                            latest_bar_ts = ts_val
+            if latest_bar_ts is not None:
+                import pandas as pd
+                timestamp = pd.Timestamp(latest_bar_ts).strftime("%Y-%m-%dT%H:%M:%SZ")
+
         # --- Step 4: Build bar_maps ---
         bar_maps = self._build_bar_maps(all_signals, self.tick_counter)
 

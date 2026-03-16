@@ -145,7 +145,7 @@ def strategy(ctx_spot: StrategyContext, ctx_perp: StrategyContext) -> StrategyRe
 
         # Secondary trade management (perp short)
         secondary_stop_mult=3.5,
-        secondary_trail_mult=3.0,
+        secondary_trail_mult=1.5,  # exit ablation: flat 1.5 ATR trail
         secondary_target_mult=999,
         secondary_no_stop_bars=48,
         secondary_min_hold=24,

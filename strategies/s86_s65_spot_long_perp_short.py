@@ -22,13 +22,8 @@ import numpy as np
 from engine import StrategyContext, StrategyResult, MarketType, CRISIS, rolling_mean
 
 
-# Progressive trail schedule — same as s65
-TRAIL_SCHEDULE = np.array([
-    [0.0, 4.0],   # Entry: wide trail (let carry accumulate)
-    [1.0, 3.0],   # 1 ATR profit: moderate tighten
-    [2.0, 2.5],   # 2 ATR profit: lock in
-    [3.0, 2.0],   # 3+ ATR: aggressive lock
-], dtype=np.float64)
+# Flat trail — exit ablation winner (trail_mult=1.5 across all strategies)
+TRAIL_SCHEDULE = None
 
 # Regime sizing — same as s65
 REGIME_SIZE = np.array([0.0, 1.5, 1.0, 2.0, 1.5], dtype=np.float64)
@@ -90,7 +85,7 @@ def strategy(ctx_spot: StrategyContext, ctx_perp: StrategyContext) -> StrategyRe
         direction=direction,
 
         stop_mult=4.5,
-        trail_mult=4.0,
+        trail_mult=1.5,       # 1.5x ATR flat trail (exit ablation winner)
         target_mult=999,
         no_stop_bars=48,
         min_hold=24,

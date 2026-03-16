@@ -30,12 +30,9 @@ STRATEGY_TYPE = "portfolio"
 TRAIL_SCHEDULE = None
 
 # Time-based trail — tightens as hold duration grows
-TIME_TRAIL_SCHEDULE = np.array([
-    [48, 3.5],    # 2 days: standard
-    [120, 2.5],   # 5 days: tighten
-    [240, 2.0],   # 10 days: aggressive
-    [480, 1.5],   # 20 days: very tight
-], dtype=np.float64)
+# Time trail disabled — trail_mult=1.5 post-ablation makes all schedule
+# values (3.5, 2.5, 2.0, 1.5) >= trail_mult, so min() was always trail_mult.
+TIME_TRAIL_SCHEDULE = None
 
 # ── Configuration ────────────────────────────────────────────────
 LOOKBACK_BARS = 14 * 24        # 14 days in 1h bars

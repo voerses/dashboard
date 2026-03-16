@@ -16,13 +16,8 @@ from engine import (StrategyContext, StrategyResult, MarketType,
                     CRISIS, rolling_mean, rolling_std)
 
 
-# Progressive trail schedule — same as s62
-TRAIL_SCHEDULE = np.array([
-    [0.0, 3.5],
-    [1.0, 3.0],
-    [2.0, 2.5],
-    [3.0, 2.0],
-], dtype=np.float64)
+# Flat trail — exit ablation winner (trail_mult=1.5 across all strategies)
+TRAIL_SCHEDULE = None
 
 # Regime sizing — same as s62 (conservative)
 REGIME_SIZE = np.array([0.0, 1.0, 0.75, 1.25, 0.75], dtype=np.float64)
@@ -79,7 +74,7 @@ def strategy(ctx_spot: StrategyContext, ctx_perp: StrategyContext) -> StrategyRe
         direction=direction,
 
         stop_mult=4.0,
-        trail_mult=3.5,
+        trail_mult=1.5,       # 1.5x ATR flat trail (exit ablation winner)
         target_mult=999,
         no_stop_bars=48,
         min_hold=24,

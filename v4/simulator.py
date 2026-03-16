@@ -494,14 +494,27 @@ def _process_exits(
         exit_reason = ""
         exit_price = close_val
 
+        # 0. Circuit breaker: emergency exit regardless of no_stop_bars (4x initial risk)
+        CIRCUIT_BREAKER_R = 4.0
+        if pos.initial_risk > 0:
+            cb_dist = CIRCUIT_BREAKER_R * pos.initial_risk
+            if d == 1 and low_val <= pos.entry_price - cb_dist:
+                exit_signal = True
+                exit_reason = "circuit_breaker"
+                exit_price = pos.entry_price - cb_dist
+            elif d == -1 and high_val >= pos.entry_price + cb_dist:
+                exit_signal = True
+                exit_reason = "circuit_breaker"
+                exit_price = pos.entry_price + cb_dist
+
         stop_active = bars_held >= pos.no_stop_bars or pos.convex_exit
 
         # 1. Stop-loss (intra-bar)
-        if stop_active and d == 1 and low_val <= pos.stop_price:
+        if not exit_signal and stop_active and d == 1 and low_val <= pos.stop_price:
             exit_signal = True
             exit_reason = "stop"
             exit_price = pos.stop_price
-        elif stop_active and d == -1 and high_val >= pos.stop_price:
+        elif not exit_signal and stop_active and d == -1 and high_val >= pos.stop_price:
             exit_signal = True
             exit_reason = "stop"
             exit_price = pos.stop_price

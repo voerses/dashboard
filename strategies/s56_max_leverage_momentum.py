@@ -28,13 +28,7 @@ from engine import (StrategyContext, StrategyResult, MarketType,
                     CRISIS, DOWNTREND)
 
 
-TRAIL_SCHEDULE = np.array([
-    [0.0, 3.0],
-    [1.0, 2.5],
-    [2.0, 2.0],
-    [4.0, 1.5],
-    [8.0, 1.0],
-], dtype=np.float64)
+TRAIL_SCHEDULE = None  # exit ablation: flat 1.5 ATR trail
 
 
 def strategy(ctx: StrategyContext) -> StrategyResult:
@@ -103,7 +97,7 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
         market_type=MarketType.PERP,
         leverage=5.0,
         stop_mult=2.5,       # Tighter stop at 5x leverage
-        trail_mult=2.5,
+        trail_mult=1.5,       # exit ablation: flat 1.5 ATR trail
         target_mult=999,
         no_stop_bars=12,
         min_hold=8,

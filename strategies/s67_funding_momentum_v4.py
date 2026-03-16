@@ -26,13 +26,8 @@ import numpy as np
 from engine import (StrategyContext, StrategyResult, MarketType,
                     CRISIS, rolling_mean)
 
-# Progressive trail schedule — follow momentum but lock in profits
-TRAIL_SCHEDULE = np.array([
-    [0.0, 3.5],   # Entry: moderate trail
-    [1.0, 3.0],   # 1 ATR profit: tighten slightly
-    [2.0, 2.5],   # 2 ATR profit: lock in
-    [3.0, 2.0],   # 3+ ATR: aggressive lock
-], dtype=np.float64)
+# Flat trail — exit ablation winner (trail_mult=1.5 across all strategies)
+TRAIL_SCHEDULE = None
 
 # Regime sizing — momentum strategies need trending markets
 # Index:         CRISIS  QUIET  UPTREND  RANGE  DOWNTREND
@@ -113,7 +108,7 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
 
         # Trade management — follow momentum with moderate stops
         stop_mult=3.5,        # 3.5x ATR (give trend room to work)
-        trail_mult=3.5,       # 3.5x ATR trailing (wide initially)
+        trail_mult=1.5,       # 1.5x ATR flat trail (exit ablation winner)
         target_mult=999,      # Trail only (let momentum run)
         no_stop_bars=24,      # 24h protection
         min_hold=12,          # Min 12h

@@ -17,15 +17,11 @@ Base: s63_vol_spike_reversal_v4 (counter-trend, perp, 1x leverage)
 Status: EXPERIMENTAL (Gate 3O prototype)
 """
 
-import numpy as np
 from strategies.s63_vol_spike_reversal_v4 import strategy as base_strategy
 
-TIME_TRAIL_SCHEDULE = np.array([
-    [12,  3.0],   # After no_stop_bars: start tightening (trail_mult=3.5, so 3.0 is tighter)
-    [24,  2.5],   # 1 day: moderate
-    [36,  2.0],   # 1.5 days: aggressive
-    [72,  1.5],   # 3 days: very tight
-], dtype=np.float64)
+# Time trail disabled — base trail_mult=1.5 post-ablation makes all schedule
+# values (3.0, 2.5, 2.0, 1.5) >= trail_mult, so min() was always trail_mult.
+TIME_TRAIL_SCHEDULE = None
 
 
 def strategy(ctx):

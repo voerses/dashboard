@@ -18,15 +18,11 @@ Base: s65_funding_carry_v4 (carry, perp, 1x leverage)
 Status: EXPERIMENTAL (Gate 3O prototype)
 """
 
-import numpy as np
 from strategies.s65_funding_carry_v4 import strategy as base_strategy
 
-TIME_TRAIL_SCHEDULE = np.array([
-    [48,  3.5],   # After no_stop_bars: slight tighten (trail_mult=4.0 → 3.5)
-    [96,  3.0],   # 4 days: moderate
-    [168, 2.5],   # 7 days: carry should have paid off
-    [240, 2.0],   # 10 days: aggressive
-], dtype=np.float64)
+# Time trail disabled — base trail_mult=1.5 post-ablation makes all schedule
+# values (3.5, 3.0, 2.5, 2.0) > trail_mult, so min() was always trail_mult.
+TIME_TRAIL_SCHEDULE = None
 
 
 def strategy(ctx):
