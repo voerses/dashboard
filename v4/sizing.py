@@ -20,6 +20,8 @@ def compute_position_size(
     cap_multiplier: float,
     max_trade_pct: float,         # from StrategyResult (0 = disabled)
     adv_cap_pct: float = 0.10,   # v4 portfolio constraint
+    pump_adv_floor: float = 0.0, # ADV below this gets penalty (0 = disabled)
+    pump_adv_penalty: float = 1.0,  # sizing multiplier for low-ADV tokens
 ) -> float:
     """Compute position size in USD, matching v3 JIT with ADV cap addition."""
     if edge < 0.10:
@@ -34,6 +36,11 @@ def compute_position_size(
     pos_usd = min(raw, cap, adv_cap)
     if max_trade_pct > 0:
         pos_usd = min(pos_usd, strategy_equity * max_trade_pct)
+
+    # Layer 2: ADV pump-risk penalty — reduce sizing for low-ADV tokens
+    if pump_adv_floor > 0 and rolling_adv < pump_adv_floor:
+        pos_usd *= pump_adv_penalty
+
     return max(pos_usd, 0.0)
 
 

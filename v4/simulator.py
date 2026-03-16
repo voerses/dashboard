@@ -32,10 +32,13 @@ class RejectionStats:
     concentration: int = 0
     capital: int = 0
     conviction: int = 0  # entries below min_conviction_threshold
+    pump_range: int = 0   # blocked by range anomaly filter
+    pump_funding: int = 0 # blocked by funding z-score filter
 
     def total(self) -> int:
         return (self.portfolio_limit + self.strategy_limit + self.min_size +
-                self.adv_cap + self.concentration + self.capital + self.conviction)
+                self.adv_cap + self.concentration + self.capital + self.conviction +
+                self.pump_range + self.pump_funding)
 
     def to_dict(self) -> dict:
         return {
@@ -46,6 +49,8 @@ class RejectionStats:
             "concentration": self.concentration,
             "capital": self.capital,
             "conviction": self.conviction,
+            "pump_range": self.pump_range,
+            "pump_funding": self.pump_funding,
             "total": self.total(),
         }
 
@@ -494,10 +499,9 @@ def _process_exits(
         exit_reason = ""
         exit_price = close_val
 
-        # 0. Circuit breaker: emergency exit regardless of no_stop_bars (4x initial risk)
-        CIRCUIT_BREAKER_R = 4.0
-        if pos.initial_risk > 0:
-            cb_dist = CIRCUIT_BREAKER_R * pos.initial_risk
+        # 0. Circuit breaker: emergency exit regardless of no_stop_bars (Nx initial risk)
+        if config.circuit_breaker_r > 0 and pos.initial_risk > 0:
+            cb_dist = config.circuit_breaker_r * pos.initial_risk
             if d == 1 and low_val <= pos.entry_price - cb_dist:
                 exit_signal = True
                 exit_reason = "circuit_breaker"
@@ -697,6 +701,33 @@ def _process_entries(
                 state.rejections.conviction += 1
                 continue
 
+        # Pump filter Layer 1: Range anomaly — block entry when bar range >> ATR
+        if config.pump_filter_range_threshold > 0:
+            h = float(sig.high[local_bar])
+            l = float(sig.low[local_bar])
+            a = float(sig.atr[local_bar])
+            if a > 0 and (h - l) / a > config.pump_filter_range_threshold:
+                state.rejections.pump_range += 1
+                continue
+
+        # Pump filter Layer 3: Funding rate extreme — block LONG entries when funding z-score > threshold
+        if config.pump_filter_funding_zscore > 0:
+            direction_val = int(sig.direction[local_bar])
+            if direction_val >= 1 and sig.funding_1h is not None:
+                # Compute rolling funding z-score (168h = 7 day lookback)
+                lookback = 168
+                start = max(0, local_bar - lookback)
+                funding_window = sig.funding_1h[start:local_bar + 1]
+                if len(funding_window) >= 24:  # need at least 1 day of data
+                    f_mean = float(np.mean(funding_window))
+                    f_std = float(np.std(funding_window))
+                    if f_std > 0:
+                        f_current = float(sig.funding_1h[local_bar])
+                        f_zscore = (f_current - f_mean) / f_std
+                        if f_zscore > config.pump_filter_funding_zscore:
+                            state.rejections.pump_funding += 1
+                            continue
+
         # Constraint 1: portfolio position limit
         if state.position_manager.total_open() >= config.max_portfolio_positions:
             state.rejections.portfolio_limit += 1
@@ -730,6 +761,8 @@ def _process_entries(
             cap_multiplier=sig.cap_multiplier,
             max_trade_pct=sig.max_trade_pct,
             adv_cap_pct=config.adv_cap_pct,
+            pump_adv_floor=config.pump_filter_adv_floor,
+            pump_adv_penalty=config.pump_filter_adv_penalty,
         )
 
         direction = int(sig.direction[local_bar])
@@ -990,6 +1023,8 @@ def _process_entries(
                         cap_multiplier=sig.cap_multiplier,
                         max_trade_pct=sig.max_trade_pct,
                         adv_cap_pct=config.adv_cap_pct,
+                        pump_adv_floor=config.pump_filter_adv_floor,
+                        pump_adv_penalty=config.pump_filter_adv_penalty,
                     )
 
             # Constraint 5: min position size

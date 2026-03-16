@@ -1,0 +1,33 @@
+{
+  "description": "A/B test: pump-and-dump entry filters vs baseline (2026-03-16)",
+  "configs": {
+    "BASELINE": "All filters off (circuit_breaker_r=0, range=0, adv_floor=0, funding_zscore=0)",
+    "CB_ONLY": "Circuit breaker R=4.0 only",
+    "L1_RANGE": "Range anomaly filter (threshold=4.0) only",
+    "L3_FUNDING": "Funding z-score blocker (zscore=3.0) only",
+    "ALL_FILTERS": "CB 4.0 + Range 4.0 + ADV floor 5M + penalty 0.5 + Funding zscore 3.0"
+  },
+  "results": {
+    "s60": {
+      "BASELINE":    {"pct_return": 43498.9, "max_dd_pct": -6.61, "sharpe": 5.24, "calmar": 284.94, "trades": 1347, "pump_range_blocked": 0, "pump_funding_blocked": 0},
+      "CB_ONLY":     {"pct_return": 49027.1, "max_dd_pct": -13.25, "sharpe": 4.58, "calmar": 153.15, "trades": 1393, "pump_range_blocked": 0, "pump_funding_blocked": 0},
+      "L1_RANGE":    {"pct_return": 42653.0, "max_dd_pct": -6.55, "sharpe": 5.56, "calmar": 284.04, "trades": 1311, "pump_range_blocked": 128, "pump_funding_blocked": 0},
+      "L3_FUNDING":  {"pct_return": 39375.0, "max_dd_pct": -5.94, "sharpe": 5.14, "calmar": 298.08, "trades": 1326, "pump_range_blocked": 0, "pump_funding_blocked": 25},
+      "ALL_FILTERS": {"pct_return": 30002.6, "max_dd_pct": -9.39, "sharpe": 5.64, "calmar": 165.99, "trades": 1296, "pump_range_blocked": 131, "pump_funding_blocked": 25}
+    },
+    "4-edge": {
+      "BASELINE":    {"pct_return": 8510.0, "max_dd_pct": -4.65, "sharpe": 11.09, "calmar": 188.02, "trades": 4581, "pump_range_blocked": 0, "pump_funding_blocked": 0},
+      "CB_ONLY":     {"pct_return": 6228.7, "max_dd_pct": -16.28, "sharpe": 8.86, "calmar": 44.14, "trades": 4601, "pump_range_blocked": 0, "pump_funding_blocked": 0},
+      "L1_RANGE":    {"pct_return": 8148.6, "max_dd_pct": -4.41, "sharpe": 11.44, "calmar": 192.46, "trades": 4573, "pump_range_blocked": 202, "pump_funding_blocked": 0},
+      "L3_FUNDING":  {"pct_return": 8546.2, "max_dd_pct": -4.64, "sharpe": 11.27, "calmar": 188.01, "trades": 4575, "pump_range_blocked": 0, "pump_funding_blocked": 79},
+      "ALL_FILTERS": {"pct_return": 5572.0, "max_dd_pct": -18.65, "sharpe": 8.43, "calmar": 36.33, "trades": 4666, "pump_range_blocked": 222, "pump_funding_blocked": 72}
+    }
+  },
+  "takeaways": {
+    "L1_RANGE": "Best individual filter. Improves Sharpe and DD with ~2-4% return cost.",
+    "L3_FUNDING": "Good DD improvement on s60 (6.61->5.94), neutral on 4-edge. Low cost.",
+    "CB_ONLY": "Toxic. Doubles/triples MaxDD on both portfolios. Exit-side filtering confirmed harmful.",
+    "ALL_FILTERS": "CB contaminates the stack. L1+L3 benefits overwhelmed by CB penalty.",
+    "next_step": "Run per-strategy A/B to set individual filter params per strategy. CB should be OFF or per-strategy tuned."
+  }
+}

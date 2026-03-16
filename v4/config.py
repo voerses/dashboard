@@ -36,3 +36,10 @@ class PortfolioConfig:
     # "hybrid" (top-N by conviction tiers, shuffle within tiers)
     conviction_mode: str = "shuffle"
     min_conviction_threshold: float = 0.0  # skip entries below this conviction level (0 = no filter)
+    # Circuit breaker: emergency exit during no_stop_bars window (0 = disabled)
+    circuit_breaker_r: float = 4.0        # exit when loss >= Nx initial_risk
+    # Pump-and-dump entry filters (all default enabled)
+    pump_filter_range_threshold: float = 4.0   # block entry when (high-low)/ATR > threshold (0 = disabled)
+    pump_filter_adv_floor: float = 5_000_000   # ADV below this gets pump penalty applied (0 = disabled)
+    pump_filter_adv_penalty: float = 0.5       # sizing multiplier for tokens below adv_floor
+    pump_filter_funding_zscore: float = 3.0    # block LONG entries when funding z-score > this (0 = disabled)
