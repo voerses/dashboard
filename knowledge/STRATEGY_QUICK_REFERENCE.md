@@ -57,6 +57,18 @@ each other. Skip directional overlays at Gate 0 for delta-neutral bases.
 | `funding_exit_threshold` | `float` | `0.0` | Exit if cumulative funding / margin exceeds threshold. Disabled by default (KILLED at 5O). |
 | `market_type` (per-bar) | `int` or `np.ndarray` | scalar | Per-bar venue routing: SPOT(0) or PERP(1) per entry. Engine routes fees/funding/prices per position. No current use case (KILLED at 5O — spot fees 2x perp). |
 
+### V4 Per-Strategy Risk Controls (StrategySpec)
+
+| Field | Default | Purpose |
+|-------|---------|---------|
+| `circuit_breaker_r` | `0.0` | Emergency exit at Nx initial risk (e.g. 4.0). 0=disabled. Essential for s59/s80. |
+| `pump_filter_funding_zscore` | `0.0` | Block long entries when funding z-score > threshold (e.g. 3.0). 0=disabled. |
+| `pump_filter_range_threshold` | `0.0` | Block entries when bar range/ATR > threshold (e.g. 4.0). 0=disabled. Only helps s60. |
+
+**Current live settings (0d59ff4):** s59/s80: CB=4.0. s56/s57/s65/s69/s72/s76/s81: funding=3.0. s60: funding=3.0 + range=4.0. s62/s63/s75: no filters.
+
+**JSON loading:** Always use `StrategySpec.from_dict(d)` when parsing dicts. Never construct StrategySpec manually from JSON — fields will be silently dropped.
+
 ### V4 Portfolio Config Options
 
 | Field | Default | Purpose |
