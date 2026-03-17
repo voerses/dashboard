@@ -1174,9 +1174,27 @@ def simulate_portfolio(
         _process_exits(state, all_signals, bar_maps, global_bar, config)
         _process_entries(state, all_signals, strategy_specs, bar_maps, global_bar, config, rng)
 
-        # Record equity snapshot
+        # Record equity snapshot — mark-to-market (realized + unrealized)
+        # Standard quant practice: equity curve must include unrealized P&L
+        # so drawdown/Sharpe/Calmar reflect true account value, not just closed trades.
+        mtm_unrealized = 0.0
+        for pos in state.position_manager.open_positions:
+            sig = all_signals.get(pos.strategy_id, {}).get(pos.token)
+            if sig is None:
+                continue
+            bm = bar_maps.get(pos.token)
+            if bm is None:
+                continue
+            lb = int(bm[global_bar])
+            if lb == -1 or lb >= sig.n_bars:
+                continue
+            is_sec = (pos.leg == "secondary")
+            _up = pos.is_perp if sig.per_bar_is_perp is not None else None
+            close_val = _get_bar_data(sig, lb, not is_sec, use_perp=_up)[0]
+            mtm_unrealized += pos.quantity * (close_val - pos.entry_price)
+
         timestamp = unified_ts[global_bar]
-        state.equity_snapshots.append((timestamp, state.portfolio_equity))
+        state.equity_snapshots.append((timestamp, state.portfolio_equity + mtm_unrealized))
 
         # Invariant check — allow funding-induced violations (funding deducted
         # bar-by-bar can push equity below locked margin before exits free capital;
