@@ -75,16 +75,21 @@ def load_equity_csv(path: str) -> list[dict]:
                 "perp_deployed": float(row.get("perp_deployed", 0)),
                 "imbalance_pct": float(row.get("imbalance_pct", 0)),
             })
-    # Sort by tick (authoritative ordering), then deduplicate:
-    # keep only the LAST entry for each timestamp (ablation may have
-    # created duplicate timestamps when tick counters were reset).
-    snapshots.sort(key=lambda s: s["tick"])
-    seen_ts: dict[str, int] = {}  # timestamp → index in deduped list
-    deduped: list[dict] = []
+    # Enforce strictly increasing ticks (drop stale ablation entries),
+    # then deduplicate timestamps (keep last tick per timestamp).
+    clean: list[dict] = []
+    max_tick = -1
     for snap in snapshots:
+        t = snap["tick"]
+        if t > max_tick:
+            clean.append(snap)
+            max_tick = t
+    # Dedup: if two rows share a timestamp, keep the later tick
+    seen_ts: dict[str, int] = {}
+    deduped: list[dict] = []
+    for snap in clean:
         ts = snap["timestamp"]
         if ts in seen_ts:
-            # Replace earlier entry with this later tick
             deduped[seen_ts[ts]] = snap
         else:
             seen_ts[ts] = len(deduped)
