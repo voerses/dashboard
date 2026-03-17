@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-generated-at="2026-03-17T11:47:36Z" data-source="runner" data-pools="23">
+<html lang="en" data-generated-at="2026-03-17T11:49:59Z" data-source="runner" data-pools="23">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -78,7 +78,7 @@ tr.trade-row { cursor:pointer; }
 
 <div class="header">
     <h1>Paper Trading Dashboard V2</h1>
-    <div class="meta" id="hdr-time">Updated: 2026-03-17T11:47:36Z</div>
+    <div class="meta" id="hdr-time">Updated: 2026-03-17T11:49:59Z</div>
 </div>
 <div class="stale-banner" id="stale-banner">
     Data is stale — last update was more than 2 hours ago. Check paper trading engine.
@@ -202,8 +202,8 @@ function render() {
         <div class="kpi"><div class="lbl">Max Drawdown</div><div class="val r">${maxDD.toFixed(2)}%</div></div>
         <div class="kpi"><div class="lbl">Trades</div><div class="val b">${nT} <span style="font-size:0.6em;color:${nOpen>0?'#3fb950':'#484f58'}">(${nOpen} open)</span></div></div>
         <div class="kpi"><div class="lbl">Win Rate</div><div class="val ${wr>=50?'g':'y'}">${wr.toFixed(1)}%<div style="font-size:0.45em;color:#484f58;margin-top:2px">${nW}/${nT}</div></div></div>
-        <div class="kpi"><div class="lbl">Fees</div><div class="val r">-$${fmt(openFees)}<div style="font-size:0.45em;color:#484f58;margin-top:2px">open</div>-$${fmt(closedFees)}<div style="font-size:0.45em;color:#484f58;margin-top:2px">closed</div></div></div>
-        <div class="kpi"><div class="lbl">Funding</div><div class="val ${pc(-openFunding)}">$${fmt(-openFunding)}<div style="font-size:0.45em;color:#484f58;margin-top:2px">open</div><span class="${pc(-closedFunding)}">$${fmt(-closedFunding)}</span><div style="font-size:0.45em;color:#484f58;margin-top:2px">closed</div></div></div>
+        <div class="kpi"><div class="lbl">Fees</div><div class="val r" style="display:flex;flex-wrap:wrap;justify-content:center;gap:0 6px">-$${fmt(openFees)} <span style="opacity:0.5">/</span> -$${fmt(closedFees)}</div><div style="font-size:0.45em;color:#484f58;text-align:center">open / closed</div></div>
+        <div class="kpi"><div class="lbl">Funding</div><div class="val" style="display:flex;flex-wrap:wrap;justify-content:center;gap:0 6px"><span class="${pc(-openFunding)}">$${fmt(-openFunding)}</span> <span style="opacity:0.5">/</span> <span class="${pc(-closedFunding)}">$${fmt(-closedFunding)}</span></div><div style="font-size:0.45em;color:#484f58;text-align:center">open / closed</div></div>
         <div class="kpi"><div class="lbl">Tick</div><div class="val b">${s.tick_counter||0}<div style="font-size:0.45em;color:#484f58;margin-top:2px">${s.last_updated ? new Date(s.last_updated).toLocaleString() : 'N/A'}</div></div></div>
     </div>`;
 
