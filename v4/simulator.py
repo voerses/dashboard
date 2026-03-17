@@ -307,6 +307,7 @@ def _process_exits(
     bar_maps: dict[str, np.ndarray],
     global_bar: int,
     config: PortfolioConfig,
+    strategy_specs: dict[str, StrategySpec] | None = None,
 ):
     """Process all exit conditions for open positions.
 
@@ -500,8 +501,10 @@ def _process_exits(
         exit_price = close_val
 
         # 0. Circuit breaker: emergency exit regardless of no_stop_bars (Nx initial risk)
-        if config.circuit_breaker_r > 0 and pos.initial_risk > 0:
-            cb_dist = config.circuit_breaker_r * pos.initial_risk
+        spec_cb = strategy_specs.get(pos.strategy_id) if strategy_specs else None
+        cb_r = spec_cb.circuit_breaker_r if spec_cb else 0.0
+        if cb_r > 0 and pos.initial_risk > 0:
+            cb_dist = cb_r * pos.initial_risk
             if d == 1 and low_val <= pos.entry_price - cb_dist:
                 exit_signal = True
                 exit_reason = "circuit_breaker"
@@ -687,7 +690,9 @@ def _process_entries(
 
     for idx in indices:
         strategy_id, token, sig = candidates[idx]
-        spec = strategy_specs[strategy_id]
+        spec = strategy_specs.get(strategy_id)
+        if spec is None:
+            continue
 
         bm = bar_maps[token]
         local_bar = int(bm[global_bar])
@@ -702,16 +707,16 @@ def _process_entries(
                 continue
 
         # Pump filter Layer 1: Range anomaly — block entry when bar range >> ATR
-        if config.pump_filter_range_threshold > 0:
+        if spec.pump_filter_range_threshold > 0:
             h = float(sig.high[local_bar])
             l = float(sig.low[local_bar])
             a = float(sig.atr[local_bar])
-            if a > 0 and (h - l) / a > config.pump_filter_range_threshold:
+            if a > 0 and (h - l) / a > spec.pump_filter_range_threshold:
                 state.rejections.pump_range += 1
                 continue
 
         # Pump filter Layer 3: Funding rate extreme — block LONG entries when funding z-score > threshold
-        if config.pump_filter_funding_zscore > 0:
+        if spec.pump_filter_funding_zscore > 0:
             direction_val = int(sig.direction[local_bar])
             if direction_val >= 1 and sig.funding_1h is not None:
                 # Compute rolling funding z-score (168h = 7 day lookback)
@@ -724,7 +729,7 @@ def _process_entries(
                     if f_std > 0:
                         f_current = float(sig.funding_1h[local_bar])
                         f_zscore = (f_current - f_mean) / f_std
-                        if f_zscore > config.pump_filter_funding_zscore:
+                        if f_zscore > spec.pump_filter_funding_zscore:
                             state.rejections.pump_funding += 1
                             continue
 
@@ -761,8 +766,6 @@ def _process_entries(
             cap_multiplier=sig.cap_multiplier,
             max_trade_pct=sig.max_trade_pct,
             adv_cap_pct=config.adv_cap_pct,
-            pump_adv_floor=config.pump_filter_adv_floor,
-            pump_adv_penalty=config.pump_filter_adv_penalty,
         )
 
         direction = int(sig.direction[local_bar])
@@ -1023,8 +1026,6 @@ def _process_entries(
                         cap_multiplier=sig.cap_multiplier,
                         max_trade_pct=sig.max_trade_pct,
                         adv_cap_pct=config.adv_cap_pct,
-                        pump_adv_floor=config.pump_filter_adv_floor,
-                        pump_adv_penalty=config.pump_filter_adv_penalty,
                     )
 
             # Constraint 5: min position size
@@ -1171,7 +1172,7 @@ def simulate_portfolio(
     rng = np.random.RandomState(config.seed)
 
     for global_bar in range(n_bars):
-        _process_exits(state, all_signals, bar_maps, global_bar, config)
+        _process_exits(state, all_signals, bar_maps, global_bar, config, strategy_specs=strategy_specs)
         _process_entries(state, all_signals, strategy_specs, bar_maps, global_bar, config, rng)
 
         # Record equity snapshot — mark-to-market (realized + unrealized)

@@ -83,14 +83,7 @@ def load_portfolios_from_config(config_path: str):
         name = pf["pool_name"]
         strategies = []
         for s in pf["strategies"]:
-            spec = StrategySpec(
-                strategy_id=s["strategy_id"],
-                weight=s.get("weight", 1.0),
-                max_positions=s.get("max_positions", 15),
-                market=s.get("market", "perp"),
-                strategy_type=s.get("strategy_type", "per_token"),
-            )
-            strategies.append(spec)
+            strategies.append(StrategySpec.from_dict(s))
         portfolios[name] = {
             "strategies": strategies,
             "max_portfolio_positions": pf.get("max_portfolio_positions", 40),

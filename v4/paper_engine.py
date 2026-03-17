@@ -363,12 +363,13 @@ class PaperPortfolioEngine:
         bar_maps: dict,
     ) -> None:
         """Delegate exit processing to v4 simulator."""
+        strategy_specs = {s.strategy_id: s for s in self.config.strategies}
         if self.config.mode == "independent":
             for sid, sstate in self.strategy_states.items():
                 sid_signals = {sid: all_signals.get(sid, {})}
-                _sim._process_exits(sstate, sid_signals, bar_maps, self.tick_counter, self.config)
+                _sim._process_exits(sstate, sid_signals, bar_maps, self.tick_counter, self.config, strategy_specs=strategy_specs)
         else:
-            _sim._process_exits(self.state, all_signals, bar_maps, self.tick_counter, self.config)
+            _sim._process_exits(self.state, all_signals, bar_maps, self.tick_counter, self.config, strategy_specs=strategy_specs)
 
     def _process_entries_for_tick(
         self,
@@ -392,6 +393,10 @@ class PaperPortfolioEngine:
                         weight=1.0,
                         max_positions=orig.max_positions,
                         market=orig.market,
+                        strategy_type=orig.strategy_type,
+                        circuit_breaker_r=orig.circuit_breaker_r,
+                        pump_filter_funding_zscore=orig.pump_filter_funding_zscore,
+                        pump_filter_range_threshold=orig.pump_filter_range_threshold,
                     )}
                 else:
                     sid_specs = {}
@@ -1049,6 +1054,13 @@ class PaperPortfolioEngine:
             return sum(len(s.position_manager.closed_trades) for s in self.strategy_states.values())
         return len(self.state.position_manager.closed_trades)
 
+    def _get_all_entry_fees(self) -> dict:
+        """Collect entry fees for all open positions across states."""
+        fees = {}
+        for st in self._get_all_states():
+            fees.update(st._entry_fees_by_pos)
+        return fees
+
     def _compute_mark_to_market(self) -> float:
         """Compute mark-to-market equity: portfolio_equity + sum of unrealized P&L.
 
@@ -1141,14 +1153,21 @@ class PaperPortfolioEngine:
                 "exit_price": t.exit_price,
                 "margin_usd": t.margin_usd,
                 "hold_bars": t.hold_bars,
+                "funding_cost": t.funding_cost,
+                "entry_fee": t.entry_fee,
+                "exit_fee": t.exit_fee,
             })
 
         # AC28: Include open positions with status="open"
         last_prices = getattr(self, '_last_known_prices', {})
+        all_entry_fees = self._get_all_entry_fees()
         for st in self._get_all_states():
             for pos in st.position_manager.open_positions:
                 current_price = last_prices.get(pos.token, pos.entry_price)
-                unrealized_pnl = pos.quantity * (current_price - pos.entry_price)
+                raw_unrealized = pos.quantity * (current_price - pos.entry_price)
+                entry_fee = all_entry_fees.get(pos.position_id, 0.0)
+                # Net unrealized: deduct known costs (entry fee + accrued funding)
+                unrealized_pnl = raw_unrealized - entry_fee - pos.cumulative_funding
                 all_trades.append({
                     "token": pos.token,
                     "strategy": pos.strategy_id,
@@ -1160,6 +1179,8 @@ class PaperPortfolioEngine:
                     "entry_price": pos.entry_price,
                     "margin_usd": pos.margin_usd,
                     "entry_bar": pos.entry_bar,
+                    "cumulative_funding": pos.cumulative_funding,
+                    "entry_fee": entry_fee,
                 })
 
         # Equity history
@@ -1203,6 +1224,15 @@ class PaperPortfolioEngine:
             except (ValueError, TypeError):
                 is_stale = True
 
+        # Aggregate fees/funding/pnl across all states
+        agg_fees = 0.0
+        agg_funding = 0.0
+        agg_realized_pnl = 0.0
+        for st in self._get_all_states():
+            agg_fees += st.total_fees
+            agg_funding += st.total_funding
+            agg_realized_pnl += st.realized_pnl
+
         return {
             "id": pool_name,
             "name": pool_name,
@@ -1217,6 +1247,9 @@ class PaperPortfolioEngine:
             "tick_counter": self.tick_counter,
             "portfolio_equity": self._aggregate_portfolio_equity(),
             "open_positions": self._aggregate_open_positions(),
+            "total_fees": agg_fees,
+            "total_funding": agg_funding,
+            "realized_pnl": agg_realized_pnl,
         }
 
     # ------------------------------------------------------------------

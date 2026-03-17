@@ -671,3 +671,219 @@ class TestShortLiquidation:
                        {"BTC": np.arange(n_bars, dtype=np.int32)}, 10, config)
         assert state.position_manager.total_open() == 1, \
             "Funding income (-$100) should delay short liquidation at high=$119.7"
+
+
+# ===================================================================
+# Test: Per-strategy circuit breaker
+# ===================================================================
+
+class TestCircuitBreaker:
+    """Circuit breaker exits at Nx initial risk when strategy_specs is provided."""
+
+    def test_cb_fires_when_loss_exceeds_threshold(self):
+        """Long position: CB=4.0 fires when low <= entry - 4*initial_risk.
+
+        Entry: $100, initial_risk=2.0, CB=4.0 => exit at $100 - 4*2 = $92
+        Low=$91 triggers CB (91 < 92).
+        """
+        config = _default_config()
+        n_bars = 20
+        pos = _make_perp_position(
+            entry_price=100.0, margin_usd=10_000.0, leverage=1.0,
+            direction=1, entry_bar=0, no_stop_bars=999,
+        )
+        pos.initial_risk = 2.0
+
+        # Low at $91 — breaches CB threshold of $92
+        low_arr = np.full(n_bars, 99.0, dtype=np.float64)
+        low_arr[10] = 91.0
+        sig = _make_token_signals(
+            n_bars=n_bars, close_price=98.0,
+            low_array=low_arr,
+        )
+
+        state = SimulationState(initial_capital=200_000.0)
+        state.position_manager.open_position(pos)
+
+        strategy_specs = {"s30": StrategySpec(strategy_id="s30", circuit_breaker_r=4.0)}
+        _process_exits(
+            state, {"s30": {"BTC": sig}},
+            {"BTC": np.arange(n_bars, dtype=np.int32)}, 10, config,
+            strategy_specs=strategy_specs,
+        )
+        assert state.position_manager.total_open() == 0, \
+            "CB=4.0 should exit when low breaches entry - 4*initial_risk"
+        assert len(state.position_manager.closed_trades) == 1
+        assert state.position_manager.closed_trades[0].exit_reason == "circuit_breaker"
+
+    def test_cb_does_not_fire_within_threshold(self):
+        """Long position: CB=4.0 should NOT fire when low > entry - 4*initial_risk.
+
+        Entry: $100, initial_risk=2.0, CB=4.0 => threshold at $92
+        Low=$93 does NOT trigger CB.
+        """
+        config = _default_config()
+        n_bars = 20
+        pos = _make_perp_position(
+            entry_price=100.0, margin_usd=10_000.0, leverage=1.0,
+            direction=1, entry_bar=0, no_stop_bars=999,
+        )
+        pos.initial_risk = 2.0
+
+        # Low at $93 — above CB threshold of $92
+        low_arr = np.full(n_bars, 99.0, dtype=np.float64)
+        low_arr[10] = 93.0
+        sig = _make_token_signals(
+            n_bars=n_bars, close_price=98.0,
+            low_array=low_arr,
+        )
+
+        state = SimulationState(initial_capital=200_000.0)
+        state.position_manager.open_position(pos)
+
+        strategy_specs = {"s30": StrategySpec(strategy_id="s30", circuit_breaker_r=4.0)}
+        _process_exits(
+            state, {"s30": {"BTC": sig}},
+            {"BTC": np.arange(n_bars, dtype=np.int32)}, 10, config,
+            strategy_specs=strategy_specs,
+        )
+        assert state.position_manager.total_open() == 1, \
+            "CB should NOT fire when low is above threshold"
+
+    def test_cb_disabled_when_zero(self):
+        """CB=0.0 (default) should never fire, even with large losses."""
+        config = _default_config()
+        n_bars = 20
+        pos = _make_perp_position(
+            entry_price=100.0, margin_usd=10_000.0, leverage=1.0,
+            direction=1, entry_bar=0, no_stop_bars=999,
+        )
+        pos.initial_risk = 2.0
+
+        # Huge drop — but CB is disabled
+        low_arr = np.full(n_bars, 99.0, dtype=np.float64)
+        low_arr[10] = 50.0
+        sig = _make_token_signals(
+            n_bars=n_bars, close_price=60.0,
+            low_array=low_arr,
+        )
+
+        state = SimulationState(initial_capital=200_000.0)
+        state.position_manager.open_position(pos)
+
+        strategy_specs = {"s30": StrategySpec(strategy_id="s30", circuit_breaker_r=0.0)}
+        _process_exits(
+            state, {"s30": {"BTC": sig}},
+            {"BTC": np.arange(n_bars, dtype=np.int32)}, 10, config,
+            strategy_specs=strategy_specs,
+        )
+        assert state.position_manager.total_open() == 1, \
+            "CB=0.0 should never trigger circuit breaker exit"
+
+    def test_cb_disabled_when_no_specs(self):
+        """When strategy_specs is None (backwards compat), CB is disabled."""
+        config = _default_config()
+        n_bars = 20
+        pos = _make_perp_position(
+            entry_price=100.0, margin_usd=10_000.0, leverage=1.0,
+            direction=1, entry_bar=0, no_stop_bars=999,
+        )
+        pos.initial_risk = 2.0
+
+        low_arr = np.full(n_bars, 99.0, dtype=np.float64)
+        low_arr[10] = 50.0
+        sig = _make_token_signals(
+            n_bars=n_bars, close_price=60.0,
+            low_array=low_arr,
+        )
+
+        state = SimulationState(initial_capital=200_000.0)
+        state.position_manager.open_position(pos)
+
+        # No strategy_specs — old-style call
+        _process_exits(
+            state, {"s30": {"BTC": sig}},
+            {"BTC": np.arange(n_bars, dtype=np.int32)}, 10, config,
+        )
+        assert state.position_manager.total_open() == 1, \
+            "No strategy_specs should mean CB is disabled (backwards compat)"
+
+    def test_cb_short_position(self):
+        """Short position: CB fires when high >= entry + 4*initial_risk."""
+        config = _default_config()
+        n_bars = 20
+        pos = _make_perp_position(
+            entry_price=100.0, margin_usd=10_000.0, leverage=1.0,
+            direction=-1, entry_bar=0, no_stop_bars=999,
+        )
+        pos.initial_risk = 2.0
+
+        # High at $109 — breaches CB threshold of $108
+        high_arr = np.full(n_bars, 101.0, dtype=np.float64)
+        high_arr[10] = 109.0
+        sig = _make_token_signals(
+            n_bars=n_bars, close_price=102.0,
+            high_array=high_arr,
+        )
+
+        state = SimulationState(initial_capital=200_000.0)
+        state.position_manager.open_position(pos)
+
+        strategy_specs = {"s30": StrategySpec(strategy_id="s30", circuit_breaker_r=4.0)}
+        _process_exits(
+            state, {"s30": {"BTC": sig}},
+            {"BTC": np.arange(n_bars, dtype=np.int32)}, 10, config,
+            strategy_specs=strategy_specs,
+        )
+        assert state.position_manager.total_open() == 0, \
+            "Short CB should fire when high breaches entry + 4*initial_risk"
+        assert state.position_manager.closed_trades[0].exit_reason == "circuit_breaker"
+
+    def test_per_strategy_cb_independence(self):
+        """Two strategies, different CB: one fires, other doesn't."""
+        config = _default_config()
+        n_bars = 20
+
+        # s30 position — CB=4.0 (will trigger)
+        pos1 = _make_perp_position(
+            entry_price=100.0, margin_usd=10_000.0, leverage=1.0,
+            direction=1, entry_bar=0, no_stop_bars=999, strategy_id="s30",
+        )
+        pos1.initial_risk = 2.0
+
+        # s60 position — CB=0.0 (won't trigger, same price)
+        pos2 = _make_perp_position(
+            entry_price=100.0, margin_usd=10_000.0, leverage=1.0,
+            direction=1, entry_bar=0, no_stop_bars=999, strategy_id="s60",
+        )
+        pos2.initial_risk = 2.0
+        pos2.position_id = "BTC:s60:0:primary"
+
+        low_arr = np.full(n_bars, 99.0, dtype=np.float64)
+        low_arr[10] = 91.0  # breaches 4x threshold
+        sig_s30 = _make_token_signals(
+            n_bars=n_bars, close_price=98.0, low_array=low_arr, strategy_id="s30",
+        )
+        sig_s60 = _make_token_signals(
+            n_bars=n_bars, close_price=98.0, low_array=low_arr, strategy_id="s60",
+        )
+
+        state = SimulationState(initial_capital=200_000.0)
+        state.position_manager.open_position(pos1)
+        state.position_manager.open_position(pos2)
+
+        strategy_specs = {
+            "s30": StrategySpec(strategy_id="s30", circuit_breaker_r=4.0),
+            "s60": StrategySpec(strategy_id="s60", circuit_breaker_r=0.0),
+        }
+        all_signals = {"s30": {"BTC": sig_s30}, "s60": {"BTC": sig_s60}}
+        _process_exits(
+            state, all_signals,
+            {"BTC": np.arange(n_bars, dtype=np.int32)}, 10, config,
+            strategy_specs=strategy_specs,
+        )
+        assert state.position_manager.total_open() == 1, \
+            "Only s30 (CB=4.0) should exit; s60 (CB=0.0) stays open"
+        # Verify the remaining position is s60
+        remaining = list(state.position_manager.open_positions)
+        assert remaining[0].strategy_id == "s60"

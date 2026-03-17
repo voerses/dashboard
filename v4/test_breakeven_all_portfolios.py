@@ -175,7 +175,7 @@ def simulate_portfolio_dynamic(all_signals, strategy_specs, config, allocator):
                     if sid in new_weights:
                         spec.weight = new_weights[sid]
 
-        _process_exits(state, all_signals, bar_maps, global_bar, config)
+        _process_exits(state, all_signals, bar_maps, global_bar, config, strategy_specs=strategy_specs)
         _process_entries(state, all_signals, strategy_specs, bar_maps, global_bar, config, rng)
         timestamp = unified_ts[global_bar]
         state.equity_snapshots.append((timestamp, state.portfolio_equity))

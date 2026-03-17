@@ -56,13 +56,7 @@ def load_paper_config(path: str) -> PaperConfig:
             raise ValueError(
                 f"Strategy entry {i} missing required field 'strategy_id'"
             )
-        strategy_list.append(StrategySpec(
-            strategy_id=s["strategy_id"],
-            weight=s.get("weight", 1.0),
-            max_positions=s.get("max_positions", 15),
-            market=s.get("market", "combined"),
-            strategy_type=s.get("strategy_type", "per_token"),
-        ))
+        strategy_list.append(StrategySpec.from_dict(s))
 
     # --- Build PaperConfig ---
     config = PaperConfig(

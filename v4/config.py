@@ -12,6 +12,24 @@ class StrategySpec:
     max_positions: int = 15       # per-strategy position limit
     market: str = "combined"      # "spot", "perp", "combined"
     strategy_type: str = "per_token"  # "per_token" (Class A) or "portfolio" (Class B)
+    # Per-strategy risk controls (0 = disabled)
+    circuit_breaker_r: float = 0.0               # emergency exit at Nx initial risk (e.g. 4.0)
+    pump_filter_funding_zscore: float = 0.0      # block long entries when funding z-score > threshold
+    pump_filter_range_threshold: float = 0.0     # block entries when bar range/ATR > threshold
+
+    @classmethod
+    def from_dict(cls, d: dict) -> StrategySpec:
+        """Create from a JSON-parsed dict.  Single source of truth for field mapping."""
+        return cls(
+            strategy_id=d["strategy_id"],
+            weight=d.get("weight", 1.0),
+            max_positions=d.get("max_positions", 15),
+            market=d.get("market", "combined"),
+            strategy_type=d.get("strategy_type", "per_token"),
+            circuit_breaker_r=d.get("circuit_breaker_r", 0.0),
+            pump_filter_funding_zscore=d.get("pump_filter_funding_zscore", 0.0),
+            pump_filter_range_threshold=d.get("pump_filter_range_threshold", 0.0),
+        )
 
 
 @dataclass
@@ -36,10 +54,3 @@ class PortfolioConfig:
     # "hybrid" (top-N by conviction tiers, shuffle within tiers)
     conviction_mode: str = "shuffle"
     min_conviction_threshold: float = 0.0  # skip entries below this conviction level (0 = no filter)
-    # Circuit breaker: emergency exit during no_stop_bars window (0 = disabled)
-    circuit_breaker_r: float = 4.0        # exit when loss >= Nx initial_risk
-    # Pump-and-dump entry filters (all default enabled)
-    pump_filter_range_threshold: float = 4.0   # block entry when (high-low)/ATR > threshold (0 = disabled)
-    pump_filter_adv_floor: float = 5_000_000   # ADV below this gets pump penalty applied (0 = disabled)
-    pump_filter_adv_penalty: float = 0.5       # sizing multiplier for tokens below adv_floor
-    pump_filter_funding_zscore: float = 3.0    # block LONG entries when funding z-score > this (0 = disabled)

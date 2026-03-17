@@ -61,13 +61,7 @@ def load_multi_config(path: str) -> list[PaperConfig]:
         for j, s in enumerate(merged["strategies"]):
             if "strategy_id" not in s:
                 raise ValueError(f"Portfolio {i}, strategy {j} missing 'strategy_id'")
-            strategy_list.append(StrategySpec(
-                strategy_id=s["strategy_id"],
-                weight=s.get("weight", 1.0),
-                max_positions=s.get("max_positions", 15),
-                market=s.get("market", "combined"),
-                strategy_type=s.get("strategy_type", "per_token"),
-            ))
+            strategy_list.append(StrategySpec.from_dict(s))
 
         config = PaperConfig(
             strategies=strategy_list,
