@@ -75,9 +75,21 @@ def load_equity_csv(path: str) -> list[dict]:
                 "perp_deployed": float(row.get("perp_deployed", 0)),
                 "imbalance_pct": float(row.get("imbalance_pct", 0)),
             })
-    # Sort by timestamp to prevent backwards-tick display issues on dashboard
-    snapshots.sort(key=lambda s: s["timestamp"])
-    return snapshots
+    # Sort by tick (authoritative ordering), then deduplicate:
+    # keep only the LAST entry for each timestamp (ablation may have
+    # created duplicate timestamps when tick counters were reset).
+    snapshots.sort(key=lambda s: s["tick"])
+    seen_ts: dict[str, int] = {}  # timestamp → index in deduped list
+    deduped: list[dict] = []
+    for snap in snapshots:
+        ts = snap["timestamp"]
+        if ts in seen_ts:
+            # Replace earlier entry with this later tick
+            deduped[seen_ts[ts]] = snap
+        else:
+            seen_ts[ts] = len(deduped)
+            deduped.append(snap)
+    return deduped
 
 
 def load_rebalances_jsonl(path: str) -> list[dict]:
@@ -204,7 +216,10 @@ def build_sims_from_state_dir(state_dir: str, config_path: str = "") -> dict:
         direction = pos.get("direction", 1)
         quantity = pos.get("quantity", 0)
         current_price = last_prices.get(token, entry_price)
-        unrealized_pnl = quantity * (current_price - entry_price)
+        raw_unrealized = quantity * (current_price - entry_price)
+        cumulative_funding = pos.get("cumulative_funding", 0)
+        # Net unrealized: deduct known costs (entry fee + accrued funding)
+        unrealized_pnl = raw_unrealized - entry_fee - cumulative_funding
         stop_price = pos.get("stop_price", 0)
         # % distance to stop (positive = room, negative = breached)
         if stop_price and current_price:
@@ -496,12 +511,17 @@ function render() {{
     const s = SIMS[activeSim];
     const trades = s.all_trades||[];
     const closedTrades = trades.filter(t=>t.status!=='open');
+    const openTrades = trades.filter(t=>t.status==='open');
     const nT = closedTrades.length;
     const nW = closedTrades.filter(t=>(t.pnl||0)>0).length;
     const wr = nT>0?(nW/nT*100):0;
     const totalPnl = s.realized_pnl !== undefined ? s.realized_pnl : trades.reduce((a,t)=>a+(t.pnl||0),0);
-    const totalFees = s.total_fees || trades.reduce((a,t)=>a+(t.entry_fee||0)+(t.exit_fee||0),0);
-    const totalFunding = s.total_funding || trades.reduce((a,t)=>a+Math.abs(t.funding_cost||0),0);
+    const closedFees = closedTrades.reduce((a,t)=>a+(t.entry_fee||0)+(t.exit_fee||0),0);
+    const openFees = openTrades.reduce((a,t)=>a+(t.entry_fee||0),0);
+    const totalFees = s.total_fees !== undefined ? s.total_fees : closedFees + openFees;
+    const closedFunding = closedTrades.reduce((a,t)=>a+(t.funding_cost||0),0);
+    const openFunding = openTrades.reduce((a,t)=>a+(t.cumulative_funding||0),0);
+    const totalFunding = s.total_funding !== undefined ? s.total_funding : closedFunding + openFunding;
     const equity = s.portfolio_equity || s.capital;
     const returnPct = s.capital>0 ? (equity - s.capital)/s.capital*100 : 0;
     const nOpen = s.open_positions || 0;
@@ -534,7 +554,6 @@ function render() {{
     const imbPct = sp.imbalance_pct || 0;
     const blockedCount = sp.blocked_entries_count || 0;
 
-    const openTrades = trades.filter(t=>t.status==='open');
     const unrealizedPnl = openTrades.reduce((a,t)=>a+(t.unrealized_pnl||0),0);
     const totalInvested = openTrades.reduce((a,t)=>a+(t.margin_usd||0),0);
     const mtmEquity = eh.length > 0 ? eh[eh.length-1].mark_to_market_equity : equity;
@@ -549,8 +568,8 @@ function render() {{
         <div class="kpi"><div class="lbl">Max Drawdown</div><div class="val r">${{maxDD.toFixed(2)}}%</div></div>
         <div class="kpi"><div class="lbl">Trades</div><div class="val b">${{nT}} <span style="font-size:0.6em;color:${{nOpen>0?'#3fb950':'#484f58'}}">(${{nOpen}} open)</span></div></div>
         <div class="kpi"><div class="lbl">Win Rate</div><div class="val ${{wr>=50?'g':'y'}}">${{wr.toFixed(1)}}%<div style="font-size:0.45em;color:#484f58;margin-top:2px">${{nW}}/${{nT}}</div></div></div>
-        <div class="kpi"><div class="lbl">Total Fees</div><div class="val r">$${{fmt(totalFees)}}</div></div>
-        <div class="kpi"><div class="lbl">Funding Paid</div><div class="val r">$${{fmt(totalFunding)}}</div></div>
+        <div class="kpi"><div class="lbl">Fees</div><div class="val r" style="display:flex;flex-wrap:wrap;justify-content:center;gap:0 6px">-$${{fmt(openFees)}} <span style="opacity:0.5">/</span> -$${{fmt(closedFees)}}</div><div style="font-size:0.45em;color:#484f58;text-align:center">open / closed</div></div>
+        <div class="kpi"><div class="lbl">Funding</div><div class="val" style="display:flex;flex-wrap:wrap;justify-content:center;gap:0 6px"><span class="${{pc(-openFunding)}}">$${{fmt(-openFunding)}}</span> <span style="opacity:0.5">/</span> <span class="${{pc(-closedFunding)}}">$${{fmt(-closedFunding)}}</span></div><div style="font-size:0.45em;color:#484f58;text-align:center">open / closed</div></div>
         <div class="kpi"><div class="lbl">Tick</div><div class="val b">${{s.tick_counter||0}}<div style="font-size:0.45em;color:#484f58;margin-top:2px">${{s.last_updated ? new Date(s.last_updated).toLocaleString() : 'N/A'}}</div></div></div>
     </div>`;
 
@@ -640,7 +659,7 @@ function render() {{
                     <th>Strategy</th><th>Token</th><th>Dir</th><th>Mkt</th>
                     <th>Entered</th><th>Hold</th><th>Entry $</th><th>Exit/Now $</th>
                     <th>Stop $</th><th>% to Stop</th><th>Regime</th>
-                    <th>Size</th><th>P&L</th><th>Fees</th><th>Exit</th>
+                    <th>Size</th><th>P&L</th><th>Fees</th><th>Fund</th><th>Exit</th>
                 </tr></thead>
                 <tbody id="tb-trades"></tbody>
             </table>
@@ -657,12 +676,13 @@ function render() {{
             <table>
                 <thead><tr>
                     <th>Token</th><th>Trades</th><th>Win Rate</th>
-                    <th>P&L</th><th>Best</th><th>Worst</th><th>Fees</th>
+                    <th>P&L</th><th>Best</th><th>Worst</th><th>Fees</th><th>Fund</th>
                 </tr></thead>
                 <tbody id="tb-tokens"></tbody>
             </table>
         </div>
-    </div>`;
+    </div>
+    <div style="height:80px"></div>`;
 
     document.getElementById('app').innerHTML = h;
     renderTrades(trades, 'open');
@@ -702,7 +722,8 @@ function renderTrades(trades, filter) {{
         const pnl = isOpen ? (t.unrealized_pnl||0) : (t.pnl||0);
         const dir = t.direction===-1?'SHORT':'LONG';
         const mt = (t.market_type||'').toLowerCase();
-        const totalFee = (t.entry_fee||0)+(t.exit_fee||0)+Math.abs(t.funding_cost||0)+Math.abs(t.cumulative_funding||0);
+        const tradeFees = (t.entry_fee||0)+(t.exit_fee||0);
+        const tradeFunding = (t.funding_cost||0)+(t.cumulative_funding||0);
         const exitCol = isOpen ? fmtPrice(t.current_price) + ' <span style="color:#3fb950;font-size:0.7em">LIVE</span>' : fmtPrice(t.exit_price);
         const reasonCol = isOpen ? '<span class="pill" style="background:#1f3d1f;color:#3fb950">LIVE</span>' : (t.exit_reason||'-');
         const pnlLabel = isOpen ? '~' : '';
@@ -739,7 +760,8 @@ function renderTrades(trades, filter) {{
             <td style="font-size:0.75em">${{regimeCol}}</td>
             <td>$${{fmt(t.margin_usd||0)}}</td>
             <td class="${{pc(pnl)}}" style="font-weight:600">${{pnlLabel}}$${{fmt(pnl)}}</td>
-            <td class="r">$${{totalFee.toFixed(0)}}</td>
+            <td class="r">${{tradeFees===0?'—':'-$'+fmt(tradeFees)}}</td>
+            <td class="${{pc(-tradeFunding)}}">${{tradeFunding===0?(mt==='perp'?'$0':'—'):(-tradeFunding<0?'-':'')+'$'+fmt(Math.abs(tradeFunding))}}</td>
             <td style="color:#484f58">${{reasonCol}}</td>
         </tr>`;
     }});
@@ -758,11 +780,13 @@ function renderTokens(trades) {{
     const m = {{}};
     trades.filter(t=>t.status!=='open').forEach(t => {{
         const tk = t.token||'?';
-        if(!m[tk]) m[tk]={{pnl:0,n:0,wins:0,fees:0,best:-Infinity,worst:Infinity}};
+        if(!m[tk]) m[tk]={{pnl:0,n:0,wins:0,fees:0,funding:0,hasPerp:false,best:-Infinity,worst:Infinity}};
         const p = t.pnl||0;
         m[tk].pnl += p;
         m[tk].n++;
-        m[tk].fees += (t.entry_fee||0)+(t.exit_fee||0)+Math.abs(t.funding_cost||0);
+        m[tk].fees += (t.entry_fee||0)+(t.exit_fee||0);
+        m[tk].funding += (t.funding_cost||0);
+        if((t.market_type||'')==='perp') m[tk].hasPerp=true;
         if(p>0) m[tk].wins++;
         if(p>0 && p>m[tk].best) m[tk].best=p;
         if(p<0 && p<m[tk].worst) m[tk].worst=p;
@@ -778,7 +802,8 @@ function renderTokens(trades) {{
             <td class="${{pc(d.pnl)}}" style="font-weight:600">$${{fmt(d.pnl)}}</td>
             <td class="g">${{bestStr}}</td>
             <td class="r">${{worstStr}}</td>
-            <td class="r">$${{fmt(d.fees)}}</td></tr>`;
+            <td class="r">${{d.fees===0?'—':'-$'+fmt(d.fees)}}</td>
+            <td class="${{pc(-d.funding)}}">${{d.funding===0?(d.hasPerp?'$0':'—'):(-d.funding<0?'-':'')+'$'+fmt(Math.abs(d.funding))}}</td></tr>`;
     }}).join('');
 }}
 
