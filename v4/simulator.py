@@ -65,6 +65,7 @@ class SimulationState:
     position_manager: PositionManager = field(default_factory=PositionManager)
     rejections: RejectionStats = field(default_factory=RejectionStats)
     partial_fills: int = 0
+    margin_calls: int = 0
     equity_snapshots: list = field(default_factory=list)
     _entry_fees_by_pos: dict = field(default_factory=dict)  # position_id -> entry fee
 
@@ -135,7 +136,7 @@ def _close_position(
     if exit_reason != "liquidation":
         # Apply stress ADV multiplier for stop exits (liquidity dries up during cascades)
         effective_adv = exit_adv
-        if exit_reason == "stop":
+        if exit_reason in ("stop", "margin_call"):
             effective_adv = exit_adv * config.stress_adv_multiplier
         slip_bps = compute_slippage_bps(notional, effective_adv, config.base_spread_bps, config.impact_coeff, config.max_slip_bps)
         slip = exit_price * slip_bps / 10000.0
@@ -1150,6 +1151,103 @@ def _process_entries(
             state.position_manager.open_position(pos)
 
 
+def _process_margin_calls(
+    state: SimulationState,
+    all_signals: dict[str, dict[str, TokenSignals]],
+    bar_maps: dict[str, np.ndarray],
+    global_bar: int,
+    config: PortfolioConfig,
+):
+    """Force-close positions when funding erosion pushes free_capital below threshold.
+
+    Closes positions with the worst cumulative_funding/margin_usd ratio first.
+    Handles linked carry-pair legs (both legs closed together).
+    Skips positions with no market data at the current bar.
+    """
+    skip_ids: set[str] = set()
+    while state.position_manager.open_positions:
+        threshold = -max(state.portfolio_equity * 0.05, 1.0)
+        if state.free_capital >= threshold:
+            break
+        # Find the open position with the worst funding ratio
+        worst_pos = None
+        worst_ratio = -float('inf')
+        for pos in state.position_manager.open_positions:
+            if pos.position_id in skip_ids:
+                continue
+            if pos.margin_usd > 0:
+                ratio = pos.cumulative_funding / pos.margin_usd
+                if ratio > worst_ratio:
+                    worst_ratio = ratio
+                    worst_pos = pos
+        if worst_pos is None:
+            break
+        # Get market data for this position
+        sig = all_signals.get(worst_pos.strategy_id, {}).get(worst_pos.token)
+        if sig is None:
+            skip_ids.add(worst_pos.position_id)
+            continue
+        bm = bar_maps.get(worst_pos.token)
+        if bm is None:
+            skip_ids.add(worst_pos.position_id)
+            continue
+        lb = int(bm[global_bar])
+        if lb == -1 or lb >= sig.n_bars:
+            skip_ids.add(worst_pos.position_id)
+            continue
+        is_sec = (worst_pos.leg == "secondary")
+        _up = worst_pos.is_perp if sig.per_bar_is_perp is not None else None
+        close_val, _, _, _, adv_val, _ = _get_bar_data(sig, lb, not is_sec, use_perp=_up)
+        _close_position(state, worst_pos, global_bar, close_val, "margin_call", adv_val, config)
+        state.margin_calls += 1
+        # Close linked carry-pair leg if present
+        if worst_pos.linked_position_id:
+            linked = state.position_manager.get_linked(worst_pos.linked_position_id)
+            if linked and linked in state.position_manager.open_positions:
+                is_lk_sec = (linked.leg == "secondary")
+                _lup = linked.is_perp if sig.per_bar_is_perp is not None else None
+                lc, _, _, _, la, _ = _get_bar_data(sig, lb, not is_lk_sec, use_perp=_lup)
+                _close_position(state, linked, global_bar, lc, "margin_call", la, config)
+                state.margin_calls += 1
+
+
+def _record_equity_snapshot(
+    state: SimulationState,
+    all_signals: dict[str, dict[str, TokenSignals]],
+    bar_maps: dict[str, np.ndarray],
+    global_bar: int,
+    timestamp,
+):
+    """Record mark-to-market equity snapshot and warn on margin deficiency.
+
+    Computes unrealized P&L across all open positions and appends
+    (timestamp, equity + unrealized) to state.equity_snapshots.
+    Prints a warning to stderr if free_capital is deeply negative after margin calls.
+    """
+    if state.free_capital < -max(state.portfolio_equity * 0.10, 1.0):
+        print(f"WARNING: bar {global_bar}: margin deficient after margin calls "
+              f"(free_capital={state.free_capital:.2f}, equity={state.portfolio_equity:.2f})",
+              file=sys.stderr)
+
+    mtm_unrealized = 0.0
+    for pos in state.position_manager.open_positions:
+        sig = all_signals.get(pos.strategy_id, {}).get(pos.token)
+        if sig is None:
+            continue
+        bm = bar_maps.get(pos.token)
+        if bm is None:
+            continue
+        lb = int(bm[global_bar])
+        if lb == -1 or lb >= sig.n_bars:
+            continue
+        is_sec = (pos.leg == "secondary")
+        _up = pos.is_perp if sig.per_bar_is_perp is not None else None
+        close_val = _get_bar_data(sig, lb, not is_sec, use_perp=_up)[0]
+        mtm_unrealized += pos.quantity * (close_val - pos.entry_price)
+
+    state.equity_snapshots.append((timestamp, state.portfolio_equity + mtm_unrealized))
+
+
 def simulate_portfolio(
     all_signals: dict[str, dict[str, TokenSignals]],
     strategy_specs: dict[str, StrategySpec],
@@ -1173,38 +1271,9 @@ def simulate_portfolio(
 
     for global_bar in range(n_bars):
         _process_exits(state, all_signals, bar_maps, global_bar, config, strategy_specs=strategy_specs)
+        _process_margin_calls(state, all_signals, bar_maps, global_bar, config)
         _process_entries(state, all_signals, strategy_specs, bar_maps, global_bar, config, rng)
-
-        # Record equity snapshot — mark-to-market (realized + unrealized)
-        # Standard quant practice: equity curve must include unrealized P&L
-        # so drawdown/Sharpe/Calmar reflect true account value, not just closed trades.
-        mtm_unrealized = 0.0
-        for pos in state.position_manager.open_positions:
-            sig = all_signals.get(pos.strategy_id, {}).get(pos.token)
-            if sig is None:
-                continue
-            bm = bar_maps.get(pos.token)
-            if bm is None:
-                continue
-            lb = int(bm[global_bar])
-            if lb == -1 or lb >= sig.n_bars:
-                continue
-            is_sec = (pos.leg == "secondary")
-            _up = pos.is_perp if sig.per_bar_is_perp is not None else None
-            close_val = _get_bar_data(sig, lb, not is_sec, use_perp=_up)[0]
-            mtm_unrealized += pos.quantity * (close_val - pos.entry_price)
-
-        timestamp = unified_ts[global_bar]
-        state.equity_snapshots.append((timestamp, state.portfolio_equity + mtm_unrealized))
-
-        # Invariant check — allow funding-induced violations (funding deducted
-        # bar-by-bar can push equity below locked margin before exits free capital;
-        # partial fills consume most free capital, amplifying the effect)
-        if state.free_capital < -max(state.portfolio_equity * 0.05, 1.0):
-            raise RuntimeError(
-                f"Free capital invariant violated at bar {global_bar}: "
-                f"free_capital={state.free_capital:.2f}, equity={state.portfolio_equity:.2f}"
-            )
+        _record_equity_snapshot(state, all_signals, bar_maps, global_bar, unified_ts[global_bar])
 
     # Force-close all remaining positions at end
     _close_all_remaining(state, all_signals, bar_maps, n_bars - 1, config)

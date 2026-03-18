@@ -107,6 +107,7 @@ def compute_portfolio_metrics(
         "total_funding": state.total_funding,
         "total_fees": state.total_fees,
         "final_equity": state.portfolio_equity,
+        "margin_calls": getattr(state, 'margin_calls', 0),
     }
 
     return metrics, extra_info, eq_daily
@@ -153,12 +154,15 @@ def print_report(
     if rej["total"] > 0 or pf > 0:
         print()
         print("  Entry Rejections:")
-        for reason in ["portfolio_limit", "strategy_limit", "min_size", "adv_cap", "concentration", "capital"]:
+        for reason in ["portfolio_limit", "strategy_limit", "min_size", "adv_cap", "concentration", "capital", "conviction", "pump_range", "pump_funding"]:
             if rej[reason] > 0:
                 print(f"    {reason:20s} {rej[reason]:>6d}")
         print(f"    {'total':20s} {rej['total']:>6d}")
         if pf > 0:
             print(f"  Partial Fills:     {pf:>6d}")
+    mc = extra_info.get("margin_calls", 0)
+    if mc > 0:
+        print(f"  Margin Calls:      {mc:>6d}")
 
     # Per-strategy
     sa = extra_info["strategy_attribution"]

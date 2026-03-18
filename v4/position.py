@@ -74,7 +74,7 @@ class ClosedTrade:
     entry_fee: float
     exit_fee: float
     hold_bars: int
-    exit_reason: str            # "stop","target","regime","max_hold","liquidation","rsi","mean_target","funding","data_end"
+    exit_reason: str            # "stop","target","regime","max_hold","liquidation","rsi","mean_target","funding","data_end","margin_call","linked_exit","partial_tp"
     is_perp: bool = False
     entry_timestamp: str = ""   # wall-clock time when opened (paper trading)
 

@@ -2,7 +2,7 @@
 
 > **Last updated:** 2026-03-17T18:50Z
 > **Process mode:** strategy (paper trading monitoring — Gate 6)
-> **Active:** V4 multi-portfolio paper trading: **21 pools**. Runner: `ps aux | grep run_paper_multi | grep -v grep` to find current PID. If restart needed: `kill <PID> && nohup /workspace/venv/bin/python -m v4.run_paper_multi --config configs/multi_v4_paper.json > /tmp/paper_trader.log 2>&1 &`
+> **Active:** V4 multi-portfolio paper trading: **17 pools**. Runner: `ps aux | grep run_paper_multi | grep -v grep` to find current PID. If restart needed: `kill <PID> && nohup /workspace/venv/bin/python -m v4.run_paper_multi --config configs/multi_v4_paper.json > /tmp/paper_trader.log 2>&1 &`
 > **Engine consolidation (v3→v4):** Completed 2026-03-14. Single simulation path via v4/simulator.py.
 > **v3/ is FROZEN LEGACY — do NOT modify.** All imports point to v4/. v3/ exists only as historical reference.
 > **Overlays deployed:** s69 (s56+time_trail), s72 (s65+time_trail), s75 (s63+fixed_tp=3.0), s76 (partial TP)
@@ -14,7 +14,40 @@
 > **Per-strategy risk controls (0d59ff4):** CB and pump filters now per-strategy in StrategySpec. s59/s80: CB=4.0. s56/s57/s65/s69/s72/s76/s81: funding_zscore=3.0. s60: funding_zscore=3.0 + range_threshold=4.0. s62/s63/s75: no filters.
 > **MTM equity fix (b9d108f):** Equity curve now includes unrealized P&L (mark-to-market). Industry standard per GIPS/Zipline/QuantConnect. MaxDD was severely understated before (e.g., s80: -16% reported vs -44% actual).
 > **Data pipeline (COMPLETE):** kdb+-inspired RDB/HDB pattern. Live→`data/{market}/live/`, historical→`1h_cache/`. `load_token_data()` merges at read time. `promote_live.py` rolls with QC+manifests. `load_token_data_at(as_of)` for reproducible backtests.
-> **Next step:** Monitor 21 pools for 50+ trades each. Comprehensive rankings saved to results/v4/portfolio_rankings.json.
+> **Portfolio rotation (2026-03-18):** Removed 6 underperformers, added 2 solo strategies. See changelog below.
+> **Next step:** Monitor 17 pools for 50+ trades each. Comprehensive rankings saved to results/v4/portfolio_rankings.json.
+
+---
+
+## Paper Trading Portfolio Rotation — 2026-03-18
+
+### Removed (6 portfolios) — backed up to `state/archived_2026_03_18/`
+
+| Portfolio | 12mo Return | 12mo MaxDD | All-Time MaxDD | Reason for removal |
+|-----------|------------|------------|----------------|-------------------|
+| **s58+s59** | +392% | -25.4% | -87.6% | s59 solo has -93% all-time DD, -41% 12mo DD. Drags the combo into catastrophic drawdown territory. Low return/risk ratio. |
+| **s58+s63** | +228% | -37.9% | -86.7% | s63 solo has -89% all-time DD, -64% 12mo DD. Worst DD of any combo strategy still running. Return doesn't justify the tail risk. |
+| **s58+s69** | +292% | -11.4% | -58.1% | Identical 12mo performance to s58 solo (same return, same DD) — s69 component adds no diversification value in combo. Redundant slot. |
+| **s80+s81-dyn** | +215% | -83.9% | -96.6% | Near-total wipeout in all-time backtest (-97% DD). Dynamic weights failed to protect. Carry strategies fundamentally fragile under regime shifts. |
+| **s80+s81** | +205% | -81.1% | N/A | Same carry pair without dynamic weights. -81% DD in 12 months alone. Unacceptable tail risk for any allocation. |
+| **s58+s75** | +118% | -41.8% | -92.0% | s75 solo has -91% all-time DD, -58% 12mo DD. Lowest return of any combo at 12mo. Dead weight. |
+
+### Added (2 new solo portfolios)
+
+| Portfolio | 12mo Return | 12mo MaxDD | All-Time MaxDD | Reason for addition |
+|-----------|------------|------------|----------------|-------------------|
+| **s65 solo** | +986% | -14.1% | -8.4% | 4th highest 12mo return, best all-time DD of any strategy (-8.4%). Outstanding risk-adjusted performance. |
+| **s62 solo** | +769% | -21.6% | -10.4% | 5th highest 12mo return, 2nd best all-time DD (-10.4%). Strong standalone performer. |
+
+### Already present (confirmed kept)
+
+| Portfolio | 12mo Return | 12mo MaxDD | Note |
+|-----------|------------|------------|------|
+| **s58+s60** | +2,311% | -8.5% | Top combo by 12mo return. Already in config. |
+
+### Final active pool list (17 portfolios)
+
+s58, s60, s58+s60, s58+s62, s58+s65, 4-edge, s69, s72, s58+s72, s76, s58+s76, 4-edge+ptp, super5-dyn, 4-edge-conv, super5-conv, **s65**, **s62**
 
 ---
 

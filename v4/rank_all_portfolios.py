@@ -18,7 +18,8 @@ from v4.config import PortfolioConfig, StrategySpec
 from v4.signals import precompute_strategy_signals, discover_tokens, infer_data_end_date
 from v4.simulator import (
     simulate_portfolio, build_unified_index, SimulationState,
-    _process_exits, _process_entries, _close_all_remaining,
+    _process_exits, _process_entries, _process_margin_calls, _record_equity_snapshot,
+    _close_all_remaining,
 )
 from v4.report import compute_portfolio_metrics
 from v4.dynamic_weights import DynamicWeightAllocator
@@ -105,8 +106,9 @@ def simulate_dynamic(all_signals, strategy_specs, config, allocator):
                     if sid in new_weights:
                         spec.weight = new_weights[sid]
         _process_exits(state, all_signals, bar_maps, global_bar, config, strategy_specs=strategy_specs)
+        _process_margin_calls(state, all_signals, bar_maps, global_bar, config)
         _process_entries(state, all_signals, strategy_specs, bar_maps, global_bar, config, rng)
-        state.equity_snapshots.append((unified_ts[global_bar], state.portfolio_equity))
+        _record_equity_snapshot(state, all_signals, bar_maps, global_bar, unified_ts[global_bar])
     _close_all_remaining(state, all_signals, bar_maps, n_bars - 1, config)
     return state
 

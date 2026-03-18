@@ -410,6 +410,15 @@ class PaperPortfolioEngine:
                 bar_maps, self.tick_counter, self.config, rng,
             )
 
+    def _process_margin_calls_for_tick(self, all_signals, bar_maps):
+        """Run margin-call logic for the current tick."""
+        if self.config.mode == "independent":
+            for sid, sstate in self.strategy_states.items():
+                sid_signals = {sid: all_signals.get(sid, {})}
+                _sim._process_margin_calls(sstate, sid_signals, bar_maps, self.tick_counter, self.config)
+        else:
+            _sim._process_margin_calls(self.state, all_signals, bar_maps, self.tick_counter, self.config)
+
     def _tick_internal_with_signals(
         self,
         all_signals: dict,
@@ -418,9 +427,10 @@ class PaperPortfolioEngine:
     ) -> None:
         """Core tick processing with pre-computed signals.
 
-        Order (AC10b): exits → shadow_rebalance → entries → equity snapshot
+        Order (AC10b): exits → margin_calls → shadow_rebalance → entries → equity snapshot
         """
         self._process_exits_for_tick(all_signals, bar_maps)
+        self._process_margin_calls_for_tick(all_signals, bar_maps)
         # Shadow rebalance would run here (between exits and entries)
         if not strategy_specs:
             strategy_specs = {s.strategy_id: s for s in self.config.strategies}
