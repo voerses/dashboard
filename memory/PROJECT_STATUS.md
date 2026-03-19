@@ -1,8 +1,9 @@
 # Project Status — crypto_backtest
 
-> **Last updated:** 2026-03-17T18:50Z
+> **Last updated:** 2026-03-19T22:00Z
 > **Process mode:** strategy (paper trading monitoring — Gate 6)
 > **Active:** V4 multi-portfolio paper trading: **17 pools**. Runner: `ps aux | grep run_paper_multi | grep -v grep` to find current PID. If restart needed: `kill <PID> && nohup /workspace/venv/bin/python -m v4.run_paper_multi --config configs/multi_v4_paper.json > /tmp/paper_trader.log 2>&1 &`
+> **Sentinel:** Real-Time Exit Sentinel running in shadow mode. PID: `cat state/sentinel.pid`. Restart: see Operations section below.
 > **Engine consolidation (v3→v4):** Completed 2026-03-14. Single simulation path via v4/simulator.py.
 > **v3/ is FROZEN LEGACY — do NOT modify.** All imports point to v4/. v3/ exists only as historical reference.
 > **Overlays deployed:** s69 (s56+time_trail), s72 (s65+time_trail), s75 (s63+fixed_tp=3.0), s76 (partial TP)
@@ -114,11 +115,12 @@ s58, s60, s58+s60, s58+s62, s58+s65, 4-edge, s69, s72, s58+s72, s76, s58+s76, 4-
 | MTM Equity Fix | `v4/simulator.py` | Equity curve now mark-to-market (realized + unrealized P&L). Industry standard per GIPS/Zipline/QuantConnect. MaxDD was severely understated (s80: -16% reported vs -44% actual). Commit b9d108f. |
 | Per-Strategy Risk Controls | `v4/config.py`, `v4/simulator.py`, `v4/paper_engine.py`, `configs/multi_v4_paper.json` | CB and pump filters moved from global PortfolioConfig to per-strategy StrategySpec. `StrategySpec.from_dict()` classmethod centralizes JSON loading (6 call sites migrated). `_process_exits` signature backwards-compatible (strategy_specs optional kwarg). 6 CB unit tests. A/B tested 9 strategies × 4 configs with MTM equity. Commit 0d59ff4. |
 | Dashboard Timestamp Fix | `v4/paper_engine.py`, `tools/generate_dashboard_v2.py` | Fixed equity CSV timestamps to use bar close time from signal data instead of wall-clock `time.gmtime()`. Added defensive sort in dashboard loader. |
-| Multi-Portfolio Expansion | `configs/multi_v4_paper.json` | 21 paper trading pools: 19 strategy combos + 2 conviction variants (4-edge-conv, super5-conv). |
+| Multi-Portfolio Expansion | `configs/multi_v4_paper.json` | 17 paper trading pools (was 21, rotated 2026-03-18: removed 6 underperformers, added 2 solo strategies). |
 | Live Price Refresh (SIGUSR1) | `v4/run_paper_multi.py`, `v4/paper_engine.py` | `--refresh` sends SIGUSR1 to running process. Fetches live ticker prices for open positions, updates MTM + heartbeat, pushes dashboard. No tick/trading — just price view. ~22s for 21 pools. Usage: `python -m v4.run_paper_multi --config configs/multi_v4_paper.json --refresh` |
 | Breakeven Ratchet (universal) | `v3/engine.py`, `v4/signals.py`, `v4/position.py`, `v4/portfolio_signals.py`, `v4/paper_state.py` | `breakeven_atr` default changed from 0.0 to 0.5 across entire pipeline. After trade reaches +0.5 ATR, stop moves to entry price. Converts ~13.7% of losing trades to scratch. 16/16 portfolios improved (median PnL +82%, 15/16 DD improved). |
 | Portfolio Rankings Script | `v4/rank_all_portfolios.py` | Runs 4 separate backtests per strategy (months=60/12/3/1), each starting fresh at $200K. Ranked by % return. Saves to `results/v4/portfolio_rankings.json`. 28 strategies × 4 periods = 112 backtests. |
 | Exit Ablation Deployment | `strategies/s56-s65,s80,s81`, `v4/engine.py` | Progressive trail schedule retired → flat 1.5 ATR trail across ALL 9 base strategies. bear_max_hold=12 for s80/s81. 3-round ablation study (v1/v2/v3): 10-16 configs × 28 portfolios × 4 periods. Backtest: 20/24 BETTER all-time, 24/24 improved at 12mo, 0 WORSE. Crash stress test: zero liquidations. Tools: `tools/exit_ablation_v3.py`, `tools/crash_stress_test.py`. |
+| Real-Time Exit Sentinel | `v4/stop_store.py`, `v4/price_monitor.py`, `v4/breach_detector.py`, `v4/sentinel_metrics.py`, `v4/run_sentinel.py`, `v4/paper_engine.py`, `tools/measure_stop_breach.py`, `tools/sentinel_shadow_report.py`, `tools/generate_dashboard_v2.py` | Standalone sentinel process monitors real-time Binance WS prices (perp mark price + spot ticker) between hourly ticks. Detects stop/CB/target/liquidation breaches with per-tier confirmation timers and wick filtering. Shadow mode (observation only) deployed for 17 portfolios. Dashboard Exit Sentinel tab shows live events. 550+ tests. |
 
 ### Infrastructure Roadmap (Next Wave)
 
@@ -140,7 +142,8 @@ s58, s60, s58+s60, s58+s62, s58+s65, 4-edge, s69, s72, s58+s72, s76, s58+s76, 4-
 | Priority | Item | Blocker | Notes |
 |----------|------|---------|-------|
 | **HIGH** | Per-portfolio concentration limit tuning | None | Sweep `concentration_limit` (0.10–0.30) per portfolio. Optimize for 12mo/3mo/1mo. Cross-strategy dedup already removed (finding #42). No code changes — config-only tuning in `multi_v4_paper.json`. |
-| **HIGH** | Monitor 21 paper trading pools for 50+ trades | Time | 21 pools running (PID 409577). Oldest (s58) at tick ~130, newest (super5-conv) at tick ~85. Need 1-3 weeks for 50+ trades on newer pools. |
+| **HIGH** | Monitor 17 paper trading pools for 50+ trades | Time | 17 pools running. Oldest (s58) at tick ~130, newest (super5-conv) at tick ~85. Need 1-3 weeks for 50+ trades on newer pools. |
+| **HIGH** | Sentinel shadow mode validation | Time (4+ weeks) | Sentinel deployed in shadow mode 2026-03-19. Need 4+ weeks of shadow data before switching to live mode. Compare sentinel exits vs hourly exits for go/no-go. |
 | **HIGH** | Backtest realism audit | None | cap_multiplier=15 disables ADV caps on some strategies. 5% ADV cap may be insufficient at scale. Parameter sensitivity not quantified. Mission: `.claude/.strategy-mission-backtest-realism`. |
 | **DONE** | Pump-and-dump entry filters + per-strategy risk controls | — | CLOSED 2026-03-17. Per-strategy CB, L1 range filter, L3 funding filter deployed. A/B tested 9 strategies × 4 configs (BASELINE, CB_OFF, CB_OFF_L3, CB_OFF_L1_L3) with MTM equity + fresh data through Mar 17. `StrategySpec.from_dict()` centralizes all JSON loading. 6 CB unit tests added. Commits: b9d108f (MTM fix), 0d59ff4 (per-strategy filters). |
 | **HIGH** | Evaluate conviction scoring paper results | Time + trades | 4-edge-conv (ranked) and super5-conv (hybrid) deployed. Compare vs shuffle counterparts (4-edge, super5-dyn). |
@@ -160,11 +163,56 @@ s58, s60, s58+s60, s58+s62, s58+s65, 4-edge, s69, s72, s58+s72, s76, s58+s76, 4-
 
 ---
 
+## Operations
+
+### Process Management
+
+Both processes must be running for full functionality. The paper engine ticks hourly and writes stops.json; the sentinel reads them and monitors real-time prices.
+
+| Process | Command | PID File | Log |
+|---------|---------|----------|-----|
+| Paper Engine | `nohup /workspace/venv/bin/python -m v4.run_paper_multi --config configs/multi_v4_paper.json > /tmp/paper_trader.log 2>&1 &` | None (use `ps aux \| grep run_paper_multi`) | `/tmp/paper_trader.log` |
+| Sentinel | `nohup /workspace/venv/bin/python -m v4.run_sentinel --config configs/multi_v4_paper.json > /tmp/sentinel.log 2>&1 &` | `state/sentinel.pid` | `/tmp/sentinel.log` |
+
+**Start order:** Paper engine first, then sentinel.
+
+**Restart sentinel:**
+```bash
+kill $(cat state/sentinel.pid) 2>/dev/null
+rm -f state/sentinel.pid
+nohup /workspace/venv/bin/python -m v4.run_sentinel --config configs/multi_v4_paper.json > /tmp/sentinel.log 2>&1 &
+```
+
+**Price refresh (no trading):** `python -m v4.run_paper_multi --config configs/multi_v4_paper.json --refresh`
+
+**Dashboard push:** `python tools/generate_dashboard_v2.py --push`
+
+### Sentinel Modes
+
+| Mode | Config Value | Behavior |
+|------|-------------|----------|
+| Off | `"sentinel_mode": "off"` | No stops.json written, no monitoring |
+| Shadow | `"sentinel_mode": "shadow"` | **Current.** Logs breaches to sentinel_shadow.jsonl + sentinel_recent.json. Does NOT exit positions. |
+| Live | `"sentinel_mode": "live"` | Shadow logging + writes exit_events.jsonl. Paper engine processes exits on next tick. |
+
+### Sentinel State Files (per portfolio)
+
+| File | Written By | Purpose |
+|------|-----------|---------|
+| `stops.json` | Paper engine (hourly) | Current stop levels for all open positions |
+| `sentinel_recent.json` | Sentinel | Ring buffer of last 50 breach events |
+| `sentinel_shadow.jsonl` | Sentinel | Full shadow log of all breach events |
+| `sentinel_heartbeat.json` | Sentinel (every 60s) | Connection status, active tokens, timestamp |
+| `sentinel_metrics.json` | Sentinel (every 5 min) | Performance metrics, uptime, breach counts |
+| `exit_events.jsonl` | Sentinel (live mode only) | Exit events for paper engine to process |
+
+---
+
 ## Strategy Tiers (March 12, 2026)
 
-### V4 Paper Trading — 21 Pools Active (PID 341250)
+### V4 Paper Trading — 17 Pools Active
 
-Updated 2026-03-13. Breakeven ratchet (BE=0.5) deployed universally.
+Updated 2026-03-18. Portfolio rotation removed 6 underperformers + added 2 solo strategies. Breakeven ratchet (BE=0.5) deployed universally.
 
 | Pool | Strategies | Tick | Equity | MTM | Status |
 |------|-----------|------|--------|-----|--------|

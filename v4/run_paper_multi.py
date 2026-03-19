@@ -89,6 +89,9 @@ def load_multi_config(path: str) -> list[PaperConfig]:
             dynamic_weights_smoothing=merged.get("dynamic_weights_smoothing", 0.3),
             conviction_mode=merged.get("conviction_mode", "shuffle"),
             min_conviction_threshold=merged.get("min_conviction_threshold", 0.0),
+            sentinel_mode=merged.get("sentinel_mode", "off"),
+            confirmation_tiers=merged.get("confirmation_tiers", {"btc_eth": 30, "top10": 60, "other": 90}),
+            carry_strategies=merged.get("carry_strategies", []),
         )
         config.config_path = path
         configs.append(config)

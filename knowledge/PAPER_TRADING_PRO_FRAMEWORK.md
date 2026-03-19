@@ -236,6 +236,69 @@ Zero-code migration. Production deployment via Docker with auto-restart. Built-i
 
 ---
 
+## 9. Real-Time Exit Sentinel Integration
+
+> **Added 2026-03-19.** The paper trading system now includes a Real-Time Exit Sentinel that monitors prices between hourly ticks via Binance WebSocket. This section documents how it integrates with the paper trading lifecycle.
+
+### How the Sentinel Fits Into the Paper Trading Lifecycle
+
+The V4 paper engine ticks once per hour. Between ticks, stop-loss breaches go undetected — a position could breach its stop at minute 5 and not exit until minute 60. The Exit Sentinel fills this gap:
+
+1. **Paper engine tick** (hourly): Fetches the 1H candle close, runs strategy signals, processes entries/exits, writes `stops.json` with current stop levels for all open positions.
+2. **Sentinel** (continuous): Reads `stops.json`, connects to Binance WebSocket (`@markPrice@1s` for perps, `@miniTicker` for spot), monitors prices every ~1 second.
+3. **Breach detected**: If price crosses a stop level, the sentinel starts a confirmation timer (30s for BTC/ETH, 60s for top-20, 90s for others). If price stays below the stop for the full timer duration (wick filtering), the breach is confirmed.
+4. **Shadow mode** (current): Confirmed breaches are logged to `sentinel_shadow.jsonl` and `sentinel_recent.json` but NO action is taken. Positions exit normally on the next hourly tick.
+5. **Live mode** (future): Confirmed breaches additionally write an ExitEvent to `exit_events.jsonl`. On its next tick, the paper engine reads these events and processes them as exits before running its normal tick logic.
+
+### Shadow Mode vs Live Mode
+
+| Aspect | Shadow Mode | Live Mode |
+|--------|------------|-----------|
+| Config | `"sentinel_mode": "shadow"` | `"sentinel_mode": "live"` |
+| Price monitoring | Yes | Yes |
+| Breach detection | Yes | Yes |
+| Shadow logging | Yes (sentinel_shadow.jsonl) | Yes |
+| Dashboard events | Yes (sentinel_recent.json) | Yes |
+| Automatic exits | **No** | **Yes** (via exit_events.jsonl) |
+| Position impact | None — observation only | Exits positions between hourly ticks |
+
+Shadow mode is the safe default. It lets you collect data on what the sentinel _would_ have done without affecting actual paper trading P&L.
+
+### Shadow to Live: Go/No-Go Checklist
+
+Before switching from shadow to live mode:
+
+1. **Collect 4+ weeks of shadow data.** Need sufficient breach events across different market conditions (trending, ranging, volatile).
+2. **Run shadow reconciliation report.** Use `python tools/sentinel_shadow_report.py` to join sentinel events with actual trades. Classify each event:
+   - **TP (True Positive):** Sentinel detected a breach that the hourly engine also exited. Sentinel would have exited earlier (cost savings).
+   - **FT (False Trigger):** Sentinel detected a breach, but price recovered before the hourly tick. Sentinel would have caused an unnecessary exit (cost).
+   - **PRE (Pre-emptive):** Sentinel detected a breach, position was still open at next tick. Would have prevented further losses.
+3. **Quantify net benefit.** Compare: `sum(PRE savings) - sum(FT costs)`. If net benefit is positive across the 4-week shadow period, sentinel adds value.
+4. **Verify no systematic issues.** Check for: excessive dedup events (shadow mode re-triggers every ~90s for same position), stale stops.json (paper engine not running), WebSocket disconnects.
+5. **Switch config:** Change `"sentinel_mode": "shadow"` to `"sentinel_mode": "live"` in `configs/multi_v4_paper.json`. Restart both processes (paper engine first, then sentinel).
+
+### Dashboard Monitoring
+
+The dashboard (`tools/generate_dashboard_v2.py --push`) includes an **Exit Sentinel** tab showing:
+
+- **Connection status:** WS connected/disconnected, last heartbeat timestamp
+- **24h summary:** Breach events in last 24 hours, confirmed vs filtered
+- **Event table:** Each breach event with position details, breach type (stop/CB/target/liquidation), status badge (CONFIRMED/FILTERED/PENDING)
+- **Per-strategy breakdown:** Breach counts grouped by strategy
+- **Grace period labels:** Shows "grace Xh" for positions where `stop_active=False` (still in no_stop_bars window)
+- **BE tags:** Shows "BE" when stop_price equals entry_price (breakeven ratchet engaged)
+
+The sentinel auto-triggers a dashboard push on each confirmed breach event, so the dashboard stays current without manual intervention.
+
+### Key Behaviors to Know
+
+- **stop_active gating:** The sentinel respects each position's `no_stop_bars` grace period. It only monitors stops for positions where `bars_held >= no_stop_bars` or `convex_exit` has been triggered. Positions in the grace period are visible in the dashboard but not actively monitored.
+- **Breakeven ratchet interaction:** With `breakeven_atr=0.5` deployed universally, ~70% of positions in their grace period have stop_price == entry_price. This is expected and correct — the BE ratchet moved the stop to entry early, but the sentinel still waits for `stop_active` before monitoring.
+- **Trail tightening between ticks:** The sentinel tightens trailing stops between hourly ticks using `max(stop_price, highest - trail_mult * cur_atr)` for simple trail strategies. This means the effective stop can be tighter than what stops.json originally specified.
+- **Dual-venue prices:** Perp positions use the mark price feed (`@markPrice@1s`). Spot positions (from s57 combined strategy) use the spot ticker feed (`@miniTicker`). The `is_perp` flag on each StopLevel determines the venue.
+
+---
+
 ## Sources
 
 ### Freqtrade

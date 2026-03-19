@@ -221,7 +221,7 @@ def build_sims_from_state_dir(state_dir: str, config_path: str = "") -> dict:
         direction = pos.get("direction", 1)
         quantity = pos.get("quantity", 0)
         current_price = last_prices.get(token, entry_price)
-        raw_unrealized = quantity * (current_price - entry_price)
+        raw_unrealized = direction * quantity * (current_price - entry_price)
         cumulative_funding = pos.get("cumulative_funding", 0)
         # Net unrealized: deduct known costs (entry fee + accrued funding)
         unrealized_pnl = raw_unrealized - entry_fee - cumulative_funding
@@ -253,6 +253,8 @@ def build_sims_from_state_dir(state_dir: str, config_path: str = "") -> dict:
             "cumulative_funding": pos.get("cumulative_funding", 0),
             "hold_bars": tick_counter - pos.get("entry_bar", 0),
             "stop_price": stop_price,
+            "no_stop_bars": pos.get("no_stop_bars", 0),
+            "stop_active": (tick_counter - pos.get("entry_bar", 0)) >= pos.get("no_stop_bars", 0) or pos.get("convex_exit", False),
             "pct_to_stop": round(pct_to_stop, 2),
             "regime": regime_name,
             "exit_regimes": exit_regime_names,
@@ -303,6 +305,40 @@ def build_sims_from_state_dir(state_dir: str, config_path: str = "") -> dict:
         except (ValueError, TypeError):
             is_stale = True
 
+    # Sentinel data (AC19) — parse, reconcile with trades, compute summary
+    sentinel_events = parse_sentinel_recent(state_dir / "sentinel_recent.json")
+
+    # Reconcile: join sentinel events with trades.jsonl to resolve status
+    trades_by_pid = {}
+    for t in trades:
+        pid = t.get("position_id", "")
+        if pid:
+            trades_by_pid[pid] = t
+    # Check if the current bar is complete (hourly tick has run since the event)
+    bar_complete = bool(trades)  # rough heuristic: if any trades exist, bar processing happened
+    for evt in sentinel_events:
+        pid = evt.get("position_id", "")
+        matching_trade = trades_by_pid.get(pid)
+        evt["status"] = resolve_event_status(evt, matching_trade, bar_complete=bar_complete)
+
+    sentinel_summary = compute_24h_summary(sentinel_events)
+    sentinel_strategy_breakdown = build_strategy_breakdown(sentinel_events)
+
+    sentinel_heartbeat = {}
+    hb_path = state_dir / "sentinel_heartbeat.json"
+    if hb_path.exists():
+        try:
+            sentinel_heartbeat = json.loads(hb_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            pass
+    sentinel_metrics_data = {}
+    sm_path = state_dir / "sentinel_metrics.json"
+    if sm_path.exists():
+        try:
+            sentinel_metrics_data = json.loads(sm_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            pass
+
     return {
         "id": pool_name,
         "name": pool_name,
@@ -320,6 +356,11 @@ def build_sims_from_state_dir(state_dir: str, config_path: str = "") -> dict:
         "realized_pnl": realized_pnl,
         "total_fees": total_fees,
         "total_funding": total_funding,
+        "sentinel_events": sentinel_events,
+        "sentinel_heartbeat": sentinel_heartbeat,
+        "sentinel_metrics": sentinel_metrics_data,
+        "sentinel_summary": sentinel_summary,
+        "sentinel_strategy_breakdown": sentinel_strategy_breakdown,
     }
 
 
@@ -426,6 +467,11 @@ body {{ font-family:-apple-system,'Segoe UI',system-ui,sans-serif; background:#0
 .pill.long {{ background:#0d3520; color:#3fb950; }} .pill.short {{ background:#3d1418; color:#f85149; }}
 .pill.spot {{ background:#1a2332; color:#58a6ff; }} .pill.perp {{ background:#2d1f0e; color:#d29922; }}
 
+.view-toggle {{ display:flex; gap:4px; }}
+.view-btn {{ padding:5px 14px; border-radius:6px; cursor:pointer; background:transparent; color:#8b949e; border:1px solid #21262d; font-size:0.8em; font-weight:600; transition:all 0.15s; }}
+.view-btn:hover {{ color:#c9d1d9; border-color:#30363d; }}
+.view-btn.active {{ background:#d29922; color:#000; border-color:#d29922; }}
+
 table {{ width:100%; border-collapse:collapse; }}
 th {{ background:#161b22; color:#484f58; padding:6px 8px; text-align:left; font-weight:600; font-size:0.65em; text-transform:uppercase; letter-spacing:0.5px; position:sticky; top:0; }}
 td {{ padding:5px 8px; border-bottom:1px solid #161b22; font-size:0.8em; }}
@@ -448,7 +494,13 @@ tr.trade-row {{ cursor:pointer; }}
 <body>
 
 <div class="header">
-    <h1>Paper Trading Dashboard V2</h1>
+    <div style="display:flex;align-items:center;gap:16px">
+        <h1>Paper Trading Dashboard V2</h1>
+        <div class="view-toggle">
+            <div class="view-btn active" id="vb-trading" onclick="switchView('trading')">Trading</div>
+            <div class="view-btn" id="vb-sentinel" onclick="switchView('sentinel')">Sentinel</div>
+        </div>
+    </div>
     <div class="meta" id="hdr-time">Updated: {now_iso}</div>
 </div>
 <div class="stale-banner" id="stale-banner">
@@ -473,6 +525,7 @@ const DK = {{
 }};
 
 const fmt = v => v.toLocaleString(undefined,{{maximumFractionDigits:0}});
+const fmtUsd = v => {{ const a = Math.abs(v); const s = v<0?'-$':'$'; return s+a.toLocaleString(undefined,{{maximumFractionDigits:0}}); }};
 const fmtPct = v => (v>=0?'+':'')+v.toFixed(1)+'%';
 const pc = v => v>=0?'g':'r';
 const fmtPrice = v => {{if(!v) return '-'; if(v>=1000) return '$'+v.toLocaleString(undefined,{{minimumFractionDigits:2,maximumFractionDigits:2}}); if(v>=100) return '$'+v.toFixed(2); if(v>=1) return '$'+v.toFixed(4); if(v>=0.01) return '$'+v.toFixed(6); return '$'+v.toPrecision(4);}};
@@ -482,7 +535,8 @@ function renderTabs() {{
     document.getElementById('sim-tabs').innerHTML = SIMS.map((s,i) => {{
         const eh = s.equity_history||[];
         const cap = s.capital||200000;
-        const mtm = eh.length > 0 ? eh[eh.length-1].mark_to_market_equity : (s.portfolio_equity||cap);
+        const openUnreal = (s.all_trades||[]).filter(t=>t.status==='open').reduce((a,t)=>a+(t.unrealized_pnl||0),0);
+        const mtm = (s.portfolio_equity||cap) + openUnreal;
         const pnlPct = cap > 0 ? (mtm - cap) / cap * 100 : 0;
         const pnlStr = (pnlPct >= 0 ? '+' : '') + pnlPct.toFixed(1) + '%';
         const pnlCls = pnlPct >= 0 ? 'pos' : 'neg';
@@ -521,12 +575,13 @@ function render() {{
     const nW = closedTrades.filter(t=>(t.pnl||0)>0).length;
     const wr = nT>0?(nW/nT*100):0;
     const totalPnl = s.realized_pnl !== undefined ? s.realized_pnl : trades.reduce((a,t)=>a+(t.pnl||0),0);
-    const closedFees = closedTrades.reduce((a,t)=>a+(t.entry_fee||0)+(t.exit_fee||0),0);
+    // Fees & funding from state.json (engine source of truth)
+    const closedFees = s.total_fees !== undefined ? s.total_fees : closedTrades.reduce((a,t)=>a+(t.entry_fee||0)+(t.exit_fee||0),0);
     const openFees = openTrades.reduce((a,t)=>a+(t.entry_fee||0),0);
-    const totalFees = s.total_fees !== undefined ? s.total_fees : closedFees + openFees;
-    const closedFunding = closedTrades.reduce((a,t)=>a+(t.funding_cost||0),0);
+    const totalFees = closedFees + openFees;
+    const closedFunding = s.total_funding !== undefined ? s.total_funding : closedTrades.reduce((a,t)=>a+(t.funding_cost||0),0);
     const openFunding = openTrades.reduce((a,t)=>a+(t.cumulative_funding||0),0);
-    const totalFunding = s.total_funding !== undefined ? s.total_funding : closedFunding + openFunding;
+    const totalFunding = closedFunding + openFunding;
     const equity = s.portfolio_equity || s.capital;
     const returnPct = s.capital>0 ? (equity - s.capital)/s.capital*100 : 0;
     const nOpen = s.open_positions || 0;
@@ -561,20 +616,21 @@ function render() {{
 
     const unrealizedPnl = openTrades.reduce((a,t)=>a+(t.unrealized_pnl||0),0);
     const totalInvested = openTrades.reduce((a,t)=>a+(t.margin_usd||0),0);
-    const mtmEquity = eh.length > 0 ? eh[eh.length-1].mark_to_market_equity : equity;
+    // MTM = portfolio equity (from state.json) + unrealized P&L — all from same source
+    const mtmEquity = equity + unrealizedPnl;
     const investedPct = mtmEquity > 0 ? (totalInvested / mtmEquity * 100) : 0;
 
     let h = `
     <div class="kpi-row">
         <div class="kpi"><div class="lbl">Portfolio Equity</div><div class="val ${{pc(mtmEquity - s.capital)}}">$${{fmt(mtmEquity)}}<div style="font-size:0.45em;color:#484f58;margin-top:2px">start $${{fmt(s.capital)}}</div></div></div>
         <div class="kpi"><div class="lbl">Invested Now</div><div class="val m">$${{fmt(totalInvested)}}<div style="font-size:0.45em;color:#484f58;margin-top:2px">${{investedPct.toFixed(1)}}% of equity &middot; ${{nOpen}} pos</div></div></div>
-        <div class="kpi"><div class="lbl">Realized P&L</div><div class="val ${{pc(totalPnl)}}">$${{fmt(totalPnl)}}</div></div>
-        <div class="kpi"><div class="lbl">Unrealized P&L</div><div class="val ${{pc(unrealizedPnl)}}">$${{fmt(unrealizedPnl)}}</div></div>
+        <div class="kpi"><div class="lbl">Realized P&L</div><div class="val ${{pc(totalPnl)}}">${{fmtUsd(totalPnl)}}</div></div>
+        <div class="kpi"><div class="lbl">Unrealized P&L</div><div class="val ${{pc(unrealizedPnl)}}">${{fmtUsd(unrealizedPnl)}}</div></div>
         <div class="kpi"><div class="lbl">Max Drawdown</div><div class="val r">${{maxDD.toFixed(2)}}%</div></div>
         <div class="kpi"><div class="lbl">Trades</div><div class="val b">${{nT}} <span style="font-size:0.6em;color:${{nOpen>0?'#3fb950':'#484f58'}}">(${{nOpen}} open)</span></div></div>
         <div class="kpi"><div class="lbl">Win Rate</div><div class="val ${{wr>=50?'g':'y'}}">${{wr.toFixed(1)}}%<div style="font-size:0.45em;color:#484f58;margin-top:2px">${{nW}}/${{nT}}</div></div></div>
         <div class="kpi"><div class="lbl">Fees</div><div class="val r" style="display:flex;flex-wrap:wrap;justify-content:center;gap:0 6px">-$${{fmt(openFees)}} <span style="opacity:0.5">/</span> -$${{fmt(closedFees)}}</div><div style="font-size:0.45em;color:#484f58;text-align:center">open / closed</div></div>
-        <div class="kpi"><div class="lbl">Funding</div><div class="val" style="display:flex;flex-wrap:wrap;justify-content:center;gap:0 6px"><span class="${{pc(-openFunding)}}">$${{fmt(-openFunding)}}</span> <span style="opacity:0.5">/</span> <span class="${{pc(-closedFunding)}}">$${{fmt(-closedFunding)}}</span></div><div style="font-size:0.45em;color:#484f58;text-align:center">open / closed</div></div>
+        <div class="kpi"><div class="lbl">Funding</div><div class="val" style="display:flex;flex-wrap:wrap;justify-content:center;gap:0 6px"><span class="${{pc(-openFunding)}}">${{fmtUsd(-openFunding)}}</span> <span style="opacity:0.5">/</span> <span class="${{pc(-closedFunding)}}">${{fmtUsd(-closedFunding)}}</span></div><div style="font-size:0.45em;color:#484f58;text-align:center">open / closed</div></div>
         <div class="kpi"><div class="lbl">Tick</div><div class="val b">${{s.tick_counter||0}}<div style="font-size:0.45em;color:#484f58;margin-top:2px">${{s.last_updated ? new Date(s.last_updated).toLocaleString() : 'N/A'}}</div></div></div>
     </div>`;
 
@@ -731,13 +787,21 @@ function renderTrades(trades, filter) {{
         const tradeFunding = (t.funding_cost||0)+(t.cumulative_funding||0);
         const exitCol = isOpen ? fmtPrice(t.current_price) + ' <span style="color:#3fb950;font-size:0.7em">LIVE</span>' : fmtPrice(t.exit_price);
         const reasonCol = isOpen ? '<span class="pill" style="background:#1f3d1f;color:#3fb950">LIVE</span>' : (t.exit_reason||'-');
-        const pnlLabel = isOpen ? '~' : '';
+        const pnlLabel = '';
         // Stop / regime columns (open positions only)
         let stopCol = '-';
         let pctStopCol = '-';
         let regimeCol = '-';
         if (isOpen) {{
-            if (t.stop_price) stopCol = fmtPrice(t.stop_price);
+            if (t.stop_price) {{
+                if (t.stop_active === false) {{
+                    // Grace period: stop won't trigger yet
+                    const graceLeft = (t.no_stop_bars||0) - (t.hold_bars||0);
+                    stopCol = `<span style="color:#484f58">${{fmtPrice(t.stop_price)}}</span> <span style="font-size:0.6em;color:#6e7681">grace ${{graceLeft}}h</span>`;
+                }} else {{
+                    stopCol = fmtPrice(t.stop_price);
+                }}
+            }}
             const pts = t.pct_to_stop;
             if (pts !== undefined && pts !== null) {{
                 const ptsClass = pts < 2 ? 'r' : pts < 5 ? 'y' : 'g';
@@ -764,7 +828,7 @@ function renderTrades(trades, filter) {{
             <td>${{pctStopCol}}</td>
             <td style="font-size:0.75em">${{regimeCol}}</td>
             <td>$${{fmt(t.margin_usd||0)}}</td>
-            <td class="${{pc(pnl)}}" style="font-weight:600">${{pnlLabel}}$${{fmt(pnl)}}</td>
+            <td class="${{pc(pnl)}}" style="font-weight:600">${{pnlLabel}}${{fmtUsd(pnl)}}</td>
             <td class="r">${{tradeFees===0?'—':'-$'+fmt(tradeFees)}}</td>
             <td class="${{pc(-tradeFunding)}}">${{tradeFunding===0?(mt==='perp'?'$0':'—'):(-tradeFunding<0?'-':'')+'$'+fmt(Math.abs(tradeFunding))}}</td>
             <td style="color:#484f58">${{reasonCol}}</td>
@@ -800,11 +864,11 @@ function renderTokens(trades) {{
     document.getElementById('tb-tokens').innerHTML = tks.map(tk => {{
         const d=m[tk];
         const wr = d.n>0 ? (d.wins/d.n*100).toFixed(1) : '-';
-        const bestStr = d.best!==-Infinity ? `$${{fmt(d.best)}}` : '-';
-        const worstStr = d.worst!==Infinity ? `$${{fmt(d.worst)}}` : '-';
+        const bestStr = d.best!==-Infinity ? fmtUsd(d.best) : '-';
+        const worstStr = d.worst!==Infinity ? fmtUsd(d.worst) : '-';
         return `<tr><td><b>${{tk}}</b></td><td>${{d.n}}</td>
             <td>${{wr}}${{d.n>0?'%':''}}</td>
-            <td class="${{pc(d.pnl)}}" style="font-weight:600">$${{fmt(d.pnl)}}</td>
+            <td class="${{pc(d.pnl)}}" style="font-weight:600">${{fmtUsd(d.pnl)}}</td>
             <td class="g">${{bestStr}}</td>
             <td class="r">${{worstStr}}</td>
             <td class="r">${{d.fees===0?'—':'-$'+fmt(d.fees)}}</td>
@@ -835,6 +899,175 @@ function drawEquity() {{
         yaxis:{{...DK.yaxis,title:'USD',tickprefix:'$'}},
         shapes:[{{type:'line',x0:eh[0].timestamp,x1:eh[eh.length-1].timestamp,y0:0,y1:0,line:{{color:'#484f58',width:1,dash:'dot'}}}}],
     }}, {{responsive:true}});
+}}
+
+/* ---- View toggle (Trading / Sentinel) ---- */
+let currentView = 'trading';
+function switchView(view) {{
+    currentView = view;
+    document.getElementById('vb-trading').classList.toggle('active', view==='trading');
+    document.getElementById('vb-sentinel').classList.toggle('active', view==='sentinel');
+    document.getElementById('sim-tabs').style.display = view==='trading' ? 'flex' : 'none';
+    if (view==='trading') render();
+    else renderSentinel();
+}}
+
+/* ---- Sentinel view ---- */
+function renderSentinel() {{
+    // Aggregate sentinel data across all portfolios
+    let allEvts = [];
+    let hb = {{}};
+    let met = {{}};
+    let summary = {{total_breaches:0, wick_filters:0, true_positives:0, false_triggers:0}};
+    let stratBreakdown = {{}};
+    SIMS.forEach(s => {{
+        const evts = (s.sentinel_events||[]).map(e => ({{...e, _portfolio: s.name}}));
+        allEvts = allEvts.concat(evts);
+        if (Object.keys(s.sentinel_heartbeat||{{}}).length > 0 && !hb.timestamp) hb = s.sentinel_heartbeat;
+        if (Object.keys(s.sentinel_metrics||{{}}).length > 0 && !met.timestamp) met = s.sentinel_metrics;
+        // Merge summaries
+        const ss = s.sentinel_summary||{{}};
+        summary.total_breaches += ss.total_breaches||0;
+        summary.wick_filters += ss.wick_filters||0;
+        summary.true_positives += ss.true_positives||0;
+        summary.false_triggers += ss.false_triggers||0;
+        // Merge strategy breakdown
+        const sb = s.sentinel_strategy_breakdown||{{}};
+        Object.keys(sb).forEach(sid => {{
+            if (!stratBreakdown[sid]) stratBreakdown[sid] = {{count:0,TRUE_POSITIVE:0,FALSE_TRIGGER:0,PREEMPTED:0,PENDING:0}};
+            const src = sb[sid];
+            stratBreakdown[sid].count += src.count||0;
+            stratBreakdown[sid].TRUE_POSITIVE += src.TRUE_POSITIVE||0;
+            stratBreakdown[sid].FALSE_TRIGGER += src.FALSE_TRIGGER||0;
+            stratBreakdown[sid].PREEMPTED += src.PREEMPTED||0;
+            stratBreakdown[sid].PENDING += src.PENDING||0;
+        }});
+    }});
+
+    // Deduplicate: keep only FIRST event per position_id (across all portfolios)
+    allEvts.sort((a,b) => {{
+        const ta = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+        const tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+        return ta - tb;
+    }});
+    const seenPid = new Set();
+    const deduped = [];
+    allEvts.forEach(e => {{
+        const pid = e.position_id||'';
+        if (pid && seenPid.has(pid)) return;
+        seenPid.add(pid);
+        deduped.push(e);
+    }});
+
+    // Group by hour bucket
+    const now = new Date();
+    const curHourStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours()).getTime();
+    const currentHour = [];
+    const previousHours = [];
+    deduped.forEach(e => {{
+        const t = e.timestamp ? new Date(e.timestamp).getTime() : 0;
+        if (t >= curHourStart) currentHour.push(e);
+        else previousHours.push(e);
+    }});
+    currentHour.sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    previousHours.sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+    const wsOk = hb.ws_connected ? '<span class="g" style="font-weight:700">CONNECTED</span>' : '<span class="r" style="font-weight:700">DISCONNECTED</span>';
+    const spotOk = hb.spot_ws_connected ? '<span class="g" style="font-weight:700">CONNECTED</span>' : '<span style="color:#484f58">OFF</span>';
+    const hbAge = hb.timestamp ? Math.round((Date.now()/1000 - hb.timestamp)) + 's ago' : 'N/A';
+    const uptime = (met.uptime_pct||0).toFixed(1);
+
+    // Status badge helper
+    function statusBadge(s) {{
+        const colors = {{TRUE_POSITIVE:'#3fb950',FALSE_TRIGGER:'#f85149',PREEMPTED:'#d29922',PENDING:'#8b949e'}};
+        const labels = {{TRUE_POSITIVE:'TP',FALSE_TRIGGER:'FT',PREEMPTED:'PRE',PENDING:'...'}};
+        const c = colors[s]||'#484f58';
+        return `<span style="background:${{c}}22;color:${{c}};padding:1px 6px;border-radius:4px;font-size:0.75em;font-weight:700">${{labels[s]||s}}</span>`;
+    }}
+
+    let h = `
+    <div class="kpi-row">
+        <div class="kpi"><div class="lbl">Perp WS</div><div class="val">${{wsOk}}<div style="font-size:0.45em;color:#484f58;margin-top:2px">${{(hb.active_tokens||0)}} tokens</div></div></div>
+        <div class="kpi"><div class="lbl">Spot WS</div><div class="val">${{spotOk}}</div></div>
+        <div class="kpi"><div class="lbl">Uptime</div><div class="val ${{parseFloat(uptime)>90?'g':'y'}}">${{uptime}}%</div></div>
+        <div class="kpi"><div class="lbl">Heartbeat</div><div class="val b">${{hbAge}}</div></div>
+        <div class="kpi"><div class="lbl">24h Breaches</div><div class="val y">${{summary.total_breaches}}</div></div>
+        <div class="kpi"><div class="lbl">True Positives</div><div class="val g">${{summary.true_positives}}</div></div>
+        <div class="kpi"><div class="lbl">False Triggers</div><div class="val r">${{summary.false_triggers}}</div></div>
+        <div class="kpi"><div class="lbl">Wick Filtered</div><div class="val">${{summary.wick_filters}}</div></div>
+    </div>`;
+
+    function sentinelRow(e) {{
+        const ts = e.timestamp ? new Date(e.timestamp).toLocaleTimeString() : '';
+        const dir = (e.direction||1)===1 ? '<span class="pill long">L</span>' : '<span class="pill short">S</span>';
+        const reason = (e.exit_reason||'').replace('sentinel_','');
+        const status = e.status||'PENDING';
+        return `<tr>
+            <td><b>${{e.token||''}}</b> ${{dir}}</td>
+            <td style="font-size:0.8em;color:#bc8cff">${{e._portfolio||''}}</td>
+            <td>${{fmtPrice(e.entry_price)}}</td>
+            <td class="r">${{fmtPrice(e.stop_price)}}${{Math.abs((e.stop_price||0)-(e.entry_price||0))<1e-8?' <span style="font-size:0.6em;color:#d29922">BE</span>':''}}</td>
+            <td class="r">${{fmtPrice(e.breach_price)}}</td>
+            <td class="g" style="font-weight:700">${{fmtPrice(e.exit_price)}}</td>
+            <td>$${{fmt(e.margin_usd||0)}}</td>
+            <td>${{statusBadge(status)}}</td>
+            <td style="color:#8b949e;font-size:0.8em">${{reason}}</td>
+            <td style="font-size:0.75em;color:#484f58">${{ts}}</td>
+        </tr>`;
+    }}
+
+    const hdr = `<thead><tr><th>Token</th><th>Portfolio</th><th>Entry $</th><th>Stop $</th><th>Breach $</th><th>Exit $</th><th>Margin</th><th>Status</th><th>Reason</th><th>Time</th></tr></thead>`;
+
+    if (currentHour.length > 0) {{
+        h += `<div class="sec">
+        <h2 style="color:#d29922">Shadow Exits This Hour (${{currentHour.length}})</h2>
+        <div class="card tbl-wrap">
+        <table>${{hdr}}
+            <tbody>${{currentHour.map(sentinelRow).join('')}}</tbody>
+        </table></div></div>`;
+    }} else {{
+        h += `<div class="sec"><div style="padding:30px;text-align:center;color:#484f58;font-size:1em">
+            No shadow exits this hour. The sentinel is ${{hb.ws_connected?'connected and monitoring':'not connected'}}.
+        </div></div>`;
+    }}
+
+    if (previousHours.length > 0) {{
+        h += `<div class="sec">
+        <details><summary style="cursor:pointer;color:#8b949e;font-size:0.9em;padding:8px 0">
+            Previous hours (${{previousHours.length}} exits)
+        </summary>
+        <div class="card tbl-wrap" style="margin-top:8px">
+        <table>${{hdr}}
+            <tbody>${{previousHours.map(sentinelRow).join('')}}</tbody>
+        </table></div></details></div>`;
+    }}
+
+    // Per-strategy breakdown
+    const sids = Object.keys(stratBreakdown).sort();
+    if (sids.length > 0) {{
+        h += `<div class="sec">
+        <details><summary style="cursor:pointer;color:#8b949e;font-size:0.9em;padding:8px 0">
+            Per-Strategy Breakdown
+        </summary>
+        <div class="card tbl-wrap" style="margin-top:8px">
+        <table>
+            <thead><tr><th>Strategy</th><th>Events</th><th>TP</th><th>FT</th><th>Preempted</th><th>Pending</th></tr></thead>
+            <tbody>${{sids.map(sid => {{
+                const s = stratBreakdown[sid];
+                return `<tr>
+                    <td><b>${{sid}}</b></td>
+                    <td>${{s.count}}</td>
+                    <td class="g">${{s.TRUE_POSITIVE}}</td>
+                    <td class="r">${{s.FALSE_TRIGGER}}</td>
+                    <td class="y">${{s.PREEMPTED}}</td>
+                    <td>${{s.PENDING}}</td>
+                </tr>`;
+            }}).join('')}}</tbody>
+        </table></div></details></div>`;
+    }}
+
+    h += '<div style="height:80px"></div>';
+    document.getElementById('app').innerHTML = h;
 }}
 
 renderTabs();
@@ -1098,6 +1331,134 @@ def main():
 
     if args.push:
         push_to_ghpages(out, force=args.force)
+
+
+# ---------------------------------------------------------------------------
+# Exit Sentinel tab (AC19)
+# ---------------------------------------------------------------------------
+
+from collections import defaultdict
+from dataclasses import dataclass, field
+
+RING_BUFFER_MAX = 50
+
+
+def parse_sentinel_recent(path) -> list[dict]:
+    """Parse sentinel_recent.json, cap at RING_BUFFER_MAX most recent."""
+    path = Path(path)
+    if not path.exists():
+        return []
+    try:
+        events = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return []
+    if not isinstance(events, list):
+        return []
+    if len(events) > RING_BUFFER_MAX:
+        events = events[-RING_BUFFER_MAX:]
+    return events
+
+
+def resolve_event_status(
+    event: dict,
+    trade: dict | None,
+    bar_complete: bool = False,
+) -> str:
+    """Resolve a PENDING event's final status after hourly tick."""
+    if trade is None:
+        if bar_complete:
+            return "FALSE_TRIGGER"
+        return "PENDING"
+
+    shadow_reason = event.get("exit_reason", "")
+    trade_reason = trade.get("exit_reason", "")
+
+    sentinel_to_hourly = {
+        "sentinel_stop": "stop",
+        "sentinel_cb": "circuit_breaker",
+        "sentinel_target": "target",
+        "sentinel_liq": "liquidation",
+    }
+    expected = sentinel_to_hourly.get(shadow_reason, shadow_reason)
+
+    if trade_reason == expected or trade_reason == "stop":
+        return "TRUE_POSITIVE"
+    return "PREEMPTED"
+
+
+def compute_24h_summary(
+    events: list[dict],
+    current_time: float | None = None,
+) -> dict:
+    """Compute 24h summary from recent events."""
+    import time as _time
+    now = current_time if current_time is not None else _time.time()
+    cutoff = now - 86400
+
+    total_breaches = 0
+    wick_filters = 0
+    true_positives = 0
+    false_triggers = 0
+
+    for e in events:
+        ts_str = e.get("timestamp", "")
+        try:
+            dt = datetime.fromisoformat(ts_str)
+            epoch = dt.timestamp()
+        except (ValueError, TypeError):
+            continue
+
+        if epoch < cutoff:
+            continue
+
+        event_type = e.get("event_type", "")
+        status = e.get("status", "")
+
+        if event_type == "breach_confirmed":
+            total_breaches += 1
+        if event_type == "wick_filtered":
+            wick_filters += 1
+        if status == "TRUE_POSITIVE":
+            true_positives += 1
+        if status == "FALSE_TRIGGER":
+            false_triggers += 1
+
+    return {
+        "total_breaches": total_breaches,
+        "wick_filters": wick_filters,
+        "true_positives": true_positives,
+        "false_triggers": false_triggers,
+    }
+
+
+def build_strategy_breakdown(events: list[dict]) -> dict:
+    """Build per-strategy event breakdown."""
+    if not events:
+        return {}
+
+    by_strategy: dict[str, list] = defaultdict(list)
+    for e in events:
+        sid = e.get("strategy_id", "unknown")
+        by_strategy[sid].append(e)
+
+    result = {}
+    for sid, evts in sorted(by_strategy.items()):
+        statuses: dict[str, int] = defaultdict(int)
+        for e in evts:
+            statuses[e.get("status", "UNKNOWN")] += 1
+        result[sid] = {
+            "count": len(evts),
+            **dict(statuses),
+        }
+    return result
+
+
+@dataclass
+class SentinelDashboardData:
+    """Aggregated data for the Exit Sentinel dashboard tab."""
+    events: list[dict] = field(default_factory=list)
+    summary: dict = field(default_factory=dict)
+    strategy_breakdown: dict = field(default_factory=dict)
 
 
 if __name__ == "__main__":

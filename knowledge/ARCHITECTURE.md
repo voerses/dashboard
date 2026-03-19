@@ -152,3 +152,104 @@ python v3/validation.py --strategy sNN --workers 4
 | A | s11, s09, s13, s21, s17, s18 | >50% |
 | B | s20, s22, s12, s15, s14, s10 | 20-50% |
 | C | s07, s08, s16, s19 | <20% (archived) |
+
+## Real-Time Exit Sentinel
+
+The Exit Sentinel is a standalone process that monitors real-time prices via Binance WebSocket and detects stop-loss breaches between hourly ticks. It runs alongside the paper trading engine.
+
+### Process Model
+
+```
+Paper Engine (hourly tick)           Sentinel (continuous)
+─────────────────────────           ─────────────────────
+1. Fetch 1H candle close            1. Read stops.json (per portfolio)
+2. Run strategy signals              2. Connect Binance WS (perp + spot)
+3. Process entries/exits             3. Monitor mark prices every ~1s
+4. Write stops.json  ───────────▶   4. Detect breaches + confirm
+5. Update state.json                 5. Write sentinel_recent.json
+6. Push dashboard                    6. Write sentinel_shadow.jsonl
+                                     7. (Live mode) Write exit_events.jsonl
+                                          │
+                          ◀───────────────┘
+                     (next tick: paper engine reads exit_events.jsonl)
+```
+
+- **Paper engine** writes `stops.json` per portfolio every hourly tick (when `sentinel_mode != "off"`). Contains StopLevel objects for each open position: stop_price, entry_price, direction, cb_price, target_price, estimated_liq_price, stop_active flag, liquidity tier.
+- **Sentinel** reads stops.json, subscribes to Binance WebSocket streams for all tokens across all portfolios, and checks prices against stop levels continuously.
+- **Order matters:** Start paper engine first (it creates stops.json), then sentinel (reads them).
+
+### Dual-Venue Monitoring
+
+The sentinel runs two independent PriceMonitor instances:
+
+| Venue | WebSocket Stream | Use Case |
+|-------|-----------------|----------|
+| **Perp** | `@markPrice@1s` (Binance Futures) | Perpetual contract positions (majority of strategies) |
+| **Spot** | `@miniTicker` (Binance Spot) | Spot positions (s57 combined strategy) |
+
+Each PriceMonitor maintains its own WebSocket connection with automatic reconnection (exponential backoff) and REST API fallback when WS is unavailable. The `is_perp` flag on each StopLevel determines which venue's price feed is used for breach detection.
+
+### Breach Detection Flow
+
+```
+Price tick arrives
+  │
+  ▼
+For each portfolio's stop levels:
+  │
+  ├─ Filter: skip if stop_active == False (bars_held < no_stop_bars and not convex_exit)
+  │
+  ├─ Trail tightening: max(stop_price, highest - trail_mult * cur_atr) for simple trail
+  │
+  ├─ Stop check: price <= stop_price (long) or price >= stop_price (short)
+  │   Also checks: CB breach (price vs cb_price), target hit, liquidation proximity
+  │
+  ├─ If breached → start confirmation timer (per liquidity tier):
+  │     BTC/ETH: 30s, Top-20: 60s, Others: 90s
+  │
+  ├─ During confirmation: wick filtering
+  │     If price recovers above stop → reject (wick, not real breach)
+  │
+  └─ After timer expires with sustained breach → CONFIRMED
+       │
+       ├─ Write to sentinel_recent.json (ring buffer, last 50)
+       ├─ Write to sentinel_shadow.jsonl (append-only full log)
+       └─ (Live mode only) Write ExitEvent to exit_events.jsonl
+```
+
+### Key Design Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| **stop_active gating** | Respects the strategy's `no_stop_bars` grace period. Only checks stops when `bars_held >= no_stop_bars` or `convex_exit` is triggered. ~70% of positions have stop==entry during grace period due to breakeven ratchet. |
+| **breakeven_atr=0.5 default** | After trade reaches +0.5 ATR profit, stop moves to entry price. Most positions in grace period show stop==entry. This is expected behavior, not a bug. |
+| **Per-tier confirmation timers** | Higher-liquidity tokens (BTC/ETH) confirm faster because their prices are less noisy. Lower-liquidity tokens need longer confirmation to avoid false triggers from spread noise. |
+| **Wick filtering** | Rejects breaches where price recovers above stop during the confirmation window. Prevents acting on temporary wicks that the hourly engine would have ignored. |
+| **Shadow mode first** | Logs all breach detections without acting on them. Allows weeks of observation to compare sentinel exits vs hourly exits before enabling automatic exits. |
+| **PID lock file** | `state/sentinel.pid` prevents duplicate sentinel processes. SIGINT/SIGTERM handled for clean shutdown. |
+
+### File Layout (per portfolio state directory)
+
+```
+state/v4_paper/{portfolio_name}/
+├── state.json              # Paper engine state (positions, equity, trades)
+├── stops.json              # Written by paper engine: current stop levels
+├── sentinel_recent.json    # Written by sentinel: last 50 breach events
+├── sentinel_shadow.jsonl   # Written by sentinel: full breach log
+├── sentinel_heartbeat.json # Written by sentinel: connection status (every 60s)
+├── sentinel_metrics.json   # Written by sentinel: performance metrics (every 5 min)
+└── exit_events.jsonl       # Written by sentinel (live mode): exits for paper engine
+```
+
+### Source Files
+
+| File | Purpose |
+|------|---------|
+| `v4/stop_store.py` | StopLevel/ExitEvent dataclasses, atomic JSON read/write |
+| `v4/price_monitor.py` | Binance WS connection (`@markPrice@1s` for perp, `@miniTicker` for spot), REST fallback, auto-reconnect, venue parameter |
+| `v4/breach_detector.py` | Per-portfolio breach detection with confirmation timers, wick filtering, trail tightening, shadow logging |
+| `v4/sentinel_metrics.py` | Metrics collection, heartbeat, state consistency checks |
+| `v4/run_sentinel.py` | CLI entry point with PID lock, SIGINT/SIGTERM, dual-venue monitoring |
+| `v4/paper_engine.py` | `_extract_stop_levels()` and `_process_sentinel_exits()` integration points |
+| `tools/measure_stop_breach.py` | Historical analysis of delayed-stop cost (Phase 0 measurement) |
+| `tools/sentinel_shadow_report.py` | Joins sentinel events with trades for TP/FT/PRE classification |

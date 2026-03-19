@@ -68,6 +68,7 @@ class SimulationState:
     margin_calls: int = 0
     equity_snapshots: list = field(default_factory=list)
     _entry_fees_by_pos: dict = field(default_factory=dict)  # position_id -> entry fee
+    last_known_atrs: dict = field(default_factory=dict)    # token -> last ATR value
 
     @property
     def portfolio_equity(self) -> float:

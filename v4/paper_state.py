@@ -168,6 +168,7 @@ def serialize_state(
         "total_funding": float(state.total_funding),
         "open_positions": positions,
         "entry_fees_by_pos": {k: float(v) for k, v in state._entry_fees_by_pos.items()},
+        "last_known_atrs": {k: float(v) for k, v in state.last_known_atrs.items()},
     }
 
     if shadow_pools is not None:
@@ -207,6 +208,7 @@ def deserialize_state(data: dict, return_shadow: bool = False):
         state.position_manager.open_position(pos)
 
     state._entry_fees_by_pos = dict(data.get("entry_fees_by_pos", {}))
+    state.last_known_atrs = dict(data.get("last_known_atrs", {}))
     state.last_known_prices = data.get("last_known_prices", {})
 
     tick_counter = data["tick_counter"]
@@ -480,6 +482,7 @@ def serialize_engine_state(
             "total_funding": float(state.total_funding),
             "open_positions": positions,
             "entry_fees_by_pos": {k: float(v) for k, v in state._entry_fees_by_pos.items()},
+            "last_known_atrs": {k: float(v) for k, v in state.last_known_atrs.items()},
         }
         data["strategy_states"][sid] = sdata
 
@@ -523,6 +526,7 @@ def deserialize_engine_state(data: dict) -> tuple:
             state.position_manager.open_position(pos)
 
         state._entry_fees_by_pos = dict(sdata.get("entry_fees_by_pos", {}))
+        state.last_known_atrs = dict(sdata.get("last_known_atrs", {}))
         strategy_states[sid] = state
 
     return strategy_states, tick_counter, last_timestamp

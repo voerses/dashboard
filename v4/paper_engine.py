@@ -72,6 +72,11 @@ class PaperPortfolioEngine:
         self.fetcher = None  # Set by live integration (Task 7)
         self._dynamic_allocator = None  # Initialized lazily on first tick
 
+        # Sentinel stop store (AC2) — only created when sentinel is active
+        if config.sentinel_mode != "off":
+            from v4.stop_store import StopStore
+            self.stop_store = StopStore(state_dir=config.state_dir)
+
         if config.mode == "independent":
             self._init_independent_mode()
             self.state = None  # Not used in independent mode (use strategy_states)
@@ -87,6 +92,218 @@ class PaperPortfolioEngine:
             self.strategy_states[spec.strategy_id] = SimulationState(
                 initial_capital=capital
             )
+
+    # ------------------------------------------------------------------
+    # Sentinel stop extraction (AC2, AC17)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _extract_stop_levels(
+        positions: list,
+        strategy_specs: dict,
+        last_known_atrs: dict,
+        carry_strategies: list,
+        tick_counter: int,
+    ) -> list:
+        """Extract StopLevel for each eligible open position.
+
+        Excludes carry strategies and linked positions (combined strategy
+        legs cannot be exited independently).
+        Computes cb_price, target_price, estimated_liq_price, stop_active.
+        """
+        from v4.stop_store import StopLevel
+        from v4.universe import get_maint_margin_rate
+
+        mmr = get_maint_margin_rate()
+        results: list[StopLevel] = []
+
+        for pos in positions:
+            # Skip carry strategies
+            if pos.strategy_id in carry_strategies:
+                continue
+            # Skip linked positions (combined legs can't be exited independently)
+            if pos.linked_position_id is not None:
+                continue
+
+            spec = strategy_specs.get(pos.strategy_id)
+            if spec is None:
+                continue
+
+            cur_atr = last_known_atrs.get(pos.token, pos.entry_price * 0.02)
+            bars_held = tick_counter - pos.entry_bar
+
+            # cb_price: circuit breaker
+            cbr = spec.circuit_breaker_r
+            if cbr > 0:
+                cb_price = pos.entry_price - pos.direction * cbr * pos.initial_risk
+            else:
+                cb_price = 0.0
+
+            # target_price
+            if pos.target_mult < 100:
+                target_price = pos.entry_price + pos.direction * pos.target_mult * cur_atr
+            else:
+                target_price = 0.0
+
+            # estimated_liq_price (AC17) — only for leveraged perps
+            if pos.is_perp and pos.leverage > 1.0 and abs(pos.quantity) > 0:
+                entry_notional = pos.margin_usd * pos.leverage
+                numerator = pos.margin_usd - pos.cumulative_funding - entry_notional * mmr
+                estimated_liq_price = pos.entry_price - pos.direction * numerator / abs(pos.quantity)
+            else:
+                estimated_liq_price = 0.0
+
+            # stop_active
+            stop_active = (bars_held >= pos.no_stop_bars) or pos.convex_exit
+
+            # has_trail_schedule
+            has_trail_schedule = (pos.trail_schedule is not None or
+                                  pos.time_trail_schedule is not None)
+
+            results.append(StopLevel(
+                position_id=pos.position_id,
+                token=pos.token,
+                strategy_id=pos.strategy_id,
+                direction=int(pos.direction),
+                stop_price=float(pos.stop_price),
+                cb_price=float(cb_price),
+                target_price=float(target_price),
+                estimated_liq_price=float(estimated_liq_price),
+                entry_price=float(pos.entry_price),
+                margin_usd=float(pos.margin_usd),
+                quantity=float(pos.quantity),
+                leverage=float(pos.leverage),
+                is_perp=bool(pos.is_perp),
+                no_stop_bars=int(pos.no_stop_bars),
+                bars_held=int(bars_held),
+                stop_active=bool(stop_active),
+                convex_exit=bool(pos.convex_exit),
+                trail_mult=float(pos.trail_mult),
+                cur_atr=float(cur_atr),
+                highest=float(pos.highest),
+                lowest=float(pos.lowest),
+                has_trail_schedule=bool(has_trail_schedule),
+                chandelier_lookback=int(pos.chandelier_lookback),
+                cumulative_funding=float(pos.cumulative_funding),
+                fee_rate=float(pos.fee_rate),
+            ))
+
+        return results
+
+    def _process_sentinel_exits(self) -> None:
+        """Process exit events from the sentinel process.  Only runs in live mode.
+
+        Reads exit_events.jsonl via StopStore (atomic read-and-clear).
+        For each event, finds the matching open position and closes it.
+        PnL accounting: raw_pnl → realized_pnl, exit_fee → total_fees.
+        No ADV slippage — sentinel exit_price is used directly.
+        Works in both pool and independent mode (C-1 fix).
+
+        F14 fix: Only process in live mode. In shadow mode, exit_events.jsonl
+        is never written (BreachDetector gates on sentinel_mode=="live"), but
+        a leftover file from a prior live run could cause unintended exits.
+        """
+        if self.config.sentinel_mode != "live":
+            return
+
+        events = self.stop_store.read_and_clear_exit_events()
+        if not events:
+            return
+
+        # C-1 fix: Collect all states to search (works in both pool and independent mode)
+        # Inline rather than calling _get_all_states() for test compatibility
+        mode = getattr(self.config, 'mode', 'pool')
+        if mode == "independent" and hasattr(self, 'strategy_states'):
+            all_states = list(self.strategy_states.values())
+        elif self.state is not None:
+            all_states = [self.state]
+        else:
+            return
+
+        for event in events:
+            # Find matching open position across all states
+            target_state = None
+            target_pos = None
+            for st in all_states:
+                for p in st.position_manager.open_positions:
+                    if p.position_id == event.position_id:
+                        target_state = st
+                        target_pos = p
+                        break
+                if target_pos is not None:
+                    break
+
+            if target_pos is None or target_state is None:
+                # Already closed (idempotent)
+                continue
+
+            pm = target_state.position_manager
+
+            # R2-F7 fix: Compute raw PnL with explicit direction branch
+            # (matches simulator.py normal exit path for safety with unsigned quantity)
+            if target_pos.direction == 1:
+                raw_pnl = target_pos.quantity * (event.exit_price - target_pos.entry_price)
+            else:
+                raw_pnl = abs(target_pos.quantity) * (target_pos.entry_price - event.exit_price)
+
+            # Exit fee from fee_rate (no ADV-based slippage)
+            exit_fee = abs(target_pos.quantity) * event.exit_price * target_pos.fee_rate
+
+            # R3-11 fix: Use .pop() to clean up entry fee record (matching normal exit path)
+            entry_fees_dict = getattr(target_state, '_entry_fees_by_pos', {})
+            entry_fee = entry_fees_dict.pop(target_pos.position_id, 0.0) if isinstance(entry_fees_dict, dict) else 0.0
+
+            # R3-2 fix: Pass net_pnl to close_position (matching normal exit convention)
+            net_pnl = raw_pnl - exit_fee - target_pos.cumulative_funding
+
+            # Close position via PositionManager
+            pm.close_position(
+                pos=target_pos,
+                exit_bar=self.tick_counter,
+                exit_price=event.exit_price,
+                pnl=net_pnl,
+                funding_cost=target_pos.cumulative_funding,
+                entry_fee=entry_fee,
+                exit_fee=exit_fee,
+                exit_reason=event.exit_reason,
+            )
+
+            # Update state accounting
+            target_state.realized_pnl += raw_pnl
+            target_state.total_fees += exit_fee
+
+            # R8-1 fix: Removed H-5 free_capital assignment — free_capital is a derived
+            # @property (portfolio_equity - locked_margin), already correct after
+            # close_position + realized_pnl/total_fees updates above.
+
+    def _write_stops(self) -> None:
+        """Write stops.json for sentinel consumption.  No-op when mode='off'.
+
+        Works in both pool and independent mode (C-1/M-10 fix).
+        """
+        if self.config.sentinel_mode == "off":
+            return
+
+        strategy_specs = self.strategy_specs if hasattr(self, 'strategy_specs') else {
+            s.strategy_id: s for s in self.config.strategies
+        }
+        carry = self.config.carry_strategies
+
+        # Collect positions and ATRs from all states (pool or independent)
+        all_positions = []
+        merged_atrs: dict[str, float] = {}
+        for st in self._get_all_states():
+            all_positions.extend(st.position_manager.open_positions)
+            merged_atrs.update(getattr(st, 'last_known_atrs', {}))
+
+        stops = self._extract_stop_levels(
+            positions=all_positions,
+            strategy_specs=strategy_specs,
+            last_known_atrs=merged_atrs,
+            carry_strategies=carry,
+            tick_counter=self.tick_counter,
+        )
+        self.stop_store.write_stops(stops)
 
     # ------------------------------------------------------------------
     # Bar maps
@@ -427,8 +644,11 @@ class PaperPortfolioEngine:
     ) -> None:
         """Core tick processing with pre-computed signals.
 
-        Order (AC10b): exits → margin_calls → shadow_rebalance → entries → equity snapshot
+        Order (AC10b): sentinel_exits → exits → margin_calls → shadow_rebalance → entries → equity snapshot
         """
+        # Sentinel exits run first (AC11)
+        if self.config.sentinel_mode != "off":
+            self._process_sentinel_exits()
         self._process_exits_for_tick(all_signals, bar_maps)
         self._process_margin_calls_for_tick(all_signals, bar_maps)
         # Shadow rebalance would run here (between exits and entries)
@@ -670,6 +890,10 @@ class PaperPortfolioEngine:
         # R5-I1 fix: mark commit point reached — tick_counter should NOT
         # be rolled back if anything after this point throws
         self._state_committed = True
+
+        # Write stops.json for sentinel consumption (after state.json commit)
+        if self.config.sentinel_mode != "off":
+            self._write_stops()
 
         # R7-I1 fix: promote staged position_ids to flushed now that state
         # is committed. If state.json commit failed, these would NOT be promoted,

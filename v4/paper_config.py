@@ -35,6 +35,9 @@ class PaperConfig(PortfolioConfig):
     dynamic_weights: bool = False                # enable regime-conditional dynamic weights
     dynamic_weights_smoothing: float = 0.3       # EMA smoothing alpha for regime transitions
     config_path: str = ""                        # source file path (set by load_paper_config)
+    sentinel_mode: str = "off"                    # "off", "shadow", or "live"
+    confirmation_tiers: dict = field(default_factory=lambda: {"btc_eth": 30, "top10": 60, "other": 90})
+    carry_strategies: list = field(default_factory=list)  # strategy_ids excluded from sentinel monitoring
 
 
 def load_paper_config(path: str) -> PaperConfig:
@@ -85,6 +88,9 @@ def load_paper_config(path: str) -> PaperConfig:
         dynamic_weights_smoothing=data.get("dynamic_weights_smoothing", 0.3),
         conviction_mode=data.get("conviction_mode", "shuffle"),
         min_conviction_threshold=data.get("min_conviction_threshold", 0.0),
+        sentinel_mode=data.get("sentinel_mode", "off"),
+        confirmation_tiers=data.get("confirmation_tiers", {"btc_eth": 30, "top10": 60, "other": 90}),
+        carry_strategies=data.get("carry_strategies", []),
     )
 
     config.config_path = path
@@ -100,6 +106,14 @@ def validate_paper_config(config: PaperConfig) -> None:
       - max_portfolio_positions >= max of per-strategy max_positions
       - All strategy_ids are loadable
     """
+    # --- Sentinel mode validation ---
+    valid_sentinel_modes = ("off", "shadow", "live")
+    if config.sentinel_mode not in valid_sentinel_modes:
+        raise ValueError(
+            f"Invalid sentinel_mode '{config.sentinel_mode}'. "
+            f"Must be one of: {', '.join(valid_sentinel_modes)}"
+        )
+
     # --- Weight sum check (pool mode only) ---
     # Weights > 1.0 per strategy are allowed — this means each strategy sizes
     # off the full portfolio equity (matching v3 behavior where sub-strategies

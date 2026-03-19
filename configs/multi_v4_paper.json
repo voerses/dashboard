@@ -11,7 +11,8 @@
     "enable_purge_windows": false,
     "drawdown_alert_pct": 5.0,
     "shadow_rebalance_threshold": 100.0,
-    "dashboard_push": true
+    "dashboard_push": true,
+    "sentinel_mode": "shadow"
   },
   "portfolios": [
     {
