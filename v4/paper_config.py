@@ -88,6 +88,7 @@ def load_paper_config(path: str) -> PaperConfig:
         dynamic_weights_smoothing=data.get("dynamic_weights_smoothing", 0.3),
         conviction_mode=data.get("conviction_mode", "shuffle"),
         min_conviction_threshold=data.get("min_conviction_threshold", 0.0),
+        max_sizing_equity=data.get("max_sizing_equity", None),
         sentinel_mode=data.get("sentinel_mode", "off"),
         confirmation_tiers=data.get("confirmation_tiers", {"btc_eth": 30, "top10": 60, "other": 90}),
         carry_strategies=data.get("carry_strategies", []),
