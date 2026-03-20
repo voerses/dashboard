@@ -510,23 +510,19 @@ def _process_exits(
             if d == 1 and low_val <= pos.entry_price - cb_dist:
                 exit_signal = True
                 exit_reason = "circuit_breaker"
-                exit_price = pos.entry_price - cb_dist
             elif d == -1 and high_val >= pos.entry_price + cb_dist:
                 exit_signal = True
                 exit_reason = "circuit_breaker"
-                exit_price = pos.entry_price + cb_dist
 
         stop_active = bars_held >= pos.no_stop_bars or pos.convex_exit
 
-        # 1. Stop-loss (intra-bar)
+        # 1. Stop-loss (intra-bar low/high triggers, fill at bar close)
         if not exit_signal and stop_active and d == 1 and low_val <= pos.stop_price:
             exit_signal = True
             exit_reason = "stop"
-            exit_price = pos.stop_price
         elif not exit_signal and stop_active and d == -1 and high_val >= pos.stop_price:
             exit_signal = True
             exit_reason = "stop"
-            exit_price = pos.stop_price
 
         # 2. Take-profit (regime-conditional: use tighter target in bear)
         if not exit_signal:
@@ -538,19 +534,15 @@ def _process_exits(
             if pos.convex_exit and d == 1 and close_val > pos.entry_price + eff_target * pos.initial_risk:
                 exit_signal = True
                 exit_reason = "target"
-                exit_price = close_val
             elif pos.convex_exit and d == -1 and close_val < pos.entry_price - eff_target * pos.initial_risk:
                 exit_signal = True
                 exit_reason = "target"
-                exit_price = close_val
             elif not pos.convex_exit and d == 1 and high_val >= pos.entry_price + eff_target * cur_atr:
                 exit_signal = True
                 exit_reason = "target"
-                exit_price = pos.entry_price + eff_target * cur_atr
             elif not pos.convex_exit and d == -1 and low_val <= pos.entry_price - eff_target * cur_atr:
                 exit_signal = True
                 exit_reason = "target"
-                exit_price = pos.entry_price - eff_target * cur_atr
 
         # 3. Regime exit
         if not exit_signal:
@@ -611,6 +603,33 @@ def _process_exits(
             _close_position(state, pos, global_bar, exit_price, reason, exit_adv, config)
 
 
+def _compute_total_unrealized(
+    state: SimulationState,
+    all_signals: dict,
+    bar_maps: dict,
+    global_bar: int,
+) -> float:
+    """Compute total unrealized P&L across open positions."""
+    total = 0.0
+    for pos in state.position_manager.open_positions:
+        sig = all_signals.get(pos.strategy_id, {}).get(pos.token)
+        if sig is None:
+            continue
+        bm = bar_maps.get(pos.token)
+        if bm is None:
+            continue
+        lb = int(bm[global_bar])
+        if lb == -1 or lb >= sig.n_bars:
+            continue
+        is_sec = (pos.leg == "secondary")
+        _up = pos.is_perp if sig.per_bar_is_perp is not None else None
+        close_val = _get_bar_data(sig, lb, not is_sec, use_perp=_up)[0]
+        if np.isnan(close_val):
+            continue
+        total += pos.quantity * (close_val - pos.entry_price)
+    return total
+
+
 def _process_entries(
     state: SimulationState,
     all_signals: dict[str, dict[str, TokenSignals]],
@@ -621,6 +640,9 @@ def _process_entries(
     rng: np.random.RandomState,
 ):
     """Process entries with portfolio-level constraints and shuffled order."""
+    # Compute unrealized P&L once per bar (doesn't change during entries)
+    total_unrealized = _compute_total_unrealized(state, all_signals, bar_maps, global_bar)
+
     # Build candidate list
     candidates: list[tuple[str, str, TokenSignals]] = []  # (strategy_id, token, signals)
 
@@ -747,7 +769,12 @@ def _process_entries(
 
         # Compute sizing
         portfolio_eq = state.portfolio_equity
-        strategy_equity = portfolio_eq * spec.weight
+        # Apply unrealized P&L constraint (constrain-only: never inflates above realized)
+        sizing_eq = max(min(portfolio_eq + total_unrealized, portfolio_eq), portfolio_eq * 0.85)
+        sizing_eq = max(sizing_eq, 0.0)  # floor at 0 when NLV is negative
+        if config.max_sizing_equity is not None:
+            sizing_eq = min(sizing_eq, config.max_sizing_equity)
+        strategy_equity = sizing_eq * spec.weight
 
         close_val = sig.close[local_bar]
         atr_val = sig.atr[local_bar]
@@ -768,6 +795,9 @@ def _process_entries(
             cap_multiplier=sig.cap_multiplier,
             max_trade_pct=sig.max_trade_pct,
             adv_cap_pct=config.adv_cap_pct,
+            adv_sizing_enabled=spec.adv_sizing_enabled,
+            adv_sizing_base=spec.adv_sizing_base,
+            adv_sizing_floor=spec.adv_sizing_floor,
         )
 
         direction = int(sig.direction[local_bar])
@@ -1028,6 +1058,9 @@ def _process_entries(
                         cap_multiplier=sig.cap_multiplier,
                         max_trade_pct=sig.max_trade_pct,
                         adv_cap_pct=config.adv_cap_pct,
+                        adv_sizing_enabled=spec.adv_sizing_enabled,
+                        adv_sizing_base=spec.adv_sizing_base,
+                        adv_sizing_floor=spec.adv_sizing_floor,
                     )
 
             # Constraint 5: min position size
@@ -1230,21 +1263,7 @@ def _record_equity_snapshot(
               f"(free_capital={state.free_capital:.2f}, equity={state.portfolio_equity:.2f})",
               file=sys.stderr)
 
-    mtm_unrealized = 0.0
-    for pos in state.position_manager.open_positions:
-        sig = all_signals.get(pos.strategy_id, {}).get(pos.token)
-        if sig is None:
-            continue
-        bm = bar_maps.get(pos.token)
-        if bm is None:
-            continue
-        lb = int(bm[global_bar])
-        if lb == -1 or lb >= sig.n_bars:
-            continue
-        is_sec = (pos.leg == "secondary")
-        _up = pos.is_perp if sig.per_bar_is_perp is not None else None
-        close_val = _get_bar_data(sig, lb, not is_sec, use_perp=_up)[0]
-        mtm_unrealized += pos.quantity * (close_val - pos.entry_price)
+    mtm_unrealized = _compute_total_unrealized(state, all_signals, bar_maps, global_bar)
 
     state.equity_snapshots.append((timestamp, state.portfolio_equity + mtm_unrealized))
 

@@ -10,6 +10,7 @@ Tick processing order (AC10b):
 """
 from __future__ import annotations
 
+import dataclasses
 import os
 import resource
 import sys
@@ -600,21 +601,14 @@ class PaperPortfolioEngine:
             for sid, sstate in self.strategy_states.items():
                 sid_signals = {sid: all_signals.get(sid, {})}
                 if sid in strategy_specs:
-                    orig = strategy_specs[sid]
+                    orig_spec = strategy_specs[sid]
                     # Weight=1.0 because capital was already pre-split in _init_independent_mode.
                     # Passing the original weight would double-apply it (portfolio_equity already
                     # reflects weight-scaled initial_capital, and _process_entries multiplies
                     # by spec.weight again).
-                    sid_specs = {sid: StrategySpec(
-                        strategy_id=orig.strategy_id,
-                        weight=1.0,
-                        max_positions=orig.max_positions,
-                        market=orig.market,
-                        strategy_type=orig.strategy_type,
-                        circuit_breaker_r=orig.circuit_breaker_r,
-                        pump_filter_funding_zscore=orig.pump_filter_funding_zscore,
-                        pump_filter_range_threshold=orig.pump_filter_range_threshold,
-                    )}
+                    # Use dataclasses.replace to preserve ALL fields (including ADV sizing).
+                    spec_independent = dataclasses.replace(orig_spec, weight=1.0)
+                    sid_specs = {sid: spec_independent}
                 else:
                     sid_specs = {}
                 _sim._process_entries(

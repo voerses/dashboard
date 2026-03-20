@@ -16,6 +16,10 @@ class StrategySpec:
     circuit_breaker_r: float = 0.0               # emergency exit at Nx initial risk (e.g. 4.0)
     pump_filter_funding_zscore: float = 0.0      # block long entries when funding z-score > threshold
     pump_filter_range_threshold: float = 0.0     # block entries when bar range/ATR > threshold
+    # ADV-scaled position sizing
+    adv_sizing_enabled: bool = False
+    adv_sizing_base: float = 100_000_000
+    adv_sizing_floor: float = 0.20
 
     @classmethod
     def from_dict(cls, d: dict) -> StrategySpec:
@@ -29,6 +33,9 @@ class StrategySpec:
             circuit_breaker_r=d.get("circuit_breaker_r", 0.0),
             pump_filter_funding_zscore=d.get("pump_filter_funding_zscore", 0.0),
             pump_filter_range_threshold=d.get("pump_filter_range_threshold", 0.0),
+            adv_sizing_enabled=d.get("adv_sizing_enabled", False),
+            adv_sizing_base=d.get("adv_sizing_base", 100_000_000),
+            adv_sizing_floor=d.get("adv_sizing_floor", 0.20),
         )
 
 
@@ -54,3 +61,4 @@ class PortfolioConfig:
     # "hybrid" (top-N by conviction tiers, shuffle within tiers)
     conviction_mode: str = "shuffle"
     min_conviction_threshold: float = 0.0  # skip entries below this conviction level (0 = no filter)
+    max_sizing_equity: Optional[float] = None  # cap portfolio equity used for position sizing (None = uncapped)

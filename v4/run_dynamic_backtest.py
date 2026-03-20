@@ -53,6 +53,8 @@ def make_specs(portfolio_def):
             max_positions=max_pos,
             market=market,
             strategy_type=stype,
+            adv_sizing_enabled=True,
+            adv_sizing_base=75_000_000,
         )
     return specs
 
@@ -155,6 +157,9 @@ def run_portfolio(name, portfolio_def, months, allocator_factory=None):
         concentration_limit=0.10,
         adv_cap_pct=0.05,
         seed=42,
+        max_sizing_equity=2_000_000,
+        stress_adv_multiplier=0.5,
+        impact_coeff=0.01,
     )
 
     data_end = infer_data_end_date("combined")

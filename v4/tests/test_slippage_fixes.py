@@ -92,7 +92,7 @@ class TestSlippageCap:
         pos_usd = 10_000.0
         adv = 50_000_000.0
         slip = compute_slippage_bps(pos_usd, adv)
-        assert slip < 20.0  # well below any cap
+        assert slip < 30.0  # well below any cap
 
     def test_default_cap_matches_explicit_300(self):
         """Passing max_slip_bps=300 explicitly must give the same result as the default.
@@ -148,7 +148,7 @@ class TestStressADVMultiplier:
         stress_slip = compute_slippage_bps(pos_usd, normal_adv * stress_multiplier)
 
         assert stress_slip > normal_slip * 1.5  # significantly higher
-        assert stress_slip == pytest.approx(57.8, abs=2.0)
+        assert stress_slip == pytest.approx(271, abs=10)
 
     def test_stop_exit_uses_stress_adv_in_simulator(self):
         """When exit_reason is 'stop', _close_position should apply stress ADV.
@@ -263,7 +263,7 @@ class TestStressADVMultiplier:
 
         # For non-stop exits, the simulator should pass normal ADV, so slippage = normal_slip
         # This test verifies the expected normal value
-        assert normal_slip == pytest.approx(33.0, abs=2.0)
+        assert normal_slip == pytest.approx(150, abs=5)
 
 
 # ===================================================================

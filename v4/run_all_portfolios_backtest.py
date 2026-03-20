@@ -246,6 +246,7 @@ def run_one(name, pdef, months, data_end, heatmap, signal_cache):
         specs[sid] = StrategySpec(
             strategy_id=sid, weight=weight, max_positions=max_pos,
             market=market, strategy_type=stype,
+            adv_sizing_enabled=True, adv_sizing_base=75_000_000,
         )
 
     config = PortfolioConfig(
@@ -254,6 +255,8 @@ def run_one(name, pdef, months, data_end, heatmap, signal_cache):
         concentration_limit=pdef["concentration_limit"],
         adv_cap_pct=0.05,
         seed=42,
+        max_sizing_equity=2_000_000, stress_adv_multiplier=0.5,
+        impact_coeff=0.01,
     )
 
     # Precompute signals (use cache to avoid redundant work)

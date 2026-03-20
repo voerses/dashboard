@@ -124,12 +124,15 @@ def run_backtest(pdef, months, data_end, heatmap):
         specs[sid] = StrategySpec(
             strategy_id=sid, weight=weight, max_positions=max_pos,
             market=market, strategy_type=stype,
+            adv_sizing_enabled=True, adv_sizing_base=75_000_000,
         )
     config = PortfolioConfig(
         capital=CAPITAL,
         max_portfolio_positions=pdef["max_portfolio_positions"],
         concentration_limit=pdef.get("concentration_limit", 1.0),
         adv_cap_pct=0.05, seed=42,
+        max_sizing_equity=2_000_000, stress_adv_multiplier=0.5,
+        impact_coeff=0.01,
     )
     if conviction_mode:
         config.conviction_mode = conviction_mode
