@@ -1,0 +1,101 @@
+status: CLOSED
+closed: 2026-03-17T18:50Z
+goal: Per-strategy pump-and-dump entry filter tuning — find optimal L1_RANGE and L3_FUNDING params per strategy
+class: C (Overlay — engine-level entry filter)
+commits: b9d108f (MTM equity fix), 0d59ff4 (per-strategy CB/pump filters + from_dict + CB tests)
+
+## Result
+
+DEPLOYED. Per-strategy CB and pump filters live in paper trader (PID 440390, 21 pools).
+
+| Strategy | CB | L3 Funding | L1 Range | Rationale |
+|----------|-----|------------|----------|-----------|
+| s56 | off | 3.0 | off | L3 improves DD -7.45→-6.20%, Calmar +26% |
+| s57 | off | 3.0 | off | L3 marginal improvement, low cost |
+| s59 | 4.0 | off | off | CB essential — DD explodes -11.85→-24.70% without |
+| s60 | off | 3.0 | 4.0 | L1+L3 combo best: DD -8.30%, Calmar 270 |
+| s62 | off | off | off | CB_OFF best — filters hurt this strategy |
+| s63 | off | off | off | CB_OFF best — no benefit from any filter |
+| s65 | off | 3.0 | off | L3 huge win: DD -18.86→-14.75%, Return +36% |
+| s80 | 4.0 | off | off | CB essential — DD -37.67→-51.68% without |
+| s81 | off | 3.0 | off | L3 improves Calmar +3%, Sharpe +4% |
+
+Wrappers inherit base settings: s69→s56, s72→s65, s75→s63, s76→s56.
+
+### Also delivered
+- MTM equity fix (b9d108f) — industry-standard mark-to-market equity curves
+- StrategySpec.from_dict() — prevents future field omissions across 6+ JSON loaders
+- 6 CB unit tests — fire/no-fire/disabled/no-specs/short/per-strategy independence
+- Backwards-compatible _process_exits signature (optional kwarg)
+- 329 tests passing
+
+## Context
+
+Previous A/B test (2026-03-16) tested 5 filter configs on s60 and 4-edge portfolios:
+- CB_ONLY: TOXIC — doubles/triples MaxDD. OFF for all strategies.
+- L1_RANGE (threshold=4.0): Best individual filter. Improves Sharpe/DD, ~2-4% return cost.
+- L3_FUNDING (zscore=3.0): Good DD improvement on s60 (-6.61% → -5.94%), neutral on 4-edge.
+- ALL_FILTERS: CB contaminated the stack. L1+L3 benefits overwhelmed by CB penalty.
+
+Results saved: results/pump_filter_ab_results.json
+Rollback reference: memory/ROLLBACK_pump_filters_6573ee7.md
+Original commit: 6573ee7 (rolled back from paper trader)
+
+## Safety Constraint
+
+Paper trader PID 433297 is running 21 pools. The pump filter code was rolled back.
+ALL testing must happen in isolation — DO NOT modify v4/simulator.py, v4/config.py, or v4/sizing.py
+in the main working tree until results are confirmed and deployment is approved.
+
+### Isolation approach: Git worktree (ZERO changes to live files)
+
+1. Create a git worktree at /tmp/pump_filter_test
+2. Apply pump filter changes ONLY in the worktree copy
+3. Run all A/B tests from the worktree
+4. Live paper trader (main working tree) is never touched
+5. After results are confirmed → cherry-pick changes into main tree for deployment
+
+This guarantees zero risk to the running paper trader.
+
+## Strategies to Test (13 total)
+
+Per-token (Class A): s56, s57, s59, s60, s62, s63, s65
+Overlay wrappers: s69 (s56+trail), s72 (s65+trail), s75 (s63+tp), s76 (s56+partial)
+Portfolio (Class B): s80, s81
+
+Note: Wrappers call base strategies, so tuning the base also tunes the wrapper.
+We only need to test base strategies: s56, s57, s59, s60, s62, s63, s65, s80, s81 = 9 strategies.
+Then verify wrappers (s69, s72, s75, s76) inherit the improvement.
+
+## Test Plan
+
+For each of the 9 base strategies, run 3 configs:
+1. BASELINE (all filters off)
+2. L1_RANGE (range_threshold=4.0)
+3. L3_FUNDING (funding_zscore=3.0)
+
+= 27 sequential runs. Record: pct_return, max_dd_pct, sharpe, calmar, trades, blocked counts.
+
+Then for strategies where L1 or L3 improved metrics:
+4. L1+L3 (both enabled, no CB)
+
+Decision criteria per strategy:
+- ENABLE filter if: MaxDD improves AND Calmar doesn't degrade >10%
+- DISABLE filter if: Return drops >10% with no DD improvement
+- Both L1+L3 if: each individually helps without conflict
+
+## Output
+
+Per-strategy filter params table:
+| Strategy | L1_RANGE | L3_FUNDING | Rationale |
+|----------|----------|------------|-----------|
+
+Implementation: Add per-strategy overrides to StrategySpec (not PortfolioConfig).
+Each strategy config in multi_v4_paper.json gets its own filter params.
+
+## Done When
+
+- All 9 base strategies tested with BASELINE, L1_RANGE, L3_FUNDING
+- Decision table complete
+- Implementation deployed to paper trader
+- Combined pools verified to inherit correct filters

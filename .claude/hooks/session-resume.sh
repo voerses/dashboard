@@ -21,6 +21,10 @@ else
   echo ""
 fi
 
+# Ensure git identity is set globally (needed for dashboard push to temp clones)
+git config --global user.name "voerses" 2>/dev/null || true
+git config --global user.email "voerses@users.noreply.github.com" 2>/dev/null || true
+
 # Ensure workspace directories exist (first-run)
 mkdir -p "$PROJECT_DIR/.specs/active" "$PROJECT_DIR/.specs/done"
 

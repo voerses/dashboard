@@ -1,4 +1,4 @@
-status: active
+status: closed (root cause fixed — hard token dedup replaced by concentration limit, s57 deployed in 15 pools, monitoring via main mission)
 goal: Tune s57 as portfolio diversifier. Fix cross-strategy token dedup so s56+s57 coexist. Adjust s57 max_positions + entry timing for current market. s57 should fill the gap when s56 is regime-blocked (downtrends).
 started: 2026-03-13
 baseline:

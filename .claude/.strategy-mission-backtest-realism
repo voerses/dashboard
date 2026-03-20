@@ -1,4 +1,4 @@
-status: active
+status: partially-complete
 goal: Audit and fix backtest realism issues — cap_multiplier allowing unbounded position sizes vs ADV, and parameter overfitting quantification. Ensure backtested Calmar/returns are closer to what live trading would produce.
 started: 2026-03-15
 type: research+implementation
@@ -12,6 +12,15 @@ trigger: |
     - Parameter overfitting not quantified across strategy suite
 
 phases:
+  phase0_metrics_fixes:
+    name: "Metrics pipeline fixes"
+    status: DONE (completed in filter-deploy mission 2026-03-18)
+    completed:
+      - Hourly MaxDD in metrics (not daily resampled) — 1.6-2.8x deeper
+      - Annualized return excludes WF training period
+      - Hourly slippage (participation = pos_usd / (adv/24))
+      - $2M sizing cap deployed
+
   phase1_cap_audit:
     name: "ADV cap effectiveness audit"
     status: pending

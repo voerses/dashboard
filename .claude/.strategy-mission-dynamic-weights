@@ -1,4 +1,4 @@
-status: gate6-monitoring
+status: closed (deployed, monitoring via main mission)
 goal: Build regime-aware dynamic weight allocator that shifts capital between strategies based on market conditions each tick
 baseline:
   s58_12mo: s58 (s56+s57) — +689% return, Sharpe 8.25, MaxDD -1.2% (12-month)

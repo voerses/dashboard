@@ -95,6 +95,26 @@ each other. Skip directional overlays at Gate 0 for delta-neutral bases.
 | Correlation analysis | `v3/correlation.py` | Pairwise strategy corr, marginal Sharpe, greedy portfolio selection |
 | Dynamic universe | `v3/dynamic_universe.py` | Point-in-time token eligibility at each WF window |
 
+### Strategy Research & Sweep Tools
+
+| Tool | Purpose | Configs Tested |
+|------|---------|----------------|
+| `tools/signal_research.py` | FFT, autocorrelation, indicator IC, cost breakeven | n/a (analysis) |
+| `tools/signal_sweep.py` | Broad signal screening (8 signals x 4 configs) | 32 |
+| `tools/rapid_sweep.py` | Full parameter grid per signal type | 864/signal |
+| `tools/focused_sweep.py` | Targeted sweep on best signal + liquidity filter | 21 |
+| `tools/amplify_sweep.py` | Signal quality filters, regime, squeeze, leverage | 21 |
+| `tools/regime_drill.py` | Drawdown reduction on regime-filtered strategy | 33 |
+| `tools/final_push.py` | Squeeze depth + BB lookback optimization | 36 |
+| `tools/leverage_push.py` | Leverage ladder on best configs | 27 |
+| `tools/multi_signal_push.py` | Multi-signal union/agreement/regime-state | 22 |
+| `tools/rstate_leverage.py` | Capital scaling validation | 37 |
+| `tools/concentration_push.py` | Position sizing optimization | 30 |
+| `tools/run_all_portfolios.py` | Run all portfolios in paper config, rank results | all |
+
+**Process doc:** `docs/STRATEGY_DEVELOPMENT_PROCESS.md` — full case study of s98 development arc (11 phases, ~7,000 backtests).
+**Tooling roadmap:** `docs/TOOLING_ROADMAP.md` — 10 tools to build for faster strategy research (sweep framework, auto filter discovery, walk-forward in sweeps, fee analyzer, regime decomposition, etc).
+
 ### Market Capabilities
 
 | Capability | Details |

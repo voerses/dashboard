@@ -221,7 +221,7 @@ def build_sims_from_state_dir(state_dir: str, config_path: str = "") -> dict:
         direction = pos.get("direction", 1)
         quantity = pos.get("quantity", 0)
         current_price = last_prices.get(token, entry_price)
-        raw_unrealized = direction * quantity * (current_price - entry_price)
+        raw_unrealized = quantity * (current_price - entry_price)
         cumulative_funding = pos.get("cumulative_funding", 0)
         # Net unrealized: deduct known costs (entry fee + accrued funding)
         unrealized_pnl = raw_unrealized - entry_fee - cumulative_funding
@@ -339,6 +339,15 @@ def build_sims_from_state_dir(state_dir: str, config_path: str = "") -> dict:
         except (json.JSONDecodeError, OSError):
             pass
 
+    # Sentinel savings reconciliation — full history from sentinel_shadow.jsonl
+    shadow_deduped = load_sentinel_shadow_deduped(state_dir / "sentinel_shadow.jsonl")
+    # Build tick -> timestamp map from equity.csv for hourly exit timestamps
+    tick_to_ts = {e["tick"]: e["timestamp"] for e in equity}
+    sentinel_reconciliation = compute_sentinel_reconciliation(
+        shadow_deduped, trades, open_positions=open_positions,
+        tick_to_ts=tick_to_ts,
+    )
+
     return {
         "id": pool_name,
         "name": pool_name,
@@ -361,6 +370,7 @@ def build_sims_from_state_dir(state_dir: str, config_path: str = "") -> dict:
         "sentinel_metrics": sentinel_metrics_data,
         "sentinel_summary": sentinel_summary,
         "sentinel_strategy_breakdown": sentinel_strategy_breakdown,
+        "sentinel_reconciliation": sentinel_reconciliation,
     }
 
 
@@ -920,6 +930,10 @@ function renderSentinel() {{
     let met = {{}};
     let summary = {{total_breaches:0, wick_filters:0, true_positives:0, false_triggers:0}};
     let stratBreakdown = {{}};
+    let reconTotalSavings = 0;
+    let reconMatchedCount = 0;
+    let reconBetterCount = 0;
+    let reconByPid = {{}};
     SIMS.forEach(s => {{
         const evts = (s.sentinel_events||[]).map(e => ({{...e, _portfolio: s.name}}));
         allEvts = allEvts.concat(evts);
@@ -942,48 +956,32 @@ function renderSentinel() {{
             stratBreakdown[sid].PREEMPTED += src.PREEMPTED||0;
             stratBreakdown[sid].PENDING += src.PENDING||0;
         }});
+        // Merge sentinel reconciliation
+        const sr = s.sentinel_reconciliation||{{}};
+        reconTotalSavings += sr.total_savings||0;
+        reconMatchedCount += sr.matched_count||0;
+        reconBetterCount += sr.sentinel_better_count||0;
+        (sr.records||[]).forEach(r => {{ reconByPid[r.position_id] = r; }});
     }});
+    const reconAvgSavings = reconMatchedCount > 0 ? reconTotalSavings / reconMatchedCount : 0;
 
-    // Deduplicate: keep only FIRST event per position_id (across all portfolios)
-    allEvts.sort((a,b) => {{
-        const ta = a.timestamp ? new Date(a.timestamp).getTime() : 0;
-        const tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
-        return ta - tb;
+    // Build table from reconciliation records (full shadow history, not just ring buffer)
+    let allRecon = Object.values(reconByPid);
+    // Sort: pending first, then by sentinel timestamp descending
+    allRecon.sort((a,b) => {{
+        if (a.classification === 'pending' && b.classification !== 'pending') return -1;
+        if (b.classification === 'pending' && a.classification !== 'pending') return 1;
+        const ta = a.sentinel_ts ? new Date(a.sentinel_ts).getTime() : 0;
+        const tb = b.sentinel_ts ? new Date(b.sentinel_ts).getTime() : 0;
+        return tb - ta;
     }});
-    const seenPid = new Set();
-    const deduped = [];
-    allEvts.forEach(e => {{
-        const pid = e.position_id||'';
-        if (pid && seenPid.has(pid)) return;
-        seenPid.add(pid);
-        deduped.push(e);
-    }});
-
-    // Group by hour bucket
-    const now = new Date();
-    const curHourStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours()).getTime();
-    const currentHour = [];
-    const previousHours = [];
-    deduped.forEach(e => {{
-        const t = e.timestamp ? new Date(e.timestamp).getTime() : 0;
-        if (t >= curHourStart) currentHour.push(e);
-        else previousHours.push(e);
-    }});
-    currentHour.sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-    previousHours.sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    const pendingRecs = allRecon.filter(r => r.classification === 'pending');
+    const resolvedRecs = allRecon.filter(r => r.classification !== 'pending');
 
     const wsOk = hb.ws_connected ? '<span class="g" style="font-weight:700">CONNECTED</span>' : '<span class="r" style="font-weight:700">DISCONNECTED</span>';
     const spotOk = hb.spot_ws_connected ? '<span class="g" style="font-weight:700">CONNECTED</span>' : '<span style="color:#484f58">OFF</span>';
     const hbAge = hb.timestamp ? Math.round((Date.now()/1000 - hb.timestamp)) + 's ago' : 'N/A';
     const uptime = (met.uptime_pct||0).toFixed(1);
-
-    // Status badge helper
-    function statusBadge(s) {{
-        const colors = {{TRUE_POSITIVE:'#3fb950',FALSE_TRIGGER:'#f85149',PREEMPTED:'#d29922',PENDING:'#8b949e'}};
-        const labels = {{TRUE_POSITIVE:'TP',FALSE_TRIGGER:'FT',PREEMPTED:'PRE',PENDING:'...'}};
-        const c = colors[s]||'#484f58';
-        return `<span style="background:${{c}}22;color:${{c}};padding:1px 6px;border-radius:4px;font-size:0.75em;font-weight:700">${{labels[s]||s}}</span>`;
-    }}
 
     let h = `
     <div class="kpi-row">
@@ -995,51 +993,82 @@ function renderSentinel() {{
         <div class="kpi"><div class="lbl">True Positives</div><div class="val g">${{summary.true_positives}}</div></div>
         <div class="kpi"><div class="lbl">False Triggers</div><div class="val r">${{summary.false_triggers}}</div></div>
         <div class="kpi"><div class="lbl">Wick Filtered</div><div class="val">${{summary.wick_filters}}</div></div>
+    </div>
+    <div class="kpi-row">
+        <div class="kpi"><div class="lbl">Sentinel Savings</div><div class="val ${{reconTotalSavings>=0?'g':'r'}}">${{fmtUsd(reconTotalSavings)}}</div></div>
+        <div class="kpi"><div class="lbl">Avg / Trade</div><div class="val ${{reconAvgSavings>=0?'g':'r'}}">${{fmtUsd(reconAvgSavings)}}</div></div>
+        <div class="kpi"><div class="lbl">Sentinel Better</div><div class="val">${{reconBetterCount}}/${{reconMatchedCount}} <span style="font-size:0.5em;color:#8b949e">${{reconMatchedCount>0?(reconBetterCount/reconMatchedCount*100).toFixed(0)+'%':'—'}}</span></div></div>
     </div>`;
 
-    function sentinelRow(e) {{
-        const ts = e.timestamp ? new Date(e.timestamp).toLocaleTimeString() : '';
-        const dir = (e.direction||1)===1 ? '<span class="pill long">L</span>' : '<span class="pill short">S</span>';
-        const reason = (e.exit_reason||'').replace('sentinel_','');
-        const status = e.status||'PENDING';
-        return `<tr>
-            <td><b>${{e.token||''}}</b> ${{dir}}</td>
-            <td style="font-size:0.8em;color:#bc8cff">${{e._portfolio||''}}</td>
-            <td>${{fmtPrice(e.entry_price)}}</td>
-            <td class="r">${{fmtPrice(e.stop_price)}}${{Math.abs((e.stop_price||0)-(e.entry_price||0))<1e-8?' <span style="font-size:0.6em;color:#d29922">BE</span>':''}}</td>
-            <td class="r">${{fmtPrice(e.breach_price)}}</td>
-            <td class="g" style="font-weight:700">${{fmtPrice(e.exit_price)}}</td>
-            <td>$${{fmt(e.margin_usd||0)}}</td>
-            <td>${{statusBadge(status)}}</td>
-            <td style="color:#8b949e;font-size:0.8em">${{reason}}</td>
-            <td style="font-size:0.75em;color:#484f58">${{ts}}</td>
+    // Format short timestamp for display
+    function fmtTs(ts) {{
+        if (!ts) return '—';
+        try {{ const d = new Date(ts); return d.toLocaleDateString(undefined,{{month:'short',day:'numeric'}}) + ' ' + d.toLocaleTimeString(undefined,{{hour:'2-digit',minute:'2-digit'}}); }}
+        catch(e) {{ return '—'; }}
+    }}
+
+    // Exit type badge
+    function exitTypeBadge(t) {{
+        if (t === 'target') return '<span style="background:#3fb95022;color:#3fb950;padding:1px 6px;border-radius:4px;font-size:0.75em;font-weight:700">TGT</span>';
+        return '<span style="background:#f8514922;color:#f85149;padding:1px 6px;border-radius:4px;font-size:0.75em;font-weight:700">STP</span>';
+    }}
+
+    function reconRow(r) {{
+        const dir = (r.direction||1)===1 ? '<span class="pill long">L</span>' : '<span class="pill short">S</span>';
+        const isPending = r.classification === 'pending';
+        let sentPnlCol = '—';
+        let hourlyExitCol = isPending ? '<span style="color:#d29922;font-style:italic">open</span>' : '—';
+        let hourlyPnlCol = isPending ? '<span style="color:#d29922;font-style:italic">open</span>' : '—';
+        let hourlyTsCol = isPending ? '<span style="color:#d29922;font-style:italic">open</span>' : '—';
+        let savingsCol = isPending ? '<span style="color:#d29922;font-style:italic">open</span>' : '—';
+        if (r.sentinel_pnl !== undefined) {{
+            sentPnlCol = `<span class="${{pc(r.sentinel_pnl)}}">${{fmtUsd(r.sentinel_pnl)}}</span>`;
+            hourlyExitCol = fmtPrice(r.hourly_exit);
+            hourlyPnlCol = `<span class="${{pc(r.hourly_pnl)}}">${{fmtUsd(r.hourly_pnl)}}</span>`;
+            savingsCol = `<span class="${{pc(r.savings)}}" style="font-weight:700">${{fmtUsd(r.savings)}}</span>`;
+            hourlyTsCol = `<span style="font-size:0.8em;color:#8b949e">${{fmtTs(r.hourly_ts)}}</span>`;
+        }} else if (r.hourly_exit !== undefined && !isPending) {{
+            hourlyExitCol = fmtPrice(r.hourly_exit);
+        }}
+        const rowStyle = isPending ? ' style="background:#d2992211"' : '';
+        return `<tr${{rowStyle}}>
+            <td><b>${{r.token||''}}</b> ${{dir}}</td>
+            <td style="font-size:0.8em;color:#bc8cff">${{r.portfolio||''}}</td>
+            <td>${{exitTypeBadge(r.exit_type)}}</td>
+            <td>${{fmtPrice(r.entry_price)}}</td>
+            <td class="g" style="font-weight:700">${{fmtPrice(r.sentinel_exit)}}</td>
+            <td>${{sentPnlCol}}</td>
+            <td style="font-size:0.8em;color:#8b949e">${{fmtTs(r.sentinel_ts)}}</td>
+            <td>${{hourlyExitCol}}</td>
+            <td>${{hourlyPnlCol}}</td>
+            <td>${{hourlyTsCol}}</td>
+            <td>${{savingsCol}}</td>
+            <td>$${{fmt(r.margin_usd||0)}}</td>
         </tr>`;
     }}
 
-    const hdr = `<thead><tr><th>Token</th><th>Portfolio</th><th>Entry $</th><th>Stop $</th><th>Breach $</th><th>Exit $</th><th>Margin</th><th>Status</th><th>Reason</th><th>Time</th></tr></thead>`;
+    const hdr = `<thead><tr><th>Token</th><th>Portfolio</th><th>Type</th><th>Entry $</th><th>Sentinel Exit $</th><th>Sentinel P&L</th><th>Sentinel Time</th><th>Hourly Exit $</th><th>Hourly P&L</th><th>Hourly Time</th><th>Savings</th><th>Margin</th></tr></thead>`;
 
-    if (currentHour.length > 0) {{
+    if (pendingRecs.length > 0) {{
         h += `<div class="sec">
-        <h2 style="color:#d29922">Shadow Exits This Hour (${{currentHour.length}})</h2>
+        <h2 style="color:#d29922">Awaiting Hourly Exit (${{pendingRecs.length}})</h2>
         <div class="card tbl-wrap">
         <table>${{hdr}}
-            <tbody>${{currentHour.map(sentinelRow).join('')}}</tbody>
+            <tbody>${{pendingRecs.map(reconRow).join('')}}</tbody>
         </table></div></div>`;
-    }} else {{
-        h += `<div class="sec"><div style="padding:30px;text-align:center;color:#484f58;font-size:1em">
-            No shadow exits this hour. The sentinel is ${{hb.ws_connected?'connected and monitoring':'not connected'}}.
-        </div></div>`;
     }}
 
-    if (previousHours.length > 0) {{
+    if (resolvedRecs.length > 0) {{
         h += `<div class="sec">
-        <details><summary style="cursor:pointer;color:#8b949e;font-size:0.9em;padding:8px 0">
-            Previous hours (${{previousHours.length}} exits)
-        </summary>
-        <div class="card tbl-wrap" style="margin-top:8px">
+        <h2>Sentinel vs Hourly Comparison (${{resolvedRecs.length}})</h2>
+        <div class="card tbl-wrap">
         <table>${{hdr}}
-            <tbody>${{previousHours.map(sentinelRow).join('')}}</tbody>
-        </table></div></details></div>`;
+            <tbody>${{resolvedRecs.map(reconRow).join('')}}</tbody>
+        </table></div></div>`;
+    }} else if (pendingRecs.length === 0) {{
+        h += `<div class="sec"><div style="padding:30px;text-align:center;color:#484f58;font-size:1em">
+            No sentinel shadow events recorded yet.
+        </div></div>`;
     }}
 
     // Per-strategy breakdown
@@ -1341,6 +1370,151 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 
 RING_BUFFER_MAX = 50
+
+
+def load_sentinel_shadow_deduped(path) -> list[dict]:
+    """Load sentinel_shadow.jsonl and deduplicate to first event per position_id.
+
+    The sentinel re-fires every ~90s for open positions; the first event per
+    position_id represents when it would have actually exited.
+    """
+    path = Path(path)
+    if not path.exists():
+        return []
+    events = []
+    try:
+        with open(path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    events.append(json.loads(line))
+    except (json.JSONDecodeError, OSError):
+        return []
+    # Keep first event per position_id
+    seen: set[str] = set()
+    deduped: list[dict] = []
+    for e in events:
+        pid = e.get("position_id", "")
+        if pid and pid not in seen:
+            seen.add(pid)
+            deduped.append(e)
+    return deduped
+
+
+def compute_sentinel_reconciliation(
+    shadow_events: list[dict], trades: list[dict],
+    open_positions: list[dict] | None = None,
+    tick_to_ts: dict[int, str] | None = None,
+) -> dict:
+    """Join deduped shadow events with trades and compute savings vs hourly engine.
+
+    For each matched true_positive event, computes:
+      - sentinel_pnl: direction * abs(qty) * (sentinel_exit - entry_price)
+      - hourly_pnl: same formula with hourly exit price
+      - savings: sentinel_pnl - hourly_pnl (positive = sentinel was better)
+
+    Returns dict with 'records' list and summary KPIs.
+    Each record includes display fields (token, timestamps, etc.) for the table.
+    """
+    from tools.sentinel_shadow_report import join_shadow_with_trades, classify_event
+
+    if not shadow_events:
+        return {
+            "records": [],
+            "total_savings": 0.0,
+            "avg_savings": 0.0,
+            "sentinel_better_count": 0,
+            "matched_count": 0,
+        }
+
+    # Build open position lookup for still-open detection
+    open_by_pid = {}
+    for pos in (open_positions or []):
+        pid = pos.get("position_id", "")
+        if pid:
+            open_by_pid[pid] = pos
+
+    joined = join_shadow_with_trades(shadow_events, trades)
+
+    records = []
+    total_savings = 0.0
+    sentinel_better_count = 0
+    matched_count = 0
+
+    for pair in joined:
+        shadow = pair["shadow"]
+        trade = pair["trade"]
+        classification = classify_event(shadow, trade)
+        pid = shadow.get("position_id", "")
+
+        # Determine exit type from sentinel reason
+        exit_reason = shadow.get("exit_reason", "")
+        if "target" in exit_reason:
+            exit_type = "target"
+        elif "stop" in exit_reason or "cb" in exit_reason or "liq" in exit_reason:
+            exit_type = "stop"
+        else:
+            exit_type = "stop"
+
+        rec = {
+            "position_id": pid,
+            "classification": classification,
+            "token": shadow.get("token", ""),
+            "direction": shadow.get("direction", 1),
+            "quantity": abs(shadow.get("quantity", 0)),
+            "entry_price": shadow.get("entry_price", 0),
+            "stop_price": shadow.get("stop_price", 0),
+            "breach_price": shadow.get("breach_price", 0),
+            "sentinel_exit": shadow.get("exit_price", 0),
+            "sentinel_ts": shadow.get("timestamp", ""),
+            "margin_usd": shadow.get("margin_usd", 0),
+            "exit_type": exit_type,
+            "portfolio": shadow.get("portfolio", ""),
+        }
+
+        if classification == "true_positive" and trade is not None:
+            direction = shadow.get("direction", 1)
+            qty = abs(shadow.get("quantity", 0))
+            sentinel_exit = shadow.get("exit_price", 0)
+            entry_price = shadow.get("entry_price", 0)
+            hourly_exit = trade.get("exit_price", 0)
+
+            sentinel_pnl = direction * qty * (sentinel_exit - entry_price)
+            hourly_pnl = direction * qty * (hourly_exit - entry_price)
+            savings = sentinel_pnl - hourly_pnl
+
+            rec["hourly_exit"] = hourly_exit
+            rec["sentinel_pnl"] = round(sentinel_pnl, 2)
+            rec["hourly_pnl"] = round(hourly_pnl, 2)
+            rec["savings"] = round(savings, 2)
+            # Look up hourly exit timestamp from equity tick map
+            trade_tick = trade.get("tick")
+            if tick_to_ts and trade_tick is not None:
+                rec["hourly_ts"] = tick_to_ts.get(trade_tick, "")
+
+            total_savings += savings
+            matched_count += 1
+            if savings > 0:
+                sentinel_better_count += 1
+        elif trade is not None:
+            # Matched but not true_positive (preempted) — still record hourly data
+            rec["hourly_exit"] = trade.get("exit_price", 0)
+        elif pid in open_by_pid:
+            # Sentinel flagged, position still open
+            rec["classification"] = "pending"
+        # else: unmatched (false_trigger) — no hourly data
+
+        records.append(rec)
+
+    avg_savings = total_savings / matched_count if matched_count > 0 else 0.0
+
+    return {
+        "records": records,
+        "total_savings": round(total_savings, 2),
+        "avg_savings": round(avg_savings, 2),
+        "sentinel_better_count": sentinel_better_count,
+        "matched_count": matched_count,
+    }
 
 
 def parse_sentinel_recent(path) -> list[dict]:
