@@ -25,7 +25,8 @@
           "weight": 1.0,
           "market": "perp",
           "max_positions": 15,
-          "pump_filter_funding_zscore": 3.0
+          "pump_filter_funding_zscore": 3.0,
+          "exit_resolution": 5
         },
         {
           "strategy_id": "s57",
@@ -102,7 +103,8 @@
           "weight": 1.0,
           "market": "perp",
           "max_positions": 15,
-          "pump_filter_funding_zscore": 3.0
+          "pump_filter_funding_zscore": 3.0,
+          "exit_resolution": 30
         }
       ],
       "max_portfolio_positions": 15,
@@ -119,7 +121,8 @@
           "weight": 1.0,
           "market": "perp",
           "max_positions": 15,
-          "pump_filter_funding_zscore": 3.0
+          "pump_filter_funding_zscore": 3.0,
+          "exit_resolution": 5
         }
       ],
       "max_portfolio_positions": 15,
@@ -136,7 +139,8 @@
           "weight": 1.0,
           "market": "perp",
           "max_positions": 15,
-          "pump_filter_funding_zscore": 3.0
+          "pump_filter_funding_zscore": 3.0,
+          "exit_resolution": 5
         }
       ],
       "max_portfolio_positions": 15,

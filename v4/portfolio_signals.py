@@ -228,7 +228,7 @@ def _sr_to_token_signals(
     sr_max_hold = int(sr.max_hold)
     sr_edge = float(sr.edge)
     sr_size_mult = _to_array(sr.size_multiplier, n_safe)
-    sr_cap_mult = float(sr.cap_multiplier)
+    sr_cap_mult = _to_array(sr.cap_multiplier, n_safe)
     sr_leverage = _to_array(sr.leverage, n_safe)
     sr_max_trade_pct = float(sr.max_trade_pct)
     sr_convex_exit = sr.convex_exit

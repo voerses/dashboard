@@ -98,6 +98,11 @@ paper_trading/logs/
 paper_trading/*/runs/
 paper_trading/*/current
 paper_trading/*/report.json
+state/
+state_backup_*/
+paper_multi.log
+logs/
+outputs/
 
 # ======================
 # Core dumps

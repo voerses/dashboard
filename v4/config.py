@@ -20,6 +20,8 @@ class StrategySpec:
     adv_sizing_enabled: bool = False
     adv_sizing_base: float = 100_000_000
     adv_sizing_floor: float = 0.20
+    # Sub-hourly exit resolution (0=hourly only, 1/5/15/30=sub-hourly WebSocket candles)
+    exit_resolution: int = 0
 
     @classmethod
     def from_dict(cls, d: dict) -> StrategySpec:
@@ -36,6 +38,7 @@ class StrategySpec:
             adv_sizing_enabled=d.get("adv_sizing_enabled", False),
             adv_sizing_base=d.get("adv_sizing_base", 100_000_000),
             adv_sizing_floor=d.get("adv_sizing_floor", 0.20),
+            exit_resolution=d.get("exit_resolution", 0),
         )
 
 

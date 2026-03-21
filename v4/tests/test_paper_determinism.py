@@ -131,6 +131,11 @@ def _build_engine_for_tick(config: PaperConfig, signals) -> PaperPortfolioEngine
     engine._alerts = []
     engine._last_known_prices = {}
     engine.equity_history = []
+    engine._candle_aggregator = None
+    engine._price_monitor = None
+    engine._effective_exit_resolution = 0
+    engine._strategy_exit_resolution = {}
+    engine._cached_bar_data = {}
 
     # Store signals for the engine to use
     engine._test_signals = {"s56": {"BTC": signals}}

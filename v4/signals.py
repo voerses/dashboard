@@ -55,7 +55,7 @@ class TokenSignals:
     max_hold: int
     edge: float
     size_multiplier: np.ndarray
-    cap_multiplier: float
+    cap_multiplier: np.ndarray
     leverage: np.ndarray
     max_trade_pct: float          # additional sizing cap (0 = disabled)
     conviction_score: Optional[np.ndarray] = None  # per-bar [0,1] signal strength for entry prioritization
@@ -392,7 +392,7 @@ def precompute_strategy_signals(
             sr_max_hold = int(sr.max_hold)
             sr_edge = float(sr.edge)
             sr_size_mult = _to_array(sr.size_multiplier, n_safe)
-            sr_cap_mult = float(sr.cap_multiplier)
+            sr_cap_mult = _to_array(sr.cap_multiplier, n_safe)
             sr_leverage = _to_array(sr.leverage, n_safe)
             sr_max_trade_pct = float(sr.max_trade_pct)
             sr_convex_exit = sr.convex_exit

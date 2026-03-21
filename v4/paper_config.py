@@ -35,9 +35,10 @@ class PaperConfig(PortfolioConfig):
     dynamic_weights: bool = False                # enable regime-conditional dynamic weights
     dynamic_weights_smoothing: float = 0.3       # EMA smoothing alpha for regime transitions
     config_path: str = ""                        # source file path (set by load_paper_config)
-    sentinel_mode: str = "off"                    # "off", "shadow", or "live"
-    confirmation_tiers: dict = field(default_factory=lambda: {"btc_eth": 30, "top10": 60, "other": 90})
+    sentinel_mode: str = "off"                    # "off", "shadow", or "live" (deprecated — use exit_resolution)
+    confirmation_tiers: dict = field(default_factory=lambda: {"btc_eth": 30, "top10": 60, "other": 90})  # deprecated
     carry_strategies: list = field(default_factory=list)  # strategy_ids excluded from sentinel monitoring
+    exit_resolution: int = 0                       # 0=hourly only, 1/5/15/30=sub-hourly WebSocket candles
 
 
 def load_paper_config(path: str) -> PaperConfig:
@@ -92,6 +93,7 @@ def load_paper_config(path: str) -> PaperConfig:
         sentinel_mode=data.get("sentinel_mode", "off"),
         confirmation_tiers=data.get("confirmation_tiers", {"btc_eth": 30, "top10": 60, "other": 90}),
         carry_strategies=data.get("carry_strategies", []),
+        exit_resolution=data.get("exit_resolution", 0),
     )
 
     config.config_path = path
@@ -113,6 +115,14 @@ def validate_paper_config(config: PaperConfig) -> None:
         raise ValueError(
             f"Invalid sentinel_mode '{config.sentinel_mode}'. "
             f"Must be one of: {', '.join(valid_sentinel_modes)}"
+        )
+
+    # --- Exit resolution validation ---
+    valid_exit_resolutions = (0, 1, 5, 15, 30)
+    if config.exit_resolution not in valid_exit_resolutions:
+        raise ValueError(
+            f"Invalid exit_resolution {config.exit_resolution}. "
+            f"Must be one of: {', '.join(str(r) for r in valid_exit_resolutions)}"
         )
 
     # --- Weight sum check (pool mode only) ---

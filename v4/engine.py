@@ -337,7 +337,7 @@ class StrategyResult:
     name: str = 'unnamed'
     max_trade_pct: float = 0.0  # max position as % of equity (0 = use ADV-based cap only)
     size_multiplier: object = 1.0  # float scalar or per-bar np.ndarray — strategy-configured sizing overlay
-    cap_multiplier: float = 1.0  # scales ADV-based cap_pct (default 2-12% of equity) — use >1.0 for aggressive strategies
+    cap_multiplier: object = 1.0  # float scalar or per-bar np.ndarray — scales ADV-based cap_pct
 
     # Progressive trailing stop schedule (None = use fixed trail_mult)
     # Shape (N, 2): [[profit_atr_threshold, trail_mult], ...] sorted by threshold ascending

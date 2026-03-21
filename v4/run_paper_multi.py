@@ -92,6 +92,7 @@ def load_multi_config(path: str) -> list[PaperConfig]:
             sentinel_mode=merged.get("sentinel_mode", "off"),
             confirmation_tiers=merged.get("confirmation_tiers", {"btc_eth": 30, "top10": 60, "other": 90}),
             carry_strategies=merged.get("carry_strategies", []),
+            exit_resolution=merged.get("exit_resolution", 0),
         )
         config.config_path = path
         configs.append(config)
@@ -428,6 +429,27 @@ def main(argv: list[str] | None = None) -> None:
             if any_success:
                 push_combined_dashboard(configs)
 
+            # Step 4: Start/restart PriceMonitor for sub-hourly exits (after first tick)
+            for engine, config in zip(engines, configs):
+                if engine._price_monitor is None:
+                    continue
+                ws_thread = engine._price_monitor._ws_thread
+                ws_needs_start = ws_thread is None or not ws_thread.is_alive()
+                if ws_needs_start:
+                    open_tokens = set()
+                    for st in engine._get_all_states():
+                        for pos in st.position_manager.open_positions:
+                            open_tokens.add(pos.token)
+                    if open_tokens:
+                        engine._price_monitor.connect(list(open_tokens))
+                        logger.info(
+                            "[%s] PriceMonitor started (%d tokens, %dm resolution)",
+                            config.pool_name, len(open_tokens), engine._effective_exit_resolution,
+                        )
+
+            # Reset consecutive error counters for sub-hourly checks
+            _candle_errors: dict[int, int] = {}
+
             # Sleep until next hour (wake on shutdown or refresh signal)
             sleep_s = compute_sleep_until_next_hour(time.time())
             logger.info("Sleeping %.0fs until next hour", sleep_s)
@@ -453,10 +475,39 @@ def main(argv: list[str] | None = None) -> None:
                     push_combined_dashboard(configs)
                     logger.info("Price refresh complete (%.1fs total)", time.time() - t0)
 
+                # Sub-hourly exit check: flush completed candles and process exits
+                for engine, config in zip(engines, configs):
+                    if engine._candle_aggregator is not None:
+                        try:
+                            candles = engine._candle_aggregator.flush_completed()
+                            if candles:
+                                engine.process_sub_hourly_exits(candles)
+                                _candle_errors[id(engine)] = 0
+                        except Exception:
+                            err_key = id(engine)
+                            _candle_errors[err_key] = _candle_errors.get(err_key, 0) + 1
+                            if _candle_errors[err_key] <= 3:
+                                logger.exception(
+                                    "[%s] Sub-hourly exit check failed (%d consecutive)",
+                                    config.pool_name, _candle_errors[err_key],
+                                )
+                            elif _candle_errors[err_key] == 4:
+                                logger.error(
+                                    "[%s] Suppressing repeated sub-hourly errors until next tick",
+                                    config.pool_name,
+                                )
+
             if shutdown.is_set():
                 break
 
     finally:
+        # Disconnect PriceMonitors on shutdown
+        for engine in engines:
+            if engine._price_monitor is not None:
+                try:
+                    engine._price_monitor.disconnect()
+                except Exception:
+                    pass
         lock_file.close()
         logger.info("Multi-portfolio paper trading stopped")
 

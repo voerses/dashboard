@@ -78,6 +78,30 @@ class PaperPortfolioEngine:
             from v4.stop_store import StopStore
             self.stop_store = StopStore(state_dir=config.state_dir)
 
+        # Integrated sub-hourly exits via WebSocket (replaces sentinel)
+        # Effective resolution = finest non-zero exit_resolution across all strategies.
+        # Falls back to portfolio-level config.exit_resolution for backward compat.
+        self._candle_aggregator = None
+        self._price_monitor = None
+        strategy_resolutions = [s.exit_resolution for s in config.strategies if s.exit_resolution > 0]
+        effective_resolution = min(strategy_resolutions) if strategy_resolutions else getattr(config, 'exit_resolution', 0)
+        self._effective_exit_resolution = effective_resolution
+        # Build a lookup: strategy_id -> its exit_resolution (0 = hourly only)
+        self._strategy_exit_resolution: dict[str, int] = {
+            s.strategy_id: s.exit_resolution for s in config.strategies
+        }
+        if effective_resolution > 0:
+            from v4.candle_aggregator import CandleAggregator
+            from v4.price_monitor import PriceMonitor
+            self._candle_aggregator = CandleAggregator(effective_resolution)
+            self._price_monitor = PriceMonitor(
+                callback=self._candle_aggregator.on_price,
+                venue="perp",
+            )
+        # Cache for sub-hourly exit checks (populated after each hourly tick)
+        # Keyed by (strategy_id, token) so each strategy gets its own ATR values
+        self._cached_bar_data: dict[tuple[str, str], dict] = {}
+
         if config.mode == "independent":
             self._init_independent_mode()
             self.state = None  # Not used in independent mode (use strategy_states)
@@ -306,6 +330,284 @@ class PaperPortfolioEngine:
             tick_counter=self.tick_counter,
         )
         self.stop_store.write_stops(stops)
+
+    # ------------------------------------------------------------------
+    # Integrated sub-hourly exits
+    # ------------------------------------------------------------------
+
+    def process_sub_hourly_exits(
+        self, candles: dict[str, tuple[float, float, float]],
+    ) -> int:
+        """Process price-based exits from completed sub-hourly candles.
+
+        Returns number of positions closed.
+        Note: partial profit-taking is not supported in sub-hourly exits
+        (requires ADV-based slippage from hourly signals). Partial TP
+        positions will only be partially closed at the hourly resolution.
+        """
+        if not candles or getattr(self, '_effective_exit_resolution', 0) == 0:
+            return 0
+
+        import logging
+        logger = logging.getLogger(__name__)
+
+        from v4.minute_exits import check_candle_exits
+
+        closed_count = 0
+        positions_to_close: list[tuple] = []  # (state, pos, exit_price, exit_reason)
+        strategy_specs = {s.strategy_id: s for s in self.config.strategies}
+
+        for st in self._get_all_states():
+            for pos in list(st.position_manager.open_positions):
+                if pos.token not in candles:
+                    continue
+                # Skip positions whose strategy is hourly-only (exit_resolution=0)
+                if getattr(self, '_strategy_exit_resolution', {}).get(pos.strategy_id, 0) == 0:
+                    continue
+                # Skip if already queued for closure
+                if any(p is pos for _, p, _, _ in positions_to_close):
+                    continue
+
+                h, l, c = candles[pos.token]
+
+                # Get cached bar data from last hourly tick (per-strategy)
+                bar_data = self._cached_bar_data.get((pos.strategy_id, pos.token))
+                if bar_data is None:
+                    # No cached data yet (first tick hasn't run) — skip
+                    continue
+
+                cur_atr = bar_data.get("atr", 0.0)
+                if cur_atr <= 0:
+                    cur_atr = abs(pos.entry_price) * 0.02
+
+                bars_held = self.tick_counter - pos.entry_bar
+
+                # Get circuit breaker params
+                spec = strategy_specs.get(pos.strategy_id)
+                cb_r = spec.circuit_breaker_r if spec else 0.0
+
+                # Effective target (use cached bear_target_mult if in bear regime)
+                eff_target = pos.target_mult
+                bear_target = bar_data.get("bear_target_mult", 0.0)
+                regime = bar_data.get("regime", 0)
+                if bear_target > 0.0 and regime == 4:
+                    eff_target = bear_target
+
+                reason, price = check_candle_exits(
+                    pos, h, l, c, cur_atr, bars_held,
+                    cb_r, eff_target, pos.initial_risk,
+                )
+
+                if reason is not None:
+                    positions_to_close.append((st, pos, price, reason))
+                    # Close linked position too
+                    if pos.linked_position_id:
+                        linked = st.position_manager.get_linked(pos.linked_position_id)
+                        if linked and not any(p is linked for _, p, _, _ in positions_to_close):
+                            # Compute proper exit price for linked leg
+                            linked_token = linked.token
+                            has_linked_candle = linked_token in candles
+                            if has_linked_candle:
+                                lh, ll, lc = candles[linked_token]
+                            else:
+                                # No candle for linked token — use primary close
+                                lh, ll, lc = c, c, c
+                            linked_bar_data = self._cached_bar_data.get(
+                                (linked.strategy_id, linked_token)
+                            )
+                            if linked_bar_data is not None and has_linked_candle:
+                                linked_atr = linked_bar_data.get("atr", 0.0)
+                                if linked_atr <= 0:
+                                    linked_atr = abs(linked.entry_price) * 0.02
+                                linked_bars_held = self.tick_counter - linked.entry_bar
+                                linked_spec = strategy_specs.get(linked.strategy_id)
+                                linked_cb_r = linked_spec.circuit_breaker_r if linked_spec else 0.0
+                                linked_eff_target = linked.target_mult
+                                linked_bear_target = linked_bar_data.get("bear_target_mult", 0.0)
+                                linked_regime = linked_bar_data.get("regime", 0)
+                                if linked_bear_target > 0.0 and linked_regime == 4:
+                                    linked_eff_target = linked_bear_target
+                                linked_reason, linked_price = check_candle_exits(
+                                    linked, lh, ll, lc, linked_atr,
+                                    linked_bars_held, linked_cb_r,
+                                    linked_eff_target, linked.initial_risk,
+                                )
+                                exit_price_linked = linked_price if linked_reason else lc
+                            else:
+                                exit_price_linked = lc
+                            positions_to_close.append((st, linked, exit_price_linked, "linked_exit"))
+
+        # Execute closures
+        timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        for st, pos, exit_price, reason in positions_to_close:
+            if pos not in st.position_manager.open_positions:
+                continue  # Already closed (e.g., linked leg)
+
+            pm = st.position_manager
+            entry_fee = getattr(st, '_entry_fees_by_pos', {}).pop(pos.position_id, 0.0) if isinstance(getattr(st, '_entry_fees_by_pos', {}), dict) else 0.0
+            exit_fee = abs(pos.quantity) * exit_price * pos.fee_rate
+
+            if pos.direction == 1:
+                raw_pnl = pos.quantity * (exit_price - pos.entry_price)
+            else:
+                raw_pnl = abs(pos.quantity) * (pos.entry_price - exit_price)
+
+            net_pnl = raw_pnl - exit_fee - pos.cumulative_funding
+
+            pm.close_position(
+                pos=pos,
+                exit_bar=self.tick_counter,
+                exit_price=exit_price,
+                pnl=net_pnl,
+                funding_cost=pos.cumulative_funding,
+                entry_fee=entry_fee,
+                exit_fee=exit_fee,
+                exit_reason=reason,
+                exit_timestamp=timestamp,
+            )
+            st.realized_pnl += raw_pnl
+            st.total_fees += exit_fee
+            closed_count += 1
+
+        # Always update last known prices from candle closes for fresh MTM
+        for token, (_, _, c_price) in candles.items():
+            self._last_known_prices[token] = c_price
+
+        # Persist state if any exits occurred
+        if closed_count > 0:
+            self._persist_sub_hourly_state(timestamp)
+            self._update_ws_subscriptions()
+            logger.info("Sub-hourly exits: %d positions closed", closed_count)
+
+        return closed_count
+
+    def _persist_sub_hourly_state(self, timestamp: str) -> None:
+        """Persist state after sub-hourly exits (trades + state.json only).
+
+        Does NOT recompute signals or process entries (that's hourly only).
+        """
+        state_dir = self.config.state_dir
+        os.makedirs(state_dir, exist_ok=True)
+
+        # Write new trades (staged-flush pattern: R7-I1)
+        trades_path = os.path.join(state_dir, "trades.jsonl")
+        new_closed = []
+        for st in self._get_all_states():
+            new_closed.extend(st.position_manager.closed_trades)
+        if not hasattr(self, '_flushed_position_ids'):
+            self._flushed_position_ids = set()
+        unflushed = [t for t in new_closed if t.position_id not in self._flushed_position_ids]
+        staged_ids: set = set()
+        if unflushed:
+            with open(trades_path, "a") as f:
+                for trade in unflushed:
+                    f.write(json.dumps(_closed_trade_to_dict(trade, tick=self.tick_counter)) + "\n")
+                f.flush()
+                os.fsync(f.fileno())
+            staged_ids = {t.position_id for t in unflushed}
+
+        # Write state.json atomically
+        state_path = os.path.join(state_dir, "state.json")
+        shadow = getattr(self, 'shadow', None)
+        shadow_pools = {
+            "spot_funds": shadow.spot_funds_shadow if shadow else 0.0,
+            "perp_funds": shadow.perp_funds_shadow if shadow else 0.0,
+            "spot_deployed": shadow.spot_deployed if shadow else 0.0,
+            "perp_deployed": shadow.perp_deployed if shadow else 0.0,
+        }
+        if self.state is not None:
+            atomic_write_state(
+                self.state, self.tick_counter, timestamp, state_path,
+                shadow_pools=shadow_pools,
+                last_known_prices=dict(self._last_known_prices),
+                last_known_regimes=dict(self._last_known_regimes),
+            )
+        else:
+            from v4.paper_state import serialize_engine_state
+            data = serialize_engine_state(
+                dict(self.strategy_states), self.tick_counter, timestamp,
+                mode="independent",
+                shadow_pools=shadow_pools,
+                last_known_prices=dict(self._last_known_prices),
+                last_known_regimes=dict(self._last_known_regimes),
+            )
+            import tempfile as _tmpfile
+            fd, tmp = _tmpfile.mkstemp(dir=state_dir, suffix=".tmp")
+            os.close(fd)
+            with open(tmp, "w") as f:
+                json.dump(data, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.rename(tmp, state_path)
+
+        # Promote staged position IDs after state.json commit (R7-I1 pattern)
+        self._flushed_position_ids.update(staged_ids)
+
+        # Append equity snapshot so sub-hourly changes are tracked
+        equity_path = os.path.join(state_dir, "equity.csv")
+        portfolio_eq = self._aggregate_portfolio_equity()
+        mtm_eq = self._compute_mark_to_market()
+        all_states = self._get_all_states()
+        free_cap = sum(s.free_capital for s in all_states) if all_states else 0.0
+        append_equity(
+            equity_path,
+            timestamp=timestamp,
+            tick=self.tick_counter,
+            portfolio_equity=portfolio_eq,
+            mark_to_market_equity=mtm_eq,
+            free_capital=free_cap,
+            open_positions=self._aggregate_open_positions(),
+            spot_shadow_free=shadow_pools.get("spot_funds", 0.0),
+            perp_shadow_free=shadow_pools.get("perp_funds", 0.0),
+            spot_deployed=shadow_pools.get("spot_deployed", 0.0),
+            perp_deployed=shadow_pools.get("perp_deployed", 0.0),
+        )
+
+    def _cache_bar_data(
+        self,
+        all_signals: dict[str, dict],
+        bar_maps: dict[str, np.ndarray],
+    ) -> None:
+        """Cache ATR/regime/bear_target_mult per (strategy_id, token) for sub-hourly exit checks.
+
+        Called at the end of each hourly tick so sub-hourly exits between ticks
+        have access to the latest hourly bar data.  Keyed by (strategy_id, token)
+        so each strategy gets its own ATR values.
+        """
+        from v4.simulator import _get_bar_data
+        from v4.signals import TokenSignals
+
+        self._cached_bar_data.clear()
+        for sid, token_sigs in all_signals.items():
+            for token, sig in token_sigs.items():
+                bm = bar_maps.get(token)
+                if bm is None:
+                    continue
+                local_bar = int(bm[self.tick_counter]) if self.tick_counter < len(bm) else -1
+                if local_bar == -1 or local_bar >= sig.n_bars:
+                    continue
+                try:
+                    _, _, _, atr_val, adv_val, _ = _get_bar_data(sig, local_bar, True)
+                except Exception:
+                    continue
+                self._cached_bar_data[(sid, token)] = {
+                    "atr": float(atr_val) if not np.isnan(atr_val) else 0.0,
+                    "adv": float(adv_val) if not np.isnan(adv_val) else 0.0,
+                    "regime": int(sig.regime[local_bar]) if sig.regime is not None and local_bar < len(sig.regime) else 0,
+                    "bear_target_mult": sig.bear_target_mult if hasattr(sig, 'bear_target_mult') else 0.0,
+                }
+
+    def _update_ws_subscriptions(self) -> None:
+        """Update WebSocket subscriptions to match current open positions."""
+        if self._price_monitor is None:
+            return
+        open_tokens = set()
+        for st in self._get_all_states():
+            for pos in st.position_manager.open_positions:
+                open_tokens.add(pos.token)
+        self._price_monitor.update_subscriptions(open_tokens)
+        if self._candle_aggregator:
+            self._candle_aggregator.update_tokens(open_tokens)
 
     # ------------------------------------------------------------------
     # Bar maps
@@ -655,6 +957,11 @@ class PaperPortfolioEngine:
         if not strategy_specs:
             strategy_specs = {s.strategy_id: s for s in self.config.strategies}
         self._process_entries_for_tick(all_signals, strategy_specs, bar_maps)
+
+        # Cache bar data for sub-hourly exit checks between hourly ticks
+        if getattr(self, '_effective_exit_resolution', 0) > 0:
+            self._cache_bar_data(all_signals, bar_maps)
+            self._update_ws_subscriptions()
 
     def _tick_internal(self, bar_timestamp=None) -> None:
         """Full tick processing: fetch data, recompute signals, process.
