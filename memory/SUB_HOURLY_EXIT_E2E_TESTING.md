@@ -36,8 +36,16 @@ PriceMonitor (WS thread)          Main Thread (run_paper_multi.py)
 ### Configuration
 
 ```python
-PaperConfig(exit_resolution=5)  # 0=hourly only, 1/5/15/30=sub-hourly
+# Per-strategy exit resolution (in StrategySpec, NOT PaperConfig)
+StrategySpec(strategy_id="s98", weight=1.0, market="perp", max_positions=15, exit_resolution=30)
+StrategySpec(strategy_id="s56", weight=1.0, market="perp", max_positions=15, exit_resolution=5)
+StrategySpec(strategy_id="s57", weight=1.0, market="combined", max_positions=15, exit_resolution=0)  # hourly
+
+# Engine computes effective resolution = min(non-zero strategy resolutions)
+# Positions whose strategy has exit_resolution=0 are skipped during sub-hourly checks
 ```
+
+**IMPORTANT:** `exit_resolution` is on `StrategySpec`, not `PaperConfig`. The engine derives `_effective_exit_resolution` from the strategies. Use `getattr(self, '_effective_exit_resolution', 0)` in engine code because many tests create engines via `__new__` bypassing `__init__`.
 
 ---
 
@@ -113,7 +121,10 @@ def _ts_ms(minutes: float) -> int:
 
 def _make_config(state_dir: str, exit_resolution: int = 5) -> PaperConfig:
     return PaperConfig(
-        strategies=[StrategySpec(strategy_id="s56", weight=1.0, market="combined", max_positions=10)],
+        strategies=[StrategySpec(
+            strategy_id="s56", weight=1.0, market="combined", max_positions=10,
+            exit_resolution=exit_resolution,  # Per-strategy, NOT on PaperConfig
+        )],
         capital=200_000.0,
         mode="pool",
         pool_name="e2e_sim",
@@ -128,7 +139,6 @@ def _make_config(state_dir: str, exit_resolution: int = 5) -> PaperConfig:
         purge_bars=0,
         lookback_months=3,
         enable_purge_windows=False,
-        exit_resolution=exit_resolution,
         state_dir=state_dir,
     )
 
@@ -161,10 +171,10 @@ import tempfile
 
 tmpdir = tempfile.mkdtemp()
 config = _make_config(tmpdir, exit_resolution=5)
-engine = PaperPortfolioEngine(config, start_equity=200_000.0, skip_ws=True)
+engine = PaperPortfolioEngine(config)
 
 pos = _make_position(token="BTC", stop_price=90.0, target_mult=5.0)
-engine._sim._open_positions.append(pos)
+engine.state.position_manager.open_positions.append(pos)
 
 # Populate per-strategy ATR cache (required for sub-hourly exits)
 engine._cached_bar_data[("s56", "BTC")] = {
@@ -295,6 +305,9 @@ assert len(lines) >= 2  # header + at least 1 row
 | Forget `_last_known_prices` | MTM equity uses stale prices | Happens automatically now but verify prices update even without exits |
 | Touch real state files | Corrupts live paper trader | ALWAYS use `tempfile.mkdtemp()` for `state_dir` |
 | Stop=entry edge case | `L <= stop_price` is `100 <= 100` = True | When testing "no exit", ensure L is strictly above stop for longs |
+| exit_resolution on PaperConfig | Engine ignores it — only reads from StrategySpec | Put `exit_resolution` on each StrategySpec, not on PaperConfig |
+| Tests using `__new__` bypass | `_effective_exit_resolution` AttributeError | Engine uses `getattr(self, '_effective_exit_resolution', 0)` defensively |
+| Per-strategy skip | Positions with strategy exit_resolution=0 are silently skipped | Must set exit_resolution on the StrategySpec used by the test position |
 
 ---
 
@@ -313,7 +326,30 @@ pytest v4/tests/ -x -q
 
 ---
 
-## 8. Adding New Exit Types
+## 8. Exit Resolution Sweep Results (2026-03-21)
+
+3-month lookback, $200K capital. Sweep tool: `sweep_exit_resolution.py`.
+
+| Strategy | Hourly Sharpe | 5m | 15m | 30m | Best | Trades |
+|----------|:---:|:---:|:---:|:---:|:---:|:---:|
+| s56 | -1.24 | **-1.10** | -1.16 | -1.25 | 5m (+0.14) | 306 |
+| s57 | **-6.46** | -6.47 | -6.53 | -6.50 | hourly | 324 |
+| s62 | **-2.98** | — | — | — | hourly | 625 |
+| s65 | **-2.18** | — | — | — | hourly | 598 |
+| s72 | **-2.18** | — | — | — | hourly | 598 |
+| s98 | 1.51 | 1.55 | 1.53 | **1.56** | 30m (+0.05) | 26 |
+| s106 | 1.51 | **1.55** | 1.53 | — | 5m (+0.04) | 26 |
+| s107 | — | — | — | — | 5m (mirrors s106) | — |
+
+**Key findings:**
+- Sub-hourly exits consistently improve profitable strategies by +0.04-0.05 Sharpe
+- For losing strategies (Sharpe < -1), sub-hourly is noise at best
+- 5m and 30m both work well; 30m has lowest operational overhead
+- High-trade strategies (600+ trades) are extremely slow to backtest at sub-hourly resolution due to per-bar parquet I/O
+
+---
+
+## 9. Adding New Exit Types
 
 If adding a new exit type to `check_candle_exits()`:
 

@@ -1,9 +1,9 @@
 # Project Status — crypto_backtest
 
-> **Last updated:** 2026-03-19T22:00Z
+> **Last updated:** 2026-03-21T20:30Z
 > **Process mode:** strategy (paper trading monitoring — Gate 6)
-> **Active:** V4 multi-portfolio paper trading: **17 pools**. Runner: `ps aux | grep run_paper_multi | grep -v grep` to find current PID. If restart needed: `kill <PID> && nohup /workspace/venv/bin/python -m v4.run_paper_multi --config configs/multi_v4_paper.json > /tmp/paper_trader.log 2>&1 &`
-> **Sentinel:** Real-Time Exit Sentinel running in shadow mode. PID: `cat state/sentinel.pid`. Restart: see Operations section below.
+> **Active:** V4 multi-portfolio paper trading: **7 pools**. Runner: `ps aux | grep run_paper_multi | grep -v grep` to find current PID. If restart needed: `kill <PID> && nohup /workspace/venv/bin/python -m v4.run_paper_multi --config configs/multi_v4_paper.json > /tmp/paper_trader.log 2>&1 &`
+> **Sentinel:** REPLACED by integrated sub-hourly exits (2026-03-21). No separate sentinel process. Exit monitoring is now in-process via PriceMonitor WebSocket + CandleAggregator.
 > **Engine consolidation (v3→v4):** Completed 2026-03-14. Single simulation path via v4/simulator.py.
 > **v3/ is FROZEN LEGACY — do NOT modify.** All imports point to v4/. v3/ exists only as historical reference.
 > **Overlays deployed:** s69 (s56+time_trail), s72 (s65+time_trail), s75 (s63+fixed_tp=3.0), s76 (partial TP)
@@ -11,13 +11,15 @@
 > **Conviction scoring deployed:** 4-edge-conv (ranked mode), super5-conv (hybrid mode)
 > **Breakeven ratchet (BE=0.5 ATR):** Deployed universally to ALL strategies on 2026-03-13. Tested 16/16 portfolios improved (median +82% PnL, 15/16 DD improved). s83-BE/s84-BE removed (redundant).
 > **Exit ablation (trail 1.5 + BE):** Deployed 2026-03-15. Progressive trail schedule retired → flat 1.5 ATR trail. All 9 base strategies + engine default updated. bear_max_hold=12 for s80/s81. Backtest: 20/24 BETTER, 4 MIXED+, 0 WORSE at all-time. 24/24 improved at 12mo.
-> **Missions:** Profit-taking (closed), dynamic weights (closed), conviction scoring (closed), data pipeline (closed), engine consolidation v3→v4 (closed). Exit ablation (CLOSED 2026-03-15). S65 exit optimization (CLOSED 2026-03-15). Spot-long/perp-short (KILLED). Live trading infrastructure (PARKED). Per-portfolio concentration tuning (CLOSED). Backtest realism audit (ACTIVE). **Pump-and-dump entry filters (CLOSED 2026-03-17)** — Per-strategy CB and pump filters deployed after A/B testing 9 strategies × 4 configs with MTM equity + fresh data through Mar 17. `StrategySpec.from_dict()` centralizes JSON→StrategySpec. **ML Direction Model (ACTIVE)** — V4 model with cross-token validation, ready for strategy integration. See `memory/ML_DIRECTION_MODEL_STATUS.md`.
+> **Missions:** Profit-taking (closed), dynamic weights (closed), conviction scoring (closed), data pipeline (closed), engine consolidation v3→v4 (closed). Exit ablation (CLOSED 2026-03-15). S65 exit optimization (CLOSED 2026-03-15). Spot-long/perp-short (KILLED). Live trading infrastructure (PARKED). Per-portfolio concentration tuning (CLOSED). Backtest realism audit (ACTIVE). **Pump-and-dump entry filters (CLOSED 2026-03-17)** — Per-strategy CB and pump filters deployed after A/B testing 9 strategies × 4 configs with MTM equity + fresh data through Mar 17. `StrategySpec.from_dict()` centralizes JSON→StrategySpec. **ML Direction Model (ACTIVE)** — V4 model with cross-token validation, ready for strategy integration. See `memory/ML_DIRECTION_MODEL_STATUS.md`. **Sub-hourly exits (CLOSED 2026-03-21)** — Sentinel replaced with integrated WebSocket candle monitoring. Per-strategy `exit_resolution` in StrategySpec. Deployed: s56→5m, s98→30m, s106→5m, s107→5m. See `memory/SUB_HOURLY_EXIT_E2E_TESTING.md`.
 > **Per-strategy risk controls (0d59ff4):** CB and pump filters now per-strategy in StrategySpec. s59/s80: CB=4.0. s56/s57/s65/s69/s72/s76/s81: funding_zscore=3.0. s60: funding_zscore=3.0 + range_threshold=4.0. s62/s63/s75: no filters.
 > **MTM equity fix (b9d108f):** Equity curve now includes unrealized P&L (mark-to-market). Industry standard per GIPS/Zipline/QuantConnect. MaxDD was severely understated before (e.g., s80: -16% reported vs -44% actual).
 > **Data pipeline (COMPLETE):** kdb+-inspired RDB/HDB pattern. Live→`data/{market}/live/`, historical→`1h_cache/`. `load_token_data()` merges at read time. `promote_live.py` rolls with QC+manifests. `load_token_data_at(as_of)` for reproducible backtests.
 > **Portfolio rotation (2026-03-18):** Removed 6 underperformers, added 2 solo strategies. See changelog below.
+> **Portfolio consolidation (2026-03-21):** Consolidated from 17 pools to 7 pools. See changelog below.
+> **Sub-hourly exit resolution (2026-03-21):** Per-strategy `exit_resolution` added to StrategySpec (0=hourly, 5/15/30=sub-hourly WebSocket candles). Sweep results: sub-hourly improves profitable strategies (s98 +0.05 Sharpe at 30m, s106/s107 +0.04 at 5m), negligible for losing strategies. Dashboard shows "Exit Res" in strategy cards.
 > **ML Direction Model (ACTIVE 2026-03-21):** V4 iteration complete — LOTO cross-token validation shows 60% LONG / 57% SHORT precision (honest, no temporal leakage). Adversarial tests 3/3 PASS. Token-specific overfitting gap only 1.15pp. Next: update s312/s313 strategies + run portfolio backtest. Full details: `memory/ML_DIRECTION_MODEL_STATUS.md`.
-> **Next step:** Monitor 17 pools for 50+ trades each. Comprehensive rankings saved to results/v4/portfolio_rankings.json.
+> **Next step:** Monitor 7 pools. Validate sub-hourly exits fire correctly in production (check trades.jsonl for exit_reason from sub-hourly candles).
 
 ---
 
@@ -47,9 +49,27 @@
 |-----------|------------|------------|------|
 | **s58+s60** | +2,311% | -8.5% | Top combo by 12mo return. Already in config. |
 
-### Final active pool list (17 portfolios)
+### Final active pool list after 2026-03-18 rotation (17 portfolios)
 
 s58, s60, s58+s60, s58+s62, s58+s65, 4-edge, s69, s72, s58+s72, s76, s58+s76, 4-edge+ptp, super5-dyn, 4-edge-conv, super5-conv, **s65**, **s62**
+
+---
+
+## Portfolio Consolidation — 2026-03-21
+
+Consolidated from 17 pools to 7 pools as part of sub-hourly exit deployment. Focused on live strategies with meaningful trade volume.
+
+### Current active pool list (7 portfolios)
+
+| Pool | Strategies | Exit Res | Equity | Open |
+|------|-----------|----------|--------|------|
+| s58+s65 | s56 (5m), s57 (hourly), s65 (hourly) | 5m effective | $213,412 | 9 |
+| s72 | s72 (hourly) | hourly | $214,895 | 9 |
+| s65 | s65 (hourly) | hourly | $216,759 | 8 |
+| s62 | s62 (hourly) | hourly | $206,472 | 9 |
+| s98 | s98 (30m) | 30m | $197,987 | 0 |
+| s106 | s106 (5m) | 5m | $200,000 | 0 |
+| s107 | s107 (5m) | 5m | $200,000 | 0 |
 
 ---
 
@@ -121,7 +141,8 @@ s58, s60, s58+s60, s58+s62, s58+s65, 4-edge, s69, s72, s58+s72, s76, s58+s76, 4-
 | Breakeven Ratchet (universal) | `v3/engine.py`, `v4/signals.py`, `v4/position.py`, `v4/portfolio_signals.py`, `v4/paper_state.py` | `breakeven_atr` default changed from 0.0 to 0.5 across entire pipeline. After trade reaches +0.5 ATR, stop moves to entry price. Converts ~13.7% of losing trades to scratch. 16/16 portfolios improved (median PnL +82%, 15/16 DD improved). |
 | Portfolio Rankings Script | `v4/rank_all_portfolios.py` | Runs 4 separate backtests per strategy (months=60/12/3/1), each starting fresh at $200K. Ranked by % return. Saves to `results/v4/portfolio_rankings.json`. 28 strategies × 4 periods = 112 backtests. |
 | Exit Ablation Deployment | `strategies/s56-s65,s80,s81`, `v4/engine.py` | Progressive trail schedule retired → flat 1.5 ATR trail across ALL 9 base strategies. bear_max_hold=12 for s80/s81. 3-round ablation study (v1/v2/v3): 10-16 configs × 28 portfolios × 4 periods. Backtest: 20/24 BETTER all-time, 24/24 improved at 12mo, 0 WORSE. Crash stress test: zero liquidations. Tools: `tools/exit_ablation_v3.py`, `tools/crash_stress_test.py`. |
-| Real-Time Exit Sentinel | `v4/stop_store.py`, `v4/price_monitor.py`, `v4/breach_detector.py`, `v4/sentinel_metrics.py`, `v4/run_sentinel.py`, `v4/paper_engine.py`, `tools/measure_stop_breach.py`, `tools/sentinel_shadow_report.py`, `tools/generate_dashboard_v2.py` | Standalone sentinel process monitors real-time Binance WS prices (perp mark price + spot ticker) between hourly ticks. Detects stop/CB/target/liquidation breaches with per-tier confirmation timers and wick filtering. Shadow mode (observation only) deployed for 17 portfolios. Dashboard Exit Sentinel tab shows live events. 550+ tests. |
+| Real-Time Exit Sentinel (DEPRECATED) | `v4/stop_store.py`, `v4/price_monitor.py`, `v4/breach_detector.py`, `v4/sentinel_metrics.py`, `v4/run_sentinel.py` | **REPLACED by integrated sub-hourly exits (2026-03-21).** Was: standalone process monitoring WS prices. Now: in-process PriceMonitor + CandleAggregator. |
+| Integrated Sub-Hourly Exits | `v4/candle_aggregator.py`, `v4/minute_exits.py`, `v4/paper_engine.py`, `v4/run_paper_multi.py`, `v4/config.py`, `sweep_exit_resolution.py` | Per-strategy `exit_resolution` (0/5/15/30m). PriceMonitor WS thread → CandleAggregator (thread-safe) → process_sub_hourly_exits on main thread every 2s. Shared `check_candle_exits()` logic between backtest and paper. OOS sweep: 8 strategies × 4 resolutions. Deployed: s56→5m, s98→30m, s106/s107→5m. 686 tests passing. Dashboard shows exit_resolution per strategy. |
 
 ### Infrastructure Roadmap (Next Wave)
 
@@ -143,8 +164,8 @@ s58, s60, s58+s60, s58+s62, s58+s65, 4-edge, s69, s72, s58+s72, s76, s58+s76, 4-
 | Priority | Item | Blocker | Notes |
 |----------|------|---------|-------|
 | **HIGH** | Per-portfolio concentration limit tuning | None | Sweep `concentration_limit` (0.10–0.30) per portfolio. Optimize for 12mo/3mo/1mo. Cross-strategy dedup already removed (finding #42). No code changes — config-only tuning in `multi_v4_paper.json`. |
-| **HIGH** | Monitor 17 paper trading pools for 50+ trades | Time | 17 pools running. Oldest (s58) at tick ~130, newest (super5-conv) at tick ~85. Need 1-3 weeks for 50+ trades on newer pools. |
-| **HIGH** | Sentinel shadow mode validation | Time (4+ weeks) | Sentinel deployed in shadow mode 2026-03-19. Need 4+ weeks of shadow data before switching to live mode. Compare sentinel exits vs hourly exits for go/no-go. |
+| **HIGH** | Monitor 7 paper trading pools | Time | 7 pools running with sub-hourly exits. Validate sub-hourly exits fire correctly (check trades.jsonl for exit_reason). |
+| **DONE** | Sub-hourly exit system | — | CLOSED 2026-03-21. Sentinel replaced with integrated WS candle monitoring. Per-strategy exit_resolution. OOS sweep completed. Deployed to production. |
 | **HIGH** | Backtest realism audit | None | cap_multiplier=15 disables ADV caps on some strategies. 5% ADV cap may be insufficient at scale. Parameter sensitivity not quantified. Mission: `.claude/.strategy-mission-backtest-realism`. |
 | **DONE** | Pump-and-dump entry filters + per-strategy risk controls | — | CLOSED 2026-03-17. Per-strategy CB, L1 range filter, L3 funding filter deployed. A/B tested 9 strategies × 4 configs (BASELINE, CB_OFF, CB_OFF_L3, CB_OFF_L1_L3) with MTM equity + fresh data through Mar 17. `StrategySpec.from_dict()` centralizes all JSON loading. 6 CB unit tests added. Commits: b9d108f (MTM fix), 0d59ff4 (per-strategy filters). |
 | **HIGH** | Evaluate conviction scoring paper results | Time + trades | 4-edge-conv (ranked) and super5-conv (hybrid) deployed. Compare vs shuffle counterparts (4-edge, super5-dyn). |
@@ -168,44 +189,42 @@ s58, s60, s58+s60, s58+s62, s58+s65, 4-edge, s69, s72, s58+s72, s76, s58+s76, 4-
 
 ### Process Management
 
-Both processes must be running for full functionality. The paper engine ticks hourly and writes stops.json; the sentinel reads them and monitors real-time prices.
+Single process handles everything — hourly ticks + sub-hourly exit monitoring via integrated WebSocket.
 
 | Process | Command | PID File | Log |
 |---------|---------|----------|-----|
 | Paper Engine | `nohup /workspace/venv/bin/python -m v4.run_paper_multi --config configs/multi_v4_paper.json > /tmp/paper_trader.log 2>&1 &` | None (use `ps aux \| grep run_paper_multi`) | `/tmp/paper_trader.log` |
-| Sentinel | `nohup /workspace/venv/bin/python -m v4.run_sentinel --config configs/multi_v4_paper.json > /tmp/sentinel.log 2>&1 &` | `state/sentinel.pid` | `/tmp/sentinel.log` |
 
-**Start order:** Paper engine first, then sentinel.
-
-**Restart sentinel:**
-```bash
-kill $(cat state/sentinel.pid) 2>/dev/null
-rm -f state/sentinel.pid
-nohup /workspace/venv/bin/python -m v4.run_sentinel --config configs/multi_v4_paper.json > /tmp/sentinel.log 2>&1 &
-```
+**No separate sentinel process.** Sub-hourly exits are handled in-process:
+- PriceMonitor WebSocket thread receives real-time prices
+- CandleAggregator buffers into N-minute candles (thread-safe)
+- Main thread flushes completed candles every 2s during sleep loop
+- Exits fire when stops/targets/CB are breached in sub-hourly candles
 
 **Price refresh (no trading):** `python -m v4.run_paper_multi --config configs/multi_v4_paper.json --refresh`
 
 **Dashboard push:** `python tools/generate_dashboard_v2.py --push`
 
-### Sentinel Modes
+### Sub-Hourly Exit Configuration
 
-| Mode | Config Value | Behavior |
-|------|-------------|----------|
-| Off | `"sentinel_mode": "off"` | No stops.json written, no monitoring |
-| Shadow | `"sentinel_mode": "shadow"` | **Current.** Logs breaches to sentinel_shadow.jsonl + sentinel_recent.json. Does NOT exit positions. |
-| Live | `"sentinel_mode": "live"` | Shadow logging + writes exit_events.jsonl. Paper engine processes exits on next tick. |
+Per-strategy `exit_resolution` in StrategySpec (set in `configs/multi_v4_paper.json`):
 
-### Sentinel State Files (per portfolio)
+| Strategy | exit_resolution | Rationale |
+|----------|----------------|-----------|
+| s56 | 5m | +0.14 Sharpe improvement (3mo OOS) |
+| s57 | 0 (hourly) | Sub-hourly makes it worse |
+| s62 | 0 (hourly) | Deeply negative Sharpe, sub-hourly won't help |
+| s65 | 0 (hourly) | Same |
+| s72 | 0 (hourly) | Same |
+| s98 | 30m | +0.05 Sharpe, +3.8% return (3mo OOS) |
+| s106 | 5m | +0.04 Sharpe, +1.7% return (3mo OOS) |
+| s107 | 5m | Mirrors s106 config |
 
-| File | Written By | Purpose |
-|------|-----------|---------|
-| `stops.json` | Paper engine (hourly) | Current stop levels for all open positions |
-| `sentinel_recent.json` | Sentinel | Ring buffer of last 50 breach events |
-| `sentinel_shadow.jsonl` | Sentinel | Full shadow log of all breach events |
-| `sentinel_heartbeat.json` | Sentinel (every 60s) | Connection status, active tokens, timestamp |
-| `sentinel_metrics.json` | Sentinel (every 5 min) | Performance metrics, uptime, breach counts |
-| `exit_events.jsonl` | Sentinel (live mode only) | Exit events for paper engine to process |
+Engine computes `_effective_exit_resolution = min(non-zero strategy resolutions)` per portfolio. Creates single CandleAggregator at that resolution. Positions whose strategy has `exit_resolution=0` are skipped during sub-hourly exit checks.
+
+### Legacy Sentinel (DEPRECATED)
+
+The sentinel (`v4/run_sentinel.py`) is no longer needed. Files `v4/stop_store.py`, `v4/breach_detector.py`, `v4/sentinel_metrics.py` are deprecated but not deleted. The dashboard "Sentinel" tab still exists but will show no new events.
 
 ---
 
