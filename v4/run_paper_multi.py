@@ -113,7 +113,8 @@ def write_portfolio_configs(configs: list[PaperConfig]) -> None:
             "mode": config.mode,
             "strategies": [
                 {"strategy_id": s.strategy_id, "weight": s.weight,
-                 "market": s.market, "max_positions": s.max_positions}
+                 "market": s.market, "max_positions": s.max_positions,
+                 "exit_resolution": s.exit_resolution}
                 for s in config.strategies
             ],
         }

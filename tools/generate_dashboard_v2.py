@@ -164,6 +164,11 @@ def build_sims_from_state_dir(state_dir: str, config_path: str = "") -> dict:
 
     # Strategy info
     strategy_specs = config.get("strategies", [])
+    # Compute effective exit resolution label
+    non_zero_res = [s.get("exit_resolution", 0) for s in strategy_specs if s.get("exit_resolution", 0) > 0]
+    effective_exit_res = min(non_zero_res) if non_zero_res else 0
+    exit_res_label = f"{effective_exit_res}m" if effective_exit_res > 0 else "hourly"
+
     if mode == "pool" and pool_name:
         strategies = [{
             "id": pool_name,
@@ -173,12 +178,15 @@ def build_sims_from_state_dir(state_dir: str, config_path: str = "") -> dict:
             "trade_count": len(trades),
             "open_positions": n_open,
             "strategies": [s.get("strategy_id", "") for s in strategy_specs],
+            "exit_resolution": exit_res_label,
+            "strategy_resolutions": {s.get("strategy_id", ""): s.get("exit_resolution", 0) for s in strategy_specs},
         }]
     else:
         strategies = [{
             "id": s.get("strategy_id", f"s{i}"),
             "name": s.get("strategy_id", f"s{i}"),
             "weight": s.get("weight", 1.0),
+            "exit_resolution": f"{s.get('exit_resolution', 0)}m" if s.get("exit_resolution", 0) > 0 else "hourly",
         } for i, s in enumerate(strategy_specs)]
 
     # Build all_trades from trades.jsonl (closed trades)
@@ -707,6 +715,7 @@ function render() {{
                 ${{st.trade_count !== undefined ? `<div class="row"><span class="k">Trades</span><span>${{st.trade_count}}</span></div>` : ''}}
                 ${{st.open_positions !== undefined ? `<div class="row"><span class="k">Open</span><span>${{st.open_positions}}</span></div>` : ''}}
                 ${{st.strategies ? `<div class="row"><span class="k">Contains</span><span>${{st.strategies.join(', ')}}</span></div>` : ''}}
+                ${{st.exit_resolution ? `<div class="row"><span class="k">Exit Res</span><span style="color:${{st.exit_resolution!=='hourly'?'#58a6ff':'#484f58'}}">${{st.exit_resolution}}</span></div>` : ''}}
             </div>`).join('')}}
         </div>
     </div>`;
