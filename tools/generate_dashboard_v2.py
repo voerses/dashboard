@@ -206,6 +206,7 @@ def build_sims_from_state_dir(state_dir: str, config_path: str = "") -> dict:
             "entry_fee": t.get("entry_fee", 0),
             "exit_fee": t.get("exit_fee", 0),
             "entry_timestamp": t.get("entry_timestamp", ""),
+            "exit_timestamp": t.get("exit_timestamp", ""),
         })
 
     # Add open positions from state.json (AC28)
@@ -259,6 +260,7 @@ def build_sims_from_state_dir(state_dir: str, config_path: str = "") -> dict:
             "regime": regime_name,
             "exit_regimes": exit_regime_names,
             "entry_timestamp": pos.get("entry_timestamp", ""),
+            "leverage": pos.get("leverage", 1),
         })
 
     # Equity history from equity.csv
@@ -796,7 +798,7 @@ function renderTrades(trades, filter) {{
         const tradeFees = (t.entry_fee||0)+(t.exit_fee||0);
         const tradeFunding = (t.funding_cost||0)+(t.cumulative_funding||0);
         const exitCol = isOpen ? fmtPrice(t.current_price) + ' <span style="color:#3fb950;font-size:0.7em">LIVE</span>' : fmtPrice(t.exit_price);
-        const reasonCol = isOpen ? '<span class="pill" style="background:#1f3d1f;color:#3fb950">LIVE</span>' : (t.exit_reason||'-');
+        const reasonCol = isOpen ? '<span class="pill" style="background:#1f3d1f;color:#3fb950">LIVE</span>' : ((t.exit_reason||'-') + (t.exit_timestamp ? '<div style="font-size:0.65em;color:#484f58">' + new Date(t.exit_timestamp).toLocaleString() + '</div>' : ''));
         const pnlLabel = '';
         // Stop / regime columns (open positions only)
         let stopCol = '-';
@@ -831,13 +833,13 @@ function renderTrades(trades, filter) {{
             <td><span class="pill ${{dir.toLowerCase()}}">${{dir}}</span></td>
             <td><span class="pill ${{mt}}">${{mt.toUpperCase()}}</span></td>
             <td style="font-size:0.75em;color:#8b949e">${{t.entry_timestamp ? new Date(t.entry_timestamp).toLocaleString() : '—'}}</td>
-            <td>${{(() => {{ if (isOpen && t.entry_timestamp) {{ const hrs = (Date.now() - new Date(t.entry_timestamp).getTime()) / 3600000; return hrs < 1 ? Math.round(hrs*60)+'m' : hrs.toFixed(1)+'h'; }} return (t.hold_bars||0)+'h'; }})()}}</td>
+            <td>${{(() => {{ if (isOpen && t.entry_timestamp) {{ const hrs = (Date.now() - new Date(t.entry_timestamp).getTime()) / 3600000; return hrs < 1 ? Math.round(hrs*60)+'m' : hrs.toFixed(1)+'h'; }} if (!isOpen && t.exit_timestamp) {{ const hrs = (new Date(t.exit_timestamp).getTime() - new Date(t.entry_timestamp||t.exit_timestamp).getTime()) / 3600000; return hrs < 1 ? Math.round(hrs*60)+'m' : hrs.toFixed(1)+'h'; }} return (t.hold_bars||0)+'h'; }})()}}</td>
             <td style="font-size:0.85em">${{fmtPrice(t.entry_price)}}</td>
             <td style="font-size:0.85em">${{exitCol}}</td>
             <td style="font-size:0.85em">${{stopCol}}</td>
             <td>${{pctStopCol}}</td>
             <td style="font-size:0.75em">${{regimeCol}}</td>
-            <td>$${{fmt(t.margin_usd||0)}}</td>
+            <td>${{(() => {{ const m = t.margin_usd||0; const lev = t.leverage||1; if (lev > 1) {{ return '$$' + fmt(m) + '<div style="font-size:0.65em;color:#bc8cff">' + lev + 'x → $$' + fmt(m*lev) + '</div>'; }} return '$$' + fmt(m); }})()}}</td>
             <td class="${{pc(pnl)}}" style="font-weight:600">${{pnlLabel}}${{fmtUsd(pnl)}}</td>
             <td class="r">${{tradeFees===0?'—':'-$'+fmt(tradeFees)}}</td>
             <td class="${{pc(-tradeFunding)}}">${{tradeFunding===0?(mt==='perp'?'$0':'—'):(-tradeFunding<0?'-':'')+'$'+fmt(Math.abs(tradeFunding))}}</td>

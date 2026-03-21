@@ -294,6 +294,7 @@ def _closed_trade_to_dict(trade: ClosedTrade, tick: Optional[int] = None) -> dic
         "exit_reason": trade.exit_reason,
         "is_perp": bool(trade.is_perp),
         "entry_timestamp": trade.entry_timestamp,
+        "exit_timestamp": trade.exit_timestamp,
     }
     if tick is not None:
         d["tick"] = tick

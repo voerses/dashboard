@@ -267,6 +267,7 @@ class PaperPortfolioEngine:
                 entry_fee=entry_fee,
                 exit_fee=exit_fee,
                 exit_reason=event.exit_reason,
+                exit_timestamp=event.sentinel_timestamp,
             )
 
             # Update state accounting
@@ -368,6 +369,7 @@ class PaperPortfolioEngine:
     def _handle_disappeared_tokens(
         self,
         all_signals: dict[str, dict],
+        timestamp: str = "",
     ) -> None:
         """Pre-scan for tokens with open positions that are no longer in signals.
 
@@ -414,6 +416,7 @@ class PaperPortfolioEngine:
                 entry_fee=entry_fee,
                 exit_fee=exit_fee,
                 exit_reason="data_end",
+                exit_timestamp=timestamp,
             )
 
             st.realized_pnl += raw_pnl
@@ -445,6 +448,7 @@ class PaperPortfolioEngine:
                         entry_fee=linked_entry_fee,
                         exit_fee=linked_exit_fee,
                         exit_reason="data_end",
+                        exit_timestamp=timestamp,
                     )
                     linked_st.realized_pnl += linked_raw_pnl
                     linked_st.total_fees += linked_exit_fee
@@ -482,6 +486,7 @@ class PaperPortfolioEngine:
 
     def _emergency_close_all(self) -> None:
         """Emergency close all open positions at last known prices."""
+        emergency_ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         # Collect all positions across all states (works in both modes)
         positions_to_close = []
         for st in self._get_all_states():
@@ -505,6 +510,7 @@ class PaperPortfolioEngine:
                 entry_fee=entry_fee,
                 exit_fee=exit_fee,
                 exit_reason="emergency",
+                exit_timestamp=emergency_ts,
             )
             # Match simulator._close_position: raw_pnl to realized, fees tracked separately
             st.realized_pnl += raw_pnl
@@ -737,7 +743,7 @@ class PaperPortfolioEngine:
         bar_maps = self._build_bar_maps(all_signals, self.tick_counter)
 
         # --- Step 5: Handle disappeared tokens ---
-        self._handle_disappeared_tokens(all_signals)
+        self._handle_disappeared_tokens(all_signals, timestamp=timestamp)
 
         # --- Step 5b: Dynamic weight adjustment (if enabled) ---
         self._apply_dynamic_weights(all_signals, bar_maps)
@@ -755,6 +761,15 @@ class PaperPortfolioEngine:
             for pos in st.position_manager.open_positions:
                 if not pos.entry_timestamp:
                     pos.entry_timestamp = timestamp
+
+        # --- Step 6c: Stamp exit_timestamp on newly closed trades missing it ---
+        # Simulator-driven exits don't have access to wall-clock time, so we
+        # stamp them here. Sentinel exits already have exit_timestamp set from
+        # event.sentinel_timestamp and are skipped.
+        for st in self._get_all_states():
+            for trade in st.position_manager.closed_trades:
+                if not trade.exit_timestamp:
+                    trade.exit_timestamp = timestamp
 
         # --- Step 7: Update last known prices ---
         self._update_last_known_prices(all_signals, bar_maps)
@@ -1246,6 +1261,36 @@ class PaperPortfolioEngine:
             except OSError:
                 pass
 
+        # Re-persist state.json so dashboard picks up fresh last_known_prices
+        if updated > 0:
+            refresh_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            state_path = os.path.join(state_dir, "state.json")
+            if self.state is not None:
+                atomic_write_state(
+                    self.state,
+                    self.tick_counter,
+                    refresh_ts,
+                    state_path,
+                    last_known_prices=dict(self._last_known_prices),
+                    last_known_regimes=dict(self._last_known_regimes),
+                )
+            else:
+                from v4.paper_state import serialize_engine_state
+                data = serialize_engine_state(
+                    dict(self.strategy_states), self.tick_counter, refresh_ts,
+                    mode="independent",
+                    last_known_prices=dict(self._last_known_prices),
+                    last_known_regimes=dict(self._last_known_regimes),
+                )
+                import tempfile as _tmpfile2
+                fd2, tmp2 = _tmpfile2.mkstemp(dir=state_dir, suffix=".tmp")
+                os.close(fd2)
+                with open(tmp2, "w") as f2:
+                    json.dump(data, f2, indent=2)
+                    f2.flush()
+                    os.fsync(f2.fileno())
+                os.rename(tmp2, state_path)
+
         return {"tokens": updated, "mtm": mtm, "elapsed": elapsed}
 
     # ------------------------------------------------------------------
@@ -1372,6 +1417,8 @@ class PaperPortfolioEngine:
                 "funding_cost": t.funding_cost,
                 "entry_fee": t.entry_fee,
                 "exit_fee": t.exit_fee,
+                "entry_timestamp": t.entry_timestamp,
+                "exit_timestamp": t.exit_timestamp,
             })
 
         # AC28: Include open positions with status="open"

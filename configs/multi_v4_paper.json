@@ -12,7 +12,7 @@
     "drawdown_alert_pct": 5.0,
     "shadow_rebalance_threshold": 100.0,
     "dashboard_push": true,
-    "sentinel_mode": "shadow"
+    "sentinel_mode": "live"
   },
   "portfolios": [
     {
@@ -108,6 +108,40 @@
       "max_portfolio_positions": 15,
       "concentration_limit": 0.2,
       "state_dir": "state/v4_paper_s98/"
+    },
+    {
+      "pool_name": "s106",
+      "initial_capital": 200000.0,
+      "mode": "pool",
+      "strategies": [
+        {
+          "strategy_id": "s106",
+          "weight": 1.0,
+          "market": "perp",
+          "max_positions": 15,
+          "pump_filter_funding_zscore": 3.0
+        }
+      ],
+      "max_portfolio_positions": 15,
+      "concentration_limit": 0.2,
+      "state_dir": "state/v4_paper_s106/"
+    },
+    {
+      "pool_name": "s107",
+      "initial_capital": 200000.0,
+      "mode": "pool",
+      "strategies": [
+        {
+          "strategy_id": "s107",
+          "weight": 1.0,
+          "market": "perp",
+          "max_positions": 15,
+          "pump_filter_funding_zscore": 3.0
+        }
+      ],
+      "max_portfolio_positions": 15,
+      "concentration_limit": 0.2,
+      "state_dir": "state/v4_paper_s107/"
     }
   ]
 }

@@ -77,6 +77,7 @@ class ClosedTrade:
     exit_reason: str            # "stop","target","regime","max_hold","liquidation","rsi","mean_target","funding","data_end","margin_call","linked_exit","partial_tp"
     is_perp: bool = False
     entry_timestamp: str = ""   # wall-clock time when opened (paper trading)
+    exit_timestamp: str = ""    # wall-clock time when closed (paper trading)
 
 
 class PositionManager:
@@ -99,6 +100,7 @@ class PositionManager:
         entry_fee: float,
         exit_fee: float,
         exit_reason: str,
+        exit_timestamp: str = "",
     ) -> ClosedTrade:
         self.open_positions.remove(pos)
         trade = ClosedTrade(
@@ -120,6 +122,7 @@ class PositionManager:
             exit_reason=exit_reason,
             is_perp=pos.is_perp,
             entry_timestamp=pos.entry_timestamp,
+            exit_timestamp=exit_timestamp,
         )
         self.closed_trades.append(trade)
         return trade
