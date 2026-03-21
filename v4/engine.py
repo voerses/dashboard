@@ -463,6 +463,80 @@ def _compute_enriched_signals(ctx: StrategyContext):
             ctx.custom[f'enr_{col}'] = mapped
 
 
+@register_indicator
+def _compute_obv_divergence(ctx: StrategyContext):
+    """OBV slope vs price slope divergence — detects accumulation/distribution."""
+    close = ctx.ind_1h['close']
+    obv = ctx.custom.get('obv')
+    if obv is None:
+        return
+    n = len(close)
+    lookback = 20
+    # Price slope: normalized change over lookback
+    price_slope = np.zeros(n)
+    price_slope[lookback:] = (close[lookback:] - close[:-lookback]) / np.maximum(close[:-lookback], 1e-10)
+    # OBV slope: normalized change over lookback
+    obv_slope_norm = np.zeros(n)
+    obv_range = np.abs(obv[lookback:] - obv[:-lookback])
+    obv_mean = rolling_mean(np.abs(obv), lookback * 2)
+    obv_slope_norm[lookback:] = (obv[lookback:] - obv[:-lookback]) / np.maximum(obv_mean[lookback:], 1e-10)
+    # Divergence: OBV rising while price flat/falling = accumulation (positive)
+    # OBV falling while price flat/rising = distribution (negative)
+    ctx.custom['obv_divergence'] = obv_slope_norm - price_slope
+    ctx.custom['price_slope'] = price_slope
+
+
+@register_indicator
+def _compute_momentum_accel(ctx: StrategyContext):
+    """Second derivative of price — momentum acceleration."""
+    ret_6h = ctx.custom.get('ret_6h')
+    if ret_6h is None:
+        return
+    n = len(ret_6h)
+    accel = np.zeros(n)
+    accel[6:] = ret_6h[6:] - ret_6h[:-6]
+    ctx.custom['momentum_accel'] = accel
+
+
+@register_indicator
+def _compute_funding_zscore(ctx: StrategyContext):
+    """Rolling z-score of funding rate — extreme positioning detection."""
+    if ctx.funding_raw is None:
+        ctx.custom['funding_zscore'] = np.zeros(len(ctx.ind_1h['close']))
+        return
+    ctx.custom['funding_zscore'] = rolling_zscore(ctx.funding_raw, 168)  # 7-day rolling window
+
+
+@register_indicator
+def _compute_squeeze_intensity(ctx: StrategyContext):
+    """How deep into squeeze: 1 - (bb_width / bb_avg). 0=normal, 1=max compression."""
+    bb_width = ctx.ind_1h['bb_width']
+    bb_avg = rolling_mean(bb_width, 240)  # 10-day rolling average
+    ratio = bb_width / np.maximum(bb_avg, 1e-10)
+    intensity = np.clip(1.0 - ratio, 0.0, 1.0)
+    ctx.custom['squeeze_intensity'] = intensity
+
+
+@register_indicator
+def _compute_multi_tf_alignment(ctx: StrategyContext):
+    """Score combining 1H/4H/daily trend agreement (0-3)."""
+    n = len(ctx.ind_1h['close'])
+
+    # 1H trend: MACD > 0
+    score_1h = (ctx.ind_1h['macd'] > 0).astype(np.float64)
+
+    # 4H trend: MACD > 0 (aligned to 1H)
+    macd_4h = ctx.align_4h_to_1h(ctx.ind_4h['macd'])
+    score_4h = (macd_4h > 0).astype(np.float64)
+
+    # Daily trend: EMA20 > EMA50 (aligned to 1H)
+    ema20_d = ctx.align_daily_to_1h(ctx.ind_d['ema_20'])
+    ema50_d = ctx.align_daily_to_1h(ctx.ind_d['ema_50'])
+    score_d = (ema20_d > ema50_d).astype(np.float64)
+
+    ctx.custom['multi_tf_alignment'] = score_1h + score_4h + score_d
+
+
 # =============================================================================
 # Vectorized Rolling Helpers (for strategy authors — avoid Python loops)
 # =============================================================================
