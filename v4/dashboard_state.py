@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from v4.paper_config import PaperConfig
     from v4.paper_engine import PaperPortfolioEngine
 
-# Default output path for Caddy to serve
+# Default output path (external HTTP server reads from here)
 DEFAULT_STATE_PATH = "/srv/data/state.json"
 
 # Rolling window caps to keep state.json small
@@ -31,6 +31,7 @@ def write_dashboard_state(
     configs: list[PaperConfig],
     path: str = DEFAULT_STATE_PATH,
     include_sentinel: bool = False,
+    runner_status: str = "idle",
 ) -> None:
     """Write a combined dashboard state file for all portfolios.
 
@@ -39,6 +40,7 @@ def write_dashboard_state(
         configs: Corresponding PaperConfig objects.
         path: Output path (default: /srv/data/state.json).
         include_sentinel: If True, include sentinel data from state_dir files.
+        runner_status: One of "idle", "fetching", "ticking".
     """
     # Collect live WebSocket prices from any engine that has a PriceMonitor
     # (typically only the first portfolio has one; share prices across all)
@@ -61,6 +63,7 @@ def write_dashboard_state(
         "version": 1,
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "runner_pid": os.getpid(),
+        "runner_status": runner_status,
         "portfolios": portfolios,
     }
 

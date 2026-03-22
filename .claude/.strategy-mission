@@ -135,7 +135,8 @@ notes: |
     PID file: state/v4_paper_multi/paper.pid
     Start: rm -f state/v4_paper_multi/paper.pid && nohup /workspace/venv/bin/python -u -m v4.run_paper_multi --config configs/multi_v4_paper.json > /tmp/runner.log 2>&1 &
     Stop: kill $(cat state/v4_paper_multi/paper.pid)
-  Dashboard: Live at http://localhost/ (Caddy). Updates every 1s via /srv/data/state.json.
+  Dashboard: Live at http://localhost/. HTTP server is external (not managed by us).
+    - Deploy files to /srv/dashboard/current/ and /srv/data/ only — never look for or manage a web server.
     - v4/dashboard_state.py writes state.json (trades.jsonl + equity.csv + live WS prices)
     - In-place tab updates (no DOM rebuild, no click swallowing)
     - Numpy serialization via _json_default() (no string values)

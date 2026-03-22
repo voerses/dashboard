@@ -3,7 +3,7 @@
 > **Last updated:** 2026-03-22T09:55Z
 > **Process mode:** strategy (paper trading monitoring — Gate 6)
 > **Active:** V4 multi-portfolio paper trading: **7 pools**. Runner: `ps aux | grep run_paper_multi | grep -v grep` to find current PID. If restart needed: `kill <PID> && rm -f state/v4_paper_multi/paper.pid && nohup /workspace/venv/bin/python -u -m v4.run_paper_multi --config configs/multi_v4_paper.json > /tmp/runner.log 2>&1 &`
-> **Dashboard:** Live at `http://localhost/` (Caddy container). Updates every 1s via `/data/state.json`. See Operations section below.
+> **Dashboard:** Live at `http://localhost/`. HTTP server is external (not managed by us) — we only deploy files to `/srv/dashboard/current/` and `/srv/data/`. Updates every 1s via `/data/state.json`. See Operations section below.
 > **Sentinel:** REPLACED by integrated sub-hourly exits (2026-03-21). No separate sentinel process. Exit monitoring is now in-process via PriceMonitor WebSocket + CandleAggregator.
 > **Engine consolidation (v3→v4):** Completed 2026-03-14. Single simulation path via v4/simulator.py.
 > **v3/ is FROZEN LEGACY — do NOT modify.** All imports point to v4/. v3/ exists only as historical reference.
@@ -98,7 +98,7 @@ Consolidated from 17 pools to 7 pools as part of sub-hourly exit deployment. Foc
 | Gate 5.5 Portfolio Assembly | `results/correlation_*.json`, `results/regime_analysis_*.json` | **Updated with trail overlays.** Optimal 4-strat: s44(35%)+s29(30%)+s37(20%)+s32(15%). Sharpe 6.53, MaxDD -2.2%. Previous: s30(40%)+s32(25%)+s29(20%)+s11(15%), Sharpe ~4.4. |
 | Data Infrastructure | `data/1h_cache/` | Spot: Binance 116 tokens. Perp: Binance 165, Kraken 314, Hyperliquid 52. 1H candles 2020-2026. |
 | Data Pipeline Separation (v5.0) | `v4/data_loader.py`, `v4/live_fetcher.py`, `v4/manifest.py`, `v4/signals.py`, `v4/portfolio_signals.py`, `tools/promote_live.py`, `tools/build_parquet_cache.py` | kdb+-inspired RDB/HDB pattern. Live fetcher writes to `data/{market}/live/`, historical stays in `1h_cache/`. `load_token_data()` merges at read time with memory-efficient overlap handling (split into update/gap-fill/new). `promote_live.py` rolls live→historical with QC + SHA-256 manifests + atomic writes. `load_token_data_at(as_of, use_manifest)` enables reproducible backtests. 4 adversarial review rounds, 35 fixes (4 CRITICAL, 8 HIGH, 12 MEDIUM, 11 LOW). 627 tests pass. Tagged v5.0. |
-| Dashboard (Legacy GitHub Pages) | `tools/generate_dashboard.py`, `simulations.json` | **SUPERSEDED by live dashboard.** Was: self-contained HTML for simulation runs, pushed to gh-pages. Now: live polling dashboard at `/srv/dashboard/current/` served by Caddy. |
+| Dashboard (Legacy GitHub Pages) | `tools/generate_dashboard.py`, `simulations.json` | **SUPERSEDED by live dashboard.** Was: self-contained HTML for simulation runs, pushed to gh-pages. Now: live polling dashboard deployed to `/srv/dashboard/current/`. |
 | s33 Engine Support | `v3/engine.py` | Array support for `stop_mult`/`trail_mult` in StrategyResult + JIT. Enables per-bar dynamic stops (needed for leverage-scaled stops). |
 | s33 Leveraged Conviction Perp | `strategies/s33_leveraged_conviction_perp.py` | Conviction-scored leverage (1-10x), Moreira-Muir inverse vol scaling, bidirectional. **Currently losing -15.1% in backtest — needs investigation before paper trading.** |
 | `size_multiplier` Engine Support | `v3/engine.py`, `v3/validation.py` | Generic `size_multiplier` field in StrategyResult (float or np.ndarray, default 1.0). Applied in `_simulate` and `_simulate_combined`. Forwarded in WF masked result construction. Enables strategy-configured sizing overlays without engine-specific logic. |
@@ -121,7 +121,7 @@ Consolidated from 17 pools to 7 pools as part of sub-hourly exit deployment. Foc
 | Signal Portfolio Module | `tools/signal_portfolio/` | Token clustering by signal profiles, IC-weighted composite signals, strategy generation, walk-forward optimization. Designed but not yet run end-to-end. |
 | Paper Trading Engine Rewrite | `run_paper_live.py`, `v3/paper_engine.py` | Full parity with backtest engine: trade management (stop/trail/target/max_hold per tick), slippage model (3bps + sqrt(participation)), ADV-based Kelly sizing, funding sign fix, edge threshold, regime min hold, capital split, liquidation for all shorts. 10 tests passing. |
 | Live Paper Trading (V3) | `state/paper_live/` | **Superseded by V4.** Previously: 4 strategies (s30, s32, s54, s58), 95 tokens, $800K. |
-| Live Paper Trading (V4) | `state/v4_paper/` | V4 paper trading: s58 portfolio (s56+s57), $200K capital, Binance. Fresh start Mar 10. Live dashboard via Caddy. |
+| Live Paper Trading (V4) | `state/v4_paper/` | V4 paper trading: s58 portfolio (s56+s57), $200K capital, Binance. Fresh start Mar 10. Live dashboard deployed to `/srv/dashboard/current/`. |
 | Time-Trail Engine Support | `v4/simulator.py`, `v4/signals.py`, `v4/position.py`, `v4/paper_state.py`, `v3/engine.py` | `time_trail_schedule` field on Position, TokenSignals, StrategyResult. Applied as `min(profit_trail, time_trail)` in simulator trailing stop logic. Serialized/deserialized for paper trading state persistence. |
 | Time-Trail Overlay Strategies | `strategies/s69_s56_time_trail.py`, `strategies/s70_s60_time_trail.py`, `strategies/s72_s65_time_trail.py` | Wrapper strategies adding aggressive time-based trail tightening to s56, s60, s65. Gate 5O validated: Calmar +13-148%, DD improved. Deployed to paper trading. |
 | Fixed TP Overlay (s75) | `strategies/s75_s63_fixed_tp.py` | s63 counter-trend + target_mult=3.0. Locks in MR profits before trend resumes. Gate 5O: Calmar +17.6%, Return +18.5%, avg winner +22.7%. Deployed to paper trading. |
@@ -211,7 +211,7 @@ Single process handles everything — hourly ticks + sub-hourly exit monitoring 
 
 ### Live Dashboard
 
-**Architecture:** Caddy container serves static HTML from `/srv/dashboard/current/` + live data from `/srv/data/state.json`. The runner writes `state.json` every 1 second with live WebSocket prices.
+**Architecture:** An external HTTP server (not managed by us) serves files from `/srv/dashboard/current/` and `/srv/data/`. We only deploy files to those folders — never look for or manage a web server process (no Caddy, no serve_dashboard.py). The runner writes `state.json` every 1 second with live WebSocket prices.
 
 | Path | Source | Description |
 |------|--------|-------------|
@@ -231,7 +231,7 @@ mv -T /srv/dashboard/current.new /srv/dashboard/current
 ```
 
 **Key constraints:**
-- All files must be chmod 644 (Caddy container needs read access via shared Docker volume)
+- All files must be chmod 644 (external HTTP server needs read access)
 - `tempfile.mkstemp` creates 600 perms by default — `dashboard_state.py` adds `os.chmod(0o644)` before rename
 - CSP header `script-src 'self'` blocks CDN scripts — Plotly must be bundled locally
 - state.json uses `_json_default()` handler that converts numpy scalars to native Python types (int/float) — avoids string serialization issues

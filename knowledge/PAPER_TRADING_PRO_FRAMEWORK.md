@@ -279,7 +279,7 @@ Before switching from shadow to live mode:
 
 ### Dashboard Monitoring
 
-The live dashboard (served by Caddy at `/srv/dashboard/current/`, polling `/srv/data/state.json`) shows exit information including:
+The live dashboard (files deployed to `/srv/dashboard/current/`, polling `/srv/data/state.json` via external HTTP server) shows exit information including:
 
 - **Connection status:** WS connected/disconnected, last heartbeat timestamp
 - **24h summary:** Breach events in last 24 hours, confirmed vs filtered

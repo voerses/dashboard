@@ -354,14 +354,32 @@ def main(argv: list[str] | None = None) -> None:
 
     try:
         while not shutdown.is_set():
+            # Step 1: Fetch data once for all portfolios.
+            # Keep dashboard alive during fetch via background heartbeat —
+            # engines are idle so it's safe to read their state from another thread.
+            _heartbeat_stop = threading.Event()
+            if live_dashboard:
+                def _heartbeat():
+                    while not _heartbeat_stop.wait(1.0):
+                        try:
+                            write_dashboard_state(
+                                engines, configs, runner_status="fetching",
+                            )
+                        except Exception:
+                            pass
+                _hb = threading.Thread(target=_heartbeat, daemon=True)
+                _hb.start()
+
             try:
-                # Step 1: Fetch data once for all portfolios
                 fetch_ok, fetch_err, bars_appended, _ = fetch_all_data(shared_fetcher, configs)
             except Exception:
                 logger.exception("Data fetch failed")
+                _heartbeat_stop.set()
                 if shutdown.wait(60):
                     break
                 continue
+            finally:
+                _heartbeat_stop.set()
 
             # Stale-data guard: skip tick if no new bars were appended
             # (all fetches failed = network down, no point ticking on stale data)
@@ -401,6 +419,15 @@ def main(argv: list[str] | None = None) -> None:
 
                 for alert in result.alerts:
                     logger.warning("[%s] ALERT: %s", config.pool_name, alert)
+
+                # Write state between ticks so dashboard stays alive
+                if live_dashboard:
+                    try:
+                        write_dashboard_state(
+                            engines, configs, runner_status="ticking",
+                        )
+                    except Exception:
+                        pass
 
             # Step 3: Write live dashboard state
             if any_success and live_dashboard:
