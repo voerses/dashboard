@@ -10,7 +10,7 @@ baseline:
   best_12mo: s60 — +16,013% ($200K→$32M), MaxDD -7.2%
   best_march: s60 — +109% ($200K→$419K), MaxDD -0.7%
 done_when: 50+ trades per pool; overlays/conviction/dynamic-weights match backtest improvement direction
-paper_trader_pid: 49388
+paper_trader_pid: check_dynamically  # Use: ps aux | grep run_paper_multi | grep -v grep
 notes: |
 
   ╔══════════════════════════════════════════════════════════════════╗
@@ -130,9 +130,13 @@ notes: |
 
   === INFRASTRUCTURE STATE ===
 
-  Runner: PID 49388, 7 pools, $1.4M total paper capital. Log: /tmp/runner.log
+  Runner: 7 pools, $1.4M total paper capital. Log: /tmp/runner.log
+    Check: ps aux | grep run_paper_multi | grep -v grep
+    PID file: state/v4_paper_multi/paper.pid
+    Start: rm -f state/v4_paper_multi/paper.pid && nohup /workspace/venv/bin/python -u -m v4.run_paper_multi --config configs/multi_v4_paper.json > /tmp/runner.log 2>&1 &
+    Stop: kill $(cat state/v4_paper_multi/paper.pid)
   Dashboard: Live at http://localhost/ (Caddy). Updates every 1s via /srv/data/state.json.
-    - Loads full trade history from trades.jsonl + equity history from equity.csv
+    - v4/dashboard_state.py writes state.json (trades.jsonl + equity.csv + live WS prices)
     - In-place tab updates (no DOM rebuild, no click swallowing)
     - Numpy serialization via _json_default() (no string values)
     - Plotly bundled locally (CSP blocks CDN). Files chmod 644.
