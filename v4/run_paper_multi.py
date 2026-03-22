@@ -24,6 +24,7 @@ from v4.config import StrategySpec
 from v4.paper_engine import PaperPortfolioEngine
 from v4.signals import discover_tokens
 from v4.paper_utils import restore_state, acquire_pid_lock, compute_sleep_until_next_hour
+from v4.dashboard_state import write_dashboard_state
 
 logger = logging.getLogger(__name__)
 
@@ -176,37 +177,6 @@ def fetch_all_data(fetcher, all_configs: list[PaperConfig]) -> tuple[int, int, i
 
 
 # ---------------------------------------------------------------------------
-# Dashboard
-# ---------------------------------------------------------------------------
-
-def push_combined_dashboard(configs: list[PaperConfig]) -> None:
-    """Generate dashboard with all portfolios as tabs and push to gh-pages."""
-    try:
-        import importlib
-        import tools.generate_dashboard_v2 as _dash_mod
-        importlib.reload(_dash_mod)
-        from tools.generate_dashboard_v2 import (
-            build_sims_from_state_dir, generate_html, push_to_ghpages,
-        )
-        from pathlib import Path
-
-        all_sims = []
-        for config in configs:
-            cfg_path = os.path.join(config.state_dir, "config.json")
-            sim = build_sims_from_state_dir(config.state_dir, cfg_path)
-            all_sims.append(sim)
-
-        html = generate_html(all_sims, source="runner")
-        out_path = Path("docs") / "index.html"
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(html)
-        push_to_ghpages(out_path)
-        logger.info("Dashboard pushed to gh-pages (%d tabs)", len(all_sims))
-    except Exception:
-        logger.exception("Dashboard push failed (non-fatal)")
-
-
-# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -224,6 +194,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="Fetch and print current prices for all tokens. No PID lock needed.")
     parser.add_argument("--refresh", action="store_true",
                         help="Send SIGUSR1 to running process to trigger a live price refresh + dashboard push.")
+    parser.add_argument("--no-live-dashboard", action="store_true",
+                        help="Disable live state.json writes (1s polling dashboard)")
     return parser.parse_args(argv)
 
 
@@ -354,7 +326,7 @@ def main(argv: list[str] | None = None) -> None:
     signal.signal(signal.SIGTERM, shutdown_handler)
     signal.signal(signal.SIGUSR1, refresh_handler)
 
-
+    live_dashboard = not args.no_live_dashboard
 
     portfolio_names = [c.pool_name for c in configs]
     logger.info(
@@ -372,7 +344,11 @@ def main(argv: list[str] | None = None) -> None:
                 config.pool_name, result.tick_counter, result.entries, result.exits,
                 result.open_positions, result.portfolio_equity, result.mark_to_market_equity,
             )
-        push_combined_dashboard(configs)
+        if live_dashboard:
+            try:
+                write_dashboard_state(engines, configs, include_sentinel=True)
+            except Exception:
+                logger.exception("Live dashboard state write failed (non-fatal)")
         lock_file.close()
         return
 
@@ -426,27 +402,36 @@ def main(argv: list[str] | None = None) -> None:
                 for alert in result.alerts:
                     logger.warning("[%s] ALERT: %s", config.pool_name, alert)
 
-            # Step 3: Push combined dashboard
-            if any_success:
-                push_combined_dashboard(configs)
+            # Step 3: Write live dashboard state
+            if any_success and live_dashboard:
+                try:
+                    write_dashboard_state(engines, configs, include_sentinel=True)
+                except Exception:
+                    logger.exception("Live dashboard state write failed (non-fatal)")
 
             # Step 4: Start/restart PriceMonitor for sub-hourly exits (after first tick)
+            # Collect ALL open tokens across ALL portfolios (shared WebSocket feed)
+            all_open_tokens = set()
+            for engine in engines:
+                for st in engine._get_all_states():
+                    for pos in st.position_manager.open_positions:
+                        all_open_tokens.add(pos.token)
             for engine, config in zip(engines, configs):
                 if engine._price_monitor is None:
                     continue
                 ws_thread = engine._price_monitor._ws_thread
-                ws_needs_start = ws_thread is None or not ws_thread.is_alive()
-                if ws_needs_start:
-                    open_tokens = set()
-                    for st in engine._get_all_states():
-                        for pos in st.position_manager.open_positions:
-                            open_tokens.add(pos.token)
-                    if open_tokens:
-                        engine._price_monitor.connect(list(open_tokens))
-                        logger.info(
-                            "[%s] PriceMonitor started (%d tokens, %dm resolution)",
-                            config.pool_name, len(open_tokens), engine._effective_exit_resolution,
-                        )
+                ws_alive = ws_thread is not None and ws_thread.is_alive()
+                # Always reconnect after tick to pick up new tokens / drop closed ones
+                if all_open_tokens:
+                    if ws_alive:
+                        engine._price_monitor.disconnect()
+                    engine._price_monitor.connect(list(all_open_tokens))
+                    logger.info(
+                        "[%s] PriceMonitor started (%d tokens, %dm resolution)",
+                        config.pool_name, len(all_open_tokens), engine._effective_exit_resolution,
+                    )
+                elif ws_alive:
+                    engine._price_monitor.disconnect()
 
             # Reset consecutive error counters for sub-hourly checks
             _candle_errors: dict[int, int] = {}
@@ -456,8 +441,8 @@ def main(argv: list[str] | None = None) -> None:
             logger.info("Sleeping %.0fs until next hour", sleep_s)
             deadline = time.time() + sleep_s
             while time.time() < deadline and not shutdown.is_set():
-                # Short waits so SIGUSR1 handler's event gets picked up quickly
-                shutdown.wait(2.0)
+                # Short waits for live dashboard updates + SIGUSR1 pickup
+                shutdown.wait(1.0)
 
                 if refresh_requested.is_set():
                     refresh_requested.clear()
@@ -473,7 +458,11 @@ def main(argv: list[str] | None = None) -> None:
                             )
                         except Exception:
                             logger.exception("[%s] Price refresh failed", config.pool_name)
-                    push_combined_dashboard(configs)
+                    if live_dashboard:
+                        try:
+                            write_dashboard_state(engines, configs, include_sentinel=True)
+                        except Exception:
+                            logger.exception("Live dashboard state write failed (non-fatal)")
                     logger.info("Price refresh complete (%.1fs total)", time.time() - t0)
 
                 # Sub-hourly exit check: flush completed candles and process exits
@@ -497,6 +486,13 @@ def main(argv: list[str] | None = None) -> None:
                                     "[%s] Suppressing repeated sub-hourly errors until next tick",
                                     config.pool_name,
                                 )
+
+                # Live dashboard: write state.json with current prices
+                if live_dashboard:
+                    try:
+                        write_dashboard_state(engines, configs, include_sentinel=False)
+                    except Exception:
+                        pass  # non-fatal, no log spam at 1s interval
 
             if shutdown.is_set():
                 break

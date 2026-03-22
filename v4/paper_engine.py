@@ -1683,6 +1683,10 @@ class PaperPortfolioEngine:
             all_closed_trades.extend(st.position_manager.closed_trades)
 
         # Build strategy info
+        def _exit_res_label(val: int) -> str:
+            if val <= 0: return "hourly"
+            return f"{val}min"
+
         if config.mode == "pool" and config.pool_name:
             strategies = [{
                 "id": config.pool_name,
@@ -1692,12 +1696,14 @@ class PaperPortfolioEngine:
                 "trade_count": len(all_closed_trades),
                 "open_positions": self._aggregate_open_positions(),
                 "strategies": [s.strategy_id for s in config.strategies],
+                "exit_resolution": _exit_res_label(self._effective_exit_resolution),
             }]
         else:
             strategies = [{
                 "id": s.strategy_id,
                 "name": s.strategy_id,
                 "weight": s.weight,
+                "exit_resolution": _exit_res_label(s.exit_resolution),
             } for s in config.strategies]
 
         # Build all_trades (closed + open)
@@ -1730,6 +1736,8 @@ class PaperPortfolioEngine:
 
         # AC28: Include open positions with status="open"
         last_prices = getattr(self, '_last_known_prices', {})
+        last_regimes = getattr(self, '_last_known_regimes', {})
+        regime_names = {0: "CRISIS", 1: "QUIET", 2: "UPTREND", 3: "RANGE", 4: "DOWNTREND"}
         all_entry_fees = self._get_all_entry_fees()
         for st in self._get_all_states():
             for pos in st.position_manager.open_positions:
@@ -1738,6 +1746,20 @@ class PaperPortfolioEngine:
                 entry_fee = all_entry_fees.get(pos.position_id, 0.0)
                 # Net unrealized: deduct known costs (entry fee + accrued funding)
                 unrealized_pnl = raw_unrealized - entry_fee - pos.cumulative_funding
+                # Stop distance
+                stop_price = pos.stop_price
+                if stop_price and current_price:
+                    if pos.direction == 1:
+                        pct_to_stop = (current_price - stop_price) / current_price * 100
+                    else:
+                        pct_to_stop = (stop_price - current_price) / current_price * 100
+                else:
+                    pct_to_stop = 0
+                # Regime
+                regime_id = last_regimes.get(pos.token, -1)
+                regime_name = regime_names.get(regime_id, "N/A")
+                exit_regime_names = [regime_names.get(r, str(r)) for r in pos.exit_regimes]
+                hold_bars = self.tick_counter - pos.entry_bar
                 all_trades.append({
                     "token": pos.token,
                     "strategy": pos.strategy_id,
@@ -1751,6 +1773,15 @@ class PaperPortfolioEngine:
                     "entry_bar": pos.entry_bar,
                     "cumulative_funding": pos.cumulative_funding,
                     "entry_fee": entry_fee,
+                    "hold_bars": hold_bars,
+                    "stop_price": stop_price,
+                    "no_stop_bars": pos.no_stop_bars,
+                    "stop_active": hold_bars >= pos.no_stop_bars or pos.convex_exit,
+                    "pct_to_stop": round(pct_to_stop, 2),
+                    "regime": regime_name,
+                    "exit_regimes": exit_regime_names,
+                    "entry_timestamp": pos.entry_timestamp,
+                    "leverage": pos.leverage,
                 })
 
         # Equity history

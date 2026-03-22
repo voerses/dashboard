@@ -279,7 +279,7 @@ Before switching from shadow to live mode:
 
 ### Dashboard Monitoring
 
-The dashboard (`tools/generate_dashboard_v2.py --push`) includes an **Exit Sentinel** tab showing:
+The live dashboard (served by Caddy at `/srv/dashboard/current/`, polling `/srv/data/state.json`) shows exit information including:
 
 - **Connection status:** WS connected/disconnected, last heartbeat timestamp
 - **24h summary:** Breach events in last 24 hours, confirmed vs filtered
@@ -288,7 +288,7 @@ The dashboard (`tools/generate_dashboard_v2.py --push`) includes an **Exit Senti
 - **Grace period labels:** Shows "grace Xh" for positions where `stop_active=False` (still in no_stop_bars window)
 - **BE tags:** Shows "BE" when stop_price equals entry_price (breakeven ratchet engaged)
 
-The sentinel auto-triggers a dashboard push on each confirmed breach event, so the dashboard stays current without manual intervention.
+The dashboard updates every 1 second with live WebSocket prices, reflecting sub-hourly exit events as they happen.
 
 ### Key Behaviors to Know
 

@@ -1,8 +1,9 @@
 # Project Status — crypto_backtest
 
-> **Last updated:** 2026-03-21T20:30Z
+> **Last updated:** 2026-03-22T09:55Z
 > **Process mode:** strategy (paper trading monitoring — Gate 6)
-> **Active:** V4 multi-portfolio paper trading: **7 pools**. Runner: `ps aux | grep run_paper_multi | grep -v grep` to find current PID. If restart needed: `kill <PID> && nohup /workspace/venv/bin/python -m v4.run_paper_multi --config configs/multi_v4_paper.json > /tmp/paper_trader.log 2>&1 &`
+> **Active:** V4 multi-portfolio paper trading: **7 pools**. Runner: `ps aux | grep run_paper_multi | grep -v grep` to find current PID. If restart needed: `kill <PID> && rm -f state/v4_paper_multi/paper.pid && nohup /workspace/venv/bin/python -u -m v4.run_paper_multi --config configs/multi_v4_paper.json > /tmp/runner.log 2>&1 &`
+> **Dashboard:** Live at `http://localhost/` (Caddy container). Updates every 1s via `/data/state.json`. See Operations section below.
 > **Sentinel:** REPLACED by integrated sub-hourly exits (2026-03-21). No separate sentinel process. Exit monitoring is now in-process via PriceMonitor WebSocket + CandleAggregator.
 > **Engine consolidation (v3→v4):** Completed 2026-03-14. Single simulation path via v4/simulator.py.
 > **v3/ is FROZEN LEGACY — do NOT modify.** All imports point to v4/. v3/ exists only as historical reference.
@@ -97,7 +98,7 @@ Consolidated from 17 pools to 7 pools as part of sub-hourly exit deployment. Foc
 | Gate 5.5 Portfolio Assembly | `results/correlation_*.json`, `results/regime_analysis_*.json` | **Updated with trail overlays.** Optimal 4-strat: s44(35%)+s29(30%)+s37(20%)+s32(15%). Sharpe 6.53, MaxDD -2.2%. Previous: s30(40%)+s32(25%)+s29(20%)+s11(15%), Sharpe ~4.4. |
 | Data Infrastructure | `data/1h_cache/` | Spot: Binance 116 tokens. Perp: Binance 165, Kraken 314, Hyperliquid 52. 1H candles 2020-2026. |
 | Data Pipeline Separation (v5.0) | `v4/data_loader.py`, `v4/live_fetcher.py`, `v4/manifest.py`, `v4/signals.py`, `v4/portfolio_signals.py`, `tools/promote_live.py`, `tools/build_parquet_cache.py` | kdb+-inspired RDB/HDB pattern. Live fetcher writes to `data/{market}/live/`, historical stays in `1h_cache/`. `load_token_data()` merges at read time with memory-efficient overlap handling (split into update/gap-fill/new). `promote_live.py` rolls live→historical with QC + SHA-256 manifests + atomic writes. `load_token_data_at(as_of, use_manifest)` enables reproducible backtests. 4 adversarial review rounds, 35 fixes (4 CRITICAL, 8 HIGH, 12 MEDIUM, 11 LOW). 627 tests pass. Tagged v5.0. |
-| Dashboard (GitHub Pages) | `tools/generate_dashboard.py`, `simulations.json` | Self-contained HTML dashboard for monitoring simulation runs. Signal enrichment (indicators at entry), open positions panel, equity curve, daily P&L, expandable trade details. Deployed to `voerses.github.io/dashboard/`. |
+| Dashboard (Legacy GitHub Pages) | `tools/generate_dashboard.py`, `simulations.json` | **SUPERSEDED by live dashboard.** Was: self-contained HTML for simulation runs, pushed to gh-pages. Now: live polling dashboard at `/srv/dashboard/current/` served by Caddy. |
 | s33 Engine Support | `v3/engine.py` | Array support for `stop_mult`/`trail_mult` in StrategyResult + JIT. Enables per-bar dynamic stops (needed for leverage-scaled stops). |
 | s33 Leveraged Conviction Perp | `strategies/s33_leveraged_conviction_perp.py` | Conviction-scored leverage (1-10x), Moreira-Muir inverse vol scaling, bidirectional. **Currently losing -15.1% in backtest — needs investigation before paper trading.** |
 | `size_multiplier` Engine Support | `v3/engine.py`, `v3/validation.py` | Generic `size_multiplier` field in StrategyResult (float or np.ndarray, default 1.0). Applied in `_simulate` and `_simulate_combined`. Forwarded in WF masked result construction. Enables strategy-configured sizing overlays without engine-specific logic. |
@@ -114,13 +115,13 @@ Consolidated from 17 pools to 7 pools as part of sub-hourly exit deployment. Foc
 | Signal-Enhanced Strategies | `strategies/s56-s58` | s56 signal_enhanced_momentum (V4 component), s57 signal_timed_turbo_carry (V4 component), s58 multi_strategy_portfolio (V4 production). s57/s58 use signal discovery outputs for timing. |
 | V4 Portfolio Backtest Engine | `v4/` | Portfolio-level simulator: shared capital pool, concentration limits, ADV caps, partial fills, square-root slippage. Replaces V3 per-token validation with end-to-end simulation. See `knowledge/V4_ENGINE.md`. |
 | V3→V4 Engine Consolidation | `v4/engine.py`, `v4/universe.py`, `v4/metrics.py`, `v4/cpcv.py`, `v4/validation.py` | **COMPLETE.** Single simulation path: all validation, backtesting, and paper trading now uses v4/simulator.py. Zero `from v3.` imports remain in v4/ or tools/. v3/ is frozen legacy (not imported by any production code). Eliminates 6 v3-only exit features divergence. Strategy files unchanged — `from engine import ...` resolves to v4/engine.py via sys.path. |
-| V4 Paper Trading | `v4/paper_engine.py`, `v4/run_paper.py` | Same simulator code with live data via ccxt. Per-tick execution, state persistence, deterministic RNG, dashboard push to gh-pages. |
+| V4 Paper Trading | `v4/paper_engine.py`, `v4/run_paper.py` | Same simulator code with live data via ccxt. Per-tick execution, state persistence, deterministic RNG. Live dashboard via `/srv/data/state.json`. |
 | Quant Review Fixes (Mar 10) | `v4/simulator.py`, `v4/paper_engine.py`, `strategies/s56,s57` | M2: symmetric RSI exit for shorts. M4: removed dead `_apply_walk_forward_mask_live()`. H3: fixed deprecated `reindex(method='ffill')`. C2/C3/H1/H2: verified as false positives. |
 | V4 Strategy Sweep | `knowledge/STRATEGY_CATALOG.md` | All 37 strategies run through V4 12-month + Jan-Mar OOS backtests. Key finding: spot-only fails in sideways; perp/combined survive. |
 | Signal Portfolio Module | `tools/signal_portfolio/` | Token clustering by signal profiles, IC-weighted composite signals, strategy generation, walk-forward optimization. Designed but not yet run end-to-end. |
 | Paper Trading Engine Rewrite | `run_paper_live.py`, `v3/paper_engine.py` | Full parity with backtest engine: trade management (stop/trail/target/max_hold per tick), slippage model (3bps + sqrt(participation)), ADV-based Kelly sizing, funding sign fix, edge threshold, regime min hold, capital split, liquidation for all shorts. 10 tests passing. |
 | Live Paper Trading (V3) | `state/paper_live/` | **Superseded by V4.** Previously: 4 strategies (s30, s32, s54, s58), 95 tokens, $800K. |
-| Live Paper Trading (V4) | `state/v4_paper/` | V4 paper trading: s58 portfolio (s56+s57), $200K capital, Binance. Fresh start Mar 10. Dashboard auto-pushed to gh-pages. |
+| Live Paper Trading (V4) | `state/v4_paper/` | V4 paper trading: s58 portfolio (s56+s57), $200K capital, Binance. Fresh start Mar 10. Live dashboard via Caddy. |
 | Time-Trail Engine Support | `v4/simulator.py`, `v4/signals.py`, `v4/position.py`, `v4/paper_state.py`, `v3/engine.py` | `time_trail_schedule` field on Position, TokenSignals, StrategyResult. Applied as `min(profit_trail, time_trail)` in simulator trailing stop logic. Serialized/deserialized for paper trading state persistence. |
 | Time-Trail Overlay Strategies | `strategies/s69_s56_time_trail.py`, `strategies/s70_s60_time_trail.py`, `strategies/s72_s65_time_trail.py` | Wrapper strategies adding aggressive time-based trail tightening to s56, s60, s65. Gate 5O validated: Calmar +13-148%, DD improved. Deployed to paper trading. |
 | Fixed TP Overlay (s75) | `strategies/s75_s63_fixed_tp.py` | s63 counter-trend + target_mult=3.0. Locks in MR profits before trend resumes. Gate 5O: Calmar +17.6%, Return +18.5%, avg winner +22.7%. Deployed to paper trading. |
@@ -131,11 +132,11 @@ Consolidated from 17 pools to 7 pools as part of sub-hourly exit deployment. Foc
 | Sector Rotation V4 | `strategies/s81_sector_rotation.py` | V4-native sector rotation: 10 sectors, category-level momentum, top 2 sectors. Regime-gated. |
 | Dynamic Weight Allocation | `v4/dynamic_weights.py` | Regime-aware strategy weighting. Computes per-strategy weights based on BTC regime + historical profit factors. Applied per-tick in paper trading. |
 | Conviction-Based Entry Scoring | `v4/simulator.py`, `v4/signals.py`, `v4/config.py` | 3 modes: shuffle (random), ranked (conviction descending), hybrid (3 tiers). Auto-derives conviction from size_multiplier. Eliminates seed sensitivity (0% CV in ranked mode). |
-| Dashboard V2 Redesign | `tools/generate_dashboard_v2.py` | Tabs now show % P/L, equity, days running per portfolio. Supports 21 tabs with wrapping layout. |
+| Dashboard V2 Redesign | `tools/generate_dashboard_v2.py` | **SUPERSEDED by live dashboard.** Was: static HTML generator pushed to gh-pages. Sentinel data parsing functions (`parse_sentinel_recent`, `compute_24h_summary`, etc.) still used by `v4/dashboard_state.py`. |
 | Circuit Breaker (4R) | `v4/simulator.py` | Emergency exit during no_stop_bars window when position loses >=4x initial_risk. A/B tested R=2,3,4,5 across 4 strategies. R=4.0 optimal: 71-113% return retention. PIPPIN -45% crash was catalyst. Now per-strategy via StrategySpec. |
 | MTM Equity Fix | `v4/simulator.py` | Equity curve now mark-to-market (realized + unrealized P&L). Industry standard per GIPS/Zipline/QuantConnect. MaxDD was severely understated (s80: -16% reported vs -44% actual). Commit b9d108f. |
 | Per-Strategy Risk Controls | `v4/config.py`, `v4/simulator.py`, `v4/paper_engine.py`, `configs/multi_v4_paper.json` | CB and pump filters moved from global PortfolioConfig to per-strategy StrategySpec. `StrategySpec.from_dict()` classmethod centralizes JSON loading (6 call sites migrated). `_process_exits` signature backwards-compatible (strategy_specs optional kwarg). 6 CB unit tests. A/B tested 9 strategies × 4 configs with MTM equity. Commit 0d59ff4. |
-| Dashboard Timestamp Fix | `v4/paper_engine.py`, `tools/generate_dashboard_v2.py` | Fixed equity CSV timestamps to use bar close time from signal data instead of wall-clock `time.gmtime()`. Added defensive sort in dashboard loader. |
+| Dashboard Timestamp Fix | `v4/paper_engine.py` | Fixed equity CSV timestamps to use bar close time from signal data instead of wall-clock `time.gmtime()`. |
 | Multi-Portfolio Expansion | `configs/multi_v4_paper.json` | 17 paper trading pools (was 21, rotated 2026-03-18: removed 6 underperformers, added 2 solo strategies). |
 | Live Price Refresh (SIGUSR1) | `v4/run_paper_multi.py`, `v4/paper_engine.py` | `--refresh` sends SIGUSR1 to running process. Fetches live ticker prices for open positions, updates MTM + heartbeat, pushes dashboard. No tick/trading — just price view. ~22s for 21 pools. Usage: `python -m v4.run_paper_multi --config configs/multi_v4_paper.json --refresh` |
 | Breakeven Ratchet (universal) | `v3/engine.py`, `v4/signals.py`, `v4/position.py`, `v4/portfolio_signals.py`, `v4/paper_state.py` | `breakeven_atr` default changed from 0.0 to 0.5 across entire pipeline. After trade reaches +0.5 ATR, stop moves to entry price. Converts ~13.7% of losing trades to scratch. 16/16 portfolios improved (median PnL +82%, 15/16 DD improved). |
@@ -172,7 +173,7 @@ Consolidated from 17 pools to 7 pools as part of sub-hourly exit deployment. Foc
 | **DONE** | Breakeven ratchet universal deployment | — | Deployed 2026-03-13. Default breakeven_atr=0.5 across all strategies. 16/16 portfolios improved. s83-BE/s84-BE removed (redundant). |
 | **DONE** | Comprehensive portfolio rankings | — | 28 strategies ranked across 4 periods (all-time, 12mo, 3mo, 1mo). Each starts fresh at $200K. Saved to results/v4/portfolio_rankings.json. |
 | **DONE** | Exit ablation + deployment | — | 3-round ablation (v1/v2/v3). trail(1.5)+BE deployed to all 9 base strategies. bear_max_hold=12 for s80/s81. 20/24 BETTER, 0 WORSE at all-time. |
-| **MED** | Dashboard GH Pages CDN stale cache | Mirror sync delay | Gitea→GitHub mirror not propagating gh-pages changes fast enough |
+| **DONE** | Dashboard GH Pages CDN stale cache | — | CLOSED. Replaced gh-pages dashboard with live polling dashboard at `/srv/dashboard/current/`. |
 | **MED** | Hyperliquid data gap | No spot data | Only 23 perp tokens (Aug 2025-Mar 5), no spot. s57 can't run on HL. Not worth building fetcher yet. |
 | **LOW** | Run signal portfolio pipeline end-to-end | None | Cluster 55 tokens by signal profile, generate IC-weighted composite strategies, optimize, backtest |
 
@@ -189,21 +190,55 @@ Consolidated from 17 pools to 7 pools as part of sub-hourly exit deployment. Foc
 
 ### Process Management
 
-Single process handles everything — hourly ticks + sub-hourly exit monitoring via integrated WebSocket.
+Single process handles everything — hourly ticks + sub-hourly exit monitoring + live dashboard updates.
 
 | Process | Command | PID File | Log |
 |---------|---------|----------|-----|
-| Paper Engine | `nohup /workspace/venv/bin/python -m v4.run_paper_multi --config configs/multi_v4_paper.json > /tmp/paper_trader.log 2>&1 &` | None (use `ps aux \| grep run_paper_multi`) | `/tmp/paper_trader.log` |
+| Paper Engine | `nohup /workspace/venv/bin/python -u -m v4.run_paper_multi --config configs/multi_v4_paper.json > /tmp/runner.log 2>&1 &` | `state/v4_paper_multi/paper.pid` | `/tmp/runner.log` |
+
+**Start runner:** `rm -f state/v4_paper_multi/paper.pid && nohup /workspace/venv/bin/python -u -m v4.run_paper_multi --config configs/multi_v4_paper.json > /tmp/runner.log 2>&1 &`
+**Stop runner:** `kill $(cat state/v4_paper_multi/paper.pid)`
+**Check runner:** `ps aux | grep run_paper_multi | grep -v grep`
+**Note:** Use `-u` flag for unbuffered stdout so logs appear in real-time under nohup. The process survives closing Claude sessions and terminal windows.
 
 **No separate sentinel process.** Sub-hourly exits are handled in-process:
-- PriceMonitor WebSocket thread receives real-time prices
+- PriceMonitor WebSocket thread receives real-time prices (shared across all portfolios)
 - CandleAggregator buffers into N-minute candles (thread-safe)
-- Main thread flushes completed candles every 2s during sleep loop
+- Main thread flushes completed candles every 1s during sleep loop
 - Exits fire when stops/targets/CB are breached in sub-hourly candles
 
 **Price refresh (no trading):** `python -m v4.run_paper_multi --config configs/multi_v4_paper.json --refresh`
 
-**Dashboard push:** `python tools/generate_dashboard_v2.py --push`
+### Live Dashboard
+
+**Architecture:** Caddy container serves static HTML from `/srv/dashboard/current/` + live data from `/srv/data/state.json`. The runner writes `state.json` every 1 second with live WebSocket prices.
+
+| Path | Source | Description |
+|------|--------|-------------|
+| `/` | `/srv/dashboard/current/index.html` | Dashboard HTML (self-contained + local Plotly) |
+| `/data/state.json` | `/srv/data/state.json` | Live data (atomic writes, 644 perms) |
+| Plotly | `/srv/dashboard/current/plotly-2.27.0.min.js` | Bundled locally (CSP blocks CDN) |
+
+**Deploy a new dashboard release:**
+```bash
+RELEASE_DIR="/srv/dashboard/releases/$(date +%s)"
+mkdir -p "$RELEASE_DIR"
+cp /path/to/index.html "$RELEASE_DIR/"
+cp /path/to/plotly-2.27.0.min.js "$RELEASE_DIR/"
+chmod 644 "$RELEASE_DIR"/*
+ln -sfn "$RELEASE_DIR" /srv/dashboard/current.new
+mv -T /srv/dashboard/current.new /srv/dashboard/current
+```
+
+**Key constraints:**
+- All files must be chmod 644 (Caddy container needs read access via shared Docker volume)
+- `tempfile.mkstemp` creates 600 perms by default — `dashboard_state.py` adds `os.chmod(0o644)` before rename
+- CSP header `script-src 'self'` blocks CDN scripts — Plotly must be bundled locally
+- state.json uses `_json_default()` handler that converts numpy scalars to native Python types (int/float) — avoids string serialization issues
+
+**Dashboard features:** 7 portfolio tabs (in-place updates, no DOM rebuild), KPI row, equity curve (Plotly, from equity.csv), trade log with live price animation (green/red flash + directional arrows), per-token summary, fund allocation panel, strategy cards with exit_resolution. Loads full trade history from trades.jsonl (not just current-session). Polls every 1s with If-Modified-Since/304. Staleness detection at 10s.
+
+**Legacy gh-pages push:** REMOVED. `push_combined_dashboard()` was deleted from `run_paper_multi.py`. The live dashboard is the sole deployment path. `tools/generate_dashboard_v2.py` is retained only for its sentinel data parsing functions used by `dashboard_state.py`.
 
 ### Sub-Hourly Exit Configuration
 

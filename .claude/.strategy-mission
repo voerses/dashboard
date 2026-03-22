@@ -10,7 +10,7 @@ baseline:
   best_12mo: s60 — +16,013% ($200K→$32M), MaxDD -7.2%
   best_march: s60 — +109% ($200K→$419K), MaxDD -0.7%
 done_when: 50+ trades per pool; overlays/conviction/dynamic-weights match backtest improvement direction
-paper_trader_pid: 381557
+paper_trader_pid: 49388
 notes: |
 
   ╔══════════════════════════════════════════════════════════════════╗
@@ -130,8 +130,13 @@ notes: |
 
   === INFRASTRUCTURE STATE ===
 
-  Runner: PID 381557, 21 pools, $4.2M total paper capital.
-  Dashboard: gh-pages, 21 tabs, hourly push.
+  Runner: PID 49388, 7 pools, $1.4M total paper capital. Log: /tmp/runner.log
+  Dashboard: Live at http://localhost/ (Caddy). Updates every 1s via /srv/data/state.json.
+    - Loads full trade history from trades.jsonl + equity history from equity.csv
+    - In-place tab updates (no DOM rebuild, no click swallowing)
+    - Numpy serialization via _json_default() (no string values)
+    - Plotly bundled locally (CSP blocks CDN). Files chmod 644.
+    - No gh-pages push — live dashboard is sole deployment path
   Config: configs/multi_v4_paper.json
   Breakeven: BE=0.5 ATR default-on for ALL strategies (deployed 2026-03-13).
   Engine: v5.0 — v3→v4 migration COMPLETE (2026-03-14). Single simulation path.

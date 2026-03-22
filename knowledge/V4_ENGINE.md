@@ -75,7 +75,7 @@ Same simulator code, but:
 - **Live data**: `LiveFetcher` fetches OHLCV via ccxt, appends to parquet cache
 - **State persistence**: JSON state file with open positions, equity, tick counter
 - **Per-bar RNG**: `RandomState(seed + tick_counter)` for deterministic restartability
-- **Dashboard push**: Generates HTML dashboard, pushes to gh-pages after each tick
+- **Live dashboard**: Writes `/srv/data/state.json` every 1s with live WebSocket prices. Dashboard at `/srv/dashboard/current/` polls via fetch. Loads full trade history from `trades.jsonl` and equity from `equity.csv`.
 
 ---
 
