@@ -1,130 +1,196 @@
 # ML Direction Model — Development Status
 
-> **Last updated:** 2026-03-21
-> **Status:** V4 iteration complete, model passes adversarial tests, ready for strategy integration
-> **Task tracking:** #7 (iterate model) in_progress, #8 (update strategies) pending
+> **Last updated:** 2026-03-23
+> **Status:** ALL ML direction models DEAD. Microstructure (Exp D) had inflated OOS precision — real edge ~8pp, eaten by costs. Pivot to ML-as-overlay.
+> **Active experiments:** NONE — all killed. See "Next Steps" for pivot plan.
 
-## Summary
+## Definitive Conclusion (2026-03-23)
 
-Building an ML model to predict crypto price direction (LONG/SHORT) for use in trading strategies.
-The model uses HistGradientBoostingClassifier on 47 technical + market + cross-sectional features.
+**ML direction prediction CANNOT generate tradeable alpha in crypto, regardless of feature set.**
 
-## Version History
+Tested exhaustively across:
+- **Feature sets:** TA (41 features), enhanced TA (45 features), microstructure from 1m data (16 features), cross-sectional ranks (13 features)
+- **Training approaches:** Full history, recent-only (18mo), walk-forward (12mo rolling), regime-specialist
+- **Horizons:** 4h, 8h, 12h, 24h
+- **Targets:** 1.5%, 2%, 3% thresholds
 
-### V1-V2 (DEAD — temporal leakage)
-- V2 claimed 82% LONG precision, +2115% backtest return
-- **Root cause:** Walk-forward split data by ROW INDEX across concatenated tokens. Since tokens are stacked sequentially, train/test sets OVERLAP in time. Massive temporal leakage through shared market context features.
-- **Evidence:** Strict temporal OOS showed 52% precision (random). See `tools/ml_v2_strict_oos.py`, `tools/ml_v2_temporal_split.py`.
-- Files: `tools/ml_direction_model_v2_1.py` (DO NOT USE)
+**Result: ZERO approaches produce tradeable OOS alpha after costs.**
 
-### V3 (baseline — proper temporal splits)
-- Fixed temporal leakage: all splits DATE-BASED with 48h embargo
-- 3-fold expanding temporal walk-forward
-- Best: Experiment B (Adaptive 1.5σ target, 24h horizon)
-- **Results:** LONG p60=60.2%, SHORT p60=55.1% (averaged across 3 folds)
-- **Adversarial tests (3/3 PASS):**
-  - Permutation test: PASS (model learns real patterns; 1000x signal generation rate vs shuffled)
-  - Cross-token OOS: PASS (barely — 54% precision on unseen tokens, down from 60% on seen tokens)
-  - Embargo sensitivity: PASS (48h→336h embargo drops precision by only ~1pp)
-- **Key finding:** ~6pp gap between in-sample-token and OOS-token precision = token-specific overfitting
-- Files: `tools/ml_direction_model_v3.py`, `tools/ml_direction_model_v3_1.py` (iteration, no improvement), `tools/ml_v3_adversarial.py`
-- Model: `results/v4/ml_dir_v3_model.joblib`
+---
 
-### V4 (current — cross-token generalization)
-- Added Leave-K-tokens-out (LOTO) validation within temporal folds
-- Added 5 cross-sectional (rank-based) features: ret24h_rank, ret1h_rank, vol_rank, rsi_rank, relative_strength_24h
-- Tests 4 configurations across 2 LOTO groups (train on 10, test on 5 held-out tokens)
-- **Results (2026-03-21):**
+## V1-V4: TA Feature Models (ALL DEAD)
 
-| Experiment | LONG p55 | LONG p60 | LONG p65 | SHORT p55 | SHORT p60 | SHORT p65 |
-|------------|----------|----------|----------|-----------|-----------|-----------|
-| K: LOTO base (no xsect) | 0.594 | 0.600 | 0.609 | 0.558 | 0.574 | 0.586 |
-| L: LOTO + cross-sectional | 0.593 | 0.602 | 0.613 | 0.556 | 0.566 | 0.578 |
-| M: LOTO + xsect + heavy reg | 0.605 | 0.611 | 0.619 | 0.559 | 0.571 | 0.588 |
-| N: All-token temporal (V3-style) | 0.607 | 0.614 | 0.620 | 0.558 | 0.581 | 0.604 |
+**Root cause:** TA features are lagged transforms of price containing no future information for efficient markets.
 
-- **Token-specific overfitting gap: only 1.15pp** (was 5.5pp in V3 adversarial test)
-- Cross-sectional features provide marginal improvement (+0.2pp)
-- Heavy regularization (depth=4, l2=5.0) helps LOTO by +0.8pp
-- Model saved: `results/v4/ml_dir_v4_model.joblib`
-- File: `tools/ml_direction_model_v4.py`
+| Model | In-Sample | OOS Precision | Issue |
+|-------|-----------|---------------|-------|
+| V2 (41 features) | ~80% | 36.7% long, 48.4% short | Row-index split = 100% temporal leakage |
+| V3 (3-fold temporal, 48h embargo) | ~60% | Similar to random | Autocorrelation leaks through short embargo |
+| V4 (+ LOTO cross-token) | ~60-62% | Similar to random | Same embargo issue |
+| V5 (45 features, +dispersion) | N/A | 33.9% long, 41.9% short | Enhanced features made it WORSE |
 
-## Key Architecture Details
+### Experiment A: Recent-Only Training
+- **Script:** `tools/ml_exp_a_recent.py`
+- **Train on Jan 2024 - June 2025 only** (post-ETF)
+- **4 horizons:** 4h/1.5%, 8h/1.5%, 12h/2%, 24h/3%
+- **Result:** All ~50% = random. Old data isn't the problem.
 
-- **Model:** sklearn HistGradientBoostingClassifier
-  - V4 hparams: max_depth=5, l2_reg=2.0, min_samples_leaf=80, lr=0.05, max_iter=400
-  - Heavy reg variant: max_depth=4, l2_reg=5.0, min_samples_leaf=120, lr=0.03
-- **Features (47):** 31 base TA + 3 funding + 8 market context + 5 cross-sectional
-- **Labeling:** Adaptive vol-normalized, threshold = 1.5 * rolling_std_168h * sqrt(24h), floor 1%
-- **Balancing:** Random undersampling to equalize LONG/SHORT classes
-- **Validation:** 3-fold expanding temporal walk-forward with 48h embargo
-- **LOTO:** Train on 10 tokens, test on 5 held-out tokens, 2 groups (A: first10/last5, B: last10/first5)
-- **15 tokens:** BTC, ETH, BNB, DOGE, XLM, SOL, ADA, BCH, TRX, LINK, AVAX, ETC, XRP, ENJ, SAND
-- **Memory:** ~3.5GB available, using float32 throughout, 15 tokens keeps under 200MB dataset
+### Experiment B: Walk-Forward Retraining
+- **Script:** `tools/ml_exp_b_walkforward.py`
+- **12-month rolling, retrained every 3 months**
+- **Result:** Long random (44-51%), short marginal (50-58%). Even monthly retraining can't fix it.
 
-## Top Features (stable across all experiments)
+### Experiment C: Regime-Specialist Models
+- **Script:** `tools/ml_exp_c_regime_specialist.py`
+- **4 dispersion-breadth regimes** (DIVERGENT_BULL/BEAR, CORRELATED_BULL/BEAR)
+- **Result:** All specialists below regime base rates.
 
-1. market_funding_mean (~15%)
-2. btc_vol_24h (~12%)
-3. dispersion_zscore (~9%)
-4. btc_ret_24h (~6%)
-5. token_btc_corr_168h (~5-6%)
-6. funding_ma48 (~5%)
-7. market_regime (~5%)
-8. ret_168 (~5%)
-9. vol_50 (~5%)
-10. ret_48 (~3%)
+---
 
-Market-level features dominate (>50% of total importance). This is why the model generalizes across tokens.
+## Experiment D: Microstructure ML (DEAD — Inflated Precision)
 
-## Regime-Dependent Performance (from V3.1)
+- **Script:** `tools/ml_exp_d_microstructure.py`
+- **Model saved:** `results/v5/ml_exp_d_best_model.joblib`
+- **Features (16):** 10 micro (VPIN, realized_vol_ratio, kyle_lambda, amihud, etc.) + 5 TA (ret_24h, vol_20, rsi_14, funding, btc_ret_24h) + vpin_4h
 
-| Regime | LONG precision | SHORT precision | Notes |
-|--------|---------------|-----------------|-------|
-| UPTREND | 0.616 | 0.414 | LONG works, SHORT fails |
-| DOWNTREND | 0.592 | 0.604 | Both work |
-| QUIET | 0.095 | 0.905 | SHORT works, LONG fails badly |
-| RANGE | 0.500 | 0.635 | SHORT better |
-| CRISIS | 0.583 | 0.469 | Mixed |
+### Claimed vs Real Precision
 
-**Implication for strategies:** Use regime filtering at inference time.
+| Threshold | Experiment Claim | Real (All Bars) | Backtest WR |
+|-----------|-----------------|-----------------|-------------|
+| Short p>=0.65 | **60.6%** (388 trades) | **53.4%** | **~43%** |
+| Short p>=0.70 | **68.7%** (99 trades) | **57.9%** | **~43%** |
 
-## Honest Assessment
+### Root Cause: Neutral Label Filtering Artifact
+The experiment **dropped ~40% of bars** where |fwd_ret| < 1.5% before computing precision. This inflated results by evaluating only on big-move bars (where distinguishing direction is easier). Real precision on ALL bars: ~53-58%. After trading costs: ~43%.
 
-- **True edge:** ~58-61% precision at p>=0.60 on temporal OOS, ~54-60% on cross-token OOS
-- **After fees (~0.14% round-trip perps):** Edge is marginal but real
-- **SHORT signals are more robust** than LONG (improve with higher confidence thresholds)
-- **Model is NOT a standalone alpha source** — should be used as a filter/overlay on existing strategies
-- **Best use case:** Regime-filtered trading — only take LONG in UPTREND/DOWNTREND, SHORT in QUIET/RANGE
+### Strategy Backtest Results (ALL LOSING)
 
-## Existing ML Strategies (need update from V2 to V4)
+| Variant | Config | Return | Trades | WR | MaxDD | PF |
+|---------|--------|--------|--------|----|-------|-----|
+| s316 v1 | Bidir, 4x lev, no stops | **-99.0%** | 3210 | 43.6% | -99.0% | 0.60 |
+| s316 v2 | Short, p>=0.70, stops, 2x | **-2.2%** | 95 | 43.2% | -8.2% | 0.91 |
+| s317 | Short, p>=0.65, no stops, 2x | **-17.9%** | 494 | 43.3% | -28.9% | 0.84 |
+| s318 | Bidir, no stops, 1x | **-86.8%** | 7925 | 42.7% | -87.1% | 0.75 |
+| s319 | Short, p>=0.65, no stops, 3x | **-37.3%** | 494 | 42.3% | -48.6% | 0.74 |
 
-- `strategies/s312_ml_v2_long.py` — standalone ML LONG signals (uses V2 model — BROKEN)
-- `strategies/s313_ml_v2_short.py` — standalone ML SHORT signals (uses V2 model — BROKEN)
-- These need to be updated to use V4 model with regime filtering
+**The model has a genuine but tiny ~8pp edge above 50% — completely eaten by trading costs (fees, slippage, adverse selection).**
 
-## Next Steps (for next session)
+---
 
-1. **Run adversarial tests on V4** — verify the LOTO model passes the same 3 tests V3 passed
-2. **Update s312/s313** to use V4 model with regime filtering
-3. **Run portfolio backtest** with realistic expectations (~58% precision, not 82%)
-4. **Consider ML as overlay** — add ML confidence as a filter to existing strategies (s56, s60, etc.) rather than standalone
-5. **Expected outcome:** Marginal but real improvement to existing portfolio, not a game-changer
+## Experiment E: Cross-Sectional Relative Strength (DEAD)
+
+- **Script:** `tools/ml_exp_e_cross_sectional.py`
+- **Features (13):** rank-based (ret, vol, volume, rsi, funding, drawdown ranks) + market context
+- **Result:** Top quintile 22.2% vs 23.2% base rate = no edge for winners. Bottom quintile 35.2% vs 19.9% = can identify losers, but not tradeable (would need shorting).
+
+---
+
+## Strategy Graveyard (ML Direction)
+
+| Strategy | Status | Notes |
+|----------|--------|-------|
+| s312_ml_v2_long | **DEAD** | In-sample +5004%, OOS = negative alpha |
+| s313_ml_v2_short | **DEAD** | In-sample +1513%, OOS = negative alpha |
+| s314_ml_adaptive | **DEAD** | Portfolio strategy, -93.4%, feature mismatch |
+| s315_ml_v4_bidir | **DEAD** | V4 model, -96.8%, cross-sectional feature mismatch |
+| s316_micro_short | **DEAD** | Microstructure model, -2.2% to -99% across 5 variants |
+| s317_micro_short_v2 | **DEAD** | Variant: short p>=0.65, no stops, 2x. -17.9% |
+| s318_micro_bidir | **DEAD** | Variant: bidir, no stops, 1x. -86.8% |
+| s319_micro_aggressive | **DEAD** | Variant: short p>=0.65, 3x. -37.3% |
+
+---
+
+## Key Lessons Learned
+
+1. **TA features are non-predictive OOS** for liquid crypto at any horizon (4h-24h).
+2. **Microstructure features have tiny real edge (~8pp)** but insufficient to overcome trading costs.
+3. **Neutral label filtering inflates precision** — ALWAYS evaluate on ALL bars, not just big-move bars.
+4. **Model precision ≠ trade win rate.** Precision drops ~10-15pp from frictionless evaluation to real trading.
+5. **Direction prediction is the WRONG use of ML in crypto.** Practitioners use ML for regime detection, position sizing, timing, and execution — not price direction.
+6. **Autocorrelation breaks short embargoes.** Need months of separation, not hours.
+7. **In-sample metrics are meaningless.** Only strict temporal OOS with full-bar evaluation matters.
+8. **Cross-asset transfer doesn't help** when the base features are non-predictive.
+
+---
 
 ## File Index
 
-| File | Purpose |
-|------|---------|
-| `tools/ml_direction_model_v2_1.py` | V2 model (BROKEN — temporal leakage) |
-| `tools/ml_v2_strict_oos.py` | V2 strict temporal OOS test (proved V2 is overfit) |
-| `tools/ml_v2_temporal_split.py` | V2 temporal split comparison (confirmed zero edge) |
-| `tools/ml_direction_model_v3.py` | V3 proper temporal validation pipeline |
-| `tools/ml_direction_model_v3_1.py` | V3.1 iteration (extended features, no improvement) |
-| `tools/ml_v3_adversarial.py` | V3 adversarial tests (permutation, cross-token, embargo) |
-| `tools/ml_direction_model_v4.py` | V4 LOTO cross-token generalization pipeline |
-| `results/v4/ml_dir_v3_model.joblib` | V3 best model (Experiment B) |
-| `results/v4/ml_dir_v4_model.joblib` | V4 best model (Experiment N) |
-| `results/v4/ml_dir_v4_features.joblib` | V4 feature list (47 features) |
-| `results/v4/ml_dir_v4_config.joblib` | V4 config metadata |
-| `strategies/s312_ml_v2_long.py` | ML LONG strategy (needs V4 update) |
-| `strategies/s313_ml_v2_short.py` | ML SHORT strategy (needs V4 update) |
+| File | Purpose | Status |
+|------|---------|--------|
+| `tools/ml_v5_oos_train.py` | V5 strict OOS training | OVERFIT |
+| `tools/ml_exp_a_recent.py` | Experiment A: recent-only | NO EDGE |
+| `tools/ml_exp_b_walkforward.py` | Experiment B: walk-forward | NO EDGE |
+| `tools/ml_exp_c_regime_specialist.py` | Experiment C: regime specialist | NO EDGE |
+| `tools/ml_exp_d_microstructure.py` | Experiment D: microstructure | INFLATED PRECISION |
+| `tools/ml_exp_e_cross_sectional.py` | Experiment E: cross-sectional | NO EDGE |
+| `results/v5/ml_exp_d_best_model.joblib` | Exp D model artifact | DO NOT USE for direction trading |
+| `strategies/s316_micro_short.py` | Microstructure short strategy | DEAD |
+| `strategies/s317_micro_short_v2.py` | Variant: no stops | DEAD |
+| `strategies/s318_micro_bidir.py` | Variant: bidirectional | DEAD |
+| `strategies/s319_micro_aggressive.py` | Variant: 3x aggressive | DEAD |
+
+---
+
+## Next Steps: ML Pivot (for next session)
+
+**ML direction prediction is conclusively dead. The right use of ML in crypto is NOT direction prediction.**
+
+Based on comprehensive quant research (2025-2026), the actionable ML approaches are:
+
+### Approach 1: ML-Optimized Funding Rate Carry (HIGHEST PRIORITY)
+- **We already have s65 (funding carry) earning +986%/yr in backtest, actively paper trading**
+- ML optimization: predict funding rate persistence, optimize entry/exit timing, venue selection
+- Expected improvement: +20-40% return improvement on an already-profitable strategy
+- Data: multi-exchange funding rates, OI, liquidation data
+- Implementation: overlay on s65/s62, NOT a new direction model
+
+### Approach 2: Liquidation Cascade Risk Model (RISK MANAGEMENT)
+- Build HMM/GMM regime model using OI delta, funding z-score, exchange inflows, SOPR
+- Classify: calm → heated → pre-cascade → cascade
+- Use to REDUCE exposure before cascades (know when NOT to trade)
+- Improves drawdown of ALL existing strategies
+- Data: CoinGlass (OI, funding, liquidations), Glassnode (on-chain)
+
+### Approach 3: LOB Microstructure at High Frequency
+- Our 1m OHLCV microstructure features don't work because 1m is too coarse
+- Real microstructure edge needs 100ms-1s LOB snapshots (order book imbalance, depth)
+- Requires new data infrastructure (Tardis.dev, Binance L2 API)
+- Horizon: seconds to minutes, not hours
+- **Requires significant infrastructure investment — not quick win**
+
+### Approach 4: CTREND Cross-Sectional Momentum (MOST RESEARCHED)
+- ML-weighted aggregation of 28 technical signals for cross-token ranking
+- LONG ONLY top decile (do NOT short — losers rebound in crypto)
+- Weekly rebalance, walk-forward monthly retrain
+- Academic evidence: Sharpe 3.12 after costs (LSTM/GRU ensemble)
+- **Key insight: ML aggregates signals, doesn't predict direction directly**
+
+### Approach 5: Options IV Skew for Regime Detection
+- BTC options skew at D9 (extreme put demand) → +13% forward 90d, +133% forward 360d
+- Use as regime classifier for strategy switching (momentum vs carry vs neutral)
+- Data: Deribit options API, Glassnode interpolated IV
+- Meta-strategy: select WHICH existing strategy to run based on vol regime
+
+### Recommendation Priority Order
+1. **ML overlay on s65 funding carry** (fastest path — improve proven strategy)
+2. **Liquidation cascade risk model** (protect existing profits)
+3. **CTREND cross-sectional** (new strategy class with strong evidence)
+4. **Options IV regime switching** (meta-strategy)
+5. **LOB microstructure** (infrastructure-heavy, long-term)
+
+---
+
+## Existing Profitable Strategies (Context for ML Overlay)
+
+These strategies are ALREADY working and should be the BASE for ML improvements:
+
+| Strategy | Type | Backtest Return | MaxDD | Status |
+|----------|------|----------------|-------|--------|
+| s56 | Momentum burst perp | +3157% (uncapped) | -4.1% | PRODUCTION |
+| s57 | Signal-timed carry | Part of s58 | — | PRODUCTION |
+| s58 | Multi-strategy portfolio | +1717% | -1.9% | PRODUCTION |
+| s65 | Funding carry V4 | +986% | -8.4% | PAPER TRADING |
+| s62 | Conservative carry | +769% | -10.4% | PAPER TRADING |
+| s60 | Momentum burst perp V4 | Positive | — | PRODUCTION |
+| s80 | Cross-sectional momentum | Sharpe 1.54 | — | DIVERSIFIER |
+| s81 | Sector rotation | Sharpe 1.31 | — | DIVERSIFIER |

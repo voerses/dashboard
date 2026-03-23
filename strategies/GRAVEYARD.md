@@ -30,3 +30,7 @@ Strategies killed during the gate process. Learn from the dead.
 | 2026-03-15 | s11_spot_routing | Gate 5O | Same fee economics as s56. Perp return +127% higher. Perp has stronger momentum dynamics from leveraged traders. |
 2026-03-15 | s85_chandelier | Killed at Gate 3O | Cuts winners short in crypto momentum — return -162% at 12mo, win rate drops 10pp. Progressive trail already optimal.
 2026-03-15 | s86_triple_barrier | Killed at Gate 3O | bear_target_mult and bear_max_hold both hurt s58. Return drops 246% at 12mo, DD improvement negligible. Existing exit stack already optimal.
+2026-03-23 | s316_micro_short | Killed at Gate 4 | Reason: Microstructure ML, OOS precision inflated by neutral label filtering (60.6% → 53.4% real → 43% after costs). -2.2% return, 43.2% WR, 95 trades.
+2026-03-23 | s317_micro_short_v2 | Killed at Gate 4 | Reason: Variant of s316, short p>=0.65, no stops, 2x. -17.9% return, 43.3% WR, 494 trades.
+2026-03-23 | s318_micro_bidir | Killed at Gate 4 | Reason: Variant of s316, bidirectional, no stops, 1x. -86.8% return, 42.7% WR, 7925 trades.
+2026-03-23 | s319_micro_aggressive | Killed at Gate 4 | Reason: Variant of s316, short 3x aggressive. -37.3% return, 42.3% WR, 494 trades.

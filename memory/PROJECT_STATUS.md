@@ -1,5 +1,12 @@
 # Project Status — crypto_backtest
 
+> ## BACKTEST REALISM CAVEAT
+> All return figures in this file were generated with uncapped equity compounding.
+> The backtester allows equity to grow to $33-55M and take multi-million dollar
+> altcoin perp positions that CANNOT be executed in practice (exceeds daily token volume).
+> Realistic returns after $2M sizing cap and hourly slippage are estimated at 60-80% lower.
+> See finding #30. No strategy has demonstrated 1000%+ returns under realistic constraints.
+
 > **Last updated:** 2026-03-22T09:55Z
 > **Process mode:** strategy (paper trading monitoring — Gate 6)
 > **Active:** V4 multi-portfolio paper trading: **7 pools**. Runner: `ps aux | grep run_paper_multi | grep -v grep` to find current PID. If restart needed: `kill <PID> && rm -f state/v4_paper_multi/paper.pid && nohup /workspace/venv/bin/python -u -m v4.run_paper_multi --config configs/multi_v4_paper.json > /tmp/runner.log 2>&1 &`
@@ -19,7 +26,7 @@
 > **Portfolio rotation (2026-03-18):** Removed 6 underperformers, added 2 solo strategies. See changelog below.
 > **Portfolio consolidation (2026-03-21):** Consolidated from 17 pools to 7 pools. See changelog below.
 > **Sub-hourly exit resolution (2026-03-21):** Per-strategy `exit_resolution` added to StrategySpec (0=hourly, 5/15/30=sub-hourly WebSocket candles). Sweep results: sub-hourly improves profitable strategies (s98 +0.05 Sharpe at 30m, s106/s107 +0.04 at 5m), negligible for losing strategies. Dashboard shows "Exit Res" in strategy cards.
-> **ML Direction Model (ACTIVE 2026-03-21):** V4 iteration complete — LOTO cross-token validation shows 60% LONG / 57% SHORT precision (honest, no temporal leakage). Adversarial tests 3/3 PASS. Token-specific overfitting gap only 1.15pp. Next: update s312/s313 strategies + run portfolio backtest. Full details: `memory/ML_DIRECTION_MODEL_STATUS.md`.
+> **ML Direction Model (DEAD 2026-03-23):** ALL ML direction models conclusively dead. 7 experiments tested (V2/V5 baseline, Exp A-E): TA features have zero OOS edge, microstructure features (Exp D) had inflated precision (60.6% claimed → 53.4% real → 43% after costs). Built and tested 5 strategy variants (s316-s319): all lose money (-2.2% to -99%). Root cause of Exp D inflation: neutral label filtering dropped 40% of bars before precision calc. **ML should NOT be used for direction prediction in crypto.** Pivot plan: ML as overlay on existing profitable strategies (timing/sizing for s65 funding carry), liquidation cascade risk model, CTREND cross-sectional momentum. Full details: `memory/ML_DIRECTION_MODEL_STATUS.md`.
 > **Next step:** Monitor 7 pools. Validate sub-hourly exits fire correctly in production (check trades.jsonl for exit_reason from sub-hourly candles).
 
 ---
@@ -48,7 +55,7 @@
 
 | Portfolio | 12mo Return | 12mo MaxDD | Note |
 |-----------|------------|------------|------|
-| **s58+s60** | +2,311% | -8.5% | Top combo by 12mo return. Already in config. |
+| **s58+s60** | +2,311% (uncapped) | -8.5% | Top combo by 12mo return (uncapped equity). Already in config. |
 
 ### Final active pool list after 2026-03-18 rotation (17 portfolios)
 
@@ -95,7 +102,7 @@ Consolidated from 17 pools to 7 pools as part of sub-hourly exit deployment. Foc
 | Paper Trade Launcher | `run_paper_trade.py` | CLI with 7 subcommands: setup/start/stop/status/list/monitor/compare. 51 tests passing. |
 | Combined Engine Validation | `v3/engine.py`, `v3/validation.py`, `v3/universe.py` | WF+CPCV dual-gate validation for combined spot+perp strategies. `_simulate_combined` extracted as reusable method. Three patterns: simultaneous, conditional, alternating. |
 | Combined Portfolio Tools | `v3/portfolio.py`, `v3/correlation.py`, `v3/regime_analysis.py` | All three tools updated to support combined market: detect 2-arg strategy signature, load both spot+perp data, align timeframes, mask both legs, call `_simulate_combined`. |
-| Gate 5.5 Portfolio Assembly | `results/correlation_*.json`, `results/regime_analysis_*.json` | **Updated with trail overlays.** Optimal 4-strat: s44(35%)+s29(30%)+s37(20%)+s32(15%). Sharpe 6.53, MaxDD -2.2%. Previous: s30(40%)+s32(25%)+s29(20%)+s11(15%), Sharpe ~4.4. |
+| Gate 5.5 Portfolio Assembly | `results/correlation_*.json`, `results/regime_analysis_*.json` | **Updated with trail overlays.** Optimal 4-strat: s44(35%)+s29(30%)+s37(20%)+s32(15%). Sharpe 6.53 (inflated by uncapped compounding), MaxDD -2.2%. Previous: s30(40%)+s32(25%)+s29(20%)+s11(15%), Sharpe ~4.4. |
 | Data Infrastructure | `data/1h_cache/` | Spot: Binance 116 tokens. Perp: Binance 165, Kraken 314, Hyperliquid 52. 1H candles 2020-2026. |
 | Data Pipeline Separation (v5.0) | `v4/data_loader.py`, `v4/live_fetcher.py`, `v4/manifest.py`, `v4/signals.py`, `v4/portfolio_signals.py`, `tools/promote_live.py`, `tools/build_parquet_cache.py` | kdb+-inspired RDB/HDB pattern. Live fetcher writes to `data/{market}/live/`, historical stays in `1h_cache/`. `load_token_data()` merges at read time with memory-efficient overlap handling (split into update/gap-fill/new). `promote_live.py` rolls live→historical with QC + SHA-256 manifests + atomic writes. `load_token_data_at(as_of, use_manifest)` enables reproducible backtests. 4 adversarial review rounds, 35 fixes (4 CRITICAL, 8 HIGH, 12 MEDIUM, 11 LOW). 627 tests pass. Tagged v5.0. |
 | Dashboard (Legacy GitHub Pages) | `tools/generate_dashboard.py`, `simulations.json` | **SUPERSEDED by live dashboard.** Was: self-contained HTML for simulation runs, pushed to gh-pages. Now: live polling dashboard deployed to `/srv/dashboard/current/`. |
@@ -299,10 +306,10 @@ Updated 2026-03-18. Portfolio rotation removed 6 underperformers + added 2 solo 
 |----------|---------------|-----------|---------------|------|
 | **s56** signal_enhanced_momentum | Component of s58 | — | +$72K | Momentum (spot+perp) |
 | **s57** signal_timed_turbo_carry | Component of s58 | — | +$60K | Carry (combined) |
-| **s60** momentum_burst_perp_v4 | +3157% | 5.2 | +157% | Perp momentum (bidirectional) |
-| **s62** conservative_funding_carry | +269% | 3.1 | +50% | Funding carry |
-| **s63** vol_spike_reversal_v4 | +441% solo | 3.94 | TBD | Counter-trend |
-| **s65** funding_carry_v4 | +1217% (w/s58) | 8.52 | TBD | Funding carry complement |
+| **s60** momentum_burst_perp_v4 | +3157% (uncapped) | 5.2 (inflated by uncapped compounding) | +157% | Perp momentum (bidirectional) |
+| **s62** conservative_funding_carry | +269% (uncapped) | 3.1 | +50% | Funding carry |
+| **s63** vol_spike_reversal_v4 | +441% solo (uncapped) | 3.94 | TBD; **paper trading: 0% win rate** | Counter-trend |
+| **s65** funding_carry_v4 | +1217% (w/s58) (uncapped) | 8.52 (inflated by uncapped compounding) | TBD | Funding carry complement |
 | **s80** xsec_momentum | New | — | — | Cross-sectional ranking |
 | **s81** sector_rotation | New | — | — | Sector momentum |
 
@@ -334,7 +341,7 @@ Updated 2026-03-18. Portfolio rotation removed 6 underperformers + added 2 solo 
 
 | Strategy | Rate | Sharpe | Calmar | MaxDD | Type |
 |----------|------|--------|--------|-------|------|
-| s30 basis_carry | 77.1% | 2.63 | 12.76 | -0.4% | Delta-neutral arb (long spot + short perp) |
+| s30 basis_carry | 77.1% | 2.63 | 12.76 (inflated ~100-1000x; realistic: 1-5) | -0.4% | Delta-neutral arb (long spot + short perp) |
 | s32 regime_spot_perp | 78.9% | 1.37 | 2.86 | -0.8% | Regime-adaptive instrument selection |
 | s31 funding_hedged_momentum | 55.0% | 0.64 | 0.94 | -1.7% | Momentum + funding hedge |
 
@@ -361,7 +368,7 @@ Updated 2026-03-18. Portfolio rotation removed 6 underperformers + added 2 solo 
 | s39 trend_trail_progression | s09 | O5 progressive trailing stop | A (overlay) | Sharpe +0.819, rate 36.3%→59.3% (+23.1pp), 64/69 token wins vs s09 |
 | s40 tsmom_trail_progression | s13 | O5 progressive trailing stop | A (overlay) | Sharpe +0.752, rate 24.2%→51.6% (+27.5pp), 65/69 token wins vs s13 |
 | s41 skew_trail_progression | s21 | O5 progressive trailing stop | A (overlay) | Sharpe +0.468, rate 24.2%→47.3% (+23.1pp), 63/69 token wins vs s21 |
-| s44 basis_carry_trail_progression | s30 | O5 progressive trailing stop | A (overlay) | Sharpe +1.448, Calmar +44.35, MaxDD halved (-0.44%→-0.23%), AnnRet +65%, 63/0 wins/losses |
+| s44 basis_carry_trail_progression | s30 | O5 progressive trailing stop | A (overlay) | Sharpe +1.448, Calmar +44.35 (inflated ~100-1000x per finding #30; realistic: 1-5), MaxDD halved (-0.44%->-0.23%), AnnRet +65%, 63/0 wins/losses |
 | s54 turbo_carry | s44 | 2x regime sizing + cap_multiplier=15 | A (overlay) | **Fixed capital: +160%/yr, +66.5%/yr last 12mo.** 22 elite tokens (3yr+, ADV>$50M). MaxDD -7.6%. Paper trading started. |
 
 ### Overlays (modify existing strategies, not standalone)
@@ -416,7 +423,7 @@ Updated 2026-03-18. Portfolio rotation removed 6 underperformers + added 2 solo 
 
 0. **V4 portfolio simulation is the new standard.** V4 replaces V3's per-token validation with portfolio-level simulation: shared capital, concentration limits, ADV caps, slippage model. Several strategies killed at V3's per-token gate (s27, s28, s25) are profitable in V4's portfolio context because diversification across many tokens compensates for individual weakness.
 
-0a. **s58 production portfolio: +1717% (12mo), Sharpe 7.29, MaxDD -1.9%.** s56 (momentum) + s57 (carry) in V4 shared capital. OOS Jan-Mar 2026: +66% ($131K). March weakness ($833/day vs $2,394/day Feb) due to carry going flat in sideways market. Momentum carried the load in March.
+0a. **s58 production portfolio: +1717% (12mo, uncapped equity -- realistic: ~200-400%), Sharpe 7.29 (inflated by uncapped compounding), MaxDD -1.9%.** s56 (momentum) + s57 (carry) in V4 shared capital. OOS Jan-Mar 2026: +66% ($131K). March weakness ($833/day vs $2,394/day Feb) due to carry going flat in sideways market. Momentum carried the load in March.
 
 0b. **Spot-only strategies fail in sideways markets (Jan-Mar 2026).** Every spot-only strategy in the sweep lost money during Jan-Mar. Only perp (bidirectional) and combined (carry) strategies survived. Implication: any all-weather portfolio MUST include perp/combined components.
 
@@ -432,29 +439,29 @@ Updated 2026-03-18. Portfolio rotation removed 6 underperformers + added 2 solo 
 
 5. **Market-neutral carry unlocked:** s29 funding carry is the first genuinely market-neutral strategy (beta=0.0000, corr=+0.002). Harvests structural funding payments from retail long bias. 66/328 tokens validated (20.1%), but 91.2% pass rate among tokens with sufficient funding data. Mean MaxDD only -1.26%.
 
-6. **Combined spot+perp engine works:** Three combined strategies validated end-to-end through Gate 5. s30 basis carry has highest Calmar ever (12.76 mean, max DD -0.4%). s32 regime selection has highest validation rate (78.9%) with negative beta. Combined WF+CPCV validation pipeline fully operational for all three engine patterns (simultaneous, conditional, alternating legs).
+6. **Combined spot+perp engine works:** Three combined strategies validated end-to-end through Gate 5. s30 basis carry has highest Calmar ever (12.76 mean, but inflated ~100-1000x per finding #30; realistic: 1-5; max DD -0.4%). s32 regime selection has highest validation rate (78.9%) with negative beta. Combined WF+CPCV validation pipeline fully operational for all three engine patterns (simultaneous, conditional, alternating legs).
 
 8. **Breakeven ratchet (BE=0.5 ATR) universally improves all strategies.** After trade reaches +0.5 ATR profit, stop moves to entry price. Converts ~13.7% of losing trades to scratch. Tested across 16/16 portfolios: median PnL +82%, 15/16 DD improved. Deployed as default on 2026-03-13. All strategies and paper trading pools now have breakeven enabled.
 
 9. **Comprehensive rankings (March 13, 2026, $200K fresh start per period):**
 
-   **ALL TIME (~5 years)** — Top 5:
+   **ALL TIME (~5 years)** — Top 5: *UNCAPPED EQUITY -- not achievable with realistic sizing. All returns below are physically impossible at scale.*
    | # | Name | Return | MaxDD |
    |---|------|--------|-------|
-   | 1 | 4-edge-conv | +1,901,656% | -5.7% |
-   | 2 | 4-edge+ptp | +1,886,215% | -4.7% |
-   | 3 | s58+s65 | +1,836,961% | -6.3% |
-   | 4 | s58+s72 | +1,782,492% | -5.0% |
-   | 5 | 4-edge | +1,738,115% | -5.6% |
+   | 1 | 4-edge-conv | +1,901,656% (UNREALISTIC) | -5.7% |
+   | 2 | 4-edge+ptp | +1,886,215% (UNREALISTIC) | -4.7% |
+   | 3 | s58+s65 | +1,836,961% (UNREALISTIC) | -6.3% |
+   | 4 | s58+s72 | +1,782,492% (UNREALISTIC) | -5.0% |
+   | 5 | 4-edge | +1,738,115% (UNREALISTIC) | -5.6% |
 
-   **LAST 12 MONTHS** — Top 5:
+   **LAST 12 MONTHS** — Top 5: *UNCAPPED EQUITY -- not achievable with realistic sizing.*
    | # | Name | Return | MaxDD |
    |---|------|--------|-------|
-   | 1 | s60 | +16,013% | -7.2% |
-   | 2 | s58+s60 | +12,956% | -4.2% |
-   | 3 | super5-dyn | +11,536% | -34.5% |
-   | 4 | super5-conv | +10,475% | -38.1% |
-   | 5 | 4-edge+ptp | +7,281% | -10.3% |
+   | 1 | s60 | +16,013% (uncapped) | -7.2% |
+   | 2 | s58+s60 | +12,956% (uncapped) | -4.2% |
+   | 3 | super5-dyn | +11,536% (uncapped) | -34.5% |
+   | 4 | super5-conv | +10,475% (uncapped) | -38.1% |
+   | 5 | 4-edge+ptp | +7,281% (uncapped) | -10.3% |
 
    **LAST 3 MONTHS** — Top 5:
    | # | Name | Return | MaxDD |
@@ -475,9 +482,10 @@ Updated 2026-03-18. Portfolio rotation removed 6 underperformers + added 2 solo 
    | 5 | s80+s81 | +90% | -1.1% |
 
    Key insights: s60 dominates recent periods (1/3/12mo). 4-edge family leads all-time. super5 portfolios strong recently. All 28 strategies profitable across all 4 periods.
+   **All rankings use uncapped equity compounding.** Returns above 1000% are physically impossible at scale. Even shorter-period returns are inflated by unrealistic position sizing.
    Full rankings: `results/v4/portfolio_rankings.json`.
 
-7. **Portfolio assembly (Gate 5.5) — UPDATED with trail progression overlays:** Previous allocation: s30(40%)+s32(25%)+s29(20%)+s11(15%), Sharpe ~4.4. **New optimal 4-strat portfolio:** s44(35%)+s29(30%)+s37(20%)+s32(15%). Combined Sharpe 6.53, MaxDD -2.2%. Trail overlays s44 and s37 replace base s30 and s11 respectively. Correlation structure: median pairwise +0.19, no pairs >0.7. s44 (delta-neutral carry + trail) is the anchor (Sharpe 5.80, final equity $8.5M on $200K). s29 has highest marginal Sharpe (+1.21) due to near-zero correlation with everything. Greedy forward selection adds all 4 strategies with positive cumulative improvement.
+7. **Portfolio assembly (Gate 5.5) -- UPDATED with trail progression overlays:** Previous allocation: s30(40%)+s32(25%)+s29(20%)+s11(15%), Sharpe ~4.4 (inflated by uncapped compounding). **New optimal 4-strat portfolio:** s44(35%)+s29(30%)+s37(20%)+s32(15%). Combined Sharpe 6.53 (inflated by uncapped compounding), MaxDD -2.2%. Trail overlays s44 and s37 replace base s30 and s11 respectively. Correlation structure: median pairwise +0.19, no pairs >0.7. s44 (delta-neutral carry + trail) is the anchor (Sharpe 5.80, inflated by uncapped compounding; final equity $8.5M on $200K -- UNREALISTIC, exceeds market capacity). s29 has highest marginal Sharpe (+1.21) due to near-zero correlation with everything. Greedy forward selection adds all 4 strategies with positive cumulative improvement.
 
 8. **Process decision: pause at Gate 5.5, batch paper trade later.** Paper trading (Gate 6) deferred until enough strategies accumulated. All validated strategies will be paper traded in parallel to maximize signal-to-wall-clock-time. Knowledge bases fully updated through Gate 5.5 — no information loss risk.
 
@@ -491,7 +499,7 @@ Updated 2026-03-18. Portfolio rotation removed 6 underperformers + added 2 solo 
 
 13. **Funding rate colinear with basis premium.** O6 (funding-scaled carry) tested on s30 basis carry showed Calmar -0.29 and Sharpe -0.01 — essentially neutral. The basis entry signal already captures funding richness because funding rate and basis premium are driven by the same market force (retail long demand). Overlaying one on the other adds noise, not signal.
 
-14. **Progressive trailing stops are the strongest overlay found — universal across spot AND delta-neutral strategies.** Trail schedule `[[0,3.0],[1,2.5],[2,2.0],[3,1.5]]` improves ALL 4 top spot strategies: s09→s39 (+23.1pp, Sharpe +0.819), s11→s37 (+12.1pp, Sharpe +0.477), s13→s40 (+27.5pp, Sharpe +0.752), s21→s41 (+23.1pp, Sharpe +0.468). Plus s30→s44 basis carry: Sharpe +1.448, Calmar 15→59, MaxDD halved, 63/0 wins/losses — strongest single overlay result. Does NOT work on s32 regime spot/perp (-2.2pp rate, short legs need wide stops). Average spot improvement: +21.5pp, +0.629 Sharpe, 93% win rate.
+14. **Progressive trailing stops are the strongest overlay found -- universal across spot AND delta-neutral strategies.** Trail schedule `[[0,3.0],[1,2.5],[2,2.0],[3,1.5]]` improves ALL 4 top spot strategies: s09->s39 (+23.1pp, Sharpe +0.819), s11->s37 (+12.1pp, Sharpe +0.477), s13->s40 (+27.5pp, Sharpe +0.752), s21->s41 (+23.1pp, Sharpe +0.468). Plus s30->s44 basis carry: Sharpe +1.448, Calmar 15->59 (both inflated ~100-1000x per finding #30; realistic: 1-5), MaxDD halved, 63/0 wins/losses -- strongest single overlay result. Does NOT work on s32 regime spot/perp (-2.2pp rate, short legs need wide stops). Average spot improvement: +21.5pp, +0.629 Sharpe, 93% win rate.
 
 16. **Per-bar volatility-based trail ceiling adds nothing on top of O5.** O4 defensive stop (tighten trail when previous bar range > 2.5x ATR) was KILLED at Gate 5O. Zero validation change at thresholds 2.0 and 1.5. O5 progressive trailing (profit-based) already captures the trailing stop optimization. The stop ratchet (`max(stop_price, trail)`) means once O5 has tightened, there's no room for further bar-level tightening. Engine `max_trail_mult` field preserved for potential future use.
 
@@ -509,38 +517,38 @@ Updated 2026-03-18. Portfolio rotation removed 6 underperformers + added 2 solo 
 
 22. **Paper trading engine now matches backtest fidelity.** All 13 gaps between paper trading and backtest engine fixed: trade management (stop/trail/target/max_hold), slippage model (3bps + sqrt(participation)), ADV-based Kelly sizing, funding sign convention, edge threshold, regime exit min hold, capital split, liquidation for 1x shorts. Verified with 10-test suite.
 
-23a. **V4-Gate 5 Sharpe/MaxDD delta tests break against near-riskless baselines.** s57 carry has 0.48% max DD and Sharpe 8.52 — near-arbitrage. Adding ANY directional strategy fails the Sharpe delta > 0 and MaxDD delta <= 2pp criteria because the baseline is already at the risk-free frontier. s59 has positive marginal Sharpe contribution (Grinold-Kahn: SR 3.83 > rho*8.52 = 2.42), confirming it adds portfolio value at optimal allocation (~5-8%). Future gate evaluations against extreme baselines should use marginal Sharpe contribution test, not simple delta comparison.
+23a. **V4-Gate 5 Sharpe/MaxDD delta tests break against near-riskless baselines.** s57 carry has 0.48% max DD and Sharpe 8.52 (inflated by uncapped compounding) -- near-arbitrage in backtest. Adding ANY directional strategy fails the Sharpe delta > 0 and MaxDD delta <= 2pp criteria because the baseline is already at the risk-free frontier. s59 has positive marginal Sharpe contribution (Grinold-Kahn: SR 3.83 > rho*8.52 = 2.42), confirming it adds portfolio value at optimal allocation (~5-8%). Future gate evaluations against extreme baselines should use marginal Sharpe contribution test, not simple delta comparison.
 
 23. **Leveraged strategies fail at 5x.** s50 (5x leverage momentum), s52 (5x funding), s56 (5x max leverage) all killed. Fees are amplified more than edge. s57/s58 use 1x leverage with aggressive sizing (size_mult=3.0, cap_mult=15.0) instead — large positions without fee amplification.
 
 24. **CRITICAL: Discovered signals only work as overlays, not standalone strategies.** Raw signal-based entries (e.g., enter when `ret_1_1h_vs_4h` z-score > 2) did not generate positive returns on their own. The signals have genuine IC (predictive power), but the IC translates to edge only when layered on top of existing well-performing strategies as timing/sizing overlays. Standalone signal strategies (s56) were killed. The successful approach is s57/s58: use the existing s44/s30 carry strategies as the base, and apply signal discovery outputs to improve entry timing, position sizing, and regime conditioning. **Lesson: IC != tradeable edge. Signals improve existing strategies, they don't replace them.**
 
-25. **Counter-trend (s63) adds return but increases drawdown.** s63 vol spike reversal fades extreme vol spikes (vol_ratio > 3x). s58+s63: +1017% (+47.5% vs baseline), but MaxDD increases from 1.2% to 6.4%. Worth it in full portfolio but not as clean as s65. s63 collects positive funding on shorts, partially offsetting s58's negative funding.
+25. **Counter-trend (s63) adds return but increases drawdown.** s63 vol spike reversal fades extreme vol spikes (vol_ratio > 3x). s58+s63: +1017% (uncapped equity) (+47.5% vs baseline), but MaxDD increases from 1.2% to 6.4%. Worth it in full portfolio but not as clean as s65. s63 collects positive funding on shorts, partially offsetting s58's negative funding. **Paper trading showed 0% win rate (2 closed shorts both stopped out).**
 
-26. **Funding carry (s65) is the best portfolio complement found.** s65 harvests structural funding rate imbalance (retail long bias). s58+s65: +1217% (+76.7% vs baseline), Sharpe INCREASES from 8.25 to 8.52, MaxDD barely changes (1.2% → 1.4%). Collects $240K in funding income. Different edge family than momentum or counter-trend.
+26. **Funding carry (s65) is the best portfolio complement found.** s65 harvests structural funding rate imbalance (retail long bias). s58+s65: +1217% (uncapped equity) (+76.7% vs baseline), Sharpe INCREASES from 8.25 to 8.52 (both inflated by uncapped compounding), MaxDD barely changes (1.2% -> 1.4%). Collects $240K in funding income. Different edge family than momentum or counter-trend.
 
-27. **Four genuinely different edge families now validated in V4 portfolio.** (1) Momentum — s56, trend following. (2) Basis carry — s57, premium convergence. (3) Counter-trend — s63, fades extreme vol spikes. (4) Funding carry — s65, harvests structural funding payments. Full 4-strategy portfolio: +1684%, Sharpe 8.26, MaxDD -5.0%, $3.5M from $200K.
+27. **Four genuinely different edge families now validated in V4 portfolio.** (1) Momentum -- s56, trend following. (2) Basis carry -- s57, premium convergence. (3) Counter-trend -- s63, fades extreme vol spikes. (4) Funding carry -- s65, harvests structural funding payments. Full 4-strategy portfolio: +1684% (uncapped equity), Sharpe 8.26 (inflated by uncapped compounding), MaxDD -5.0%, $3.5M from $200K (UNREALISTIC -- exceeds market capacity).
 
 28. **S65 exit sweep: trail(1.5) confirmed optimal for funding carry.** 144-run sweep (2 portfolios × 9 configs × 4 periods). trail(1.5) wins on harmonic rank score across all periods for both s58+s65 (score 2.38) and s58+s72 (score 2.27). 1-month regression (trail_old beats trail_1.5) is a portfolio-level correlated exit effect, not carry-specific. Progressive schedules add no value.
 
 29. **Updated 12-month portfolio rankings (2026-03-15, $140K capital, post exit ablation):**
-    - s60: +39,765% ($140K → $55.8M), MaxDD -3.6% — dominant
-    - s58+s60: +31,459%, MaxDD -2.9%
-    - 4-edge+ptp: +20,159%, MaxDD -4.3%
-    - 4-edge: +24,054%, MaxDD -3.3%
-    - s58+s65: +12,786%, MaxDD -1.3%
-    - s58: +3,249%, MaxDD -1.7%
+    - s60: +39,765% ($140K -> $55.8M), MaxDD -3.6% — UNREALISTIC -- exceeds market capacity, requires positions exceeding daily token volume. Physically impossible to execute.
+    - s58+s60: +31,459% (uncapped, UNREALISTIC), MaxDD -2.9%
+    - 4-edge+ptp: +20,159% (uncapped, UNREALISTIC), MaxDD -4.3%
+    - 4-edge: +24,054% (uncapped, UNREALISTIC), MaxDD -3.3%
+    - s58+s65: +12,786% (uncapped, UNREALISTIC), MaxDD -1.3%
+    - s58: +3,249% (uncapped, UNREALISTIC), MaxDD -1.7%
     Full rankings in `results/v4/portfolio_rankings.json`.
 
 30. **Quant review: backtested Calmar inflated ~100-1000x by 6 factors.** (1) Unlimited equity compounding — accepted, this is intended. (2) DD from daily resampling misses intraday dips — measured, modest impact. (3) cap_multiplier=15 disables ADV caps — needs fix (mission). (4) No market impact modeling at scale — needs capacity analysis (mission). (5) Survivorship bias — accepted. (6) Parameter overfitting — needs quantification (mission). Realistic Calmar likely 1-5, not 100-1000.
 
-31. **PIPPIN funding direction issue investigated, fix rejected.** PIPPIN has +29.6% annualized funding (last 30d). s65's 72h rolling mean briefly dips negative, causing long entries that pay funding. Attempted fix: 8h funding confirmation layer (`funding_confirms = np.sign(funding_short) == np.sign(funding_signed)`). Result: reduced 12mo return from +4,673% to +1,893% (-60%) while improving DD from -2.15% to -1.01%. Fix too aggressive — blocks profitable entries across all tokens, not just PIPPIN. **Reverted.** PIPPIN longs are net profitable despite funding drag because price gains exceed funding costs. Accept as-is.
+31. **PIPPIN funding direction issue investigated, fix rejected.** PIPPIN has +29.6% annualized funding (last 30d). s65's 72h rolling mean briefly dips negative, causing long entries that pay funding. Attempted fix: 8h funding confirmation layer (`funding_confirms = np.sign(funding_short) == np.sign(funding_signed)`). Result: reduced 12mo return from +4,673% (uncapped) to +1,893% (uncapped) (-60%) while improving DD from -2.15% to -1.01%. Fix too aggressive — blocks profitable entries across all tokens, not just PIPPIN. **Reverted.** PIPPIN longs are net profitable despite funding drag because price gains exceed funding costs. Accept as-is.
 
-32. **Monthly returns analysis (all 21 portfolios, $140K, 12mo).** Every portfolio profitable every month. s60 went $140K → $55.8M (every single month positive). Worst month across all portfolios: still positive. Full output in `/tmp/monthly_returns_all.txt`.
+32. **Monthly returns analysis (all 21 portfolios, $140K, 12mo).** Every portfolio profitable every month. s60 went $140K -> $55.8M (UNREALISTIC -- exceeds market capacity, requires positions exceeding daily token volume; every single month positive in uncapped backtest). Worst month across all portfolios: still positive. Full output in `/tmp/monthly_returns_all.txt`.
 
-28. **V4 portfolio transforms weak V3 strategies into excellent complements.** s25 (killed V3) → s63 (+1017% in portfolio). s29 (Tier B, 20.1% V3 rate) → s65 (+1217% in portfolio, Sharpe increases). The shared capital + multi-token diversification effect is the key enabler.
+28. **V4 portfolio transforms weak V3 strategies into excellent complements.** s25 (killed V3) -> s63 (+1017% in portfolio, uncapped equity). s29 (Tier B, 20.1% V3 rate) -> s65 (+1217% in portfolio, uncapped equity, Sharpe increases but inflated). The shared capital + multi-token diversification effect is the key enabler.
 
-29. **Portfolio alpha bar is now very high (Sharpe >3 to add value).** s67 funding momentum had excellent decorrelation (all <0.2 vs existing) and was profitable standalone (Sharpe 1.90, +94.6%), but failed V4-Gate 5 because adding it diluted capital from higher-performing s63 (3.95) and s65 (5.65). In the current 4-strategy portfolio, a new strategy needs standalone Sharpe > ~3.0 to overcome capital dilution. Funding momentum (following) is a weaker edge than funding carry (fading): s65 Sharpe 5.65 vs s67 Sharpe 1.90.
+29. **Portfolio alpha bar is now very high (Sharpe >3 to add value in uncapped backtest).** s67 funding momentum had excellent decorrelation (all <0.2 vs existing) and was profitable standalone (Sharpe 1.90, +94.6%), but failed V4-Gate 5 because adding it diluted capital from higher-performing s63 (3.95, inflated) and s65 (5.65, inflated by uncapped compounding). In the current 4-strategy portfolio, a new strategy needs standalone Sharpe > ~3.0 (uncapped) to overcome capital dilution. Funding momentum (following) is a weaker edge than funding carry (fading): s65 Sharpe 5.65 (inflated) vs s67 Sharpe 1.90.
 
 30. **PAPER TRADING: 80% of exits cluster at the no_stop_bars boundary.** 12 of 15 closed trades held exactly 24 bars (= no_stop_bars for s56/s60/s59). The trailing stop activates and fires immediately when protection expires. Trades never actually run with an active progressive trail. This suggests the 24h protection period is either too long (positions have already moved past stop) or the initial stop is too tight relative to realized volatility.
 
