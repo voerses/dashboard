@@ -68,8 +68,8 @@ class TokenSignals:
     partial_tp_atr: float = 0.0
     partial_tp_pct: float = 0.5
     partial_tp_trail: float = 1.5
-    # Breakeven ratchet
-    breakeven_atr: float = 0.5
+    # Breakeven ratchet (0 = disabled; strategies must explicitly opt in)
+    breakeven_atr: float = 0.0
     # Chandelier stop: trail from highest-high over N-bar lookback window (0 = disabled)
     chandelier_lookback: int = 0
     # Regime-conditional target: tighter TP in bear regimes (0 = disabled, use target_mult)
@@ -401,7 +401,7 @@ def precompute_strategy_signals(
             sr_partial_tp_atr = float(getattr(sr, 'partial_tp_atr', 0.0))
             sr_partial_tp_pct = float(getattr(sr, 'partial_tp_pct', 0.5))
             sr_partial_tp_trail = float(getattr(sr, 'partial_tp_trail', 1.5))
-            sr_breakeven_atr = float(getattr(sr, 'breakeven_atr', 0.5))
+            sr_breakeven_atr = float(getattr(sr, 'breakeven_atr', 0.0))
             sr_chandelier_lookback = int(getattr(sr, 'chandelier_lookback', 0))
             sr_bear_target_mult = float(getattr(sr, 'bear_target_mult', 0.0))
             sr_bear_max_hold = int(getattr(sr, 'bear_max_hold', 0))

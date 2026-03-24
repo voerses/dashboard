@@ -108,4 +108,5 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
         name='s56_max_leverage_momentum',
         trail_schedule=TRAIL_SCHEDULE,
         size_multiplier=regime_size,
+        breakeven_atr=0.5,
     )

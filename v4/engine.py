@@ -357,8 +357,8 @@ class StrategyResult:
     partial_tp_pct: float = 0.5
     partial_tp_trail: float = 1.5
 
-    # Breakeven ratchet
-    breakeven_atr: float = 0.5
+    # Breakeven ratchet (0 = disabled; strategies must explicitly opt in)
+    breakeven_atr: float = 0.0
 
     # Chandelier stop: trail from highest-high (or lowest-low for shorts) over N-bar lookback
     # 0 = disabled (use standard trail from pos.highest). Typical values: 10-24 bars.
@@ -535,6 +535,174 @@ def _compute_multi_tf_alignment(ctx: StrategyContext):
     score_d = (ema20_d > ema50_d).astype(np.float64)
 
     ctx.custom['multi_tf_alignment'] = score_1h + score_4h + score_d
+
+
+# =============================================================================
+# V3 Overlay Plugins — Positioning & VRP (module-level caches)
+# =============================================================================
+
+_ENGINE_DIR = Path(__file__).resolve().parent
+_PROJECT_ROOT = _ENGINE_DIR.parent
+_POS_PATH = _PROJECT_ROOT / 'data' / 'alternative' / 'binance_metrics' / 'all_symbols_daily_ls.parquet'
+_BTC_DVOL_PATH = _PROJECT_ROOT / 'data' / 'alternative' / 'deribit_options' / 'dvol' / 'btc_dvol_daily.json'
+_ETH_DVOL_PATH = _PROJECT_ROOT / 'data' / 'alternative' / 'deribit_options' / 'dvol' / 'eth_dvol_daily.json'
+
+_pos_cache: Dict[str, pd.DataFrame] = {}   # symbol -> filtered DataFrame
+_dvol_cache: Dict[str, pd.Series] = {}     # 'BTC'/'ETH' -> dvol Series
+_pos_raw_loaded: bool = False               # True after first parquet read
+_pos_raw_df: Optional[pd.DataFrame] = None
+
+
+def _load_positioning_raw() -> pd.DataFrame:
+    """Load raw positioning parquet once, cache at module level."""
+    global _pos_raw_loaded, _pos_raw_df
+    if _pos_raw_loaded:
+        return _pos_raw_df
+    _pos_raw_loaded = True
+    if not _POS_PATH.exists():
+        _pos_raw_df = pd.DataFrame()
+        return _pos_raw_df
+    _pos_raw_df = pd.read_parquet(_POS_PATH)
+    return _pos_raw_df
+
+
+def _get_positioning_for_symbol(symbol: str) -> pd.DataFrame:
+    """Get positioning data for a single symbol (e.g. 'BTCUSDT'). Cached."""
+    if symbol in _pos_cache:
+        return _pos_cache[symbol]
+    raw = _load_positioning_raw()
+    if raw.empty or 'symbol' not in raw.columns:
+        _pos_cache[symbol] = pd.DataFrame()
+        return _pos_cache[symbol]
+    filt = raw[raw['symbol'] == symbol].copy()
+    if filt.empty:
+        _pos_cache[symbol] = pd.DataFrame()
+        return _pos_cache[symbol]
+    filt['date'] = pd.to_datetime(filt['date'])
+    filt = filt.set_index('date').sort_index()
+    filt = filt[['sum_toptrader_ls_ratio', 'count_toptrader_ls_ratio', 'count_ls_ratio']].copy()
+    filt = filt[~filt.index.duplicated(keep='last')]
+    _pos_cache[symbol] = filt
+    return filt
+
+
+def _load_dvol(ticker: str) -> pd.Series:
+    """Load DVOL JSON for BTC or ETH. Cached at module level."""
+    if ticker in _dvol_cache:
+        return _dvol_cache[ticker]
+    path = _BTC_DVOL_PATH if ticker == 'BTC' else _ETH_DVOL_PATH if ticker == 'ETH' else None
+    if path is None or not path.exists():
+        _dvol_cache[ticker] = pd.Series(dtype=float)
+        return _dvol_cache[ticker]
+    import json as _json
+    with open(path) as f:
+        data = _json.load(f)
+    records = [{'date': pd.Timestamp(row[0], unit='ms'), 'dvol_close': row[4]} for row in data]
+    dvol = pd.DataFrame(records).set_index('date').sort_index()
+    dvol = dvol[~dvol.index.duplicated(keep='last')]
+    _dvol_cache[ticker] = dvol['dvol_close']
+    return _dvol_cache[ticker]
+
+
+@register_indicator
+def _compute_positioning_overlay(ctx: StrategyContext):
+    """Positioning overlay: combined z-score of Top Trader L/S + divergence.
+
+    Writes ctx.custom['pos_z'] and ctx.custom['pos_mult'].
+    Falls back to 1.0 on any error or missing data.
+    """
+    n = len(ctx.ind_1h['close'])
+    try:
+        symbol = f'{ctx.ticker}USDT'
+        pos = _get_positioning_for_symbol(symbol)
+        if pos.empty:
+            ctx.custom['pos_z'] = np.zeros(n, dtype=np.float64)
+            ctx.custom['pos_mult'] = np.ones(n, dtype=np.float64)
+            return
+
+        # Align positioning to daily index
+        pos_aligned = pos.reindex(ctx.idx_d).ffill()
+
+        toptrader_ls = pos_aligned['sum_toptrader_ls_ratio'].values.astype(np.float64)
+        count_toptrader = pos_aligned['count_toptrader_ls_ratio'].values.astype(np.float64)
+        count_ls = pos_aligned['count_ls_ratio'].values.astype(np.float64)
+
+        # Divergence: top trader vs retail
+        divergence = count_toptrader - count_ls
+
+        # Rolling z-scores (30d window)
+        z_toptrader = rolling_zscore(toptrader_ls, 30)
+        z_divergence = rolling_zscore(divergence, 30)
+
+        # Combined z-score
+        combined_z = (z_toptrader + z_divergence) / 2.0
+
+        # Map z-score to multiplier (contrarian: crowded long -> reduce)
+        multiplier = np.where(
+            combined_z > 1.5, 0.3,
+            np.where(combined_z > 0.5, 0.5,
+                     np.where(combined_z > -0.5, 1.0,
+                              np.where(combined_z > -1.5, 1.3,
+                                       1.5))))
+        multiplier = np.where(np.isnan(combined_z), 1.0, multiplier)
+
+        # Align daily -> 1H
+        ctx.custom['pos_z'] = ctx.align_daily_to_1h(combined_z).astype(np.float64)
+        ctx.custom['pos_mult'] = ctx.align_daily_to_1h(multiplier).astype(np.float64)
+
+    except Exception:
+        ctx.custom['pos_z'] = np.zeros(n, dtype=np.float64)
+        ctx.custom['pos_mult'] = np.ones(n, dtype=np.float64)
+
+
+@register_indicator
+def _compute_vrp_overlay(ctx: StrategyContext):
+    """VRP (Volatility Risk Premium) overlay: (IV - RV) z-score -> sizing mult.
+
+    Writes ctx.custom['vrp_z'] and ctx.custom['vrp_mult'].
+    Falls back to 1.0 on any error or missing data.
+    """
+    n = len(ctx.ind_1h['close'])
+    try:
+        daily_close = ctx.ind_d['close']
+        n_daily = len(daily_close)
+
+        # Realized vol: 20d rolling std of daily log returns, annualized
+        log_ret = np.zeros(n_daily, dtype=np.float64)
+        log_ret[1:] = np.log(daily_close[1:] / np.maximum(daily_close[:-1], 1e-10))
+        rv_20d = rolling_std(log_ret, 20) * np.sqrt(365) * 100
+
+        # Implied vol: DVOL if available (BTC/ETH), else RV proxy
+        dvol = _load_dvol(ctx.ticker)
+        if dvol.empty or len(dvol) < 30:
+            # Proxy: 90d RV * 1.2 (typical IV/RV ratio)
+            rv_90d = rolling_std(log_ret, 90) * np.sqrt(365) * 100
+            iv = rv_90d * 1.2
+        else:
+            iv_series = dvol.reindex(ctx.idx_d).ffill()
+            iv = iv_series.values.astype(np.float64)
+
+        # VRP = IV - RV (positive = vol overpriced)
+        vrp = iv - rv_20d
+
+        # 60d rolling z-score
+        vrp_z = rolling_zscore(vrp, 60)
+
+        # Map z-score to multiplier
+        multiplier = np.where(
+            vrp_z > 1.0, 1.3,
+            np.where(vrp_z > -0.5, 1.0,
+                     np.where(vrp_z > -1.5, 0.5,
+                              0.3)))
+        multiplier = np.where(np.isnan(vrp_z), 1.0, multiplier)
+
+        # Align daily -> 1H
+        ctx.custom['vrp_z'] = ctx.align_daily_to_1h(vrp_z).astype(np.float64)
+        ctx.custom['vrp_mult'] = ctx.align_daily_to_1h(multiplier).astype(np.float64)
+
+    except Exception:
+        ctx.custom['vrp_z'] = np.zeros(n, dtype=np.float64)
+        ctx.custom['vrp_mult'] = np.ones(n, dtype=np.float64)
 
 
 # =============================================================================

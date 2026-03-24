@@ -126,7 +126,7 @@ def _deserialize_position(d: dict) -> Position:
         partial_tp_atr=d.get("partial_tp_atr", 0.0),
         partial_tp_pct=d.get("partial_tp_pct", 0.5),
         partial_tp_trail=d.get("partial_tp_trail", 1.5),
-        breakeven_atr=d.get("breakeven_atr", 0.5),
+        breakeven_atr=d.get("breakeven_atr", 0.0),
         breakeven_triggered=d.get("breakeven_triggered", False),
         chandelier_lookback=d.get("chandelier_lookback", 0),
         partial_closed=d.get("partial_closed", False),

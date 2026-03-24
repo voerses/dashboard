@@ -237,7 +237,7 @@ def _sr_to_token_signals(
     sr_partial_tp_atr = float(getattr(sr, 'partial_tp_atr', 0.0))
     sr_partial_tp_pct = float(getattr(sr, 'partial_tp_pct', 0.5))
     sr_partial_tp_trail = float(getattr(sr, 'partial_tp_trail', 1.5))
-    sr_breakeven_atr = float(getattr(sr, 'breakeven_atr', 0.5))
+    sr_breakeven_atr = float(getattr(sr, 'breakeven_atr', 0.0))
     sr_chandelier_lookback = int(getattr(sr, 'chandelier_lookback', 0))
     sr_bear_target_mult = float(getattr(sr, 'bear_target_mult', 0.0))
     sr_bear_max_hold = int(getattr(sr, 'bear_max_hold', 0))

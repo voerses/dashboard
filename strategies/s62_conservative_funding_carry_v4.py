@@ -45,6 +45,7 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
             direction=np.ones(n, dtype=np.int8),
             market_type=MarketType.PERP,
             name='s62_conservative_funding_carry_v4',
+            breakeven_atr=0.5,
         )
 
     # ── LAYER 1: REGIME FILTER ──────────────────────────────────
@@ -103,4 +104,5 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
         trail_schedule=TRAIL_SCHEDULE,
         size_multiplier=size_mult,
         cap_multiplier=2.0,   # Conservative — s61 used 8.0
+        breakeven_atr=0.5,
     )

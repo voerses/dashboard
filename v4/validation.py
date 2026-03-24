@@ -181,20 +181,20 @@ def _run_walk_forward_v4(strategy_id: str, ticker: str,
 
     # Run simulation with single token
     sim_state = simulate_portfolio(
-        signals=signals,
+        all_signals={strategy_id: signals},
+        strategy_specs={strategy_id: spec},
         config=portfolio_config,
-        strategies=[spec],
     )
 
     # Extract closed trades
     trades = []
-    for ct in sim_state.closed_trades:
+    for ct in sim_state.position_manager.closed_trades:
         trades.append({
             'pnl': ct.pnl,
-            'return_pct': ct.return_pct,
+            'return_pct': (ct.pnl / ct.margin_usd * 100) if ct.margin_usd > 0 else 0.0,
             'hold_hours': ct.hold_bars,
             'exit_reason': ct.exit_reason,
-            'position_usd': ct.entry_value,
+            'position_usd': ct.margin_usd,
             'entry_bar': ct.entry_bar,
             'exit_bar': ct.exit_bar,
             'strategy': ct.strategy_id,
@@ -364,7 +364,7 @@ def _run_cpcv_v4(strategy_id: str, ticker: str,
             partial_tp_atr=float(getattr(result, 'partial_tp_atr', 0.0)),
             partial_tp_pct=float(getattr(result, 'partial_tp_pct', 0.5)),
             partial_tp_trail=float(getattr(result, 'partial_tp_trail', 1.5)),
-            breakeven_atr=float(getattr(result, 'breakeven_atr', 0.5)),
+            breakeven_atr=float(getattr(result, 'breakeven_atr', 0.0)),
             bear_target_mult=float(getattr(result, 'bear_target_mult', 0.0)),
             convex_exit=result.convex_exit,
             rsi=p_rsi,
@@ -376,9 +376,9 @@ def _run_cpcv_v4(strategy_id: str, ticker: str,
         strat_spec = StrategySpec(strategy_id=strategy_id, market=market)
         port_config = PortfolioConfig(capital=capital, exchange=exchange)
         sim_state = simulate_portfolio(
-            signals={ticker: ts},
+            all_signals={strategy_id: {ticker: ts}},
+            strategy_specs={strategy_id: strat_spec},
             config=port_config,
-            strategies=[strat_spec],
         )
 
         fold_pnl = sim_state.portfolio_equity - capital

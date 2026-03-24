@@ -158,4 +158,5 @@ def strategy(ctx_spot: StrategyContext, ctx_perp: StrategyContext) -> StrategyRe
         trail_schedule=TRAIL_SCHEDULE,
         size_multiplier=size_mult,
         cap_multiplier=15.0,  # carry is safe, push sizing hard
+        breakeven_atr=0.5,
     )
