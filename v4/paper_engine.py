@@ -1670,8 +1670,14 @@ class PaperPortfolioEngine:
     # Dashboard SIMS output (Task 10)
     # ------------------------------------------------------------------
 
-    def to_dashboard_sim(self) -> dict:
-        """Produce SIMS JSON schema for dashboard consumption (AC11b, AC12, AC26)."""
+    def to_dashboard_sim(self, price_overrides: dict[str, float] | None = None) -> dict:
+        """Produce SIMS JSON schema for dashboard consumption (AC11b, AC12, AC26).
+
+        Args:
+            price_overrides: Optional live prices to merge on top of _last_known_prices.
+                Used by the dashboard heartbeat to overlay WebSocket prices without
+                mutating engine state (thread-safe).
+        """
         from datetime import datetime, timezone, timedelta
 
         config = self.config
@@ -1735,8 +1741,10 @@ class PaperPortfolioEngine:
             })
 
         # AC28: Include open positions with status="open"
-        last_prices = getattr(self, '_last_known_prices', {})
-        last_regimes = getattr(self, '_last_known_regimes', {})
+        last_prices = dict(getattr(self, '_last_known_prices', {}))
+        if price_overrides:
+            last_prices.update(price_overrides)
+        last_regimes = dict(getattr(self, '_last_known_regimes', {}))
         regime_names = {0: "CRISIS", 1: "QUIET", 2: "UPTREND", 3: "RANGE", 4: "DOWNTREND"}
         all_entry_fees = self._get_all_entry_fees()
         for st in self._get_all_states():

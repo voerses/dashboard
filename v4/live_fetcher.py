@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import os
 import tempfile
+import time
 from typing import Optional
 
 import pandas as pd
@@ -38,6 +39,21 @@ class LiveFetcher:
     # AC1: OHLCV fetching
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _parse_ohlcv(raw: list) -> list[dict]:
+        """Parse ccxt OHLCV response into bar dicts."""
+        return [
+            {
+                "timestamp": int(c[0]),
+                "open": float(c[1]),
+                "high": float(c[2]),
+                "low": float(c[3]),
+                "close": float(c[4]),
+                "volume": float(c[5]),
+            }
+            for c in raw
+        ]
+
     def fetch_ohlcv(
         self,
         token: str,
@@ -52,17 +68,156 @@ class LiveFetcher:
         """
         symbol = self._resolve_symbol(token, market)
         raw = self.exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
-        bars = []
-        for candle in raw:
-            bars.append({
-                "timestamp": int(candle[0]),
-                "open": float(candle[1]),
-                "high": float(candle[2]),
-                "low": float(candle[3]),
-                "close": float(candle[4]),
-                "volume": float(candle[5]),
-            })
-        return bars
+        return self._parse_ohlcv(raw)
+
+    def fetch_ohlcv_since(
+        self,
+        token: str,
+        market: str = "spot",
+        timeframe: str = "1h",
+        since_ms: int = 0,
+        limit: int = 1000,
+    ) -> list[dict]:
+        """Fetch OHLCV candles starting from a specific timestamp.
+
+        Like fetch_ohlcv() but passes `since` to ccxt for paginated backfill.
+        Separate method to avoid risk to existing fetch_ohlcv() call sites.
+        """
+        symbol = self._resolve_symbol(token, market)
+        raw = self.exchange.fetch_ohlcv(
+            symbol, timeframe=timeframe, since=since_ms, limit=limit,
+        )
+        return self._parse_ohlcv(raw)
+
+    # ------------------------------------------------------------------
+    # Backfill: find last timestamp + paginated gap fill
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _ts_to_ms(ts) -> int:
+        """Convert a parquet index value (Timestamp or int) to epoch milliseconds.
+
+        Tz-naive Timestamps are treated as UTC (matching how append_to_parquet
+        stores them: pd.to_datetime(..., utc=True).dt.tz_localize(None)).
+        """
+        if isinstance(ts, pd.Timestamp):
+            if ts.tzinfo is not None:
+                ts = ts.tz_convert("UTC").tz_localize(None)
+            # Avoid datetime.timestamp() which assumes local tz for naive timestamps
+            return int((ts - pd.Timestamp("1970-01-01")).total_seconds() * 1000)
+        return int(ts)
+
+    def _find_last_timestamp_ms(self, token: str, market: str) -> Optional[int]:
+        """Find the ms timestamp of the last bar in live buffer or historical cache.
+
+        Checks live buffer first (most recent data), then falls back to
+        historical 1h_cache. Returns None if no data exists for this token/market.
+        """
+        # Check live buffer first
+        live_path = self._parquet_path(token, market)
+        if os.path.exists(live_path):
+            try:
+                idx = pd.read_parquet(live_path, columns=[]).index
+                if len(idx) > 0:
+                    return self._ts_to_ms(idx.max())
+            except Exception as e:
+                logger.warning("Failed to read live parquet %s: %s", live_path, e)
+
+        # Fall back to historical cache
+        hist_path = os.path.join(
+            self.data_dir, market, "1h_cache", f"{token}_1h.parquet",
+        )
+        if os.path.exists(hist_path):
+            try:
+                idx = pd.read_parquet(hist_path, columns=[]).index
+                if len(idx) > 0:
+                    return self._ts_to_ms(idx.max())
+            except Exception as e:
+                logger.warning("Failed to read hist parquet %s: %s", hist_path, e)
+
+        return None
+
+    def backfill_gaps(
+        self,
+        tokens: set[str],
+        gap_threshold_hours: int = 24,
+        chunk_limit: int = 1000,
+        max_errors: int = 5,
+    ) -> dict[str, int]:
+        """Backfill data gaps >gap_threshold_hours for each token/market pair.
+
+        Called once at startup to repair gaps from outages.
+        Returns a dict of "TOKEN/market" -> bars_backfilled.
+        Aborts early after max_errors consecutive fetch failures (network down).
+        """
+        now_ms = int(time.time() * 1000)
+        threshold_ms = gap_threshold_hours * _HOUR_MS
+        results: dict[str, int] = {}
+        consecutive_errors = 0
+
+        for token in sorted(tokens):
+            for market in ("spot", "perp"):
+                if consecutive_errors >= max_errors:
+                    logger.warning(
+                        "Backfill aborted: %d consecutive errors (network down?)",
+                        consecutive_errors,
+                    )
+                    return results
+
+                last_ms = self._find_last_timestamp_ms(token, market)
+                if last_ms is None:
+                    continue
+
+                gap_ms = now_ms - last_ms
+                if gap_ms <= threshold_ms:
+                    continue
+
+                gap_hours = gap_ms // _HOUR_MS
+                key = f"{token}/{market}"
+                logger.info(
+                    "Backfilling %s: %d missing hours (%s -> now)",
+                    key, gap_hours,
+                    pd.Timestamp(last_ms, unit="ms").strftime("%b %d %H:%M"),
+                )
+
+                # Paginate from last known bar + 1 hour
+                since_ms = last_ms + _HOUR_MS
+                total_bars = 0
+
+                while since_ms < now_ms:
+                    try:
+                        bars = self.fetch_ohlcv_since(
+                            token, market, since_ms=since_ms, limit=chunk_limit,
+                        )
+                        consecutive_errors = 0  # Reset on success
+                    except Exception as e:
+                        consecutive_errors += 1
+                        logger.warning("Backfill fetch %s failed: %s", key, e)
+                        break
+
+                    if not bars:
+                        break
+
+                    closed = self.filter_closed_bars(bars, now_ms=now_ms)
+                    if closed:
+                        self.append_to_parquet(token, market, closed)
+                        total_bars += len(closed)
+
+                    # Advance: next page starts after last fetched bar
+                    next_since = bars[-1]["timestamp"] + _HOUR_MS
+                    if next_since <= since_ms:
+                        # Guard against infinite loop (exchange returning same data)
+                        break
+                    since_ms = next_since
+
+                    # Rate-limit courtesy: small sleep between pagination pages
+                    # (ccxt enableRateLimit handles most throttling, this is extra safety)
+                    time.sleep(0.1)
+
+                if total_bars > 0:
+                    results[key] = total_bars
+
+        return results
 
     # ------------------------------------------------------------------
     # AC2: Funding rate fetching
@@ -92,7 +247,6 @@ class LiveFetcher:
         A bar is closed if timestamp + 3600000 <= now_ms.
         """
         if now_ms is None:
-            import time
             now_ms = int(time.time() * 1000)
         return [b for b in bars if b["timestamp"] + _HOUR_MS <= now_ms]
 

@@ -528,10 +528,10 @@ function render() {
     h += `<div class="sec">
         <h2>Trade Log</h2>
         <div class="frow">
-            <div class="fb active" onclick="setF(this,'open')">Open (${nOpen})</div>
-            <div class="fb" onclick="setF(this,'all')">All (${trades.length})</div>
-            <div class="fb" onclick="setF(this,'winners')">Winners (${nW})</div>
-            <div class="fb" onclick="setF(this,'losers')">Losers (${nT-nW})</div>
+            <div class="fb ${curFilter==='open'?'active':''}" onclick="setF(this,'open')">Open (${nOpen})</div>
+            <div class="fb ${curFilter==='all'?'active':''}" onclick="setF(this,'all')">All (${trades.length})</div>
+            <div class="fb ${curFilter==='winners'?'active':''}" onclick="setF(this,'winners')">Winners (${nW})</div>
+            <div class="fb ${curFilter==='losers'?'active':''}" onclick="setF(this,'losers')">Losers (${nT-nW})</div>
         </div>
         <div class="card tbl-wrap">
             <table>

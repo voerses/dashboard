@@ -1,13 +1,13 @@
 # Research Status — Active Signal Discovery
 
-> **Last updated:** 2026-03-24T02:00Z (session 4 end-of-day, all wave 4 agents complete except R41)
+> **Last updated:** 2026-03-25T01:00Z (session 12 — V3+RSI timing IMPLEMENTED in s320. Wave 15 diversifier search COMPLETE: ALL paths exhausted. R113 gold KILLED, R114 vol 1/6 conditional, R115 on-chain OVERTURNED by R118 deep validation (9yr data killed all signals — reflexive, not predictive). R116 multi-TF marginal. Diversifier search conclusively failed. V3 standalone with RSI timing IS the production system.)
 
 ## TIMESTAMP
-2026-03-24T02:00Z
+2026-03-24T19:30Z
 
 ---
 
-## Signal Scoreboard (18 signals tested)
+## Signal Scoreboard (23 signals tested)
 
 | # | Signal | OOS IC / Sharpe | Verdict |
 |---|--------|----------------|---------|
@@ -29,6 +29,36 @@
 | 16 | ETF Flow Momentum | Flow 20d z-score IC=+0.191 14D (t=2.99), tightening+inflow +6.89% 14D | PASS |
 | 17 | OI Rate-of-Change Divergence | oi_div_unsigned_7d IC=-0.059 3D (t=-2.82), Q1-Q5 spread 114.7 bps/3d | PASS |
 | 18 | Gamma Exposure (GEX) / VRP | VRP z-score IC=0.268 BTC 7D, vol predictor IC=0.28 | CONDITIONAL PASS — vol/sizing overlay |
+| 19 | CTREND (trend quality ranking) | IC~0.07-0.12 IS, -0.013 OOS panel | KILLED — classic IS overfit |
+| 20 | Liquidation Cascade Risk (composite) | Composite noise; funding contrarian IC=0.086 BTC persistent | KILLED composite / NEEDS DATA for sub-signal |
+| 21 | BTC Dominance Rotation | IC sign flip OOS all lookbacks | KILLED |
+| 22 | Correlation Breakdown | IC=-0.065 (descriptive not predictive) | KILLED standalone / UTILITY as regime conditioner |
+| 23 | VWAP Deviation | IC=0.035 max (microscopic) | KILLED — HF effect only |
+| 24 | Exchange Netflow 5d sum | BTC IC=+0.149 (t=3.44), ETH inverted | CONDITIONAL PASS — BTC only, short history |
+| 25 | Correlation Regime Conditioning | IC lift +0.005 (negligible) | KILLED — signals work unconditionally |
+| 26 | Multi-Signal Stacking (kitchen-sink) | TOP_9 IC=0.102 vs solo 0.248 (-59%) | KILLED — naive equal-weight stacking |
+| 27 | Multi-Signal Pairs (selective) | US10Y+DXY IC=0.305 (+23%) | GOLD — correct architecture is 2-signal composite |
+| 28 | **Top Trader L/S raw** | **BTC 14d IC=-0.166 (t=-6.91), strengthens OOS** | **GOLD — positioning signal** |
+| 29 | **L/S Divergence (count)** | **BTC 14d IC=-0.204 (t=-8.57)** | **GOLD — strongest single IC ever** |
+| 30 | **L/S Ratio Range** | **BTC 14d IC=-0.164 (t=-7.40), 100% sign consistent** | **PASS** |
+| 31 | OI Rate of Change / Z-score | Zero predictive power all lookbacks | KILLED |
+| 32 | Cross-token OI Dispersion | Sign flip OOS | KILLED |
+| 33 | **Trend+Pullback L/S (EMA+RSI)** | **BTC long PASS (2 agents agree), short/ETH contested. BTC combined 7/10 CONDITIONAL.** | **PASS — BTC long-only. Short/ETH need more data.** |
+| 34 | Funding Reversal Short | WF: 0/8 positive, Sharpe -2.12. Extreme funding events extinct post-2021. | KILLED — regime dead |
+| 35 | BB Squeeze Breakout | WF: 2/10 positive, Sharpe -17.28. IS PF 4.54 was full-sample overfit. | KILLED — IS artifact |
+| 36 | DVOL Rate-of-Change | IS IC=0.10, OOS IC=0.00. All 4 asymmetric mappings degrade V3. | KILLED — IS artifact |
+| 37 | Cross-Token Positioning Consensus | IC=-0.121 (momentum, not contrarian) | PASS — needs architecture |
+| 39 | V3+RSI Timing V2 Flexible | 6/6 WF improved, dSharpe +5.47, return 53%→337% | CONDITIONAL PASS — low OOS trades |
+| 40 | Macro Regime Rotation (US10Y+DXY) | Deep WF: IC non-stationary, param sensitivity 189.7%, RANGE Sharpe -0.422 | KILLED — non-stationary IC, fragile params |
+| 41 | Intraday Momentum Breakout | Deep WF: mean Sharpe -12.2, full-sample 0.95 doesn't replicate OOS. R107 Sharpe 0.594 was IS. | KILLED — fails deep WF |
+| 42 | Mean-Rev Vol Gate | Standalone Sharpe -0.671 | KILLED |
+| 43 | VRP Direction | Only 2/6 WF positive | KILLED |
+| 44 | Funding Contrarian | Standalone Sharpe -0.513 | KILLED |
+| 38 | Trump Trade Sentiment (presidency) | trade_net IC=0.114 at 3d BTC (counterintuitive: escalation→UP) | CONDITIONAL — marginal, 14mo only |
+| 45 | Gold Momentum / Gold-BTC Divergence | Best IC=0.132 (14d), 36/43 pass IC, but IC decaying, last 3 WF windows dead | KILLED — non-stationary, relationship weakening |
+| 46 | Realized Vol Structure (6 variants) | S3 skewness: median OOS Sharpe 0.904, 60% WF positive, V3 corr -0.111 | CONDITIONAL — risk signal not alpha, possible sizing overlay |
+| 47 | On-Chain Metrics (16→36 variants) | R115 promising on short data, R118 OVERTURNED with 9yr: addr_growth collapsed 2.40→0.13, 52% IC sign flip | KILLED — reflexive (driven BY price), not predictive |
+| 48 | Multi-TF Divergence (7 variants) | S3 momentum div: WF Sharpe 0.621 (5/10), V3 corr 0.266, but portfolio Sharpe LOWER | MARGINAL — drawdown reducer only, not return enhancer |
 
 ---
 
@@ -47,6 +77,55 @@
 | Session Momentum (standalone) | Costs destroy at 5bps+ | 2026-03-24 |
 | L/S Funding Proxy Approach | Funding ≠ L/S (BTC r=0.25, ETH r=-0.66) | 2026-03-24 |
 | Retail Contrarian (L/S ratio) | 5yr Bybit data: IC~0 cross-token, IS Sharpe 0.166 (was 2.85 on 28d). 6/436 combos pass, 5 are AVAX-only anomaly. Signal is dead. | 2026-03-24 |
+| CTREND (trend quality: ADX, DER, R²) | Strong IS (IC 0.07-0.12), completely breaks OOS (-0.013 panel). Classic overfit. | 2026-03-24 |
+| Liquidation cascade (composite) | Leverage composite is noise. Actual OI/liquidation data only 1-20 days, can't test properly. | 2026-03-24 |
+| BTC Dominance Rotation | IS signal flips sign OOS across all lookbacks (14d, 30d, 60d). Regime artifact, not stable. | 2026-03-24 |
+| Funding Reversal Short | Extreme funding events extinct post-2021. Exchange risk controls killed the signal. 0/8 WF windows positive. | 2026-03-24 |
+| BB Squeeze Breakout | IS Sharpe 5-14, OOS deeply negative (-17 to -57). PF 4.54 was full-sample overfit. 2/10 WF windows. | 2026-03-24 |
+| DVOL Rate-of-Change | Full IC=0.10, OOS IC=0.00. All 4 asymmetric overlay mappings degrade V3. IS artifact. | 2026-03-24 |
+| Trump Sentiment (crypto) | trade_net IC=0.114 marginal. Non-trade categories zero power. 14 months insufficient. | 2026-03-24 |
+| Correlation Breakdown (standalone) | BTC-alt correlation is descriptive (tells regime) not predictive (doesn't forecast returns). | 2026-03-24 |
+| VWAP Deviation | All ICs microscopic. Mean-reversion in price-vs-VWAP is HF effect, not actionable at 1h+ | 2026-03-24 |
+| Macro Regime Rotation (US10Y+DXY) | IC non-stationary (sign flips 19x/2yr), param sensitivity 189.7%, RANGE Sharpe -0.422. Full-period Sharpe 0.177. | 2026-03-24 |
+| Intraday Momentum Breakout (8h ATR) | Full-sample Sharpe 0.95 but WF mean -12.2. R107 Sharpe 0.594 was IS artifact. Momentum breakouts mean-revert on BTC 1h. | 2026-03-24 |
+| Gold Momentum / Gold-BTC Divergence | IC=0.132 14d but decaying: 8/10 weaken over time, last 3 WF windows dead, parameter mode unstable. Non-stationary as BTC matures. | 2026-03-24 |
+| Multi-TF Divergence (standalone) | 3/6 corr>0.5 with V3 (trend-correlated), decorrelated ones fail WF. Price-derived signals can't escape trend information. | 2026-03-24 |
+| On-Chain Metrics (36 variants, 9yr) | R118: 52% IC sign flip across regimes, addr_growth collapsed 2.40→0.13, 0/4 survivors improve portfolio, all FRAGILE. Reflexive not predictive. | 2026-03-25 |
+
+---
+
+## Wave 5 Results (session 5, 2026-03-24) — 0/5 PASS
+
+**All 5 signals KILLED.** Easy signals are mined out. Remaining alpha in: better data, multi-signal stacking, regime conditioning.
+
+### R45 — CTREND Trend Quality Ranking (KILLED)
+- ADX, directional efficiency ratio (DER), R² as cross-sectional ranking factors
+- IS: IC 0.07-0.12 (promising), OOS: IC -0.013 (completely flat)
+- Classic IS overfit — trend quality metrics don't predict future cross-sectional returns
+- Scripts: `research/wave5_signal_scout_results.md`
+
+### R46 — Liquidation Cascade Risk Model (KILLED composite / NEEDS DATA)
+- Composite leverage risk metric: noise, no predictive power
+- Sub-signal: funding contrarian shows persistent IC=0.086 for BTC, but t-stats ~0
+- Actual OI + liquidation data only covers 1-20 days — insufficient for proper testing
+- **Follow-up**: If R41 finds OI/liquidation data with 12+ months, re-test funding contrarian
+
+### R47 — BTC Dominance Rotation (KILLED)
+- BTC.D changes tested as alt-season vs BTC-season indicator
+- IS signal systematically flips sign OOS across 14d, 30d, 60d lookbacks
+- Likely a regime artifact, not a stable tradeable signal
+
+### R48 — Correlation Breakdown (KILLED standalone / UTILITY)
+- Rolling BTC-alt correlation structure is descriptive but not predictive
+- **Utility noted**: Could serve as regime conditioning variable for existing signals
+  (e.g., trade momentum when corr > 0.7, mean-reversion when corr < 0.5)
+- Not worth a standalone signal or overlay
+
+### R49 — VWAP Deviation (KILLED)
+- Price deviation from 24h/72h/168h VWAP tested as mean-reversion signal
+- All ICs microscopic (max 0.035 BTC 24h 7d horizon)
+- Mean-reversion in price-vs-VWAP is a high-frequency effect (~seconds/minutes)
+- Not actionable at our hourly+ timescales
 
 ---
 
@@ -131,6 +210,115 @@
 15. **ETF flow strongest during tightening** — inflow + tightening = +6.89% 14D (t=7.26)
 16. **OI divergence confirms leverage vulnerability** — OI spike + price stall = -302 bps 7D OOS
 17. **VRP z-score predicts vol, not direction** — IC=0.268 for sizing, regime-switch fails
+18. **Easy signals are mined out** — Wave 5 (0/5 pass): CTREND, liquidation composite, BTC.D, correlation, VWAP all dead OOS
+19. **Trend quality metrics overfit** — ADX/DER/R² as cross-sectional factors look great IS, break completely OOS
+20. **Correlation structure is descriptive not predictive** — tells you the regime, doesn't forecast returns; potential as regime conditioner only
+21. **Remaining alpha is in data + stacking** — new signals need new data sources (OI/liquidation history) or multi-signal combinations
+22. **Correlation conditioning is useless** — crypto structurally high-corr (0.711), IC lift +0.005 (negligible), signals work unconditionally
+23. **Kitchen-sink signal stacking DESTROYS IC** — TOP_9 composite -59% vs best solo. Equal weighting is the enemy.
+24. **Selective 2-signal pairs GENUINELY improve IC** — US10Y+DXY IC=0.305 (+23% over solo), US10Y+Skew IC=0.294 (+19%)
+25. **OI Divergence and ETF Flow HURT composites** — OI OOS IC=-0.070, ETF sign flip. DEMOTED from implementation queue.
+26. **Correct overlay architecture is multiplicative independent layers** — not averaged composites
+27. **BTC exchange netflow 5d sum is a valid BTC-only signal** — IC=0.149 (t=3.44), but ETH relationship is INVERTED
+28. **OKX liquidation data is useless** — only 10.8 hours of ticks, would need 60+ days continuous collection
+29. **Top trader L/S is fundamentally different from retail L/S** — retail L/S (Bybit) IC~0 killed, but TOP TRADER L/S (Binance) IC=-0.166 GOLD. Top traders crowd → forced deleverage → predictable mean reversion.
+30. **L/S divergence (top-vs-retail) is the strongest single positioning IC ever** — IC=-0.204 at 14d (t=-8.57). Signal STRENGTHENS OOS (IS=-0.10 → OOS=-0.20).
+31. **Positioning signals are medium-frequency** — IC increases 1d→14d, crowded positioning unwinds over days not hours. Matches our holding periods.
+32. **OI levels have zero predictive power** — rate of change, z-score, all horizons: nothing. OI is not a signal.
+33. **Positioning signals survive 23-29x actual trading costs** — L/S Divergence break-even 291bps, Top Trader 231bps vs 10bps actual. Net alpha +111-133%/yr.
+34. **Skew_30d is DEAD standalone after costs** — net alpha -66%/yr. Only works as overlay in bull markets.
+35. **Net Taker Volume killed by turnover** — 0.68 turnover/day = 24.8% annual drag, break-even only 3bps.
+36. **NO signal is always-on** — every signal is regime-dependent. Regime-switching improves OOS Sharpe by +0.39 to +0.60.
+37. **Oil is a CRISIS-ALPHA signal** — IC=-0.307 in downtrends, -0.297 in crisis, flat in uptrend/range.
+38. **Top Trader L/S is a RANGE specialist** — IC=-0.288 in range (train), -0.200 OOS. Strongest in sideways markets.
+39. **Macro IC flips sign OOS** — IS=+0.154, OOS=-0.128. DO NOT use as continuous signal. Use as categorical regime filter only.
+40. **Agreement regimes produce 9% 14d spread** — both bearish: -4.89% 14d, both bullish: +3.91%. Non-linear edge.
+41. **Positioning is THE robust OOS alpha source** — B1=-0.204, B2=-0.230 at 14d OOS. Uncorrelated with macro (rho=-0.11).
+42. **Standalone positioning system FAILS** — R58/R59 both confirm. IS Sharpe 0.06-0.47, OOS all negative. Signals predict 14d returns but standalone daily rebalancing destroys edge with 11%/yr cost drag. OVERLAYS ONLY.
+43. **Crisis hedge is the standout** — Sharpe 3.10, +93% annualized in 51 OOS crisis days. Most actionable single component. Oil downtrend signal works perfectly.
+44. **Daily rebalancing kills positioning signals** — signals are 14d predictors, daily rebalancing wastes 11%/yr. Need WEEKLY minimum rebalancing or event-triggered only.
+45. **Walk-forward standalone: 1/3 positive** — 2023-24 bull run destroyed system (positioning contrarian fights sustained trend). Only recent window (2025-07+) positive.
+46. **DD protection from regime-switching is REAL** — -36.56% vs -49.53% B&H max DD. Regime framework provides tail risk reduction even when returns underperform.
+47. **Positioning overlay on trend base: +0.31 OOS Sharpe** — R60 confirms correct architecture. OOS return -2.7% → +3.2%, MaxDD -19.1% → -16.7%. Weekly rebalancing, 0.87%/yr cost drag.
+48. **Crisis hedge is REDUNDANT with trend-following** — SMA trend exits BEFORE crisis thresholds fire. ZERO days where crisis fires while base is long. Remove crisis layer from trend-following overlays.
+49. **Positioning value is RANGE-specific** — reduces range market losses from -21.4% to -13.2% annualized. This is where trend-following loses money; overlay fixes whipsaws.
+50. **Not statistically significant yet** — t=1.48, p=0.14 on 431 OOS days. Need 1-2 more years OOS or stronger effect size.
+51. **Macro agreement boost is negligible** — +0.012 OOS Sharpe. Not worth the complexity. Drop from overlay architecture.
+52. **VRP sizing overlay is SUPER-ADDITIVE with positioning** — Combined OOS Sharpe +0.68 (base -0.17). Return -3.9% → +15.9%, MaxDD -19.1% → -11.9%. Overlays are uncorrelated (rho=0.031). STATISTICALLY SIGNIFICANT (t=2.332, p<0.05).
+53. **Backtest bug inflated historical results** — Previous backtests used close price as stop price instead of current price. Bug is now fixed, and with the fix backtests are NEGATIVE. The paper trading strategies genuinely don't work. Compounding is intended and properly capped — that was NOT the issue.
+54. **Previously claimed portfolio metrics are INVALID** — "Sharpe 6.53" portfolio (s44+s29+s37+s32) was based on bugged backtests. With the bug fixed, these strategies are also negative. The strategies genuinely don't work.
+55. **Two-overlay stack is the production architecture** — Positioning (crowd) + VRP (vol regime) on trend base. Super-additive, orthogonal, statistically significant.
+56. **Positioning overlay HURTS carry strategies** — Carry is already contrarian (shorts when crowd long), adding contrarian positioning is REDUNDANT. IS Sharpe drops 1.05→0.55.
+57. **Carry is dormant since mid-2025** — Funding rates collapsed, s29/s65 generate ZERO trades. Any carry overlay test OOS is meaningless.
+58. **New V3 momentum (EMA+Pos+VRP) is the best new strategy** — OOS +17.52%, Sharpe 0.56, MaxDD -20.2%. No hard stops = immune to stop-price bug. Beats all surviving strategies.
+59. **ADX filter overfits** — ADX threshold improves IS (+0.312 dSharpe) but HURTS OOS (-0.204 dSharpe). Don't use trend quality filters on daily trend signals.
+60. **V3 overlays generalize but base doesn't** — Positioning+VRP improve 7/10 tokens (mean +0.105 dSharpe), but 20/50 EMA trend base fails on alts (too choppy). V3 is BTC+BNB only.
+61. **V3 is ROBUST: 6/6 validation score** — 5/6 walk-forward windows positive, 0 KILL flags on ±20% params, 5/5 corner cases positive. Anti-overfit signature: hurts IS, helps OOS.
+62. **RANGE regime kills V3** — Sharpe -1.01 in range markets. Overlays reduce losses (+0.231 dSharpe) but can't fix EMA whipsaws. Universal trend-following weakness.
+63. **V3 seasonality: Q2 is danger zone** — Q1 best (+30.4%), Q2 worst (-9.2%). April and September have 14% win rates. Consider seasonal sizing reduction.
+64. **Whipsaw filter nearly doubles V3 Sharpe** — >2 EMA crosses in 60d → flat. OOS Sharpe 0.556→0.982, MaxDD -20.2%→-12.1%. Zero IS impact = zero overfit. Only 3.7% days affected.
+65. **ADX, BB width, realized vol filters ALL fail for crypto** — ADX too slow, BTC trends at low vol AND chops at high vol, BB width removes quiet uptrends. Only frequency-based filters (whipsaw count) work.
+66. **V3.1 production prototype passes v4 compatibility** — All StrategyResult fields correct, BTC-only filter works. Needs perf optimization (3.63ms → <1ms) via pre-computation.
+67. **Whipsaw filter is a single-event artifact** — R71 walk-forward: 0/6 windows improved. Entire R69 improvement from 16 days in Oct 2025. Filter mechanically redundant with base signal. ALWAYS walk-forward validate filters.
+68. **RANGE regime weakness is structural** — 26 filter variants tested, NONE survive walk-forward. Accept RANGE losses as cost of UPTREND capture. The only honest answer is position sizing (overlays already do this).
+69. **Tighter positioning threshold (1.2) FAILS walk-forward** — Hurts 3/6 windows, mean dSharpe +0.029 (noise), non-monotonic curve. R67's +27% improvement was single-window artifact (2025-H1). Keep default 1.5.
+70. **Walk-forward is THE essential validation** — R69 whipsaw (+0.426), R72 tight threshold (+0.152) both looked great point-in-time, both killed by walk-forward. Never deploy without it.
+71. **Dual ROC (30/90) is THE alt-token base signal** — Base-only mean Sharpe +0.416 (6x better than EMA 20/50). Requires both 30d and 90d positive = selective, stays flat in chop.
+72. **Base signal matters more than overlays for alts** — D base-only (+0.416) beats V1+overlays (+0.168). Get the base right first.
+73. **SOL fails every signal** — Negative OOS Sharpe on all 5 bases × 2 overlay combos. Exclude from strategy universe.
+74. **Slower MAs are WORSE, not better, for crypto** — 50/200 EMA mean Sharpe -0.446 (worst tested). Fix for chop is stricter entry conditions, not slower indicators.
+75. **Signal D (Dual ROC) fails walk-forward on ALL alts** — 50% win rate for ETH/BNB (not deployable), XRP/DOGE killed. Bull-only signal, regime-dependent. Alt strategies dead for now.
+76. **No alt-token momentum strategy survives walk-forward** — Tested 5 base signals × 5 tokens. NONE pass. Alts are fundamentally harder than BTC for trend-following.
+77. **V4 engine: P0 blocker is alternative data pipeline** — V3 prototype loads positioning/DVOL externally per call (slow for backtesting across many tokens). Need `ctx.enriched` integration for production. Sub-hourly entries and portfolio rebalancer are P1 unlocks. ALL engine changes require structured /dev with user. NOTE: the <1ms Gate 3 target is backtest throughput, NOT live trading latency — V3 trades weekly.
+78. **Classical mean-reversion fails on altcoin 1H** — 4 strategies × 8 tokens, ALL killed. Stops fire 50-75%. Alts trend through MR entry zones. RSI degenerate on hourly. Only paths left: pairs/spread MR, regime-conditioned MR, or shorter timeframes.
+79. **V3 must stay on spot** — perp funding (12.46%/yr) eats returns. 1x perp Sharpe 0.47 vs spot 0.56. 2x/3x leverage KILLS via drawdown (-62%/-78%). Sharpe doesn't scale with leverage — drawdowns scale faster than returns.
+89. **Trend+Pullback BTC long is the strongest validated trade signal** — Two independent WF agents agree: BTC long-only passes (6/10+ positive windows, both agree profitable). R99-early (2021-2025, 12mo/6mo) shows Sharpe 1.41 combined; R99-late (2023-2026, 180d/90d) more conservative: BTC long PASS, short KILL, ETH KILL.
+90. **Trend+Pullback short side is contested** — R99-early says 8/10 PF>1, R99-late says 4/10 KILL. Window config matters. Short is low-frequency and fragile. Safe deployment is long-only.
+91. **ETH Trend+Pullback is too sparse** — R99-late: only 22 long trades across 10 windows. Parameter sensitivity 158% degradation. R99-early was optimistic. ETH needs more data or different parameters.
+92. **Trump trade sentiment is counterintuitive** — Escalation rhetoric predicts BTC UP (IC=0.114 at 3d). De-escalation posts arrive AFTER crashes (reactive). Only 14 months of data, marginal. Not standalone-worthy.
+92. **Trump trade sentiment is counterintuitive** — Escalation rhetoric predicts BTC UP (IC=0.114 at 3d). De-escalation posts arrive AFTER crashes (reactive). Only 14 months of data, marginal. Not standalone-worthy.
+93. **Trump non-trade categories are all dead for crypto** — Fed (too sparse), geopolitical (predicts oil not crypto), economic confidence (cheerleading noise), crypto-specific (64 posts = meaningless).
+94. **DVOL ROC is an IS artifact** — Full IC=0.10, OOS IC=0.00. Crypto reflexivity (rising IV → rising BTC) didn't persist post-2024. All 4 asymmetric overlay mappings degrade V3. Orthogonal to VRP (corr 0.09) but dead OOS. KILL.
+95. **Funding Reversal Short is structurally dead** — Extreme funding events (>0.03%) extinct post-2021. Exchange risk controls (funding caps, reduced leverage 125x→20x) permanently eliminated triggering conditions. R97's Sharpe 7.07 was IS inflation. WF: 0/8 positive windows, 96% profits from top 2 trades. KILL.
+96. **Always check if signal conditions still exist** — Funding reversal worked in 2020-2021 because exchanges allowed extreme leverage. Structural market changes can permanently kill signals.
+97. **BB Squeeze Breakout is a classic overfit** — IS Sharpe 5-14, OOS deeply negative (-17 to -57). PF 4.54 from full-sample was artifact. Breakouts fail to sustain momentum — 83% exit via cross-inside at a loss. 11/12 param variations fragile. KILL.
+98. **Walk-forward kills 4/5 "strong" signals** — Only BTC long Trend+Pullback survived. Funding Short (regime dead), BB Squeeze (overfit), DVOL ROC (IS artifact), Trump sentiment (marginal). Finding #70 reinforced: NEVER deploy without walk-forward.
+99. **Two-agent walk-forward is the gold standard** — Running two agents with different window configs (R99 early: 12mo/6mo 2021-2025 vs R99 late: 180d/90d 2023-2026) revealed that short side and ETH are contested. Single-agent WF can be too optimistic or pessimistic depending on window config.
+100. **Trend+Pullback is REDUNDANT with V3** — R105: daily return corr=0.688, 98% entry overlap. Both need EMA20>EMA50. T+P is a structural subset of V3 (Sharpe 0.39 vs V3 0.70). 50/50 portfolio HURTS Sharpe (-11%). T+P cannot be a separate portfolio leg alongside V3.
+101. **For diversification, need fundamentally different entry conditions** — Shared EMA trend filter means any trend-following variant will be correlated with V3. Need: mean-reversion, funding-rate, cross-asset, or market-neutral signals that fire independently of BTC trend state.
+102. **V2 Flexible RSI timing is a genuine V3 improvement** — R106: 6/6 WF windows improved (mean dSharpe +5.47). Defer entry within 168-bar window to first 4h RSI cross-up through 40, fallback to normal rebalance. Return 53%→337%, MaxDD -59%→-28%, win rate 53%→69%. Range-regime -45%→+3%. CONDITIONAL due to low OOS trade count (4 trades).
+103. **Entry timing > entry filtering > conviction sizing** — V1 (skip cycles if no pullback) kills trade count and misses strong trends. V3 (scale by RSI) fails because RSI at entry isn't predictive enough (~53 average). V2 (defer within window) wins because it's a free option with fallback.
+104. **Intraday Momentum Breakout is the best diversifier** — R107: corr=0.007 with V3, standalone Sharpe 0.594, 5/6 WF positive. Portfolio Sharpe +26.5%, MaxDD halved. Operates on 8h timescale (event-driven) vs V3's multi-week trends. Completely different signal source.
+105. **Macro Regime Rotation adds value** — R107: corr=0.010 with V3, 4/6 WF positive. US10Y falling + DXY falling → long, both rising → short. Portfolio Sharpe +12.6%, MaxDD halved.
+106. **Mean-reversion and funding contrarian fail as diversifiers** — MR during low-vol is negative Sharpe (BTC structural long bias kills shorts). Funding contrarian loses because BTC rallies further before liquidation cascades.
+107. **3-strategy portfolio PASSES all kill criteria** — R110: Equal Weight (33/33/33) Sharpe 0.880 vs V3-only 0.683 (+29%). MaxDD -30.62% vs -58.95% (+28pp). Crash correlations DECREASE (max 0.213) — genuine diversification. RANGE regime fixed: V3 0.189 → Portfolio 0.580. WF 3/6 windows beat V3 (borderline). Each strategy dominates a different regime.
+108. **V3-Macro correlation higher than preliminary** — R107 estimated corr=0.010, R110 measured 0.357. Rolling 90d max=0.87. Still below 0.5 kill threshold but watch for convergence. Intraday stays decorrelated (0.188).
+109. **Risk parity gives best DD control but sacrifices returns** — -20.25% MaxDD (best), -5.33% worst month, but 12.3% annual return. Equal Weight is the better trade-off at -30.62% DD with 18.63% return.
+110. **Macro Regime Rotation KILLED on deep validation (two independent agents agree)**
+111. **V3+RSI timing passes extended validation** — R111: 13/18 windows improved (72%), mean dSharpe +5.87. RSI=35 is better than RSI=40 (dSharpe +6.52 vs +4.09). Threshold range 30-40 ALL work (6/6 windows, 100%). RSI-timed entries get 2.82% average price improvement vs window start. Fallback entries outperform RSI-timed (strong trend = no pullback = best trades), but V2 Flexible overall Sharpe 3.287 vs baseline 0.391. Full 168h search window is optimal. Recommended config: RSI=35, search=168h.
+112. **Fallback entries are strong-trend captures** — When no pullback occurs in the window (27% of entries), these are inherently the best trades (91.7% WR, +6.73% avg PnL). RSI-timing's value is on the other 73% of entries where a pullback occurs — buying 2.82% cheaper.
+113. **2-strategy portfolio (V3+Intraday) PASSES** — R112: 50/50 Sharpe 0.746 vs V3-only 0.683 (+9.2%), MaxDD -36.59% vs -58.95% (+22pp). WF 4/6 windows beat V3 (avg dSharpe +0.228). Removing Macro costs 0.134 Sharpe vs 3-strat, but Macro is KILLED. Risk parity FAILS in 2-strategy case (overloads low-vol Intraday). 50/50 is the recommended allocation.
+114. **Each strategy dominates a different regime** — V3: uptrend (3.44) + crisis (1.38). Intraday: range (0.64) + least-bad downtrend (-0.63). Portfolio RANGE Sharpe: 0.189→0.350.
+115. **Intraday Momentum Breakout KILLED on deep WF** — R108: mean WF Sharpe -12.2 (5/8 positive windows but mean dragged by -99 sentinel + negative windows). Full-sample Sharpe 0.95 at ATR=6x, but WF can't replicate. R107's Sharpe 0.594 at 2x ATR was IS noise (22% bars fire = too noisy). BTC 1h momentum breakouts are mean-reverting. Trail stops get triggered by volatility before moves complete.
+116. **BOTH portfolio diversifiers KILLED** — R108 (Intraday) + R109 (Macro) both fail deep WF. R107 preliminary results were IS artifacts. The R110/R112 portfolio backtests used simplified strategy implementations that worked in-sample but signals don't survive proper validation. V3 standalone with RSI timing is the only surviving strategy.
+117. **Preliminary WF (6 windows, no param search) is unreliable for signal screening** — R107 passed Intraday (5/6 WF) and Macro (4/6 WF). Deep WF with param optimization (10 windows) killed both. The simple WF over-optimistically assumes fixed good params. Always run deep WF with param search before promoting signals. — R109: IC non-stationary (flips sign 19 times in 2 years, positive only 58.8%), parameter sensitivity 189.7% (lookback ±20% flips Sharpe sign), RANGE Sharpe -0.422 (kills diversification thesis). Full-period Sharpe only 0.177 vs R107's 0.397 (was in-sample artifact). Long-only Sharpe 0.919 is just BTC beta capture. WF Sharpe mean 1.129 but std 2.251 — driven by outliers.
+118. **On-chain signals are the most genuinely decorrelated signal family** — R115: V3 correlations -0.155 to +0.244 (best decorrelation of ANY tested family). Active address growth 14d: WF Sharpe 2.40 (5/6 positive). Exchange netflow 5d: IC=0.134 (bootstrap CI excludes zero). BUT only 568-725 days of data — insufficient for conclusive 10-window WF. R117 fetching 3+ years of data for proper validation.
+119. **Gold-BTC predictive relationship is non-stationary and weakening** — R113: IC=0.132 at 14d (strong), but 8/10 top signals weaken across halves. Last 3 WF windows dead (avg near zero). Parameter mode switches across windows. Gold works in RANGE (Sharpe 1.5) but negative in UP+DOWN (78% of days). As BTC matures, gold correlation structure is decoupling.
+120. **Vol structure from price predicts vol, not direction** — R114: realized skewness IC strong for vol prediction, but only 1/6 signals passes for directional returns (skewness, median OOS Sharpe 0.904). Consistent with finding #17 (VRP same). Price-derived vol metrics are SIZING signals, not ALPHA signals.
+121. **Price-derived signals cannot escape trend information** — R116: 3/6 multi-TF divergence signals had V3 correlation >0.5. When you compare timeframes using EMAs/RSI, the dominant signal is still trend direction. Only truly decorrelated diversifiers come from NON-PRICE data (on-chain, cross-asset, options, positioning).
+122. **Wave 15 reinforces finding #88 with precision** — 4 agents, 76 signal variants tested. Price-derived signals (vol structure, multi-TF) stay trend-correlated. Cross-asset (gold) is non-stationary. Only on-chain was promising but data-limited.
+123. **On-chain metrics are reflexive, not predictive** — R118 with 9.2 years of data: 52% of signals flip IC sign across regimes (2020-21 vs 2022-23 vs 2024-26). Active addresses collapsed from WF Sharpe 2.40 (R115, 725 days) to 0.13 (R118, 2258 days). Root cause: on-chain activity is driven BY price, not predictive OF it. Network grows when price rises. Exchange flows reflect recent momentum. Redundant with trend-following.
+124. **Short data ALWAYS overstates on-chain signal quality** — R115 (568-725 days) found 5/16 pass. R118 (2258 days) killed ALL. The 4-6 WF windows from short data were a statistical fluke. Finding #117 (preliminary WF unreliable) extends to data length: insufficient history creates selection bias in walk-forward.
+125. **Diversifier search CONCLUSIVELY FAILED across all signal families** — 48 signals tested across 12 sessions: trend (EMA, ROC), mean-reversion (RSI, BB, z-score), momentum breakout (ATR), positioning (L/S, taker), macro (DXY, 10Y, oil, gold), volatility (VRP, DVOL, skew, vol structure), cross-sectional (ranking), pairs/arb, seasonal, ETF flow, on-chain (netflow, addresses, tx vol, exchange balance), multi-timeframe divergence. NONE survive deep walk-forward as standalone diversifiers for V3. The only validated components are OVERLAYS on V3 itself (positioning, VRP, RSI timing). Accept V3 standalone as the production system.
+80. **Cross-sectional momentum is long-only beta** — all 12 configs killed by MaxDD (61-86%). When crypto drops, ALL tokens drop. Momentum ranking doesn't hedge direction. BTC corr 0.56-0.68. Need market-neutral (pairs/arb) for true decorrelation.
+81. **"Easy paths" to 300% are all dead** — leverage (funding), alt momentum (chop), alt MR (trend-through), cross-sectional (beta). Higher returns require: multiple uncorrelated strategies, new data sources, or market-neutral approaches.
+82. **ETF flow HURTS V3 as overlay despite strong standalone IC** — IC=+0.191 at 14d, but overlay clips gains during strong uptrends. All 3 variants degrade V3 (worst: dSharpe -0.501, p=0.02). Signal is independent (corr < 0.15) but horizon-mismatched with weekly rebalance.
+83. **Seasonal effect is REAL but period-dependent** — PIT OOS kills all 4 calendar variants, but walk-forward shows 5/6 windows improved for ALL variants (mean dSharpe +0.43 to +1.47). The failing window is exactly the PIT period. Conditional version (reduce weak months + bearish signals) worth testing.
+84. **Pairs/stat-arb doesn't work in crypto** — no fundamental cointegration (ETH/BTC crosses zero once/38d), basis arbed to -4.3bps by AMMs, short legs reverse violently. Market neutrality achievable but with negative alpha.
+85. **Standalone overlay IC does NOT predict overlay effectiveness** — ETF flow (IC=0.191) and seasonal (clear pattern) both HURT V3 as overlays. Only positioning (IC=-0.204) and VRP (IC=0.268) improve V3. Successful overlays must be ORTHOGONAL to the base signal's edge, not just independently predictive.
+86. **VRP-conditioned seasonal is a genuine V3 enhancement** — reduce in weak months (Apr-Sep) ONLY when vrp_z < -0.5 (turbulence). PIT dSharpe +0.119, WF 4/6 improved, MaxDD 0/6 worsened. Small but consistent. Not statistically significant yet (p=0.505). Optional V3 addition.
+87. **V3+carry portfolio structure is correct but carry is dormant** — corr=0.011 (excellent decorrelation). Carry active 89% (2021) → 0% (2025-26). Dynamic allocation is the right approach. Monitor funding — if 30d mean > 0.01%, deploy.
+88. **Research has reached diminishing returns** — 8 agents in session 8, only 1 marginal pass. All obvious approaches tested: leverage, alts (trend+MR), cross-sectional, pairs/arb, seasonal, ETF flow, carry portfolio. V3 BTC spot (+17.52%, Sharpe 0.56) is the only viable new strategy. Next alpha requires new data sources or fundamentally different approaches.
 
 ---
 
@@ -155,55 +343,436 @@
 
 ---
 
-## Next Actions (priority order)
+## Current Research Phase: PHASE 3 COMPLETE — Moving to Implementation
 
-### P0 — Implementation Ready (proven signals)
-1. **Implement DXY+10Y+Oil triple regime overlay in v4** — IC=-0.413, strongest macro signal
-2. **Build oil spike drawdown filter** — +0.62 Sharpe, +14.7% DD improvement
-3. **Build skew_30d overlay** — proven +0.28 Sharpe improvement
+### Phase 2 Edge Validation COMPLETE (session 5/6)
 
-### P1 — High-Value Overlays (tested, need integration)
-4. **Build taker volume trend confirmation overlay** — Sharpe +180% OOS
-5. **Build taker cross-token dispersion signal** — IC=-0.138 (t=-9.35)
-6. **Build ETF tightening+inflow combo signal** — +6.89% 14D during tightening
-7. **Build OI divergence leverage vulnerability filter** — 114.7 bps/3d quintile spread
-8. **Test VRP z-score as position sizing overlay** — IC=0.268 for vol prediction
-9. **Test H21-22 as preferred execution window** for existing strategies
+All 5 "enough research" criteria met:
+1. **OOS edge survives fees**: YES — L/S Div break-even 291bps (29x actual), Top Trader 231bps (23x)
+2. **Works in up AND down markets**: YES — regime-switched activation (validated per-regime ICs)
+3. **Multiple uncorrelated signal families**: YES — positioning (rho=-0.11 vs macro)
+4. **Combination architecture validated**: YES — agreement regimes 9% 14d spread, kitchen-sink kills IC
+5. **Clear implementation path**: YES — regime detection + signal activation map documented
 
-### P2 — Data Pipeline Needed
-10. **Set up daily Deribit options snapshot cron** — enables real GEX computation in 3 months
-11. **Check R41 results for liquidation/netflow data** — if found, test as signals
-12. **Fetch 5-min L/S data from data.binance.vision** — for intraday pattern research if needed
+### Phase 2 Results (R55-R57)
 
-### P3 — Multi-Signal Composite
-13. **Stack proven overlays**: triple regime + skew + taker confirmation + OI divergence + VRP sizing
-14. **Walk-forward validation of composite** with realistic costs
+**R55 Cost-Adjusted Validation:**
+- L/S Divergence: break-even 291bps (29x actual cost), net alpha +133%/yr — ROBUST
+- Top Trader L/S: break-even 231bps (23x actual), net alpha +111%/yr — ROBUST
+- US10Y+DXY Regime: break-even 140bps, net alpha +64%/yr — SURVIVES
+- Skew_30d: DEAD standalone (-66% net alpha after costs)
+- Net Taker Volume: DEAD (3bps break-even, killed by turnover)
 
----
+**R56 Regime-Split Validation:**
+- NO signal is always-on (every signal is regime-dependent)
+- Oil 20d Mom: CRISIS-ALPHA (IC=-0.307 downtrend, -0.297 crisis)
+- Top Trader L/S: RANGE specialist (IC=-0.288 range, -0.222 crisis)
+- US10Y+DXY: DOWNTREND-specific (IC=-0.107 downtrend)
+- L/S Divergence: UPTREND+RANGE (IC=-0.139 uptrend, OOS strengthens to -0.35 range)
+- Regime switching improves OOS Sharpe by +0.39 to +0.60
 
-## Path to 300% — Updated Research Thesis
+**R57 Macro+Positioning Combo:**
+- Signals uncorrelated (rho=-0.11) — independent information
+- CRITICAL: Macro IC FLIPPED sign OOS (IS=+0.154, OOS=-0.128) — DO NOT use as continuous signal
+- Simple rank combo fails OOS (IC=0.002)
+- BUT agreement regimes are directionally informative: both bearish = -4.89% 14d, both bullish = +3.91%
+- **Architecture**: Use macro as categorical REGIME FILTER, positioning as continuous ALPHA signal
 
-The path is through **stacking 5-7 uncorrelated overlay signals** on existing trend-following:
-
-| Layer | Signal | Expected Sharpe Contribution |
-|-------|--------|------------------------------|
-| 1 | DXY+10Y+Oil triple regime | +0.6-0.7 (proven) |
-| 2 | Skew_30d trend quality | +0.28 (proven) |
-| 3 | Taker volume trend confirmation | +0.3-0.5 (OOS validated) |
-| 4 | OI divergence leverage filter | +0.2-0.3 (OOS validated) |
-| 5 | ETF tightening+inflow | +0.1-0.2 (OOS validated, short history) |
-| 6 | VRP z-score position sizing | +0.2-0.3 (vol overlay, OOS validated) |
-| 7 | H21-22 execution timing | +0.1-0.2 (conditional) |
-
-Current portfolio Sharpe 6.53. Target: stack 4-5 of these to push annual return from ~200% toward 300%+ while maintaining Sharpe >3.
-
----
-
-## Running Agents at Session End
+### Phase 3 Agents In-Flight
 
 | Agent | Task | Status |
 |-------|------|--------|
-| R41 | Liquidation + exchange netflow data hunt | IN FLIGHT — check on next session resume |
+| R58 | Regime-switched backtest simulation (4 variants) | **DONE — FAIL standalone, crisis hedge Sharpe 3.10 works** |
+| R59 | Parameter sensitivity + walk-forward (6 params × 3 windows) | **DONE — FAIL standalone, 5/6 params robust but WF 1/3** |
+| R60 | Overlay backtest on trend-following base (correct architecture) | **DONE — WORKS: +0.31 OOS Sharpe, +5.9% return, NEEDS_TUNING** |
+| R61 | Live performance gap analysis | **DONE — R61 conclusion was WRONG. Root cause: backtest bug (close as stop price). Strategies genuinely fail after fix.** |
+| R62 | VRP sizing overlay test | **DONE — SUPER-ADDITIVE: combined Sharpe +0.68, p<0.05, rho=0.031** |
+
+### Phase 3 Conclusions
+
+1. **Standalone positioning system FAILS** (R58, R59) — signals predict 14d returns, daily rebalancing destroys edge
+2. **Overlay on trend-following WORKS** (R60) — +0.31 OOS Sharpe, +5.9% return, -2.5% DD
+3. **Crisis hedge REDUNDANT with trend-following** — trend exits before crisis fires
+4. **Macro agreement boost NEGLIGIBLE** — +0.012 Sharpe, not worth complexity
+5. **Correct production architecture**: trend base + positioning sizing overlay + weekly rebalance
+
+### R63: Strategy Triage (OOS 2025-09 to 2026-03)
+
+**ALIVE:**
+- s29 (funding carry): +5.60%, PF 4.93, MaxDD -1.09%
+- s65 (funding carry v4): +4.04%, PF 4.93, MaxDD -0.47%
+- s72 (s65 + trail): +4.04%, identical to s65
+- s37 (momentum trail): +3.87%, PF 1.30, MaxDD -3.43% (thin edge)
+
+**DEAD:**
+- s32 (regime): 0 trades in current regime
+- s44 (basis carry): -1.39%, basis compression
+- s56 (5x leverage momentum): -2.71%, leverage amplifies stop-fix losses
+
+**Key insight**: Carry strategies (funding income) survive because their edge doesn't depend on price prediction. Momentum/leverage strategies died because the bug fix worsens stop execution.
+
+### R64: Carry Overlay Test (DONE — KILLED)
+- Carry strategies (s29/s65) are DIRECTIONAL (naked perp), not delta-neutral
+- **Overlay HURTS carry IS Sharpe**: 1.05 → 0.55 (positioning), 0.99 (VRP), 0.54 (both)
+- **OOS is entirely flat**: funding rates collapsed after mid-2025, ZERO trades in 2025 OOS
+- Carry is already contrarian — adding contrarian positioning overlay is REDUNDANT
+- **One actionable finding**: positioning predicts 7d funding changes (IC=-0.1104, p<0.001)
+- **Verdict**: DO NOT add generic overlay to carry. Carry-specific funding overlay possible but carry itself is dormant.
+- Scripts: `research/carry_overlay_test.py`, `research/carry_overlay_analysis.md`
+
+### R65: New Stopless Momentum Strategy (DONE — WORTH PURSUING)
+- 20/50 EMA crossover + Positioning + VRP overlays, NO hard stop losses
+- **V3 (EMA + Pos + VRP)**: OOS Return +17.52%, Sharpe 0.56, MaxDD -20.2%, PF 1.16
+- Beats s29 (+5.6%) and s37 (+3.87%) by wide margin
+- EMA crossover exits computed on close price — immune to stop-price bug fix
+- **ADX filter HURTS OOS**: V4 (with ADX) dSharpe = -0.204 vs V3 — classic overfitting
+- Sequential overlay contribution: Positioning +0.211, VRP +0.421 (VRP contributes more)
+- 5/6 criteria pass (only misses PF > 1.3)
+- Scripts: `research/new_momentum_strategy_test.py`, `research/new_momentum_strategy_results.md`
+
+### R66: Multi-Token V3 Validation (DONE — PARTIAL)
+- V3 profitable on BTC (Sharpe 0.56) and BNB (Sharpe 0.86) only; 2/10 alts positive
+- Overlays improve 7/10 tokens (mean dSharpe +0.105) — overlays generalize, base doesn't
+- Altcoins too choppy for 20/50 EMA trends; mean alt V3 OOS Sharpe: -0.053
+- V3 beats buy-and-hold on 100% of tokens (protective value real)
+- Scripts: `research/multi_token_v3_test.py`, `research/multi_token_v3_results.md`
+
+### R67: Walk-Forward + Parameter Sensitivity (DONE — ROBUST 6/6)
+- Walk-forward: 5/6 windows positive OOS Sharpe, mean 0.517, IMPROVING trend
+- Only negative: H2 2022 FTX/Luna crash (expected for long-only no-stops)
+- Parameter sensitivity: 0 KILL flags, max degradation 8.2% (well under 30% threshold)
+- All 18 parameter configs positive (range 0.510 to 0.708)
+- Corner cases: all 5/5 positive (range 0.531 to 0.824)
+- Tighter positioning threshold (1.2) improves to 0.708 — default may be conservative
+- Scripts: `research/v3_walkforward_sensitivity.py`, `research/v3_walkforward_sensitivity_results.md`
+
+### R68: Regime Analysis (DONE — KNOWN WEAKNESS in RANGE)
+- UPTREND: Sharpe 6.18, overlays slightly conservative (reduce from 464% to 320% ann)
+- RANGE: Sharpe -1.01, overlays help (+0.231 dSharpe) but can't fix EMA whipsaws
+- DOWNTREND: 91% flat, minimal losses
+- CRISIS: 99.6% flat, correctly exits
+- Seasonality: Q1 best (+30.4%), Q2 worst (-9.2%), April/September worst months
+- Max consecutive losing weeks: 4 — contained
+- Scripts: `research/v3_regime_analysis.py`, `research/v3_regime_analysis_results.md`
+
+### R69: Whipsaw Filter Enhancement (DONE — initially promising, then KILLED by R71)
+- Tested 26 filter variants across 6 categories
+- Initial winner: whipsaw filter (>2 crosses in 60d → flat), OOS Sharpe 0.556→0.982
+- **R71 KILLED IT**: Walk-forward showed 0/6 windows improved. The entire +0.426 improvement came from ONE 16-day event (Oct 1-16 2025). Mechanically redundant with base signal — only overrode 16 days total.
+- KILLED: ADX (all thresholds), BB width (all), realized vol (all 8 variants), whipsaw (single-event artifact)
+- **RANGE weakness remains unsolved** — this is the structural cost of trend-following
+- Scripts: `research/v3_range_filter_test.py`, `research/v3_range_filter_results.md`
+
+### R70: Production Prototype (DONE — v4 Compatible)
+- Draft at `research/v3_prototype_strategy.py`, follows StrategyResult interface
+- All v4 compatibility checks pass, BTC-only filter works
+- Performance: 3.63ms/call (needs pre-computation for 1ms target)
+- External data dependency needs `ctx.enriched` wiring
+- Scripts: `research/v3_prototype_strategy.py`, `research/v3_prototype_notes.md`
+
+### R71: V3.1 Walk-Forward (DONE — KILLED whipsaw filter)
+- Walk-forward: 0/6 windows showed ANY improvement from whipsaw filter
+- Root cause: filter only overrode 16 days total, all in Oct 2025 — single-event artifact
+- EMA whipsaws are mechanically redundant with base signal (when crosses>2, EMA already bearish)
+- R69's +0.426 OOS dSharpe was entirely this one episode
+- **Lesson**: point-in-time filter testing is dangerous; always walk-forward validate
+- Scripts: `research/v3_1_walkforward_test.py`, `research/v3_1_walkforward_results.md`
+
+### V3 Consolidated Verdict: PRODUCTION-READY (BTC Only, no whipsaw filter)
+- Walk-forward: ROBUST (5/6 positive, improving trend)
+- Parameters: ROBUST (0 KILL flags, all configs positive)
+- Multi-token: BTC + BNB only (alts fail base, overlays generalize)
+- RANGE weakness: UNSOLVED (structural cost of trend-following, accept it)
+- **Final OOS metrics: Sharpe 0.56, Return +17.52%, MaxDD -20.2%**
+
+### R72: Tight Positioning Threshold (DONE — KEEP defaults)
+- Tested pos_high_thresh 1.2, 1.35, 1.5 across 6 walk-forward windows
+- V3-tight (1.2) hurts 3/6 windows, mean dSharpe +0.029 (noise)
+- Non-monotonic: mid (1.35) > tight (1.2) > default (1.5) — hallmark of noise
+- R67's +27% improvement was single-window artifact (2025-H1)
+- Scripts: `research/v3_tight_threshold_test.py`, `research/v3_tight_threshold_results.md`
+
+### V3 FINAL SPEC (LOCKED — no more tuning)
+```
+Base: 20/50 EMA crossover (long when fast > slow, flat otherwise)
+Positioning: 30d z-score, thresholds ±1.5/±0.5
+VRP: 60d z-score, thresholds 1.0/-0.5/-1.5
+Rebalance: Weekly | BTC only | No stops
+OOS: Sharpe 0.56, Return +17.52%, MaxDD -20.2%
+Walk-forward: 5/6 positive, mean 0.517
+Parameters: 0 KILL flags across all tests
+```
+
+### R73: Alt-Token Base Signal Scout (DONE — Dual ROC 30/90 WINS)
+- Tested 5 base signals × 5 alt tokens (ETH, SOL, BNB, XRP, DOGE)
+- **Winner: Signal D (Dual ROC 30/90)** — requires both 30d and 90d ROC positive
+- D base-only mean OOS Sharpe: +0.416 (vs V1 EMA: +0.068), positive on 4/5 tokens
+- D+overlays mean OOS Sharpe: +0.535, overlays add +0.118 dSharpe
+- BNB standout: D+overlays Sharpe 2.70, MaxDD -9.1%
+- SOL fails every signal — exclude or gate behind BTC uptrend
+- Slower EMA (50/200) makes things WORSE — fix is stricter entry, not slower MA
+- Scripts: `research/alt_base_signal_test.py`, `research/alt_base_signal_results.md`
+- **NEEDS walk-forward validation before deployment**
+
+### R74: Signal D Walk-Forward on Alts (DONE — ALL KILLED)
+- ETH: MARGINAL (50% win rate, one-window driven)
+- BNB: MARGINAL (50%, extreme dispersion)
+- XRP/DOGE: KILL
+- Signal D is regime-dependent (bull-only). Alt strategies dead for now.
+- Scripts: `research/signal_d_walkforward_test.py`, `research/signal_d_walkforward_results.md`
+
+### R75: V4 Engine Limitations Audit (DONE — see constraints section below)
+
+### R76: Cross-Sectional Momentum (DONE — ALL KILLED)
+- Tested 3 variants × 4 lookbacks (12 configs) on 43-token universe
+- ALL killed by MaxDD (range -61.5% to -85.9%, threshold -30%)
+- Best: simple XSMOM 14d: Sharpe 0.91, Return +114.8%, MaxDD -64.1% — KILL
+- Root cause: long-only crypto = 100% beta exposure. When market drops, all tokens drop together.
+- BTC correlation 0.56-0.68 — NOT sufficiently decorrelated from V3
+- IS→OOS degradation massive (IS Sharpe 1.15-1.82 → OOS 0.09-0.91)
+- Scripts: `research/cross_sectional_momentum_test.py`, `research/cross_sectional_momentum_results.md`
+
+### R77: V3 Leveraged Perp Variant (DONE — SPOT IS OPTIMAL)
+- Tested V3 on BTC perp at 1x, 2x, 3x leverage
+- 1x perp: Sharpe 0.472, Return 10.2%, MaxDD -37.4% — PASS but WORSE than spot (17.5%)
+- 2x: KILL — MaxDD -62.4%, 9 near-liquidations
+- 3x: KILL — MaxDD -78.4%, 63 liquidation events
+- Funding drag: 12.46% annualized (17% of gross returns)
+- Sharpe DOESN'T scale with leverage (0.47 at all levels) — drawdowns scale faster
+- V3 MUST stay on spot. Perps are strictly worse.
+- Scripts: `research/v3_leveraged_test.py`, `research/v3_leveraged_results.md`
+
+### R78: Alt-Token Mean-Reversion (DONE — ALL KILLED)
+- Tested 4 MR strategies × long/short × 8 tokens (64 configs)
+- ALL 8 variants killed: mean Sharpe -0.52 to -1.30, stops fire 50-75%
+- Root cause: alts trend through MR entry zones, stops dominate outcomes
+- RSI degenerate on 1H bars (zero trades — indicator too dampened)
+- Z-Score Long-Only "least bad" (mean Sharpe -0.519), still deeply negative
+- IS→OOS severe: Bollinger Long +0.218 IS → -0.807 OOS
+- Classical MR doesn't work on altcoin spot 1H. Too volatile for fixed-parameter reversion.
+- Scripts: `research/alt_mean_reversion_test.py`, `research/alt_mean_reversion_results.md`
+
+### R79: Pairs/Stat-Arb (DONE — ALL KILLED)
+- Tested 3 strategy families × 11 configs: cointegration pairs, cash-and-carry basis, long/short momentum spread
+- ALL KILLED: cointegration Sharpe -4.5 to -1.1, basis 0 trades at 50bps, L/S spread Sharpe -0.235
+- Cointegration fails: crypto pairs don't mean-revert. ETH/BTC spread crosses zero once/38 days, 90.5% timeout
+- Basis is dead alpha: compressed from +4.5bps (2021) to -4.3bps (2025-26). AMMs arbed it away.
+- L/S spread is market-neutral (BTC corr -0.063) but negative alpha — short leg reverses violently
+- Scripts: `research/pairs_statarb_test.py`, `research/pairs_statarb_results.md`
+
+### R80: V3 Seasonal Sizing Overlay (DONE — PIT KILL, WF PROMISING)
+- Tested 4 calendar overlays: binary month, proportional, quarter, sell-in-May
+- PIT OOS (Jan 2025 - Mar 2026): ALL underperform V3 base (dSharpe -0.30 to -0.95) — KILL
+- BUT walk-forward: ALL 4 variants improve 5/6 windows, mean dSharpe +0.43 to +1.47
+- PIT/WF divergence: PIT period is the ONE window where seasonality didn't help (Q1-heavy, V3 already long)
+- Sell-in-May cuts MaxDD from -20.2% to -12.4% but loses return
+- **Not ready as blanket calendar rule** — conditional version (reduce weak months ONLY when other signals also bearish) worth testing
+- Scripts: `research/v3_seasonal_overlay_test.py`, `research/v3_seasonal_overlay_results.md`
+
+### R81: ETF Flow Overlay on V3 (DONE — ALL KILLED)
+- Tested 3 flow overlays: z-score sizing, flow momentum, flow acceleration
+- ALL degrade V3: best dSharpe = -0.051, worst = -0.501 (statistically significant negative impact)
+- Signal IS independent (corr < 0.15 with positioning/VRP) — redundancy NOT the issue
+- Root cause: overlay clips gains during strong uptrends. When V3 is correctly long, flow overlay reduces sizing on outflow days
+- Horizon mismatch: 14d signal with weekly rebalance
+- Only 26 months of data — revisit in 2027 with 3+ years
+- Scripts: `research/v3_etf_flow_overlay_test.py`, `research/v3_etf_flow_overlay_results.md`
+
+### R82: Conditional Seasonal Overlay (DONE — 1/4 PASS: V2 VRP-conditioned)
+- Tested 4 conditional overlays: positioning-conditioned, VRP-conditioned, both-signals, gradient
+- **V2 (VRP-conditioned) PASSES**: PIT OOS dSharpe = +0.119, WF 4/6 windows improved, 0/6 MaxDD worsened
+- V2 logic: in weak months (Apr-Sep), if vrp_z < -0.5 → 0.3x, neutral → 0.7x, complacent → 1.0x
+- Converts blanket seasonal's -0.951 PIT penalty into +0.119 improvement
+- V1 (positioning) narrowly killed: PIT dSharpe = -0.025, but WF 4/6 positive
+- V3c (both signals) and V4 (gradient) killed by PIT despite strong WF (5/6 each)
+- Not statistically significant (p=0.505) — need more OOS data to confirm
+- Scripts: `research/v3_conditional_seasonal_test.py`, `research/v3_conditional_seasonal_results.md`
+
+### R83: V3+Carry Portfolio (DONE — KILLED, carry dormant)
+- Tested 4 portfolio allocations: 60/40, 50/50, risk parity, dynamic
+- KILLED: carry active only 5.2% of days (threshold: 20%). Funding collapsed: 89% (2021) → 0% (2025-26)
+- Correlation excellent (0.011 OOS) — truly independent strategies. Portfolio theory is sound.
+- Risk parity disastrous: allocates 92% to carry (near-zero vol). Dynamic allocation is correct approach.
+- **When funding recovers**: use Dynamic allocation (100% V3 when dormant, 60/40 when carry active)
+- Scripts: `research/v3_carry_portfolio_test.py`, `research/v3_carry_portfolio_results.md`
+
+### Next Actions (Priority Order)
+1. ~~Implement V3+RSI Timing~~ **DONE** — Integrated into s320 as Layer 5. 4h RSI cross-up through 35 within 168-bar windows, searchsorted lookup, 1.37ms/call. 81% RSI-timed entries, 19% fallback.
+2. ~~Re-run R115 on-chain with extended data~~ **DONE (R118) — KILLED.** All R115 results overturned. On-chain is reflexive, not predictive.
+3. **DIVERSIFIER SEARCH CONCLUDED** — All paths exhausted: cross-asset (gold), vol structure, on-chain, multi-TF, intraday momentum, macro regime, pairs/arb, cross-sectional, seasonal, ETF flow. V3 standalone with RSI timing IS the production system.
+4. **Optional: add realized skewness sizing overlay to V3** — R114 S3: V3 corr -0.111, 60% WF positive. Small MaxDD benefit. Check VRP overlap first.
+5. **Optional: add V2 seasonal overlay to V3** — small improvement (+0.119 dSharpe, -1.6pp MaxDD), needs more OOS data
+6. **Monitor funding rates** — if 30d mean > 0.01%, deploy V3+carry dynamic portfolio
+7. **V4 engine enhancements** — flagged for structured /dev task (user-planned)
+8. **Collect more ETF flow data** — re-test overlay in 2027 with 3+ years history
+
+### Session 12 Agents Summary
+| Agent | Task | Verdict |
+|-------|------|---------|
+| R113 | Gold momentum diversifier | **KILLED** — IC decaying, last 3 WF windows dead |
+| R114 | Realized vol structure | **1/6 CONDITIONAL** — skewness as sizing overlay only |
+| R115 | On-chain metrics | **5/16 CONDITIONAL** — promising but 568-725d data insufficient |
+| R116 | Multi-TF divergence | **1/7 MARGINAL** — price signals stay trend-correlated |
+| R117 | On-chain data fetch (3+ years) | **DONE** — 44 parquet files, 9.2 years, 4 sources |
+| R118 | On-chain deep WF (9yr data) | **KILLED** — R115 overturned, 0/36 improve portfolio |
+
+### Session 11 Agents Summary
+| Agent | Task | Verdict |
+|-------|------|---------|
+| R108 | Intraday Momentum deep WF | **KILLED** — WF mean Sharpe -12.2, IS artifact |
+| R109 (×2) | Macro Regime Rotation deep WF | **KILLED** — non-stationary IC, fragile params |
+| R110 | 3-strategy portfolio | PASS (but 2 legs now dead) |
+| R111 | V3+RSI timing extended | **CONDITIONAL PASS** — 13/18 WF improved, RSI=35 |
+| R112 | 2-strategy portfolio (V3+Intraday) | PASS (but Intraday now dead) |
+
+---
+
+## V4 Engine Constraints for 300%+ Returns (R75 Audit)
+
+**IMPORTANT**: Any v4 engine changes require a structured `/dev` task planned with the user. Do NOT modify v4/ without explicit approval — wrong changes can produce invalid backtest results.
+
+### What WORKS (no changes needed)
+- Multi-leg hedged positions (spot + perp combined strategies) ✅
+- Dynamic per-bar sizing via `size_multiplier` + `cap_multiplier` up to 15x ✅
+- Leverage up to 4x+ (margin-call limited only) ✅
+- True compounding of realized PnL ✅
+- Sub-hourly exits (1m/5m/15m stop/trail/target in live mode) ✅
+- Funding rate monetization ✅
+- Custom conviction scoring for entry prioritization ✅
+- Realistic cost model (slippage, fees, funding, liquidation) ✅
+- Walk-forward + CPCV dual validation gate ✅
+
+### Limitations that RESTRICT returns (ranked by impact)
+
+| # | Limitation | Impact | Current Workaround | Engine Change Needed? |
+|---|-----------|--------|--------------------|-----------------------|
+| 1 | **No alternative data in StrategyContext** | HIGH | Load externally, sync via enriched parquet | YES — add positioning/DVOL/macro to `ctx.enriched` pipeline |
+| 2 | **Hourly bar entry only** | MODERATE-HIGH | Wide stops (3-4x ATR) to survive hourly slippage | YES — sub-hourly entry support (5m/15m bars) |
+| 3 | **No active rebalancing** between bars | MODERATE-HIGH | Multi-strategy portfolio for implicit rebalancing | YES — portfolio-level rebalancer |
+| 4 | **Market-only execution** | MODERATE | Accept; use wide parameters | NICE-TO-HAVE — limit order simulation |
+| 5 | **5% ADV cap** per position | LOW-MODERATE | `cap_multiplier=15.0` (already available) | No |
+| 6 | **No per-token walk-forward customization** | LOW | Fixed windows sufficient for now | NICE-TO-HAVE |
+
+### Priority for /dev Tasks (user to plan)
+
+**P0 (blocks V3 production):**
+- Add alternative data pipeline to `ctx.enriched` — positioning (Binance metrics) and DVOL need to be accessible during strategy execution, not loaded externally at 3.63ms/call
+
+**P1 (unlocks next return tier):**
+- Sub-hourly entry resolution (5m/15m bars) — captures momentum missed at 1h
+- Portfolio-level rebalancer — tactical capital rotation between strategies
+
+**P2 (nice to have):**
+- Limit order simulation — captures maker rebates (~5-10% annual)
+- Per-token walk-forward windows — shorter windows for volatile alts
+
+### Honest Assessment: Can V4 Reach 300%?
+
+V4 is **technically capable** of 300%+ returns (no hard architectural blockers). The path requires:
+1. Exceptional signal quality (IC > +0.05 post-ETF)
+2. Aggressive leverage (3-4x on perps)
+3. Multiple uncorrelated strategies running simultaneously
+4. Favorable market regime (trending > choppy)
+5. Accepting 30-50% drawdowns
+
+**Current realistic expectation**: 20-50% annual with validated strategies, 100%+ with leverage and favorable conditions. 300% requires both exceptional signals AND leverage — not sustainable long-term.
+
+---
+
+## Path to 300% — Production Architecture (Updated Post-R65 through R75)
+
+**KEY INSIGHT**: Two-overlay stack (Positioning + VRP) on trend-following is the proven architecture.
+
+### Production Architecture (Proven by R60 + R62)
+
+```
+final_position = base_trend_position
+                 × positioning_multiplier (0.3x to 1.5x)
+                 × vrp_multiplier (0.3x to 1.3x)
+                 Rebalance: WEEKLY
+```
+
+**Base**: Existing Tier A trend-following strategy (s56, s44, s29)
+**Layer 1**: Positioning sizing (Binance Top Trader L/S + L/S Divergence z-scores)
+**Layer 2**: VRP sizing (Implied vol - Realized vol z-score from Deribit DVOL)
+**Rebalance**: Weekly (NOT daily — signals predict 14d returns)
+
+### Proven Performance (R62, on 50/200 SMA base, OOS: 2025-01 to 2026-03)
+
+| Variant | OOS Sharpe | OOS Return | OOS MaxDD | Significance |
+|---------|-----------|------------|-----------|-------------|
+| Base Only | -0.17 | -3.9% | -19.1% | — |
+| Base + Positioning | +0.19 | +4.3% | -16.7% | p=0.14 |
+| Base + VRP | +0.21 | +4.7% | -13.6% | — |
+| **Base + Both** | **+0.68** | **+15.9%** | **-11.9%** | **p<0.05** |
+
+**Improvement: +0.856 Sharpe, +19.8% return, +7.2pp MaxDD**
+**Super-additive: combined > sum of individual improvements**
+**Statistically significant: t=2.332, p<0.05**
+
+### Signal Construction for Production
+
+**Positioning Overlay (Layer 1):**
+1. `sum_toptrader_ls_ratio` from Binance, 30d rolling z-score
+2. `count_toptrader_ls_ratio - count_ls_ratio`, 30d rolling z-score
+3. Combined = average of both z-scores
+4. Multiplier: z > 1.5 → 0.3x, z > 0.5 → 0.5x, neutral → 1.0x, z < -0.5 → 1.3x, z < -1.5 → 1.5x
+
+**VRP Overlay (Layer 2):**
+1. Realized vol: 20d rolling std of daily log returns × sqrt(365)
+2. Implied vol: BTC DVOL from Deribit (daily)
+3. VRP = IV - RV, z-scored over 60d window
+4. Multiplier: z > 1 → 1.3x (complacent), -0.5 < z < 1 → 1.0x, z < -0.5 → 0.5x (turbulence), z < -1.5 → 0.3x
+
+### Why This Works
+- **Positioning** captures crowd behavior (crowded longs → reduce, uncrowded → add)
+- **VRP** captures vol regime (overpriced vol = calm → add, cheap vol = turbulence → reduce)
+- **Orthogonal**: rho=0.031 (p=0.206) — essentially zero correlation
+- **Super-additive**: different information → combined effect > sum of parts
+
+### DROPPED from Architecture (Phase 3 killed these)
+| Component | Why Dropped |
+|-----------|------------|
+| Crisis hedge (Oil) | **REDUNDANT** — trend follower exits before crisis fires |
+| Macro agreement boost | **NEGLIGIBLE** — +0.012 Sharpe, not worth complexity |
+| Standalone directional | **FAILS** — all standalone variants deeply negative OOS |
+| Daily rebalancing | **KILLS EDGE** — 11%/yr cost drag, signals are 14d predictors |
+| Regime-gated signal activation | **UNNECESSARY** — simple always-on overlays with weekly rebalance work |
+
+### Live Performance Gap — REAL PROBLEM (NOT an illusion)
+- Paper trading strategies are genuinely losing (-59% to -92%)
+- **Root cause**: Previous backtests had a bug — used close price as stop price instead of current price
+- Bug has been fixed, and now backtests are also NEGATIVE — strategies genuinely don't work
+- Compounding is intended and properly capped — that was NOT the issue
+- **Implication**: The entire Tier A strategy set needs re-evaluation with the corrected backtester
+- Previously claimed "Sharpe 6.53" portfolio is INVALID — based on bugged results
+
+### Honest Assessment
+- **Two-overlay stack adds significant value** (+0.856 Sharpe, p<0.05) — genuine improvement on simple trend base
+- **Base strategies are BROKEN** — all existing Tier A strategies are NEGATIVE after backtest bug fix (close price as stop price)
+- **The overlay research is still valid** — it was tested on a clean 50/200 SMA base, not on bugged strategy results
+- **Need new strategies first** — overlays improve a working base, but current strategies need rebuilding or verification
+- **Path forward**: verify/rebuild base strategies with corrected backtester, THEN apply two-overlay stack
+- **Implementation is straightforward** — two z-scores, a lookup table, weekly rebalance
+
+---
+
+## Session 5-6 Agent Results
+
+| Agent | Task | Verdict |
+|-------|------|---------|
+| R41 redo | Data hunt: liquidation, netflow, whale | DONE — found existing OKX liq (useless: 10h), CoinMetrics netflow (useful: 568d) |
+| R45-R49 (Wave 5) | CTREND, liquidation, BTC.D, correlation, VWAP | ALL KILLED (0/5) |
+| R50 | Multi-signal stacking IC | **GOLD** — kitchen-sink fails, but US10Y+DXY pair IC=0.305 (+23%) |
+| R51 | Correlation regime conditioning | SKIP — crypto structurally high-corr, negligible lift |
+| R52 | OKX liquidation data IC | KILL — only 10.8h of data |
+| R53 | Exchange netflow IC | CONDITIONAL PASS — BTC netflow 5d sum IC=0.149, ETH inverted |
+| R54 | Binance metrics positioning IC | **GOLD** — Top Trader L/S IC=-0.166, L/S Divergence IC=-0.204, OI dead |
+| R55 | Cost-adjusted signal validation | **DONE** — positioning survives 29x costs, skew/taker dead |
+| R56 | Regime-split signal analysis | **DONE** — all signals regime-dependent, regime-switching +0.39-0.60 Sharpe |
+| R57 | Macro+positioning combo | **DONE** — macro as filter (9% spread), positioning as alpha |
+| R58 | Regime-switched backtest simulation | IN FLIGHT |
+| R59 | Parameter sensitivity + walk-forward | IN FLIGHT |
 
 ---
 
@@ -212,10 +781,10 @@ Current portfolio Sharpe 6.53. Target: stack 4-5 of these to push annual return 
 - **Trend following is the ONLY consistent crypto edge** (all Tier A strategies are trend-following)
 - **Cross-TF divergence (ret_1_1h_vs_4h)** is the most stable signal (IC=-0.376, drift <0.001/yr)
 - **Trail progression** is the highest-impact overlay ever (+0.629 avg Sharpe across 4 strategies)
-- **s44 (basis carry + trail)** is best strategy: Sharpe 4.33→Calmar 59 with trail
 - **Signals work as overlays, NOT standalone** — IC ≠ tradeable edge alone
-- Current portfolio: s44(35%)+s29(30%)+s37(20%)+s32(15%) = Sharpe 6.53, MaxDD -2.2%
-- All paper trading strategies are LOSING: s58(-59%), s65(-76%), s60(-88%), s63(-92%)
+- **CRITICAL: Previous backtest results are INVALID** — a bug used close price as stop price instead of current price. With the fix applied, backtests are NEGATIVE. All previously reported metrics (Sharpe 6.53, Calmar 59, etc.) were based on bugged results and should NOT be trusted.
+- All paper trading strategies are LOSING: s58(-59%), s65(-76%), s60(-88%), s63(-92%) — this is REAL, not a reporting issue
+- Compounding is intended and properly capped — the issue was never about compounding
 
 ## Data Collection Rules
 

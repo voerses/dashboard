@@ -1,0 +1,394 @@
+[
+  {
+    "buySellRatio": "0.9580",
+    "sellVol": "115297.0030",
+    "buyVol": "110460.1490",
+    "timestamp": 1771891200000,
+    "symbol": "BTCUSDT"
+  },
+  {
+    "buySellRatio": "1.1041",
+    "sellVol": "143040.2360",
+    "buyVol": "157928.8150",
+    "timestamp": 1771977600000,
+    "symbol": "BTCUSDT"
+  },
+  {
+    "buySellRatio": "0.9688",
+    "sellVol": "90886.5300",
+    "buyVol": "88051.7760",
+    "timestamp": 1772064000000,
+    "symbol": "BTCUSDT"
+  },
+  {
+    "buySellRatio": "0.9691",
+    "sellVol": "105414.7820",
+    "buyVol": "102153.4900",
+    "timestamp": 1772150400000,
+    "symbol": "BTCUSDT"
+  },
+  {
+    "buySellRatio": "0.9921",
+    "sellVol": "129932.8530",
+    "buyVol": "128911.1760",
+    "timestamp": 1772236800000,
+    "symbol": "BTCUSDT"
+  },
+  {
+    "buySellRatio": "0.9890",
+    "sellVol": "110638.9030",
+    "buyVol": "109420.9190",
+    "timestamp": 1772323200000,
+    "symbol": "BTCUSDT"
+  },
+  {
+    "buySellRatio": "1.0494",
+    "sellVol": "136010.5580",
+    "buyVol": "142733.1690",
+    "timestamp": 1772409600000,
+    "symbol": "BTCUSDT"
+  },
+  {
+    "buySellRatio": "1.0155",
+    "sellVol": "128546.2860",
+    "buyVol": "130533.2630",
+    "timestamp": 1772496000000,
+    "symbol": "BTCUSDT"
+  },
+  {
+    "buySellRatio": "1.1367",
+    "sellVol": "168386.7990",
+    "buyVol": "191412.2200",
+    "timestamp": 1772582400000,
+    "symbol": "BTCUSDT"
+  },
+  {
+    "buySellRatio": "0.9897",
+    "sellVol": "114648.2930",
+    "buyVol": "113465.9760",
+    "timestamp": 1772668800000,
+    "symbol": "BTCUSDT"
+  },
+  {
+    "buySellRatio": "0.9370",
+    "sellVol": "111584.6650",
+    "buyVol": "104558.9880",
+    "timestamp": 1772755200000,
+    "symbol": "BTCUSDT"
+  },
+  {
+    "buySellRatio": "0.9418",
+    "sellVol": "49413.3320",
+    "buyVol": "46537.5290",
+    "timestamp": 1772841600000,
+    "symbol": "BTCUSDT"
+  },
+  {
+    "buySellRatio": "0.9752",
+    "sellVol": "79911.6550",
+    "buyVol": "77927.7740",
+    "timestamp": 1772928000000,
+    "symbol": "BTCUSDT"
+  },
+  {
+    "buySellRatio": "1.0548",
+    "sellVol": "116174.5420",
+    "buyVol": "122539.7230",
+    "timestamp": 1773014400000,
+    "symbol": "BTCUSDT"
+  },
+  {
+    "buySellRatio": "1.0415",
+    "sellVol": "131039.9310",
+    "buyVol": "136475.0730",
+    "timestamp": 1773100800000,
+    "symbol": "BTCUSDT"
+  },
+  {
+    "buySellRatio": "1.0343",
+    "sellVol": "97149.8130",
+    "buyVol": "100481.8800",
+    "timestamp": 1773187200000,
+    "symbol": "BTCUSDT"
+  },
+  {
+    "buySellRatio": "0.9952",
+    "sellVol": "94498.7340",
+    "buyVol": "94048.4110",
+    "timestamp": 1773273600000,
+    "symbol": "BTCUSDT"
+  },
+  {
+    "buySellRatio": "1.0893",
+    "sellVol": "144587.3180",
+    "buyVol": "157497.7950",
+    "timestamp": 1773360000000,
+    "symbol": "BTCUSDT"
+  },
+  {
+    "buySellRatio": "1.0049",
+    "sellVol": "39870.2930",
+    "buyVol": "40067.1170",
+    "timestamp": 1773446400000,
+    "symbol": "BTCUSDT"
+  },
+  {
+    "buySellRatio": "1.1161",
+    "sellVol": "60280.0120",
+    "buyVol": "67278.1770",
+    "timestamp": 1773532800000,
+    "symbol": "BTCUSDT"
+  },
+  {
+    "buySellRatio": "1.1135",
+    "sellVol": "128158.5200",
+    "buyVol": "142701.7750",
+    "timestamp": 1773619200000,
+    "symbol": "BTCUSDT"
+  },
+  {
+    "buySellRatio": "1.0483",
+    "sellVol": "107359.6270",
+    "buyVol": "112542.8990",
+    "timestamp": 1773705600000,
+    "symbol": "BTCUSDT"
+  },
+  {
+    "buySellRatio": "0.9342",
+    "sellVol": "118028.5530",
+    "buyVol": "110259.3710",
+    "timestamp": 1773792000000,
+    "symbol": "BTCUSDT"
+  },
+  {
+    "buySellRatio": "0.9159",
+    "sellVol": "114916.3840",
+    "buyVol": "105256.3890",
+    "timestamp": 1773878400000,
+    "symbol": "BTCUSDT"
+  },
+  {
+    "buySellRatio": "1.0526",
+    "sellVol": "91261.6000",
+    "buyVol": "96063.9270",
+    "timestamp": 1773964800000,
+    "symbol": "BTCUSDT"
+  },
+  {
+    "buySellRatio": "0.8787",
+    "sellVol": "39895.6910",
+    "buyVol": "35056.5220",
+    "timestamp": 1774051200000,
+    "symbol": "BTCUSDT"
+  },
+  {
+    "buySellRatio": "0.9601",
+    "sellVol": "69267.5120",
+    "buyVol": "66506.8780",
+    "timestamp": 1774137600000,
+    "symbol": "BTCUSDT"
+  },
+  {
+    "buySellRatio": "1.0536",
+    "sellVol": "142271.6730",
+    "buyVol": "149900.0580",
+    "timestamp": 1774224000000,
+    "symbol": "BTCUSDT"
+  },
+  {
+    "buySellRatio": "0.9670",
+    "sellVol": "2843438.5940",
+    "buyVol": "2749545.3740",
+    "timestamp": 1771891200000,
+    "symbol": "ETHUSDT"
+  },
+  {
+    "buySellRatio": "1.0747",
+    "sellVol": "4142827.4440",
+    "buyVol": "4452463.0170",
+    "timestamp": 1771977600000,
+    "symbol": "ETHUSDT"
+  },
+  {
+    "buySellRatio": "1.0245",
+    "sellVol": "2657306.1830",
+    "buyVol": "2722507.1030",
+    "timestamp": 1772064000000,
+    "symbol": "ETHUSDT"
+  },
+  {
+    "buySellRatio": "0.9741",
+    "sellVol": "2954225.6090",
+    "buyVol": "2877639.2420",
+    "timestamp": 1772150400000,
+    "symbol": "ETHUSDT"
+  },
+  {
+    "buySellRatio": "0.9958",
+    "sellVol": "3238029.6830",
+    "buyVol": "3224530.9690",
+    "timestamp": 1772236800000,
+    "symbol": "ETHUSDT"
+  },
+  {
+    "buySellRatio": "1.0026",
+    "sellVol": "3428148.7000",
+    "buyVol": "3437131.7000",
+    "timestamp": 1772323200000,
+    "symbol": "ETHUSDT"
+  },
+  {
+    "buySellRatio": "1.0191",
+    "sellVol": "3553973.4330",
+    "buyVol": "3622017.1360",
+    "timestamp": 1772409600000,
+    "symbol": "ETHUSDT"
+  },
+  {
+    "buySellRatio": "0.9787",
+    "sellVol": "3439774.1800",
+    "buyVol": "3366533.4320",
+    "timestamp": 1772496000000,
+    "symbol": "ETHUSDT"
+  },
+  {
+    "buySellRatio": "1.0387",
+    "sellVol": "4095746.2200",
+    "buyVol": "4254322.0490",
+    "timestamp": 1772582400000,
+    "symbol": "ETHUSDT"
+  },
+  {
+    "buySellRatio": "0.9880",
+    "sellVol": "2869332.0090",
+    "buyVol": "2834918.6290",
+    "timestamp": 1772668800000,
+    "symbol": "ETHUSDT"
+  },
+  {
+    "buySellRatio": "0.9609",
+    "sellVol": "2642773.0640",
+    "buyVol": "2539428.3630",
+    "timestamp": 1772755200000,
+    "symbol": "ETHUSDT"
+  },
+  {
+    "buySellRatio": "0.9878",
+    "sellVol": "1120545.3680",
+    "buyVol": "1106904.3550",
+    "timestamp": 1772841600000,
+    "symbol": "ETHUSDT"
+  },
+  {
+    "buySellRatio": "0.8945",
+    "sellVol": "2196741.0580",
+    "buyVol": "1964999.2590",
+    "timestamp": 1772928000000,
+    "symbol": "ETHUSDT"
+  },
+  {
+    "buySellRatio": "1.0250",
+    "sellVol": "3127976.3910",
+    "buyVol": "3206108.1990",
+    "timestamp": 1773014400000,
+    "symbol": "ETHUSDT"
+  },
+  {
+    "buySellRatio": "0.9878",
+    "sellVol": "3059096.3110",
+    "buyVol": "3021659.8790",
+    "timestamp": 1773100800000,
+    "symbol": "ETHUSDT"
+  },
+  {
+    "buySellRatio": "0.9833",
+    "sellVol": "2346962.2850",
+    "buyVol": "2307754.2320",
+    "timestamp": 1773187200000,
+    "symbol": "ETHUSDT"
+  },
+  {
+    "buySellRatio": "1.0270",
+    "sellVol": "2695753.7130",
+    "buyVol": "2768408.3880",
+    "timestamp": 1773273600000,
+    "symbol": "ETHUSDT"
+  },
+  {
+    "buySellRatio": "1.0864",
+    "sellVol": "3755854.8760",
+    "buyVol": "4080295.1030",
+    "timestamp": 1773360000000,
+    "symbol": "ETHUSDT"
+  },
+  {
+    "buySellRatio": "0.9559",
+    "sellVol": "1120721.2970",
+    "buyVol": "1071329.0040",
+    "timestamp": 1773446400000,
+    "symbol": "ETHUSDT"
+  },
+  {
+    "buySellRatio": "1.1151",
+    "sellVol": "1870067.5840",
+    "buyVol": "2085241.7270",
+    "timestamp": 1773532800000,
+    "symbol": "ETHUSDT"
+  },
+  {
+    "buySellRatio": "1.1321",
+    "sellVol": "4368338.6940",
+    "buyVol": "4945581.9160",
+    "timestamp": 1773619200000,
+    "symbol": "ETHUSDT"
+  },
+  {
+    "buySellRatio": "0.9953",
+    "sellVol": "2778555.4120",
+    "buyVol": "2765583.4420",
+    "timestamp": 1773705600000,
+    "symbol": "ETHUSDT"
+  },
+  {
+    "buySellRatio": "0.9390",
+    "sellVol": "3713246.0270",
+    "buyVol": "3486611.4100",
+    "timestamp": 1773792000000,
+    "symbol": "ETHUSDT"
+  },
+  {
+    "buySellRatio": "0.9556",
+    "sellVol": "3219332.1930",
+    "buyVol": "3076480.6310",
+    "timestamp": 1773878400000,
+    "symbol": "ETHUSDT"
+  },
+  {
+    "buySellRatio": "1.0164",
+    "sellVol": "2241840.0280",
+    "buyVol": "2278700.3500",
+    "timestamp": 1773964800000,
+    "symbol": "ETHUSDT"
+  },
+  {
+    "buySellRatio": "0.8740",
+    "sellVol": "1023693.9490",
+    "buyVol": "894753.6700",
+    "timestamp": 1774051200000,
+    "symbol": "ETHUSDT"
+  },
+  {
+    "buySellRatio": "0.9831",
+    "sellVol": "2145315.9890",
+    "buyVol": "2109034.7130",
+    "timestamp": 1774137600000,
+    "symbol": "ETHUSDT"
+  },
+  {
+    "buySellRatio": "1.0495",
+    "sellVol": "4063954.7550",
+    "buyVol": "4265028.9940",
+    "timestamp": 1774224000000,
+    "symbol": "ETHUSDT"
+  }
+]

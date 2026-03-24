@@ -146,6 +146,21 @@
       "max_portfolio_positions": 15,
       "concentration_limit": 0.2,
       "state_dir": "state/v4_paper_s107/"
+    },
+    {
+      "pool_name": "s320",
+      "initial_capital": 200000.0,
+      "mode": "pool",
+      "strategies": [
+        {
+          "strategy_id": "s320",
+          "weight": 1.0,
+          "market": "spot",
+          "max_positions": 1
+        }
+      ],
+      "max_portfolio_positions": 1,
+      "state_dir": "state/v4_paper_s320/"
     }
   ]
 }

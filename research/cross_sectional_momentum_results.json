@@ -1,0 +1,397 @@
+{
+  "strategy": "cross_sectional_momentum",
+  "run_date": "2026-03-24T12:49:55.500612",
+  "universe_size": 43,
+  "tokens": [
+    "SHIB",
+    "DENT",
+    "DOGE",
+    "GALA",
+    "TRX",
+    "XRP",
+    "ADA",
+    "CHZ",
+    "HBAR",
+    "XLM",
+    "FET",
+    "ALGO",
+    "SAND",
+    "CRV",
+    "OP",
+    "PHA",
+    "NEAR",
+    "LDO",
+    "DYDX",
+    "DOT",
+    "KAVA",
+    "FIL",
+    "LINK",
+    "APT",
+    "LIT",
+    "UNI",
+    "SOL",
+    "AGLD",
+    "SNX",
+    "ATOM",
+    "AVAX",
+    "ICP",
+    "AXS",
+    "INJ",
+    "ETC",
+    "BNB",
+    "LTC",
+    "ETH",
+    "ZEC",
+    "AAVE",
+    "DASH",
+    "BCH",
+    "XMR"
+  ],
+  "is_period": "2020-01-01 00:00:00 to 2024-04-29 03:00:00",
+  "oos_period": "2024-04-29 04:00:00 to 2026-03-14 12:00:00",
+  "kill_criteria": {
+    "min_sharpe": 0.3,
+    "max_dd": -30,
+    "max_btc_corr": 0.7
+  },
+  "results": {
+    "simple_xsmom_lb14d": {
+      "variant": "simple_xsmom",
+      "lookback_days": 14,
+      "total_trades": 1673,
+      "oos_trades": 502,
+      "avg_turnover_pct": 107.93548387096772,
+      "is_metrics": {
+        "total_return": 136.57520553715037,
+        "total_return_pct": 13657.520553715036,
+        "sharpe": 1.6439451098179765,
+        "max_dd": -0.9006010396117934,
+        "max_dd_pct": -90.06010396117934,
+        "profit_factor": 1.0542187047950182,
+        "n_days": 1489.125,
+        "btc_corr": 0.6824322352604567
+      },
+      "oos_metrics": {
+        "total_return": 1.1484201280871713,
+        "total_return_pct": 114.84201280871713,
+        "sharpe": 0.9095371853807823,
+        "max_dd": -0.6412613734954024,
+        "max_dd_pct": -64.12613734954023,
+        "profit_factor": 1.0291506325362527,
+        "n_days": 676.75,
+        "btc_corr": 0.6593142932594582
+      },
+      "verdict": "KILL"
+    },
+    "simple_xsmom_lb30d": {
+      "variant": "simple_xsmom",
+      "lookback_days": 30,
+      "total_trades": 1133,
+      "oos_trades": 346,
+      "avg_turnover_pct": 73.0967741935484,
+      "is_metrics": {
+        "total_return": 301.4964661519629,
+        "total_return_pct": 30149.646615196292,
+        "sharpe": 1.823708263021258,
+        "max_dd": -0.8226216591722219,
+        "max_dd_pct": -82.26216591722219,
+        "profit_factor": 1.0599073020523497,
+        "n_days": 1489.125,
+        "btc_corr": 0.6920246184806947
+      },
+      "oos_metrics": {
+        "total_return": -0.188420354254492,
+        "total_return_pct": -18.8420354254492,
+        "sharpe": 0.313669425748696,
+        "max_dd": -0.690998302555002,
+        "max_dd_pct": -69.09983025550021,
+        "profit_factor": 1.0100286529788964,
+        "n_days": 676.75,
+        "btc_corr": 0.6646800354696515
+      },
+      "verdict": "KILL"
+    },
+    "simple_xsmom_lb60d": {
+      "variant": "simple_xsmom",
+      "lookback_days": 60,
+      "total_trades": 831,
+      "oos_trades": 248,
+      "avg_turnover_pct": 53.61290322580645,
+      "is_metrics": {
+        "total_return": 31.4171725982373,
+        "total_return_pct": 3141.7172598237303,
+        "sharpe": 1.3319931210875604,
+        "max_dd": -0.8728729926500708,
+        "max_dd_pct": -87.28729926500708,
+        "profit_factor": 1.043609060279537,
+        "n_days": 1489.125,
+        "btc_corr": 0.6984861210438388
+      },
+      "oos_metrics": {
+        "total_return": 0.2829953253847104,
+        "total_return_pct": 28.29953253847104,
+        "sharpe": 0.5922882333275933,
+        "max_dd": -0.6329298986823777,
+        "max_dd_pct": -63.29298986823777,
+        "profit_factor": 1.0195868609519492,
+        "n_days": 676.75,
+        "btc_corr": 0.6490216294409166
+      },
+      "verdict": "KILL"
+    },
+    "simple_xsmom_lb90d": {
+      "variant": "simple_xsmom",
+      "lookback_days": 90,
+      "total_trades": 665,
+      "oos_trades": 204,
+      "avg_turnover_pct": 42.90322580645161,
+      "is_metrics": {
+        "total_return": 13.633317443076168,
+        "total_return_pct": 1363.3317443076169,
+        "sharpe": 1.1524476654412747,
+        "max_dd": -0.8972540774503686,
+        "max_dd_pct": -89.72540774503686,
+        "profit_factor": 1.0378501560091975,
+        "n_days": 1489.0833333333333,
+        "btc_corr": 0.7084653821242645
+      },
+      "oos_metrics": {
+        "total_return": -0.056607134180855945,
+        "total_return_pct": -5.660713418085594,
+        "sharpe": 0.39825244526647746,
+        "max_dd": -0.6644917571704791,
+        "max_dd_pct": -66.44917571704792,
+        "profit_factor": 1.013267999122458,
+        "n_days": 676.75,
+        "btc_corr": 0.6574334349180536
+      },
+      "verdict": "KILL"
+    },
+    "risk_adjusted_xsmom_lb14d": {
+      "variant": "risk_adjusted_xsmom",
+      "lookback_days": 14,
+      "total_trades": 1735,
+      "oos_trades": 518,
+      "avg_turnover_pct": 111.93548387096774,
+      "is_metrics": {
+        "total_return": 65.8709615068826,
+        "total_return_pct": 6587.0961506882595,
+        "sharpe": 1.4923751031901342,
+        "max_dd": -0.914982517028116,
+        "max_dd_pct": -91.4982517028116,
+        "profit_factor": 1.0493054521071976,
+        "n_days": 1489.125,
+        "btc_corr": 0.6973696865096964
+      },
+      "oos_metrics": {
+        "total_return": 0.4898306519924833,
+        "total_return_pct": 48.98306519924833,
+        "sharpe": 0.6865361286641114,
+        "max_dd": -0.6318783429340925,
+        "max_dd_pct": -63.18783429340925,
+        "profit_factor": 1.02208941523572,
+        "n_days": 676.75,
+        "btc_corr": 0.6594105154102329
+      },
+      "verdict": "KILL"
+    },
+    "risk_adjusted_xsmom_lb30d": {
+      "variant": "risk_adjusted_xsmom",
+      "lookback_days": 30,
+      "total_trades": 1193,
+      "oos_trades": 350,
+      "avg_turnover_pct": 76.96774193548389,
+      "is_metrics": {
+        "total_return": 122.75212099670867,
+        "total_return_pct": 12275.212099670867,
+        "sharpe": 1.6393857281603468,
+        "max_dd": -0.8253967244179592,
+        "max_dd_pct": -82.53967244179591,
+        "profit_factor": 1.0537613838214943,
+        "n_days": 1489.125,
+        "btc_corr": 0.7065202263073924
+      },
+      "oos_metrics": {
+        "total_return": -0.17667074415628736,
+        "total_return_pct": -17.667074415628736,
+        "sharpe": 0.31116304126470945,
+        "max_dd": -0.7008678219409888,
+        "max_dd_pct": -70.08678219409889,
+        "profit_factor": 1.0099664950912721,
+        "n_days": 676.75,
+        "btc_corr": 0.6620776074343719
+      },
+      "verdict": "KILL"
+    },
+    "risk_adjusted_xsmom_lb60d": {
+      "variant": "risk_adjusted_xsmom",
+      "lookback_days": 60,
+      "total_trades": 855,
+      "oos_trades": 258,
+      "avg_turnover_pct": 55.16129032258065,
+      "is_metrics": {
+        "total_return": 39.44849175336321,
+        "total_return_pct": 3944.8491753363205,
+        "sharpe": 1.3856594256904713,
+        "max_dd": -0.8749157236744657,
+        "max_dd_pct": -87.49157236744657,
+        "profit_factor": 1.045646270640981,
+        "n_days": 1489.125,
+        "btc_corr": 0.7069498550235208
+      },
+      "oos_metrics": {
+        "total_return": 0.4682591441953201,
+        "total_return_pct": 46.82591441953201,
+        "sharpe": 0.6698076544075502,
+        "max_dd": -0.6438971790228667,
+        "max_dd_pct": -64.38971790228666,
+        "profit_factor": 1.021742131823557,
+        "n_days": 676.75,
+        "btc_corr": 0.6694730980530111
+      },
+      "verdict": "KILL"
+    },
+    "risk_adjusted_xsmom_lb90d": {
+      "variant": "risk_adjusted_xsmom",
+      "lookback_days": 90,
+      "total_trades": 659,
+      "oos_trades": 198,
+      "avg_turnover_pct": 42.51612903225807,
+      "is_metrics": {
+        "total_return": 24.79432912886788,
+        "total_return_pct": 2479.432912886788,
+        "sharpe": 1.2851666704782723,
+        "max_dd": -0.8622411244897888,
+        "max_dd_pct": -86.22411244897889,
+        "profit_factor": 1.0423421173314646,
+        "n_days": 1489.0833333333333,
+        "btc_corr": 0.7198679805497246
+      },
+      "oos_metrics": {
+        "total_return": 0.047993842825868605,
+        "total_return_pct": 4.7993842825868605,
+        "sharpe": 0.4521227467771955,
+        "max_dd": -0.6553921379112183,
+        "max_dd_pct": -65.53921379112182,
+        "profit_factor": 1.014782002898283,
+        "n_days": 676.75,
+        "btc_corr": 0.680099689209797
+      },
+      "verdict": "KILL"
+    },
+    "dual_momentum_lb14d": {
+      "variant": "dual_momentum",
+      "lookback_days": 14,
+      "total_trades": 1745,
+      "oos_trades": 552,
+      "avg_turnover_pct": 125.25806451612904,
+      "is_metrics": {
+        "total_return": 36.897663908193216,
+        "total_return_pct": 3689.7663908193217,
+        "sharpe": 1.356519321582986,
+        "max_dd": -0.9217112489030771,
+        "max_dd_pct": -92.17112489030771,
+        "profit_factor": 1.0453338842757165,
+        "n_days": 1489.125,
+        "btc_corr": 0.6349358542935106
+      },
+      "oos_metrics": {
+        "total_return": 1.0321388540033323,
+        "total_return_pct": 103.21388540033323,
+        "sharpe": 0.8762668840367446,
+        "max_dd": -0.6151467269223404,
+        "max_dd_pct": -61.51467269223404,
+        "profit_factor": 1.0287926151952367,
+        "n_days": 676.75,
+        "btc_corr": 0.5818733847789541
+      },
+      "verdict": "KILL"
+    },
+    "dual_momentum_lb30d": {
+      "variant": "dual_momentum",
+      "lookback_days": 30,
+      "total_trades": 1297,
+      "oos_trades": 419,
+      "avg_turnover_pct": 94.63440860215054,
+      "is_metrics": {
+        "total_return": 127.03133342097178,
+        "total_return_pct": 12703.133342097177,
+        "sharpe": 1.6193357653761538,
+        "max_dd": -0.885846019542136,
+        "max_dd_pct": -88.58460195421361,
+        "profit_factor": 1.0539649891120602,
+        "n_days": 1489.125,
+        "btc_corr": 0.6354392139383445
+      },
+      "oos_metrics": {
+        "total_return": -0.4830637589159782,
+        "total_return_pct": -48.30637589159782,
+        "sharpe": 0.0892957573298761,
+        "max_dd": -0.7590180328421527,
+        "max_dd_pct": -75.90180328421528,
+        "profit_factor": 1.0028943951677025,
+        "n_days": 676.75,
+        "btc_corr": 0.5974075366877921
+      },
+      "verdict": "KILL"
+    },
+    "dual_momentum_lb60d": {
+      "variant": "dual_momentum",
+      "lookback_days": 60,
+      "total_trades": 1022,
+      "oos_trades": 329,
+      "avg_turnover_pct": 73.6236559139785,
+      "is_metrics": {
+        "total_return": 27.007365181105012,
+        "total_return_pct": 2700.736518110501,
+        "sharpe": 1.2918398081094744,
+        "max_dd": -0.8914157987116045,
+        "max_dd_pct": -89.14157987116045,
+        "profit_factor": 1.0433611659589364,
+        "n_days": 1489.125,
+        "btc_corr": 0.6345612956605129
+      },
+      "oos_metrics": {
+        "total_return": -0.2826463250685024,
+        "total_return_pct": -28.26463250685024,
+        "sharpe": 0.3147885420761495,
+        "max_dd": -0.7905341731030489,
+        "max_dd_pct": -79.05341731030488,
+        "profit_factor": 1.0106615361084559,
+        "n_days": 676.75,
+        "btc_corr": 0.5648488777174939
+      },
+      "verdict": "KILL"
+    },
+    "dual_momentum_lb90d": {
+      "variant": "dual_momentum",
+      "lookback_days": 90,
+      "total_trades": 865,
+      "oos_trades": 267,
+      "avg_turnover_pct": 60.23655913978495,
+      "is_metrics": {
+        "total_return": 19.944187206753888,
+        "total_return_pct": 1994.4187206753888,
+        "sharpe": 1.2287087358306716,
+        "max_dd": -0.8953681149120157,
+        "max_dd_pct": -89.53681149120158,
+        "profit_factor": 1.04193934174437,
+        "n_days": 1489.0833333333333,
+        "btc_corr": 0.6353655233264044
+      },
+      "oos_metrics": {
+        "total_return": -0.6094366214770163,
+        "total_return_pct": -60.94366214770163,
+        "sharpe": -0.04838274421815349,
+        "max_dd": -0.8593321178061114,
+        "max_dd_pct": -85.93321178061115,
+        "profit_factor": 0.9983643542458831,
+        "n_days": 676.75,
+        "btc_corr": 0.5807600200455618
+      },
+      "verdict": "KILL"
+    }
+  },
+  "best_variant": null,
+  "overall_verdict": "KILL"
+}

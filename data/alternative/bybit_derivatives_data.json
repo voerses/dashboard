@@ -1,0 +1,4010 @@
+{
+  "btc_open_interest": [
+    {
+      "openInterest": "45772.64500000",
+      "timestamp": "1774346400000"
+    },
+    {
+      "openInterest": "45449.16200000",
+      "timestamp": "1774342800000"
+    },
+    {
+      "openInterest": "45234.13100000",
+      "timestamp": "1774339200000"
+    },
+    {
+      "openInterest": "44025.15900000",
+      "timestamp": "1774335600000"
+    },
+    {
+      "openInterest": "44169.72700000",
+      "timestamp": "1774332000000"
+    },
+    {
+      "openInterest": "44160.69000000",
+      "timestamp": "1774328400000"
+    },
+    {
+      "openInterest": "44353.92500000",
+      "timestamp": "1774324800000"
+    },
+    {
+      "openInterest": "44677.56200000",
+      "timestamp": "1774321200000"
+    },
+    {
+      "openInterest": "44626.83200000",
+      "timestamp": "1774317600000"
+    },
+    {
+      "openInterest": "44671.85400000",
+      "timestamp": "1774314000000"
+    },
+    {
+      "openInterest": "44473.52600000",
+      "timestamp": "1774310400000"
+    },
+    {
+      "openInterest": "43722.94000000",
+      "timestamp": "1774306800000"
+    },
+    {
+      "openInterest": "43955.46899999",
+      "timestamp": "1774303200000"
+    },
+    {
+      "openInterest": "43856.08100000",
+      "timestamp": "1774299600000"
+    },
+    {
+      "openInterest": "43968.12400000",
+      "timestamp": "1774296000000"
+    },
+    {
+      "openInterest": "44549.18500000",
+      "timestamp": "1774292400000"
+    },
+    {
+      "openInterest": "44883.04200000",
+      "timestamp": "1774288800000"
+    },
+    {
+      "openInterest": "45040.72600000",
+      "timestamp": "1774285200000"
+    },
+    {
+      "openInterest": "45520.97700000",
+      "timestamp": "1774281600000"
+    },
+    {
+      "openInterest": "45494.74500000",
+      "timestamp": "1774278000000"
+    },
+    {
+      "openInterest": "45966.04000000",
+      "timestamp": "1774274400000"
+    },
+    {
+      "openInterest": "46601.56000000",
+      "timestamp": "1774270800000"
+    },
+    {
+      "openInterest": "46347.67700000",
+      "timestamp": "1774267200000"
+    },
+    {
+      "openInterest": "48613.63600000",
+      "timestamp": "1774263600000"
+    },
+    {
+      "openInterest": "48571.28900000",
+      "timestamp": "1774260000000"
+    },
+    {
+      "openInterest": "48941.45200000",
+      "timestamp": "1774256400000"
+    },
+    {
+      "openInterest": "49219.73000000",
+      "timestamp": "1774252800000"
+    },
+    {
+      "openInterest": "49369.61200000",
+      "timestamp": "1774249200000"
+    },
+    {
+      "openInterest": "49494.70600000",
+      "timestamp": "1774245600000"
+    },
+    {
+      "openInterest": "50211.56600000",
+      "timestamp": "1774242000000"
+    },
+    {
+      "openInterest": "49900.65200000",
+      "timestamp": "1774238400000"
+    },
+    {
+      "openInterest": "50241.30700000",
+      "timestamp": "1774234800000"
+    },
+    {
+      "openInterest": "50275.87400000",
+      "timestamp": "1774231200000"
+    },
+    {
+      "openInterest": "49699.48900000",
+      "timestamp": "1774227600000"
+    },
+    {
+      "openInterest": "49473.75600000",
+      "timestamp": "1774224000000"
+    },
+    {
+      "openInterest": "49497.92100000",
+      "timestamp": "1774220400000"
+    },
+    {
+      "openInterest": "50316.66400000",
+      "timestamp": "1774216800000"
+    },
+    {
+      "openInterest": "51045.66600000",
+      "timestamp": "1774213200000"
+    },
+    {
+      "openInterest": "51248.35000000",
+      "timestamp": "1774209600000"
+    },
+    {
+      "openInterest": "50542.54300000",
+      "timestamp": "1774206000000"
+    },
+    {
+      "openInterest": "50923.30800000",
+      "timestamp": "1774202400000"
+    },
+    {
+      "openInterest": "50909.36900000",
+      "timestamp": "1774198800000"
+    },
+    {
+      "openInterest": "51171.65500000",
+      "timestamp": "1774195200000"
+    },
+    {
+      "openInterest": "50374.24000000",
+      "timestamp": "1774191600000"
+    },
+    {
+      "openInterest": "50593.81400000",
+      "timestamp": "1774188000000"
+    },
+    {
+      "openInterest": "50868.21200000",
+      "timestamp": "1774184400000"
+    },
+    {
+      "openInterest": "50659.12400000",
+      "timestamp": "1774180800000"
+    },
+    {
+      "openInterest": "50577.93700000",
+      "timestamp": "1774177200000"
+    },
+    {
+      "openInterest": "50324.89000000",
+      "timestamp": "1774173600000"
+    },
+    {
+      "openInterest": "50063.68400000",
+      "timestamp": "1774170000000"
+    },
+    {
+      "openInterest": "49699.68200000",
+      "timestamp": "1774166400000"
+    },
+    {
+      "openInterest": "49517.17600000",
+      "timestamp": "1774162800000"
+    },
+    {
+      "openInterest": "49326.70700000",
+      "timestamp": "1774159200000"
+    },
+    {
+      "openInterest": "49015.11300000",
+      "timestamp": "1774155600000"
+    },
+    {
+      "openInterest": "48719.86200000",
+      "timestamp": "1774152000000"
+    },
+    {
+      "openInterest": "48598.20700000",
+      "timestamp": "1774148400000"
+    },
+    {
+      "openInterest": "48637.40700000",
+      "timestamp": "1774144800000"
+    },
+    {
+      "openInterest": "47586.41500000",
+      "timestamp": "1774141200000"
+    },
+    {
+      "openInterest": "48338.05200000",
+      "timestamp": "1774137600000"
+    },
+    {
+      "openInterest": "47600.49600000",
+      "timestamp": "1774134000000"
+    },
+    {
+      "openInterest": "47451.47000000",
+      "timestamp": "1774130400000"
+    },
+    {
+      "openInterest": "47450.08800000",
+      "timestamp": "1774126800000"
+    },
+    {
+      "openInterest": "47543.89600000",
+      "timestamp": "1774123200000"
+    },
+    {
+      "openInterest": "47367.23600000",
+      "timestamp": "1774119600000"
+    },
+    {
+      "openInterest": "47149.29200000",
+      "timestamp": "1774116000000"
+    },
+    {
+      "openInterest": "47189.51000000",
+      "timestamp": "1774112400000"
+    },
+    {
+      "openInterest": "46772.24300000",
+      "timestamp": "1774108800000"
+    },
+    {
+      "openInterest": "46690.34300000",
+      "timestamp": "1774105200000"
+    },
+    {
+      "openInterest": "46758.98800000",
+      "timestamp": "1774101600000"
+    },
+    {
+      "openInterest": "46745.20400000",
+      "timestamp": "1774098000000"
+    },
+    {
+      "openInterest": "46747.11600000",
+      "timestamp": "1774094400000"
+    },
+    {
+      "openInterest": "46700.42700000",
+      "timestamp": "1774090800000"
+    },
+    {
+      "openInterest": "46564.33700000",
+      "timestamp": "1774087200000"
+    },
+    {
+      "openInterest": "46550.35100000",
+      "timestamp": "1774083600000"
+    },
+    {
+      "openInterest": "46617.66700000",
+      "timestamp": "1774080000000"
+    },
+    {
+      "openInterest": "46794.27700000",
+      "timestamp": "1774076400000"
+    },
+    {
+      "openInterest": "46658.78300000",
+      "timestamp": "1774072800000"
+    },
+    {
+      "openInterest": "46866.19200000",
+      "timestamp": "1774069200000"
+    },
+    {
+      "openInterest": "46865.21600000",
+      "timestamp": "1774065600000"
+    },
+    {
+      "openInterest": "47049.83200000",
+      "timestamp": "1774062000000"
+    },
+    {
+      "openInterest": "46987.78300000",
+      "timestamp": "1774058400000"
+    },
+    {
+      "openInterest": "47111.27200000",
+      "timestamp": "1774054800000"
+    },
+    {
+      "openInterest": "47070.05400000",
+      "timestamp": "1774051200000"
+    },
+    {
+      "openInterest": "47718.94200000",
+      "timestamp": "1774047600000"
+    },
+    {
+      "openInterest": "48238.61000000",
+      "timestamp": "1774044000000"
+    },
+    {
+      "openInterest": "48599.53800000",
+      "timestamp": "1774040400000"
+    },
+    {
+      "openInterest": "48681.95400000",
+      "timestamp": "1774036800000"
+    },
+    {
+      "openInterest": "48948.77800000",
+      "timestamp": "1774033200000"
+    },
+    {
+      "openInterest": "48224.34300000",
+      "timestamp": "1774029600000"
+    },
+    {
+      "openInterest": "48675.59800000",
+      "timestamp": "1774026000000"
+    },
+    {
+      "openInterest": "48204.64700000",
+      "timestamp": "1774022400000"
+    },
+    {
+      "openInterest": "48464.02400000",
+      "timestamp": "1774018800000"
+    },
+    {
+      "openInterest": "48071.45900000",
+      "timestamp": "1774015200000"
+    },
+    {
+      "openInterest": "48128.91700000",
+      "timestamp": "1774011600000"
+    },
+    {
+      "openInterest": "48123.69700000",
+      "timestamp": "1774008000000"
+    },
+    {
+      "openInterest": "48060.17300000",
+      "timestamp": "1774004400000"
+    },
+    {
+      "openInterest": "48004.87500000",
+      "timestamp": "1774000800000"
+    },
+    {
+      "openInterest": "47270.90000000",
+      "timestamp": "1773997200000"
+    },
+    {
+      "openInterest": "48333.05600000",
+      "timestamp": "1773993600000"
+    },
+    {
+      "openInterest": "48214.71500000",
+      "timestamp": "1773990000000"
+    },
+    {
+      "openInterest": "48267.90100000",
+      "timestamp": "1773986400000"
+    },
+    {
+      "openInterest": "48334.61000000",
+      "timestamp": "1773982800000"
+    },
+    {
+      "openInterest": "48185.18000000",
+      "timestamp": "1773979200000"
+    },
+    {
+      "openInterest": "48161.20100000",
+      "timestamp": "1773975600000"
+    },
+    {
+      "openInterest": "48147.34800000",
+      "timestamp": "1773972000000"
+    },
+    {
+      "openInterest": "48408.95100000",
+      "timestamp": "1773968400000"
+    },
+    {
+      "openInterest": "48581.58500000",
+      "timestamp": "1773964800000"
+    },
+    {
+      "openInterest": "50677.03100000",
+      "timestamp": "1773961200000"
+    },
+    {
+      "openInterest": "51064.45600000",
+      "timestamp": "1773957600000"
+    },
+    {
+      "openInterest": "51291.98000000",
+      "timestamp": "1773954000000"
+    },
+    {
+      "openInterest": "51306.58600000",
+      "timestamp": "1773950400000"
+    },
+    {
+      "openInterest": "49592.68700000",
+      "timestamp": "1773946800000"
+    },
+    {
+      "openInterest": "49802.94100000",
+      "timestamp": "1773943200000"
+    },
+    {
+      "openInterest": "49469.95800000",
+      "timestamp": "1773939600000"
+    },
+    {
+      "openInterest": "49634.62600000",
+      "timestamp": "1773936000000"
+    },
+    {
+      "openInterest": "49053.86000000",
+      "timestamp": "1773932400000"
+    },
+    {
+      "openInterest": "49433.45600000",
+      "timestamp": "1773928800000"
+    },
+    {
+      "openInterest": "48093.44900000",
+      "timestamp": "1773925200000"
+    },
+    {
+      "openInterest": "47923.11300000",
+      "timestamp": "1773921600000"
+    },
+    {
+      "openInterest": "47913.86300000",
+      "timestamp": "1773918000000"
+    },
+    {
+      "openInterest": "47703.88100000",
+      "timestamp": "1773914400000"
+    },
+    {
+      "openInterest": "47949.27900000",
+      "timestamp": "1773910800000"
+    },
+    {
+      "openInterest": "47784.67800000",
+      "timestamp": "1773907200000"
+    },
+    {
+      "openInterest": "48547.11000000",
+      "timestamp": "1773903600000"
+    },
+    {
+      "openInterest": "48409.98700000",
+      "timestamp": "1773900000000"
+    },
+    {
+      "openInterest": "48257.61100000",
+      "timestamp": "1773896400000"
+    },
+    {
+      "openInterest": "47771.50600000",
+      "timestamp": "1773892800000"
+    },
+    {
+      "openInterest": "47742.94000000",
+      "timestamp": "1773889200000"
+    },
+    {
+      "openInterest": "47913.44600000",
+      "timestamp": "1773885600000"
+    },
+    {
+      "openInterest": "47940.91900000",
+      "timestamp": "1773882000000"
+    },
+    {
+      "openInterest": "48554.88900000",
+      "timestamp": "1773878400000"
+    },
+    {
+      "openInterest": "48758.94500000",
+      "timestamp": "1773874800000"
+    },
+    {
+      "openInterest": "48491.09600000",
+      "timestamp": "1773871200000"
+    },
+    {
+      "openInterest": "48678.24300000",
+      "timestamp": "1773867600000"
+    },
+    {
+      "openInterest": "48638.90300000",
+      "timestamp": "1773864000000"
+    },
+    {
+      "openInterest": "48725.56000000",
+      "timestamp": "1773860400000"
+    },
+    {
+      "openInterest": "48799.60300000",
+      "timestamp": "1773856800000"
+    },
+    {
+      "openInterest": "48602.84500000",
+      "timestamp": "1773853200000"
+    },
+    {
+      "openInterest": "47990.59400000",
+      "timestamp": "1773849600000"
+    },
+    {
+      "openInterest": "47120.93600000",
+      "timestamp": "1773846000000"
+    },
+    {
+      "openInterest": "45896.84900000",
+      "timestamp": "1773842400000"
+    },
+    {
+      "openInterest": "45390.08400000",
+      "timestamp": "1773838800000"
+    },
+    {
+      "openInterest": "45078.46800000",
+      "timestamp": "1773835200000"
+    },
+    {
+      "openInterest": "45748.56600000",
+      "timestamp": "1773831600000"
+    },
+    {
+      "openInterest": "45831.91400000",
+      "timestamp": "1773828000000"
+    },
+    {
+      "openInterest": "45893.85800000",
+      "timestamp": "1773824400000"
+    },
+    {
+      "openInterest": "45700.05700000",
+      "timestamp": "1773820800000"
+    },
+    {
+      "openInterest": "45756.11100000",
+      "timestamp": "1773817200000"
+    },
+    {
+      "openInterest": "46237.46000000",
+      "timestamp": "1773813600000"
+    },
+    {
+      "openInterest": "46525.95800000",
+      "timestamp": "1773810000000"
+    },
+    {
+      "openInterest": "46581.89200000",
+      "timestamp": "1773806400000"
+    },
+    {
+      "openInterest": "47126.13800000",
+      "timestamp": "1773802800000"
+    },
+    {
+      "openInterest": "46772.40400000",
+      "timestamp": "1773799200000"
+    },
+    {
+      "openInterest": "46789.54300000",
+      "timestamp": "1773795600000"
+    },
+    {
+      "openInterest": "47064.18600000",
+      "timestamp": "1773792000000"
+    },
+    {
+      "openInterest": "46197.15900000",
+      "timestamp": "1773788400000"
+    },
+    {
+      "openInterest": "46888.33900000",
+      "timestamp": "1773784800000"
+    },
+    {
+      "openInterest": "47088.13100000",
+      "timestamp": "1773781200000"
+    },
+    {
+      "openInterest": "46455.85000000",
+      "timestamp": "1773777600000"
+    },
+    {
+      "openInterest": "46817.97400000",
+      "timestamp": "1773774000000"
+    },
+    {
+      "openInterest": "46725.12000000",
+      "timestamp": "1773770400000"
+    },
+    {
+      "openInterest": "46517.87000000",
+      "timestamp": "1773766800000"
+    },
+    {
+      "openInterest": "46554.40100000",
+      "timestamp": "1773763200000"
+    },
+    {
+      "openInterest": "46380.72400000",
+      "timestamp": "1773759600000"
+    },
+    {
+      "openInterest": "46429.08800000",
+      "timestamp": "1773756000000"
+    },
+    {
+      "openInterest": "46902.58400000",
+      "timestamp": "1773752400000"
+    },
+    {
+      "openInterest": "46720.61200000",
+      "timestamp": "1773748800000"
+    },
+    {
+      "openInterest": "46797.88100000",
+      "timestamp": "1773745200000"
+    },
+    {
+      "openInterest": "47357.23400000",
+      "timestamp": "1773741600000"
+    },
+    {
+      "openInterest": "47218.70400000",
+      "timestamp": "1773738000000"
+    },
+    {
+      "openInterest": "46920.99100000",
+      "timestamp": "1773734400000"
+    },
+    {
+      "openInterest": "46995.54400000",
+      "timestamp": "1773730800000"
+    },
+    {
+      "openInterest": "47240.31300000",
+      "timestamp": "1773727200000"
+    },
+    {
+      "openInterest": "47448.42900000",
+      "timestamp": "1773723600000"
+    },
+    {
+      "openInterest": "48197.83600000",
+      "timestamp": "1773720000000"
+    },
+    {
+      "openInterest": "48711.28800000",
+      "timestamp": "1773716400000"
+    },
+    {
+      "openInterest": "49001.35000000",
+      "timestamp": "1773712800000"
+    },
+    {
+      "openInterest": "48932.81800000",
+      "timestamp": "1773709200000"
+    },
+    {
+      "openInterest": "49281.04500000",
+      "timestamp": "1773705600000"
+    },
+    {
+      "openInterest": "48914.06700000",
+      "timestamp": "1773702000000"
+    },
+    {
+      "openInterest": "47486.36700000",
+      "timestamp": "1773698400000"
+    },
+    {
+      "openInterest": "47055.68200000",
+      "timestamp": "1773694800000"
+    },
+    {
+      "openInterest": "46962.73700000",
+      "timestamp": "1773691200000"
+    },
+    {
+      "openInterest": "47093.61100000",
+      "timestamp": "1773687600000"
+    },
+    {
+      "openInterest": "46509.33800000",
+      "timestamp": "1773684000000"
+    },
+    {
+      "openInterest": "46133.45600000",
+      "timestamp": "1773680400000"
+    },
+    {
+      "openInterest": "45933.40000000",
+      "timestamp": "1773676800000"
+    },
+    {
+      "openInterest": "45321.56800000",
+      "timestamp": "1773673200000"
+    },
+    {
+      "openInterest": "45947.31200000",
+      "timestamp": "1773669600000"
+    },
+    {
+      "openInterest": "45600.69600000",
+      "timestamp": "1773666000000"
+    },
+    {
+      "openInterest": "45450.10100000",
+      "timestamp": "1773662400000"
+    },
+    {
+      "openInterest": "45530.79900000",
+      "timestamp": "1773658800000"
+    },
+    {
+      "openInterest": "45282.05300000",
+      "timestamp": "1773655200000"
+    },
+    {
+      "openInterest": "45588.74100000",
+      "timestamp": "1773651600000"
+    },
+    {
+      "openInterest": "45856.07000000",
+      "timestamp": "1773648000000"
+    },
+    {
+      "openInterest": "45425.41900000",
+      "timestamp": "1773644400000"
+    },
+    {
+      "openInterest": "45527.89000000",
+      "timestamp": "1773640800000"
+    },
+    {
+      "openInterest": "45222.53800000",
+      "timestamp": "1773637200000"
+    },
+    {
+      "openInterest": "45089.87300000",
+      "timestamp": "1773633600000"
+    },
+    {
+      "openInterest": "45801.53100000",
+      "timestamp": "1773630000000"
+    }
+  ],
+  "eth_open_interest": [
+    {
+      "openInterest": "790875.00000000",
+      "timestamp": "1774346400000"
+    },
+    {
+      "openInterest": "784974.63000000",
+      "timestamp": "1774342800000"
+    },
+    {
+      "openInterest": "787731.33000000",
+      "timestamp": "1774339200000"
+    },
+    {
+      "openInterest": "783169.67000000",
+      "timestamp": "1774335600000"
+    },
+    {
+      "openInterest": "785447.11000000",
+      "timestamp": "1774332000000"
+    },
+    {
+      "openInterest": "782484.00000000",
+      "timestamp": "1774328400000"
+    },
+    {
+      "openInterest": "785018.77000000",
+      "timestamp": "1774324800000"
+    },
+    {
+      "openInterest": "785476.83000000",
+      "timestamp": "1774321200000"
+    },
+    {
+      "openInterest": "779811.87000000",
+      "timestamp": "1774317600000"
+    },
+    {
+      "openInterest": "777968.89000000",
+      "timestamp": "1774314000000"
+    },
+    {
+      "openInterest": "795232.77000000",
+      "timestamp": "1774310400000"
+    },
+    {
+      "openInterest": "795420.45000000",
+      "timestamp": "1774306800000"
+    },
+    {
+      "openInterest": "795200.13000000",
+      "timestamp": "1774303200000"
+    },
+    {
+      "openInterest": "799006.43000000",
+      "timestamp": "1774299600000"
+    },
+    {
+      "openInterest": "799479.21000000",
+      "timestamp": "1774296000000"
+    },
+    {
+      "openInterest": "809926.27000000",
+      "timestamp": "1774292400000"
+    },
+    {
+      "openInterest": "798580.21000000",
+      "timestamp": "1774288800000"
+    },
+    {
+      "openInterest": "796787.21000000",
+      "timestamp": "1774285200000"
+    },
+    {
+      "openInterest": "783375.40000000",
+      "timestamp": "1774281600000"
+    },
+    {
+      "openInterest": "817516.53000000",
+      "timestamp": "1774278000000"
+    },
+    {
+      "openInterest": "814593.08000000",
+      "timestamp": "1774274400000"
+    },
+    {
+      "openInterest": "791571.74000000",
+      "timestamp": "1774270800000"
+    },
+    {
+      "openInterest": "774628.06000000",
+      "timestamp": "1774267200000"
+    },
+    {
+      "openInterest": "835956.45000000",
+      "timestamp": "1774263600000"
+    },
+    {
+      "openInterest": "836377.91000000",
+      "timestamp": "1774260000000"
+    },
+    {
+      "openInterest": "836348.43000000",
+      "timestamp": "1774256400000"
+    },
+    {
+      "openInterest": "847192.18000000",
+      "timestamp": "1774252800000"
+    },
+    {
+      "openInterest": "847061.74000000",
+      "timestamp": "1774249200000"
+    },
+    {
+      "openInterest": "835533.56000000",
+      "timestamp": "1774245600000"
+    },
+    {
+      "openInterest": "833017.23000000",
+      "timestamp": "1774242000000"
+    },
+    {
+      "openInterest": "832471.58000000",
+      "timestamp": "1774238400000"
+    },
+    {
+      "openInterest": "833514.22000000",
+      "timestamp": "1774234800000"
+    },
+    {
+      "openInterest": "825316.37000000",
+      "timestamp": "1774231200000"
+    },
+    {
+      "openInterest": "831249.69000000",
+      "timestamp": "1774227600000"
+    },
+    {
+      "openInterest": "823590.64000000",
+      "timestamp": "1774224000000"
+    },
+    {
+      "openInterest": "823665.07000000",
+      "timestamp": "1774220400000"
+    },
+    {
+      "openInterest": "817433.11000000",
+      "timestamp": "1774216800000"
+    },
+    {
+      "openInterest": "818209.44000000",
+      "timestamp": "1774213200000"
+    },
+    {
+      "openInterest": "814020.81000000",
+      "timestamp": "1774209600000"
+    },
+    {
+      "openInterest": "818750.60000000",
+      "timestamp": "1774206000000"
+    },
+    {
+      "openInterest": "819317.49000000",
+      "timestamp": "1774202400000"
+    },
+    {
+      "openInterest": "820264.17000000",
+      "timestamp": "1774198800000"
+    },
+    {
+      "openInterest": "820316.99000000",
+      "timestamp": "1774195200000"
+    },
+    {
+      "openInterest": "820104.86000000",
+      "timestamp": "1774191600000"
+    },
+    {
+      "openInterest": "827734.05000000",
+      "timestamp": "1774188000000"
+    },
+    {
+      "openInterest": "822889.85000000",
+      "timestamp": "1774184400000"
+    },
+    {
+      "openInterest": "834619.76000000",
+      "timestamp": "1774180800000"
+    },
+    {
+      "openInterest": "823256.53000000",
+      "timestamp": "1774177200000"
+    },
+    {
+      "openInterest": "814361.23000000",
+      "timestamp": "1774173600000"
+    },
+    {
+      "openInterest": "815725.41000000",
+      "timestamp": "1774170000000"
+    },
+    {
+      "openInterest": "806067.20000000",
+      "timestamp": "1774166400000"
+    },
+    {
+      "openInterest": "807306.57000000",
+      "timestamp": "1774162800000"
+    },
+    {
+      "openInterest": "807265.69000000",
+      "timestamp": "1774159200000"
+    },
+    {
+      "openInterest": "807884.17000000",
+      "timestamp": "1774155600000"
+    },
+    {
+      "openInterest": "811087.45000000",
+      "timestamp": "1774152000000"
+    },
+    {
+      "openInterest": "823395.22000000",
+      "timestamp": "1774148400000"
+    },
+    {
+      "openInterest": "812780.19000000",
+      "timestamp": "1774144800000"
+    },
+    {
+      "openInterest": "808557.23000000",
+      "timestamp": "1774141200000"
+    },
+    {
+      "openInterest": "831714.01000000",
+      "timestamp": "1774137600000"
+    },
+    {
+      "openInterest": "835828.99000000",
+      "timestamp": "1774134000000"
+    },
+    {
+      "openInterest": "838348.59000000",
+      "timestamp": "1774130400000"
+    },
+    {
+      "openInterest": "840115.97000000",
+      "timestamp": "1774126800000"
+    },
+    {
+      "openInterest": "840430.21000000",
+      "timestamp": "1774123200000"
+    },
+    {
+      "openInterest": "839406.53000000",
+      "timestamp": "1774119600000"
+    },
+    {
+      "openInterest": "832397.63000000",
+      "timestamp": "1774116000000"
+    },
+    {
+      "openInterest": "832772.97000000",
+      "timestamp": "1774112400000"
+    },
+    {
+      "openInterest": "835899.82000000",
+      "timestamp": "1774108800000"
+    },
+    {
+      "openInterest": "843981.28000000",
+      "timestamp": "1774105200000"
+    },
+    {
+      "openInterest": "844048.29000000",
+      "timestamp": "1774101600000"
+    },
+    {
+      "openInterest": "841958.61000000",
+      "timestamp": "1774098000000"
+    },
+    {
+      "openInterest": "835411.55000000",
+      "timestamp": "1774094400000"
+    },
+    {
+      "openInterest": "836893.40000000",
+      "timestamp": "1774090800000"
+    },
+    {
+      "openInterest": "841672.84000000",
+      "timestamp": "1774087200000"
+    },
+    {
+      "openInterest": "841727.52000000",
+      "timestamp": "1774083600000"
+    },
+    {
+      "openInterest": "841323.30000000",
+      "timestamp": "1774080000000"
+    },
+    {
+      "openInterest": "836967.98000000",
+      "timestamp": "1774076400000"
+    },
+    {
+      "openInterest": "835082.05000000",
+      "timestamp": "1774072800000"
+    },
+    {
+      "openInterest": "834405.77000000",
+      "timestamp": "1774069200000"
+    },
+    {
+      "openInterest": "834131.72000000",
+      "timestamp": "1774065600000"
+    },
+    {
+      "openInterest": "839041.81000000",
+      "timestamp": "1774062000000"
+    },
+    {
+      "openInterest": "836967.68000000",
+      "timestamp": "1774058400000"
+    },
+    {
+      "openInterest": "834752.85000000",
+      "timestamp": "1774054800000"
+    },
+    {
+      "openInterest": "837419.13000000",
+      "timestamp": "1774051200000"
+    },
+    {
+      "openInterest": "840852.41000000",
+      "timestamp": "1774047600000"
+    },
+    {
+      "openInterest": "848737.01000000",
+      "timestamp": "1774044000000"
+    },
+    {
+      "openInterest": "826008.64000000",
+      "timestamp": "1774040400000"
+    },
+    {
+      "openInterest": "846215.44000000",
+      "timestamp": "1774036800000"
+    },
+    {
+      "openInterest": "828000.14000000",
+      "timestamp": "1774033200000"
+    },
+    {
+      "openInterest": "823485.15000000",
+      "timestamp": "1774029600000"
+    },
+    {
+      "openInterest": "823326.78000000",
+      "timestamp": "1774026000000"
+    },
+    {
+      "openInterest": "828896.72000000",
+      "timestamp": "1774022400000"
+    },
+    {
+      "openInterest": "832760.51000000",
+      "timestamp": "1774018800000"
+    },
+    {
+      "openInterest": "818538.82000000",
+      "timestamp": "1774015200000"
+    },
+    {
+      "openInterest": "824520.22000000",
+      "timestamp": "1774011600000"
+    },
+    {
+      "openInterest": "824984.73000000",
+      "timestamp": "1774008000000"
+    },
+    {
+      "openInterest": "829745.51000000",
+      "timestamp": "1774004400000"
+    },
+    {
+      "openInterest": "840048.94000000",
+      "timestamp": "1774000800000"
+    },
+    {
+      "openInterest": "837195.18000000",
+      "timestamp": "1773997200000"
+    },
+    {
+      "openInterest": "822068.40000000",
+      "timestamp": "1773993600000"
+    },
+    {
+      "openInterest": "848495.48000000",
+      "timestamp": "1773990000000"
+    },
+    {
+      "openInterest": "832078.10000000",
+      "timestamp": "1773986400000"
+    },
+    {
+      "openInterest": "832044.55000000",
+      "timestamp": "1773982800000"
+    },
+    {
+      "openInterest": "832172.87000000",
+      "timestamp": "1773979200000"
+    },
+    {
+      "openInterest": "834262.92000000",
+      "timestamp": "1773975600000"
+    },
+    {
+      "openInterest": "838939.32000000",
+      "timestamp": "1773972000000"
+    },
+    {
+      "openInterest": "831567.86000000",
+      "timestamp": "1773968400000"
+    },
+    {
+      "openInterest": "834079.48000000",
+      "timestamp": "1773964800000"
+    },
+    {
+      "openInterest": "837369.04000000",
+      "timestamp": "1773961200000"
+    },
+    {
+      "openInterest": "836095.19000000",
+      "timestamp": "1773957600000"
+    },
+    {
+      "openInterest": "833918.36000000",
+      "timestamp": "1773954000000"
+    },
+    {
+      "openInterest": "831572.05000000",
+      "timestamp": "1773950400000"
+    },
+    {
+      "openInterest": "834719.78000000",
+      "timestamp": "1773946800000"
+    },
+    {
+      "openInterest": "840024.30000000",
+      "timestamp": "1773943200000"
+    },
+    {
+      "openInterest": "840127.88000000",
+      "timestamp": "1773939600000"
+    },
+    {
+      "openInterest": "838059.47000000",
+      "timestamp": "1773936000000"
+    },
+    {
+      "openInterest": "826147.60000000",
+      "timestamp": "1773932400000"
+    },
+    {
+      "openInterest": "817801.22000000",
+      "timestamp": "1773928800000"
+    },
+    {
+      "openInterest": "828988.84000000",
+      "timestamp": "1773925200000"
+    },
+    {
+      "openInterest": "824531.97000000",
+      "timestamp": "1773921600000"
+    },
+    {
+      "openInterest": "817034.15000000",
+      "timestamp": "1773918000000"
+    },
+    {
+      "openInterest": "817021.98000000",
+      "timestamp": "1773914400000"
+    },
+    {
+      "openInterest": "820168.44000000",
+      "timestamp": "1773910800000"
+    },
+    {
+      "openInterest": "818583.24000000",
+      "timestamp": "1773907200000"
+    },
+    {
+      "openInterest": "820388.76000000",
+      "timestamp": "1773903600000"
+    },
+    {
+      "openInterest": "821139.91000000",
+      "timestamp": "1773900000000"
+    },
+    {
+      "openInterest": "815124.52000000",
+      "timestamp": "1773896400000"
+    },
+    {
+      "openInterest": "822145.64000000",
+      "timestamp": "1773892800000"
+    },
+    {
+      "openInterest": "838039.68000000",
+      "timestamp": "1773889200000"
+    },
+    {
+      "openInterest": "851401.40000000",
+      "timestamp": "1773885600000"
+    },
+    {
+      "openInterest": "846465.47000000",
+      "timestamp": "1773882000000"
+    },
+    {
+      "openInterest": "851902.39000000",
+      "timestamp": "1773878400000"
+    },
+    {
+      "openInterest": "856329.57000000",
+      "timestamp": "1773874800000"
+    },
+    {
+      "openInterest": "854758.28000000",
+      "timestamp": "1773871200000"
+    },
+    {
+      "openInterest": "861243.67000000",
+      "timestamp": "1773867600000"
+    },
+    {
+      "openInterest": "859874.75000000",
+      "timestamp": "1773864000000"
+    },
+    {
+      "openInterest": "857286.56000000",
+      "timestamp": "1773860400000"
+    },
+    {
+      "openInterest": "865890.63000000",
+      "timestamp": "1773856800000"
+    },
+    {
+      "openInterest": "853585.77000000",
+      "timestamp": "1773853200000"
+    },
+    {
+      "openInterest": "861180.97000000",
+      "timestamp": "1773849600000"
+    },
+    {
+      "openInterest": "838331.49000000",
+      "timestamp": "1773846000000"
+    },
+    {
+      "openInterest": "830968.77000000",
+      "timestamp": "1773842400000"
+    },
+    {
+      "openInterest": "837954.23000000",
+      "timestamp": "1773838800000"
+    },
+    {
+      "openInterest": "842789.91000000",
+      "timestamp": "1773835200000"
+    },
+    {
+      "openInterest": "864088.04000000",
+      "timestamp": "1773831600000"
+    },
+    {
+      "openInterest": "871534.53000000",
+      "timestamp": "1773828000000"
+    },
+    {
+      "openInterest": "875654.66000000",
+      "timestamp": "1773824400000"
+    },
+    {
+      "openInterest": "876027.74000000",
+      "timestamp": "1773820800000"
+    },
+    {
+      "openInterest": "875818.82000000",
+      "timestamp": "1773817200000"
+    },
+    {
+      "openInterest": "878347.78000000",
+      "timestamp": "1773813600000"
+    },
+    {
+      "openInterest": "885229.23000000",
+      "timestamp": "1773810000000"
+    },
+    {
+      "openInterest": "887032.53000000",
+      "timestamp": "1773806400000"
+    },
+    {
+      "openInterest": "882571.58000000",
+      "timestamp": "1773802800000"
+    },
+    {
+      "openInterest": "880431.42000000",
+      "timestamp": "1773799200000"
+    },
+    {
+      "openInterest": "882342.34000000",
+      "timestamp": "1773795600000"
+    },
+    {
+      "openInterest": "872116.41000000",
+      "timestamp": "1773792000000"
+    },
+    {
+      "openInterest": "867918.61000000",
+      "timestamp": "1773788400000"
+    },
+    {
+      "openInterest": "866528.76000000",
+      "timestamp": "1773784800000"
+    },
+    {
+      "openInterest": "869511.38000000",
+      "timestamp": "1773781200000"
+    },
+    {
+      "openInterest": "871520.10000000",
+      "timestamp": "1773777600000"
+    },
+    {
+      "openInterest": "875669.50000000",
+      "timestamp": "1773774000000"
+    },
+    {
+      "openInterest": "881986.16000000",
+      "timestamp": "1773770400000"
+    },
+    {
+      "openInterest": "894343.97000000",
+      "timestamp": "1773766800000"
+    },
+    {
+      "openInterest": "898939.32000000",
+      "timestamp": "1773763200000"
+    },
+    {
+      "openInterest": "909858.37000000",
+      "timestamp": "1773759600000"
+    },
+    {
+      "openInterest": "902521.65000000",
+      "timestamp": "1773756000000"
+    },
+    {
+      "openInterest": "890867.65000000",
+      "timestamp": "1773752400000"
+    },
+    {
+      "openInterest": "896314.47000000",
+      "timestamp": "1773748800000"
+    },
+    {
+      "openInterest": "889354.81000000",
+      "timestamp": "1773745200000"
+    },
+    {
+      "openInterest": "899642.10000000",
+      "timestamp": "1773741600000"
+    },
+    {
+      "openInterest": "899437.76000000",
+      "timestamp": "1773738000000"
+    },
+    {
+      "openInterest": "896762.25000000",
+      "timestamp": "1773734400000"
+    },
+    {
+      "openInterest": "901436.26000000",
+      "timestamp": "1773730800000"
+    },
+    {
+      "openInterest": "904737.13000000",
+      "timestamp": "1773727200000"
+    },
+    {
+      "openInterest": "907168.66000000",
+      "timestamp": "1773723600000"
+    },
+    {
+      "openInterest": "903130.24000000",
+      "timestamp": "1773720000000"
+    },
+    {
+      "openInterest": "907962.88000000",
+      "timestamp": "1773716400000"
+    },
+    {
+      "openInterest": "909919.65000000",
+      "timestamp": "1773712800000"
+    },
+    {
+      "openInterest": "910103.50000000",
+      "timestamp": "1773709200000"
+    },
+    {
+      "openInterest": "924167.01000000",
+      "timestamp": "1773705600000"
+    },
+    {
+      "openInterest": "941572.35000000",
+      "timestamp": "1773702000000"
+    },
+    {
+      "openInterest": "950107.45000000",
+      "timestamp": "1773698400000"
+    },
+    {
+      "openInterest": "964000.29000000",
+      "timestamp": "1773694800000"
+    },
+    {
+      "openInterest": "971709.51000000",
+      "timestamp": "1773691200000"
+    },
+    {
+      "openInterest": "996230.98000000",
+      "timestamp": "1773687600000"
+    },
+    {
+      "openInterest": "977965.31000000",
+      "timestamp": "1773684000000"
+    },
+    {
+      "openInterest": "964694.07000000",
+      "timestamp": "1773680400000"
+    },
+    {
+      "openInterest": "937492.72000000",
+      "timestamp": "1773676800000"
+    },
+    {
+      "openInterest": "925957.75000000",
+      "timestamp": "1773673200000"
+    },
+    {
+      "openInterest": "919404.09000000",
+      "timestamp": "1773669600000"
+    },
+    {
+      "openInterest": "920540.71000000",
+      "timestamp": "1773666000000"
+    },
+    {
+      "openInterest": "932088.82000000",
+      "timestamp": "1773662400000"
+    },
+    {
+      "openInterest": "922837.39000000",
+      "timestamp": "1773658800000"
+    },
+    {
+      "openInterest": "919853.16000000",
+      "timestamp": "1773655200000"
+    },
+    {
+      "openInterest": "923334.83000000",
+      "timestamp": "1773651600000"
+    },
+    {
+      "openInterest": "919326.45000000",
+      "timestamp": "1773648000000"
+    },
+    {
+      "openInterest": "904912.13000000",
+      "timestamp": "1773644400000"
+    },
+    {
+      "openInterest": "898548.98000000",
+      "timestamp": "1773640800000"
+    },
+    {
+      "openInterest": "872899.79000000",
+      "timestamp": "1773637200000"
+    },
+    {
+      "openInterest": "878201.79000000",
+      "timestamp": "1773633600000"
+    },
+    {
+      "openInterest": "867597.57000000",
+      "timestamp": "1773630000000"
+    }
+  ],
+  "btcusdt_ls_ratio": [
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5807",
+      "sellRatio": "0.4193",
+      "timestamp": "1774346400000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5799",
+      "sellRatio": "0.4201",
+      "timestamp": "1774342800000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5799",
+      "sellRatio": "0.4201",
+      "timestamp": "1774339200000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5733",
+      "sellRatio": "0.4267",
+      "timestamp": "1774335600000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5695",
+      "sellRatio": "0.4305",
+      "timestamp": "1774332000000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5696",
+      "sellRatio": "0.4304",
+      "timestamp": "1774328400000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5677",
+      "sellRatio": "0.4323",
+      "timestamp": "1774324800000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5664",
+      "sellRatio": "0.4336",
+      "timestamp": "1774321200000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5662",
+      "sellRatio": "0.4338",
+      "timestamp": "1774317600000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5662",
+      "sellRatio": "0.4338",
+      "timestamp": "1774314000000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5643",
+      "sellRatio": "0.4357",
+      "timestamp": "1774310400000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5629",
+      "sellRatio": "0.4371",
+      "timestamp": "1774306800000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5654",
+      "sellRatio": "0.4346",
+      "timestamp": "1774303200000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5647",
+      "sellRatio": "0.4353",
+      "timestamp": "1774299600000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5623",
+      "sellRatio": "0.4377",
+      "timestamp": "1774296000000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5673",
+      "sellRatio": "0.4327",
+      "timestamp": "1774292400000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5723",
+      "sellRatio": "0.4277",
+      "timestamp": "1774288800000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5696",
+      "sellRatio": "0.4304",
+      "timestamp": "1774285200000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5634",
+      "sellRatio": "0.4366",
+      "timestamp": "1774281600000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5617",
+      "sellRatio": "0.4383",
+      "timestamp": "1774278000000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5774",
+      "sellRatio": "0.4226",
+      "timestamp": "1774274400000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.584",
+      "sellRatio": "0.416",
+      "timestamp": "1774270800000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5798",
+      "sellRatio": "0.4202",
+      "timestamp": "1774267200000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5972",
+      "sellRatio": "0.4028",
+      "timestamp": "1774263600000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5965",
+      "sellRatio": "0.4035",
+      "timestamp": "1774260000000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5976",
+      "sellRatio": "0.4024",
+      "timestamp": "1774256400000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.6026",
+      "sellRatio": "0.3974",
+      "timestamp": "1774252800000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.6048",
+      "sellRatio": "0.3952",
+      "timestamp": "1774249200000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5988",
+      "sellRatio": "0.4012",
+      "timestamp": "1774245600000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.6",
+      "sellRatio": "0.4",
+      "timestamp": "1774242000000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5965",
+      "sellRatio": "0.4035",
+      "timestamp": "1774238400000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5952",
+      "sellRatio": "0.4048",
+      "timestamp": "1774234800000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5933",
+      "sellRatio": "0.4067",
+      "timestamp": "1774231200000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5965",
+      "sellRatio": "0.4035",
+      "timestamp": "1774227600000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5957",
+      "sellRatio": "0.4043",
+      "timestamp": "1774224000000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5964",
+      "sellRatio": "0.4036",
+      "timestamp": "1774220400000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5961",
+      "sellRatio": "0.4039",
+      "timestamp": "1774216800000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5925",
+      "sellRatio": "0.4075",
+      "timestamp": "1774213200000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5939",
+      "sellRatio": "0.4061",
+      "timestamp": "1774209600000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5928",
+      "sellRatio": "0.4072",
+      "timestamp": "1774206000000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5948",
+      "sellRatio": "0.4052",
+      "timestamp": "1774202400000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5955",
+      "sellRatio": "0.4045",
+      "timestamp": "1774198800000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5968",
+      "sellRatio": "0.4032",
+      "timestamp": "1774195200000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5965",
+      "sellRatio": "0.4035",
+      "timestamp": "1774191600000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5952",
+      "sellRatio": "0.4048",
+      "timestamp": "1774188000000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5924",
+      "sellRatio": "0.4076",
+      "timestamp": "1774184400000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.586",
+      "sellRatio": "0.414",
+      "timestamp": "1774180800000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5853",
+      "sellRatio": "0.4147",
+      "timestamp": "1774177200000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5859",
+      "sellRatio": "0.4141",
+      "timestamp": "1774173600000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5843",
+      "sellRatio": "0.4157",
+      "timestamp": "1774170000000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5831",
+      "sellRatio": "0.4169",
+      "timestamp": "1774166400000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5852",
+      "sellRatio": "0.4148",
+      "timestamp": "1774162800000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5855",
+      "sellRatio": "0.4145",
+      "timestamp": "1774159200000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5883",
+      "sellRatio": "0.4117",
+      "timestamp": "1774155600000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5896",
+      "sellRatio": "0.4104",
+      "timestamp": "1774152000000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5916",
+      "sellRatio": "0.4084",
+      "timestamp": "1774148400000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5884",
+      "sellRatio": "0.4116",
+      "timestamp": "1774144800000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5855",
+      "sellRatio": "0.4145",
+      "timestamp": "1774141200000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5757",
+      "sellRatio": "0.4243",
+      "timestamp": "1774137600000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5743",
+      "sellRatio": "0.4257",
+      "timestamp": "1774134000000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5749",
+      "sellRatio": "0.4251",
+      "timestamp": "1774130400000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5759",
+      "sellRatio": "0.4241",
+      "timestamp": "1774126800000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5745",
+      "sellRatio": "0.4255",
+      "timestamp": "1774123200000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5749",
+      "sellRatio": "0.4251",
+      "timestamp": "1774119600000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5722",
+      "sellRatio": "0.4278",
+      "timestamp": "1774116000000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5701",
+      "sellRatio": "0.4299",
+      "timestamp": "1774112400000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5716",
+      "sellRatio": "0.4284",
+      "timestamp": "1774108800000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5733",
+      "sellRatio": "0.4267",
+      "timestamp": "1774105200000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5701",
+      "sellRatio": "0.4299",
+      "timestamp": "1774101600000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5705",
+      "sellRatio": "0.4295",
+      "timestamp": "1774098000000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5691",
+      "sellRatio": "0.4309",
+      "timestamp": "1774094400000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5698",
+      "sellRatio": "0.4302",
+      "timestamp": "1774090800000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5724",
+      "sellRatio": "0.4276",
+      "timestamp": "1774087200000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5733",
+      "sellRatio": "0.4267",
+      "timestamp": "1774083600000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5773",
+      "sellRatio": "0.4227",
+      "timestamp": "1774080000000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5772",
+      "sellRatio": "0.4228",
+      "timestamp": "1774076400000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5771",
+      "sellRatio": "0.4229",
+      "timestamp": "1774072800000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.577",
+      "sellRatio": "0.423",
+      "timestamp": "1774069200000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5773",
+      "sellRatio": "0.4227",
+      "timestamp": "1774065600000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5784",
+      "sellRatio": "0.4216",
+      "timestamp": "1774062000000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5782",
+      "sellRatio": "0.4218",
+      "timestamp": "1774058400000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5799",
+      "sellRatio": "0.4201",
+      "timestamp": "1774054800000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5804",
+      "sellRatio": "0.4196",
+      "timestamp": "1774051200000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5806",
+      "sellRatio": "0.4194",
+      "timestamp": "1774047600000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5806",
+      "sellRatio": "0.4194",
+      "timestamp": "1774044000000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5792",
+      "sellRatio": "0.4208",
+      "timestamp": "1774040400000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5767",
+      "sellRatio": "0.4233",
+      "timestamp": "1774036800000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5751",
+      "sellRatio": "0.4249",
+      "timestamp": "1774033200000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5736",
+      "sellRatio": "0.4264",
+      "timestamp": "1774029600000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5743",
+      "sellRatio": "0.4257",
+      "timestamp": "1774026000000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5741",
+      "sellRatio": "0.4259",
+      "timestamp": "1774022400000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5729",
+      "sellRatio": "0.4271",
+      "timestamp": "1774018800000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5758",
+      "sellRatio": "0.4242",
+      "timestamp": "1774015200000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5845",
+      "sellRatio": "0.4155",
+      "timestamp": "1774011600000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5906",
+      "sellRatio": "0.4094",
+      "timestamp": "1774008000000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5927",
+      "sellRatio": "0.4073",
+      "timestamp": "1774004400000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5928",
+      "sellRatio": "0.4072",
+      "timestamp": "1774000800000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5891",
+      "sellRatio": "0.4109",
+      "timestamp": "1773997200000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5886",
+      "sellRatio": "0.4114",
+      "timestamp": "1773993600000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5879",
+      "sellRatio": "0.4121",
+      "timestamp": "1773990000000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5888",
+      "sellRatio": "0.4112",
+      "timestamp": "1773986400000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.59",
+      "sellRatio": "0.41",
+      "timestamp": "1773982800000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.591",
+      "sellRatio": "0.409",
+      "timestamp": "1773979200000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5904",
+      "sellRatio": "0.4096",
+      "timestamp": "1773975600000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5917",
+      "sellRatio": "0.4083",
+      "timestamp": "1773972000000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5895",
+      "sellRatio": "0.4105",
+      "timestamp": "1773968400000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5868",
+      "sellRatio": "0.4132",
+      "timestamp": "1773964800000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5879",
+      "sellRatio": "0.4121",
+      "timestamp": "1773961200000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.59",
+      "sellRatio": "0.41",
+      "timestamp": "1773957600000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5924",
+      "sellRatio": "0.4076",
+      "timestamp": "1773954000000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5898",
+      "sellRatio": "0.4102",
+      "timestamp": "1773950400000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5832",
+      "sellRatio": "0.4168",
+      "timestamp": "1773946800000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5823",
+      "sellRatio": "0.4177",
+      "timestamp": "1773943200000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5765",
+      "sellRatio": "0.4235",
+      "timestamp": "1773939600000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5752",
+      "sellRatio": "0.4248",
+      "timestamp": "1773936000000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5779",
+      "sellRatio": "0.4221",
+      "timestamp": "1773932400000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5743",
+      "sellRatio": "0.4257",
+      "timestamp": "1773928800000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5626",
+      "sellRatio": "0.4374",
+      "timestamp": "1773925200000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5615",
+      "sellRatio": "0.4385",
+      "timestamp": "1773921600000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5648",
+      "sellRatio": "0.4352",
+      "timestamp": "1773918000000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5692",
+      "sellRatio": "0.4308",
+      "timestamp": "1773914400000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5622",
+      "sellRatio": "0.4378",
+      "timestamp": "1773910800000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5683",
+      "sellRatio": "0.4317",
+      "timestamp": "1773907200000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5797",
+      "sellRatio": "0.4203",
+      "timestamp": "1773903600000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.582",
+      "sellRatio": "0.418",
+      "timestamp": "1773900000000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5826",
+      "sellRatio": "0.4174",
+      "timestamp": "1773896400000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5839",
+      "sellRatio": "0.4161",
+      "timestamp": "1773892800000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5779",
+      "sellRatio": "0.4221",
+      "timestamp": "1773889200000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5777",
+      "sellRatio": "0.4223",
+      "timestamp": "1773885600000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5775",
+      "sellRatio": "0.4225",
+      "timestamp": "1773882000000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5784",
+      "sellRatio": "0.4216",
+      "timestamp": "1773878400000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5771",
+      "sellRatio": "0.4229",
+      "timestamp": "1773874800000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5768",
+      "sellRatio": "0.4232",
+      "timestamp": "1773871200000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5733",
+      "sellRatio": "0.4267",
+      "timestamp": "1773867600000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5747",
+      "sellRatio": "0.4253",
+      "timestamp": "1773864000000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5734",
+      "sellRatio": "0.4266",
+      "timestamp": "1773860400000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.581",
+      "sellRatio": "0.419",
+      "timestamp": "1773856800000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5722",
+      "sellRatio": "0.4278",
+      "timestamp": "1773853200000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5701",
+      "sellRatio": "0.4299",
+      "timestamp": "1773849600000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5429",
+      "sellRatio": "0.4571",
+      "timestamp": "1773846000000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5305",
+      "sellRatio": "0.4695",
+      "timestamp": "1773842400000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5236",
+      "sellRatio": "0.4764",
+      "timestamp": "1773838800000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5306",
+      "sellRatio": "0.4694",
+      "timestamp": "1773835200000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5303",
+      "sellRatio": "0.4697",
+      "timestamp": "1773831600000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5317",
+      "sellRatio": "0.4683",
+      "timestamp": "1773828000000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5316",
+      "sellRatio": "0.4684",
+      "timestamp": "1773824400000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5288",
+      "sellRatio": "0.4712",
+      "timestamp": "1773820800000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5263",
+      "sellRatio": "0.4737",
+      "timestamp": "1773817200000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5224",
+      "sellRatio": "0.4776",
+      "timestamp": "1773813600000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5219",
+      "sellRatio": "0.4781",
+      "timestamp": "1773810000000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5249",
+      "sellRatio": "0.4751",
+      "timestamp": "1773806400000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5269",
+      "sellRatio": "0.4731",
+      "timestamp": "1773802800000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5258",
+      "sellRatio": "0.4742",
+      "timestamp": "1773799200000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5256",
+      "sellRatio": "0.4744",
+      "timestamp": "1773795600000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5233",
+      "sellRatio": "0.4767",
+      "timestamp": "1773792000000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5247",
+      "sellRatio": "0.4753",
+      "timestamp": "1773788400000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5306",
+      "sellRatio": "0.4694",
+      "timestamp": "1773784800000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5313",
+      "sellRatio": "0.4687",
+      "timestamp": "1773781200000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5333",
+      "sellRatio": "0.4667",
+      "timestamp": "1773777600000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5374",
+      "sellRatio": "0.4626",
+      "timestamp": "1773774000000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.537",
+      "sellRatio": "0.463",
+      "timestamp": "1773770400000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5355",
+      "sellRatio": "0.4645",
+      "timestamp": "1773766800000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5324",
+      "sellRatio": "0.4676",
+      "timestamp": "1773763200000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.537",
+      "sellRatio": "0.463",
+      "timestamp": "1773759600000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5279",
+      "sellRatio": "0.4721",
+      "timestamp": "1773756000000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5267",
+      "sellRatio": "0.4733",
+      "timestamp": "1773752400000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.53",
+      "sellRatio": "0.47",
+      "timestamp": "1773748800000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.526",
+      "sellRatio": "0.474",
+      "timestamp": "1773745200000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5328",
+      "sellRatio": "0.4672",
+      "timestamp": "1773741600000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5363",
+      "sellRatio": "0.4637",
+      "timestamp": "1773738000000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.534",
+      "sellRatio": "0.466",
+      "timestamp": "1773734400000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5302",
+      "sellRatio": "0.4698",
+      "timestamp": "1773730800000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5274",
+      "sellRatio": "0.4726",
+      "timestamp": "1773727200000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.528",
+      "sellRatio": "0.472",
+      "timestamp": "1773723600000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5278",
+      "sellRatio": "0.4722",
+      "timestamp": "1773720000000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5314",
+      "sellRatio": "0.4686",
+      "timestamp": "1773716400000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5286",
+      "sellRatio": "0.4714",
+      "timestamp": "1773712800000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5279",
+      "sellRatio": "0.4721",
+      "timestamp": "1773709200000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5236",
+      "sellRatio": "0.4764",
+      "timestamp": "1773705600000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5294",
+      "sellRatio": "0.4706",
+      "timestamp": "1773702000000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5308",
+      "sellRatio": "0.4692",
+      "timestamp": "1773698400000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5208",
+      "sellRatio": "0.4792",
+      "timestamp": "1773694800000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.519",
+      "sellRatio": "0.481",
+      "timestamp": "1773691200000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5189",
+      "sellRatio": "0.4811",
+      "timestamp": "1773687600000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5231",
+      "sellRatio": "0.4769",
+      "timestamp": "1773684000000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5214",
+      "sellRatio": "0.4786",
+      "timestamp": "1773680400000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5171",
+      "sellRatio": "0.4829",
+      "timestamp": "1773676800000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5236",
+      "sellRatio": "0.4764",
+      "timestamp": "1773673200000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5261",
+      "sellRatio": "0.4739",
+      "timestamp": "1773669600000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5287",
+      "sellRatio": "0.4713",
+      "timestamp": "1773666000000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5249",
+      "sellRatio": "0.4751",
+      "timestamp": "1773662400000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5277",
+      "sellRatio": "0.4723",
+      "timestamp": "1773658800000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5225",
+      "sellRatio": "0.4775",
+      "timestamp": "1773655200000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5175",
+      "sellRatio": "0.4825",
+      "timestamp": "1773651600000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5204",
+      "sellRatio": "0.4796",
+      "timestamp": "1773648000000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5316",
+      "sellRatio": "0.4684",
+      "timestamp": "1773644400000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5372",
+      "sellRatio": "0.4628",
+      "timestamp": "1773640800000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5433",
+      "sellRatio": "0.4567",
+      "timestamp": "1773637200000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.5458",
+      "sellRatio": "0.4542",
+      "timestamp": "1773633600000"
+    },
+    {
+      "symbol": "BTCUSDT",
+      "buyRatio": "0.557",
+      "sellRatio": "0.443",
+      "timestamp": "1773630000000"
+    }
+  ],
+  "ethusdt_ls_ratio": [
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6895",
+      "sellRatio": "0.3105",
+      "timestamp": "1774346400000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6892",
+      "sellRatio": "0.3108",
+      "timestamp": "1774342800000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6891",
+      "sellRatio": "0.3109",
+      "timestamp": "1774339200000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6847",
+      "sellRatio": "0.3153",
+      "timestamp": "1774335600000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6829",
+      "sellRatio": "0.3171",
+      "timestamp": "1774332000000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6819",
+      "sellRatio": "0.3181",
+      "timestamp": "1774328400000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6815",
+      "sellRatio": "0.3185",
+      "timestamp": "1774324800000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6806",
+      "sellRatio": "0.3194",
+      "timestamp": "1774321200000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6798",
+      "sellRatio": "0.3202",
+      "timestamp": "1774317600000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6797",
+      "sellRatio": "0.3203",
+      "timestamp": "1774314000000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6777",
+      "sellRatio": "0.3223",
+      "timestamp": "1774310400000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6765",
+      "sellRatio": "0.3235",
+      "timestamp": "1774306800000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6742",
+      "sellRatio": "0.3258",
+      "timestamp": "1774303200000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6743",
+      "sellRatio": "0.3257",
+      "timestamp": "1774299600000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6744",
+      "sellRatio": "0.3256",
+      "timestamp": "1774296000000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6791",
+      "sellRatio": "0.3209",
+      "timestamp": "1774292400000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6835",
+      "sellRatio": "0.3165",
+      "timestamp": "1774288800000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6831",
+      "sellRatio": "0.3169",
+      "timestamp": "1774285200000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6729",
+      "sellRatio": "0.3271",
+      "timestamp": "1774281600000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6714",
+      "sellRatio": "0.3286",
+      "timestamp": "1774278000000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.686",
+      "sellRatio": "0.314",
+      "timestamp": "1774274400000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6914",
+      "sellRatio": "0.3086",
+      "timestamp": "1774270800000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6773",
+      "sellRatio": "0.3227",
+      "timestamp": "1774267200000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6884",
+      "sellRatio": "0.3116",
+      "timestamp": "1774263600000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6916",
+      "sellRatio": "0.3084",
+      "timestamp": "1774260000000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6917",
+      "sellRatio": "0.3083",
+      "timestamp": "1774256400000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6943",
+      "sellRatio": "0.3057",
+      "timestamp": "1774252800000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.697",
+      "sellRatio": "0.303",
+      "timestamp": "1774249200000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6946",
+      "sellRatio": "0.3054",
+      "timestamp": "1774245600000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.695",
+      "sellRatio": "0.305",
+      "timestamp": "1774242000000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6925",
+      "sellRatio": "0.3075",
+      "timestamp": "1774238400000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6914",
+      "sellRatio": "0.3086",
+      "timestamp": "1774234800000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6919",
+      "sellRatio": "0.3081",
+      "timestamp": "1774231200000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6919",
+      "sellRatio": "0.3081",
+      "timestamp": "1774227600000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6906",
+      "sellRatio": "0.3094",
+      "timestamp": "1774224000000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6902",
+      "sellRatio": "0.3098",
+      "timestamp": "1774220400000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.687",
+      "sellRatio": "0.313",
+      "timestamp": "1774216800000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6843",
+      "sellRatio": "0.3157",
+      "timestamp": "1774213200000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6835",
+      "sellRatio": "0.3165",
+      "timestamp": "1774209600000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6855",
+      "sellRatio": "0.3145",
+      "timestamp": "1774206000000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6858",
+      "sellRatio": "0.3142",
+      "timestamp": "1774202400000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6853",
+      "sellRatio": "0.3147",
+      "timestamp": "1774198800000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6855",
+      "sellRatio": "0.3145",
+      "timestamp": "1774195200000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.685",
+      "sellRatio": "0.315",
+      "timestamp": "1774191600000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6841",
+      "sellRatio": "0.3159",
+      "timestamp": "1774188000000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6834",
+      "sellRatio": "0.3166",
+      "timestamp": "1774184400000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6779",
+      "sellRatio": "0.3221",
+      "timestamp": "1774180800000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6787",
+      "sellRatio": "0.3213",
+      "timestamp": "1774177200000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6803",
+      "sellRatio": "0.3197",
+      "timestamp": "1774173600000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6798",
+      "sellRatio": "0.3202",
+      "timestamp": "1774170000000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6776",
+      "sellRatio": "0.3224",
+      "timestamp": "1774166400000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6785",
+      "sellRatio": "0.3215",
+      "timestamp": "1774162800000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6802",
+      "sellRatio": "0.3198",
+      "timestamp": "1774159200000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6846",
+      "sellRatio": "0.3154",
+      "timestamp": "1774155600000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6846",
+      "sellRatio": "0.3154",
+      "timestamp": "1774152000000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.687",
+      "sellRatio": "0.313",
+      "timestamp": "1774148400000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6833",
+      "sellRatio": "0.3167",
+      "timestamp": "1774144800000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6838",
+      "sellRatio": "0.3162",
+      "timestamp": "1774141200000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6823",
+      "sellRatio": "0.3177",
+      "timestamp": "1774137600000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6748",
+      "sellRatio": "0.3252",
+      "timestamp": "1774134000000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6749",
+      "sellRatio": "0.3251",
+      "timestamp": "1774130400000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6753",
+      "sellRatio": "0.3247",
+      "timestamp": "1774126800000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6728",
+      "sellRatio": "0.3272",
+      "timestamp": "1774123200000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6743",
+      "sellRatio": "0.3257",
+      "timestamp": "1774119600000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6742",
+      "sellRatio": "0.3258",
+      "timestamp": "1774116000000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6739",
+      "sellRatio": "0.3261",
+      "timestamp": "1774112400000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.676",
+      "sellRatio": "0.324",
+      "timestamp": "1774108800000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6769",
+      "sellRatio": "0.3231",
+      "timestamp": "1774105200000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6759",
+      "sellRatio": "0.3241",
+      "timestamp": "1774101600000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6757",
+      "sellRatio": "0.3243",
+      "timestamp": "1774098000000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6759",
+      "sellRatio": "0.3241",
+      "timestamp": "1774094400000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6761",
+      "sellRatio": "0.3239",
+      "timestamp": "1774090800000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6785",
+      "sellRatio": "0.3215",
+      "timestamp": "1774087200000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6781",
+      "sellRatio": "0.3219",
+      "timestamp": "1774083600000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6805",
+      "sellRatio": "0.3195",
+      "timestamp": "1774080000000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.678",
+      "sellRatio": "0.322",
+      "timestamp": "1774076400000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6788",
+      "sellRatio": "0.3212",
+      "timestamp": "1774072800000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6787",
+      "sellRatio": "0.3213",
+      "timestamp": "1774069200000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6789",
+      "sellRatio": "0.3211",
+      "timestamp": "1774065600000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6795",
+      "sellRatio": "0.3205",
+      "timestamp": "1774062000000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6794",
+      "sellRatio": "0.3206",
+      "timestamp": "1774058400000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6788",
+      "sellRatio": "0.3212",
+      "timestamp": "1774054800000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6779",
+      "sellRatio": "0.3221",
+      "timestamp": "1774051200000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6771",
+      "sellRatio": "0.3229",
+      "timestamp": "1774047600000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.678",
+      "sellRatio": "0.322",
+      "timestamp": "1774044000000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6762",
+      "sellRatio": "0.3238",
+      "timestamp": "1774040400000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6789",
+      "sellRatio": "0.3211",
+      "timestamp": "1774036800000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6786",
+      "sellRatio": "0.3214",
+      "timestamp": "1774033200000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6757",
+      "sellRatio": "0.3243",
+      "timestamp": "1774029600000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6753",
+      "sellRatio": "0.3247",
+      "timestamp": "1774026000000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6764",
+      "sellRatio": "0.3236",
+      "timestamp": "1774022400000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6751",
+      "sellRatio": "0.3249",
+      "timestamp": "1774018800000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6781",
+      "sellRatio": "0.3219",
+      "timestamp": "1774015200000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6824",
+      "sellRatio": "0.3176",
+      "timestamp": "1774011600000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6845",
+      "sellRatio": "0.3155",
+      "timestamp": "1774008000000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6861",
+      "sellRatio": "0.3139",
+      "timestamp": "1774004400000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6794",
+      "sellRatio": "0.3206",
+      "timestamp": "1774000800000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.681",
+      "sellRatio": "0.319",
+      "timestamp": "1773997200000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6786",
+      "sellRatio": "0.3214",
+      "timestamp": "1773993600000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6801",
+      "sellRatio": "0.3199",
+      "timestamp": "1773990000000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6817",
+      "sellRatio": "0.3183",
+      "timestamp": "1773986400000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6817",
+      "sellRatio": "0.3183",
+      "timestamp": "1773982800000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6819",
+      "sellRatio": "0.3181",
+      "timestamp": "1773979200000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6823",
+      "sellRatio": "0.3177",
+      "timestamp": "1773975600000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6819",
+      "sellRatio": "0.3181",
+      "timestamp": "1773972000000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6786",
+      "sellRatio": "0.3214",
+      "timestamp": "1773968400000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6776",
+      "sellRatio": "0.3224",
+      "timestamp": "1773964800000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6784",
+      "sellRatio": "0.3216",
+      "timestamp": "1773961200000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6803",
+      "sellRatio": "0.3197",
+      "timestamp": "1773957600000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6808",
+      "sellRatio": "0.3192",
+      "timestamp": "1773954000000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6761",
+      "sellRatio": "0.3239",
+      "timestamp": "1773950400000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6723",
+      "sellRatio": "0.3277",
+      "timestamp": "1773946800000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6712",
+      "sellRatio": "0.3288",
+      "timestamp": "1773943200000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6667",
+      "sellRatio": "0.3333",
+      "timestamp": "1773939600000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6646",
+      "sellRatio": "0.3354",
+      "timestamp": "1773936000000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6635",
+      "sellRatio": "0.3365",
+      "timestamp": "1773932400000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6628",
+      "sellRatio": "0.3372",
+      "timestamp": "1773928800000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6527",
+      "sellRatio": "0.3473",
+      "timestamp": "1773925200000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.659",
+      "sellRatio": "0.341",
+      "timestamp": "1773921600000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6609",
+      "sellRatio": "0.3391",
+      "timestamp": "1773918000000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6662",
+      "sellRatio": "0.3338",
+      "timestamp": "1773914400000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6607",
+      "sellRatio": "0.3393",
+      "timestamp": "1773910800000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6645",
+      "sellRatio": "0.3355",
+      "timestamp": "1773907200000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6642",
+      "sellRatio": "0.3358",
+      "timestamp": "1773903600000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.667",
+      "sellRatio": "0.333",
+      "timestamp": "1773900000000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6686",
+      "sellRatio": "0.3314",
+      "timestamp": "1773896400000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6709",
+      "sellRatio": "0.3291",
+      "timestamp": "1773892800000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6609",
+      "sellRatio": "0.3391",
+      "timestamp": "1773889200000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6616",
+      "sellRatio": "0.3384",
+      "timestamp": "1773885600000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6629",
+      "sellRatio": "0.3371",
+      "timestamp": "1773882000000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6645",
+      "sellRatio": "0.3355",
+      "timestamp": "1773878400000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6618",
+      "sellRatio": "0.3382",
+      "timestamp": "1773874800000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6634",
+      "sellRatio": "0.3366",
+      "timestamp": "1773871200000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6591",
+      "sellRatio": "0.3409",
+      "timestamp": "1773867600000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6609",
+      "sellRatio": "0.3391",
+      "timestamp": "1773864000000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6593",
+      "sellRatio": "0.3407",
+      "timestamp": "1773860400000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6614",
+      "sellRatio": "0.3386",
+      "timestamp": "1773856800000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6483",
+      "sellRatio": "0.3517",
+      "timestamp": "1773853200000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6469",
+      "sellRatio": "0.3531",
+      "timestamp": "1773849600000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6276",
+      "sellRatio": "0.3724",
+      "timestamp": "1773846000000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6226",
+      "sellRatio": "0.3774",
+      "timestamp": "1773842400000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6119",
+      "sellRatio": "0.3881",
+      "timestamp": "1773838800000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6116",
+      "sellRatio": "0.3884",
+      "timestamp": "1773835200000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6121",
+      "sellRatio": "0.3879",
+      "timestamp": "1773831600000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.611",
+      "sellRatio": "0.389",
+      "timestamp": "1773828000000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6111",
+      "sellRatio": "0.3889",
+      "timestamp": "1773824400000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6105",
+      "sellRatio": "0.3895",
+      "timestamp": "1773820800000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6093",
+      "sellRatio": "0.3907",
+      "timestamp": "1773817200000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6066",
+      "sellRatio": "0.3934",
+      "timestamp": "1773813600000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.602",
+      "sellRatio": "0.398",
+      "timestamp": "1773810000000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6035",
+      "sellRatio": "0.3965",
+      "timestamp": "1773806400000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6069",
+      "sellRatio": "0.3931",
+      "timestamp": "1773802800000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6086",
+      "sellRatio": "0.3914",
+      "timestamp": "1773799200000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6089",
+      "sellRatio": "0.3911",
+      "timestamp": "1773795600000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6101",
+      "sellRatio": "0.3899",
+      "timestamp": "1773792000000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6122",
+      "sellRatio": "0.3878",
+      "timestamp": "1773788400000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6118",
+      "sellRatio": "0.3882",
+      "timestamp": "1773784800000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.613",
+      "sellRatio": "0.387",
+      "timestamp": "1773781200000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6121",
+      "sellRatio": "0.3879",
+      "timestamp": "1773777600000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6178",
+      "sellRatio": "0.3822",
+      "timestamp": "1773774000000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6179",
+      "sellRatio": "0.3821",
+      "timestamp": "1773770400000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6168",
+      "sellRatio": "0.3832",
+      "timestamp": "1773766800000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6165",
+      "sellRatio": "0.3835",
+      "timestamp": "1773763200000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6144",
+      "sellRatio": "0.3856",
+      "timestamp": "1773759600000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6133",
+      "sellRatio": "0.3867",
+      "timestamp": "1773756000000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6128",
+      "sellRatio": "0.3872",
+      "timestamp": "1773752400000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.614",
+      "sellRatio": "0.386",
+      "timestamp": "1773748800000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6141",
+      "sellRatio": "0.3859",
+      "timestamp": "1773745200000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6161",
+      "sellRatio": "0.3839",
+      "timestamp": "1773741600000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6195",
+      "sellRatio": "0.3805",
+      "timestamp": "1773738000000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6189",
+      "sellRatio": "0.3811",
+      "timestamp": "1773734400000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6161",
+      "sellRatio": "0.3839",
+      "timestamp": "1773730800000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6137",
+      "sellRatio": "0.3863",
+      "timestamp": "1773727200000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6111",
+      "sellRatio": "0.3889",
+      "timestamp": "1773723600000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6117",
+      "sellRatio": "0.3883",
+      "timestamp": "1773720000000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6163",
+      "sellRatio": "0.3837",
+      "timestamp": "1773716400000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6183",
+      "sellRatio": "0.3817",
+      "timestamp": "1773712800000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6176",
+      "sellRatio": "0.3824",
+      "timestamp": "1773709200000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6173",
+      "sellRatio": "0.3827",
+      "timestamp": "1773705600000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6188",
+      "sellRatio": "0.3812",
+      "timestamp": "1773702000000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6193",
+      "sellRatio": "0.3807",
+      "timestamp": "1773698400000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6113",
+      "sellRatio": "0.3887",
+      "timestamp": "1773694800000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6126",
+      "sellRatio": "0.3874",
+      "timestamp": "1773691200000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6114",
+      "sellRatio": "0.3886",
+      "timestamp": "1773687600000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6151",
+      "sellRatio": "0.3849",
+      "timestamp": "1773684000000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6083",
+      "sellRatio": "0.3917",
+      "timestamp": "1773680400000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6118",
+      "sellRatio": "0.3882",
+      "timestamp": "1773676800000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6239",
+      "sellRatio": "0.3761",
+      "timestamp": "1773673200000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6324",
+      "sellRatio": "0.3676",
+      "timestamp": "1773669600000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.634",
+      "sellRatio": "0.366",
+      "timestamp": "1773666000000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6257",
+      "sellRatio": "0.3743",
+      "timestamp": "1773662400000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6307",
+      "sellRatio": "0.3693",
+      "timestamp": "1773658800000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6298",
+      "sellRatio": "0.3702",
+      "timestamp": "1773655200000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6256",
+      "sellRatio": "0.3744",
+      "timestamp": "1773651600000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6291",
+      "sellRatio": "0.3709",
+      "timestamp": "1773648000000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6384",
+      "sellRatio": "0.3616",
+      "timestamp": "1773644400000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6447",
+      "sellRatio": "0.3553",
+      "timestamp": "1773640800000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6488",
+      "sellRatio": "0.3512",
+      "timestamp": "1773637200000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6467",
+      "sellRatio": "0.3533",
+      "timestamp": "1773633600000"
+    },
+    {
+      "symbol": "ETHUSDT",
+      "buyRatio": "0.6325",
+      "sellRatio": "0.3675",
+      "timestamp": "1773630000000"
+    }
+  ]
+}

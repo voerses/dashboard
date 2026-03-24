@@ -166,8 +166,7 @@ def fetch_all_data(fetcher, all_configs: list[PaperConfig]) -> tuple[int, int, i
                 fetcher.merge_funding_into_parquet(token, rates)
                 funding_merged += 1
         except Exception as e:
-            if fetch_err <= 3:
-                logger.warning("Funding %s failed: %s", token, e)
+            logger.warning("Funding %s failed: %s", token, e)
 
     logger.info(
         "Data fetch: %d ok, %d err, %d bars appended, %d funding merged",
@@ -334,6 +333,55 @@ def main(argv: list[str] | None = None) -> None:
         portfolio_names, configs[0].capital,
     )
 
+    # Start dashboard heartbeat during startup (backfill + first fetch + first tick).
+    # Engines are initialized with restored state so dashboard can show current status.
+    _startup_heartbeat_stop = threading.Event()
+    if live_dashboard:
+        def _startup_heartbeat():
+            while not _startup_heartbeat_stop.wait(1.0):
+                try:
+                    write_dashboard_state(
+                        engines, configs, runner_status="starting",
+                    )
+                except Exception:
+                    pass
+        _startup_hb = threading.Thread(target=_startup_heartbeat, daemon=True)
+        _startup_hb.start()
+
+    # Start PriceMonitor WebSocket early so dashboard shows live prices immediately.
+    # Collect open tokens from restored engine state (before first tick).
+    all_open_tokens = set()
+    for engine in engines:
+        for st in engine._get_all_states():
+            for pos in st.position_manager.open_positions:
+                all_open_tokens.add(pos.token)
+    if all_open_tokens:
+        for engine, config in zip(engines, configs):
+            if engine._price_monitor is None:
+                continue
+            try:
+                engine._price_monitor.connect(list(all_open_tokens))
+                logger.info(
+                    "[%s] PriceMonitor started early (%d tokens, %dm resolution)",
+                    config.pool_name, len(all_open_tokens), engine._effective_exit_resolution,
+                )
+            except Exception:
+                logger.warning("[%s] Early PriceMonitor start failed", config.pool_name)
+
+    # Startup backfill: repair data gaps >24h from outages
+    all_backfill_tokens: set[str] = set()
+    for config in configs:
+        for spec in config.strategies:
+            try:
+                all_backfill_tokens.update(discover_tokens(spec.market))
+            except Exception:
+                pass
+    if all_backfill_tokens:
+        backfill_results = shared_fetcher.backfill_gaps(all_backfill_tokens)
+        if backfill_results:
+            logger.info("Startup backfill complete: %s",
+                        ", ".join(f"{k}={v} bars" for k, v in backfill_results.items()))
+
     if args.once:
         # Single tick
         fetch_all_data(shared_fetcher, configs)
@@ -344,6 +392,7 @@ def main(argv: list[str] | None = None) -> None:
                 config.pool_name, result.tick_counter, result.entries, result.exits,
                 result.open_positions, result.portfolio_equity, result.mark_to_market_equity,
             )
+        _startup_heartbeat_stop.set()
         if live_dashboard:
             try:
                 write_dashboard_state(engines, configs, include_sentinel=True)
@@ -351,6 +400,9 @@ def main(argv: list[str] | None = None) -> None:
                 logger.exception("Live dashboard state write failed (non-fatal)")
         lock_file.close()
         return
+
+    # Stop startup heartbeat — main loop has its own
+    _startup_heartbeat_stop.set()
 
     try:
         while not shutdown.is_set():

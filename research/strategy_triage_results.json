@@ -1,0 +1,386 @@
+{
+  "s29": {
+    "strategy": "s29",
+    "market": "perp",
+    "elapsed": 1.2953853607177734,
+    "total_entries": 11533,
+    "n_tokens": 10,
+    "full_period": {
+      "total_trades": 268,
+      "total_return_pct": "-14.327276",
+      "final_equity": "171345.45"
+    },
+    "oos": {
+      "n_trades": 29,
+      "total_pnl": "11198.738",
+      "return_pct": "5.599369",
+      "win_rate": 79.3103448275862,
+      "avg_pnl": "386.1634",
+      "avg_win": "610.7028",
+      "avg_loss": "-474.57132",
+      "profit_factor": "4.932931",
+      "max_dd": -2183.5703125,
+      "max_dd_pct": -1.09178515625,
+      "per_token": {
+        "BNB": {
+          "n_trades": 4,
+          "pnl": "1707.8336"
+        },
+        "DOGE": {
+          "n_trades": 5,
+          "pnl": "1059.3273"
+        },
+        "LINK": {
+          "n_trades": 1,
+          "pnl": "370.507"
+        },
+        "SUI": {
+          "n_trades": 2,
+          "pnl": "2533.9402"
+        },
+        "PEPE": {
+          "n_trades": 2,
+          "pnl": "890.5326"
+        },
+        "XRP": {
+          "n_trades": 5,
+          "pnl": "2153.398"
+        },
+        "ADA": {
+          "n_trades": 1,
+          "pnl": "355.53577"
+        },
+        "SOL": {
+          "n_trades": 6,
+          "pnl": "533.8659"
+        },
+        "ETH": {
+          "n_trades": 2,
+          "pnl": "1358.8358"
+        },
+        "BTC": {
+          "n_trades": 1,
+          "pnl": "234.95988"
+        }
+      }
+    },
+    "verdict": "ALIVE"
+  },
+  "s32": {
+    "strategy": "s32",
+    "market": "combined",
+    "elapsed": 1.0056452751159668,
+    "total_entries": 3360,
+    "n_tokens": 10,
+    "full_period": {
+      "total_trades": 0,
+      "total_return_pct": 0.0,
+      "final_equity": 200000.0
+    },
+    "oos": {
+      "n_trades": 0,
+      "total_pnl": 0,
+      "return_pct": 0.0,
+      "win_rate": 0,
+      "avg_pnl": 0,
+      "avg_win": 0,
+      "avg_loss": 0,
+      "profit_factor": 0,
+      "max_dd": 0,
+      "max_dd_pct": 0,
+      "per_token": {}
+    },
+    "verdict": "DEAD"
+  },
+  "s37": {
+    "strategy": "s37",
+    "market": "perp",
+    "elapsed": 0.687213659286499,
+    "total_entries": 856,
+    "n_tokens": 10,
+    "full_period": {
+      "total_trades": 626,
+      "total_return_pct": "9.834803",
+      "final_equity": "219669.61"
+    },
+    "oos": {
+      "n_trades": 114,
+      "total_pnl": "7749.3486",
+      "return_pct": "3.8746743",
+      "win_rate": 51.75438596491229,
+      "avg_pnl": "67.976746",
+      "avg_win": "574.936",
+      "avg_loss": "-475.85205",
+      "profit_factor": "1.296095",
+      "max_dd": -6854.54638671875,
+      "max_dd_pct": -3.427273193359375,
+      "per_token": {
+        "PEPE": {
+          "n_trades": 10,
+          "pnl": "-1565.7484"
+        },
+        "SUI": {
+          "n_trades": 19,
+          "pnl": "7245.0425"
+        },
+        "DOGE": {
+          "n_trades": 17,
+          "pnl": "667.73987"
+        },
+        "ADA": {
+          "n_trades": 16,
+          "pnl": "1371.3612"
+        },
+        "LINK": {
+          "n_trades": 15,
+          "pnl": "-575.8303"
+        },
+        "SOL": {
+          "n_trades": 14,
+          "pnl": "1773.1328"
+        },
+        "ETH": {
+          "n_trades": 12,
+          "pnl": "601.4709"
+        },
+        "BNB": {
+          "n_trades": 3,
+          "pnl": "545.8186"
+        },
+        "BTC": {
+          "n_trades": 1,
+          "pnl": "-306.33267"
+        },
+        "XRP": {
+          "n_trades": 7,
+          "pnl": "-2007.2988"
+        }
+      }
+    },
+    "verdict": "ALIVE"
+  },
+  "s44": {
+    "strategy": "s44",
+    "market": "combined",
+    "elapsed": 1.2432780265808105,
+    "total_entries": 994,
+    "n_tokens": 10,
+    "full_period": {
+      "total_trades": 468,
+      "total_return_pct": "-11.53096",
+      "final_equity": "176938.08"
+    },
+    "oos": {
+      "n_trades": 26,
+      "total_pnl": "-2786.581",
+      "return_pct": "-1.3932905",
+      "win_rate": 38.46153846153847,
+      "avg_pnl": "-107.17619",
+      "avg_win": "354.77722",
+      "avg_loss": "-395.8971",
+      "profit_factor": "0.5600844",
+      "max_dd": -2693.706298828125,
+      "max_dd_pct": -1.3468531494140625,
+      "per_token": {
+        "PEPE": {
+          "n_trades": 24,
+          "pnl": "-2751.4763"
+        },
+        "BNB": {
+          "n_trades": 2,
+          "pnl": "-35.104588"
+        }
+      }
+    },
+    "verdict": "DEAD"
+  },
+  "s56": {
+    "strategy": "s56",
+    "market": "perp",
+    "elapsed": 0.8608436584472656,
+    "total_entries": 856,
+    "n_tokens": 10,
+    "full_period": {
+      "total_trades": 329,
+      "total_return_pct": "-8.507431",
+      "final_equity": "182985.14"
+    },
+    "oos": {
+      "n_trades": 41,
+      "total_pnl": "-5418.1265",
+      "return_pct": "-2.709063",
+      "win_rate": 46.34146341463415,
+      "avg_pnl": "-132.14943",
+      "avg_win": "513.25354",
+      "avg_loss": "-689.5429",
+      "profit_factor": "0.64283806",
+      "max_dd": -7907.05126953125,
+      "max_dd_pct": -3.953525634765625,
+      "per_token": {
+        "PEPE": {
+          "n_trades": 4,
+          "pnl": "-3957.3132"
+        },
+        "SUI": {
+          "n_trades": 5,
+          "pnl": "88.56384"
+        },
+        "DOGE": {
+          "n_trades": 6,
+          "pnl": "-2388.8408"
+        },
+        "ADA": {
+          "n_trades": 3,
+          "pnl": "-894.93494"
+        },
+        "SOL": {
+          "n_trades": 9,
+          "pnl": "-204.1101"
+        },
+        "LINK": {
+          "n_trades": 5,
+          "pnl": "469.17395"
+        },
+        "ETH": {
+          "n_trades": 4,
+          "pnl": "1009.01636"
+        },
+        "BNB": {
+          "n_trades": 3,
+          "pnl": "477.85632"
+        },
+        "XRP": {
+          "n_trades": 2,
+          "pnl": "-17.538025"
+        }
+      }
+    },
+    "verdict": "DEAD"
+  },
+  "s65": {
+    "strategy": "s65",
+    "market": "perp",
+    "elapsed": 1.0588438510894775,
+    "total_entries": 10420,
+    "n_tokens": 10,
+    "full_period": {
+      "total_trades": 261,
+      "total_return_pct": "-26.874655",
+      "final_equity": "146250.69"
+    },
+    "oos": {
+      "n_trades": 24,
+      "total_pnl": "8070.1587",
+      "return_pct": "4.0350795",
+      "win_rate": 83.33333333333334,
+      "avg_pnl": "336.25662",
+      "avg_win": "506.0584",
+      "avg_loss": "-512.75244",
+      "profit_factor": "4.9347243",
+      "max_dd": -931.63671875,
+      "max_dd_pct": -0.46581835937500005,
+      "per_token": {
+        "PEPE": {
+          "n_trades": 4,
+          "pnl": "326.1931"
+        },
+        "SUI": {
+          "n_trades": 3,
+          "pnl": "2537.0122"
+        },
+        "LINK": {
+          "n_trades": 2,
+          "pnl": "707.56683"
+        },
+        "SOL": {
+          "n_trades": 5,
+          "pnl": "1341.6459"
+        },
+        "ADA": {
+          "n_trades": 2,
+          "pnl": "538.16284"
+        },
+        "DOGE": {
+          "n_trades": 3,
+          "pnl": "1195.6074"
+        },
+        "BNB": {
+          "n_trades": 1,
+          "pnl": "476.87607"
+        },
+        "XRP": {
+          "n_trades": 3,
+          "pnl": "477.92715"
+        },
+        "ETH": {
+          "n_trades": 1,
+          "pnl": "469.16666"
+        }
+      }
+    },
+    "verdict": "ALIVE"
+  },
+  "s72": {
+    "strategy": "s72",
+    "market": "perp",
+    "elapsed": 0.7497940063476562,
+    "total_entries": 10420,
+    "n_tokens": 10,
+    "full_period": {
+      "total_trades": 261,
+      "total_return_pct": "-26.874655",
+      "final_equity": "146250.69"
+    },
+    "oos": {
+      "n_trades": 24,
+      "total_pnl": "8070.1587",
+      "return_pct": "4.0350795",
+      "win_rate": 83.33333333333334,
+      "avg_pnl": "336.25662",
+      "avg_win": "506.0584",
+      "avg_loss": "-512.75244",
+      "profit_factor": "4.9347243",
+      "max_dd": -931.63671875,
+      "max_dd_pct": -0.46581835937500005,
+      "per_token": {
+        "PEPE": {
+          "n_trades": 4,
+          "pnl": "326.1931"
+        },
+        "SUI": {
+          "n_trades": 3,
+          "pnl": "2537.0122"
+        },
+        "LINK": {
+          "n_trades": 2,
+          "pnl": "707.56683"
+        },
+        "SOL": {
+          "n_trades": 5,
+          "pnl": "1341.6459"
+        },
+        "ADA": {
+          "n_trades": 2,
+          "pnl": "538.16284"
+        },
+        "DOGE": {
+          "n_trades": 3,
+          "pnl": "1195.6074"
+        },
+        "BNB": {
+          "n_trades": 1,
+          "pnl": "476.87607"
+        },
+        "XRP": {
+          "n_trades": 3,
+          "pnl": "477.92715"
+        },
+        "ETH": {
+          "n_trades": 1,
+          "pnl": "469.16666"
+        }
+      }
+    },
+    "verdict": "ALIVE"
+  }
+}

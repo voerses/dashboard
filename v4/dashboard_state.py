@@ -77,16 +77,8 @@ def _build_portfolio(
     shared_live_prices: dict[str, float] | None = None,
 ) -> dict:
     """Build a single portfolio dict with live price overlay."""
-    # Overlay live WebSocket prices for real-time unrealized P&L
-    saved_prices = dict(engine._last_known_prices)
-    if shared_live_prices:
-        engine._last_known_prices.update(shared_live_prices)
-
-    try:
-        sim = engine.to_dashboard_sim()
-    finally:
-        # Restore original prices so hourly tick logic isn't affected
-        engine._last_known_prices = saved_prices
+    # Pass live prices as overrides instead of mutating engine state (thread-safe)
+    sim = engine.to_dashboard_sim(price_overrides=shared_live_prices)
 
     # Load full equity history from equity.csv (engine only keeps in-memory
     # entries from current session; equity.csv has the full run history)

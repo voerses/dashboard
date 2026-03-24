@@ -730,10 +730,10 @@ function render() {{
     h += `<div class="sec">
         <h2>Trade Log</h2>
         <div class="frow">
-            <div class="fb active" onclick="setF(this,'open')">Open (${{nOpen}})</div>
-            <div class="fb" onclick="setF(this,'all')">All (${{trades.length}})</div>
-            <div class="fb" onclick="setF(this,'winners')">Winners (${{nW}})</div>
-            <div class="fb" onclick="setF(this,'losers')">Losers (${{nT-nW}})</div>
+            <div class="fb ${{curFilter==='open'?'active':''}}" onclick="setF(this,'open')">Open (${{nOpen}})</div>
+            <div class="fb ${{curFilter==='all'?'active':''}}" onclick="setF(this,'all')">All (${{trades.length}})</div>
+            <div class="fb ${{curFilter==='winners'?'active':''}}" onclick="setF(this,'winners')">Winners (${{nW}})</div>
+            <div class="fb ${{curFilter==='losers'?'active':''}}" onclick="setF(this,'losers')">Losers (${{nT-nW}})</div>
         </div>
         <div class="card tbl-wrap">
             <table>
@@ -767,7 +767,12 @@ function render() {{
     <div style="height:80px"></div>`;
 
     document.getElementById('app').innerHTML = h;
-    renderTrades(trades, 'open');
+    // Force correct filter button highlight after DOM rebuild
+    document.querySelectorAll('.frow .fb').forEach(b => {{
+        const f = b.getAttribute('onclick').match(/'(\w+)'/);
+        if (f) b.classList.toggle('active', f[1] === curFilter);
+    }});
+    renderTrades(trades, curFilter);
     renderTokens(trades);
     setTimeout(() => drawEquity(), 0);
 }}
@@ -1113,18 +1118,44 @@ function renderSentinel() {{
 renderTabs();
 render();
 
-/* ---- Auto-refresh: poll for new dashboard version every 60s ---- */
+/* ---- Live data: poll state.json every 1s, update in-place ---- */
 (function() {{
-    const cur = document.documentElement.getAttribute('data-generated-at');
-    if (!cur) return;
+    let _liveErr = 0;
     setInterval(async () => {{
         try {{
-            const r = await fetch(location.href, {{cache:'no-store'}});
-            const txt = await r.text();
-            const m = txt.match(/data-generated-at="([^"]+)"/);
-            if (m && m[1] !== cur) location.reload();
-        }} catch(e) {{}}
-    }}, 60000);
+            const r = await fetch('/data/state.json', {{cache:'no-store'}});
+            if (!r.ok) {{ _liveErr++; return; }}
+            const data = await r.json();
+            _liveErr = 0;
+            if (!data.portfolios) return;
+            // Update SIMS in-place with live data
+            for (const lp of data.portfolios) {{
+                const idx = SIMS.findIndex(s => s.name === lp.id || s.id === lp.id);
+                if (idx < 0) continue;
+                // Preserve fields the generator embeds but state.json may not have
+                const prev = SIMS[idx];
+                SIMS[idx] = Object.assign({{}}, prev, lp);
+            }}
+            // Update header timestamp
+            const hdr = document.getElementById('hdr-time');
+            if (hdr && data.generated_at) {{
+                const d = new Date(data.generated_at);
+                hdr.textContent = 'Updated: ' + (isNaN(d) ? data.generated_at : d.toLocaleString());
+            }}
+            // Re-render tabs (equity/pnl changes) and current view
+            renderTabs();
+            const s = SIMS[activeSim];
+            const trades = s.all_trades || [];
+            renderTrades(trades, curFilter);
+            renderTokens(trades);
+            // Update stale banner
+            const sb = document.getElementById('stale-banner');
+            if (sb) {{
+                const anyStale = SIMS.some(s => s.is_stale);
+                sb.classList.toggle('visible', anyStale);
+            }}
+        }} catch(e) {{ _liveErr++; }}
+    }}, 1000);
 }})();
 </script>
 </body>

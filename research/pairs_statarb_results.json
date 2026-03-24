@@ -1,0 +1,330 @@
+{
+  "timestamp": "2026-03-24T12:57:47.171956",
+  "kill_criteria": {
+    "sharpe_min": 0.3,
+    "max_dd_max": -20,
+    "btc_corr_max": 0.3,
+    "min_trades": 30,
+    "win_rate_min": 45
+  },
+  "passed": [],
+  "killed": [
+    {
+      "metrics": {
+        "strategy": "A: ETH/BTC",
+        "sharpe": -4.513,
+        "total_return_pct": -61.38,
+        "max_dd_pct": -61.8,
+        "n_trades": 107,
+        "win_rate_pct": 9.3,
+        "avg_trade_pnl_pct": -0.6718,
+        "profit_factor": 0.157,
+        "btc_correlation": 0.067
+      },
+      "kills": [
+        "Sharpe -4.513 < 0.3",
+        "MaxDD -61.8% > 20%",
+        "Win rate 9.3% < 45%"
+      ]
+    },
+    {
+      "metrics": {
+        "strategy": "A: SOL/ETH",
+        "sharpe": -1.125,
+        "total_return_pct": -24.29,
+        "max_dd_pct": -42.45,
+        "n_trades": 85,
+        "win_rate_pct": 24.7,
+        "avg_trade_pnl_pct": -0.0988,
+        "profit_factor": 0.843,
+        "btc_correlation": 0.039
+      },
+      "kills": [
+        "Sharpe -1.125 < 0.3",
+        "MaxDD -42.45% > 20%",
+        "Win rate 24.7% < 45%"
+      ]
+    },
+    {
+      "metrics": {
+        "strategy": "A: BNB/BTC",
+        "sharpe": -1.331,
+        "total_return_pct": -25.39,
+        "max_dd_pct": -31.42,
+        "n_trades": 95,
+        "win_rate_pct": 21.1,
+        "avg_trade_pnl_pct": -0.1028,
+        "profit_factor": 0.674,
+        "btc_correlation": -0.006
+      },
+      "kills": [
+        "Sharpe -1.331 < 0.3",
+        "MaxDD -31.42% > 20%",
+        "Win rate 21.1% < 45%"
+      ]
+    },
+    {
+      "metrics": {
+        "strategy": "A: DOGE/XRP",
+        "sharpe": -1.087,
+        "total_return_pct": -42.13,
+        "max_dd_pct": -51.44,
+        "n_trades": 223,
+        "win_rate_pct": 22.9,
+        "avg_trade_pnl_pct": -0.0165,
+        "profit_factor": 0.965,
+        "btc_correlation": -0.004
+      },
+      "kills": [
+        "Sharpe -1.087 < 0.3",
+        "MaxDD -51.44% > 20%",
+        "Win rate 22.9% < 45%"
+      ]
+    },
+    {
+      "metrics": {
+        "strategy": "B: BTC basis (10bps)",
+        "sharpe": -1.718,
+        "total_return_pct": -1.87,
+        "max_dd_pct": -2.08,
+        "n_trades": 7,
+        "win_rate_pct": 14.3,
+        "avg_trade_pnl_pct": -0.098,
+        "profit_factor": 0.027,
+        "btc_correlation": -0.04
+      },
+      "kills": [
+        "Sharpe -1.718 < 0.3",
+        "Trades 7 < 30",
+        "Win rate 14.3% < 45%"
+      ]
+    },
+    {
+      "metrics": {
+        "strategy": "B: BTC basis (20bps)",
+        "sharpe": -0.883,
+        "total_return_pct": -0.71,
+        "max_dd_pct": -0.93,
+        "n_trades": 4,
+        "win_rate_pct": 50.0,
+        "avg_trade_pnl_pct": -0.0291,
+        "profit_factor": 0.168,
+        "btc_correlation": -0.005
+      },
+      "kills": [
+        "Sharpe -0.883 < 0.3",
+        "Trades 4 < 30"
+      ]
+    },
+    {
+      "metrics": {
+        "strategy": "B: BTC basis (50bps)",
+        "sharpe": 0.0,
+        "total_return_pct": 0.0,
+        "max_dd_pct": 0.0,
+        "n_trades": 0,
+        "win_rate_pct": 0,
+        "avg_trade_pnl_pct": 0,
+        "profit_factor": 0,
+        "btc_correlation": null
+      },
+      "kills": [
+        "Sharpe 0.0 < 0.3",
+        "Trades 0 < 30",
+        "Win rate 0% < 45%"
+      ]
+    },
+    {
+      "metrics": {
+        "strategy": "B: ETH basis (10bps)",
+        "sharpe": -1.399,
+        "total_return_pct": -2.27,
+        "max_dd_pct": -2.59,
+        "n_trades": 8,
+        "win_rate_pct": 12.5,
+        "avg_trade_pnl_pct": -0.1117,
+        "profit_factor": 0.153,
+        "btc_correlation": 0.021
+      },
+      "kills": [
+        "Sharpe -1.399 < 0.3",
+        "Trades 8 < 30",
+        "Win rate 12.5% < 45%"
+      ]
+    },
+    {
+      "metrics": {
+        "strategy": "B: ETH basis (20bps)",
+        "sharpe": -0.096,
+        "total_return_pct": -0.08,
+        "max_dd_pct": -0.5,
+        "n_trades": 3,
+        "win_rate_pct": 66.7,
+        "avg_trade_pnl_pct": 0.1062,
+        "profit_factor": 4.117,
+        "btc_correlation": 0.022
+      },
+      "kills": [
+        "Sharpe -0.096 < 0.3",
+        "Trades 3 < 30"
+      ]
+    },
+    {
+      "metrics": {
+        "strategy": "B: ETH basis (50bps)",
+        "sharpe": 0.047,
+        "total_return_pct": 0.03,
+        "max_dd_pct": -0.2,
+        "n_trades": 2,
+        "win_rate_pct": 100.0,
+        "avg_trade_pnl_pct": 0.2135,
+        "profit_factor": Infinity,
+        "btc_correlation": 0.012
+      },
+      "kills": [
+        "Sharpe 0.047 < 0.3",
+        "Trades 2 < 30"
+      ]
+    },
+    {
+      "metrics": {
+        "strategy": "C: XS Momentum L3/S3",
+        "sharpe": -0.235,
+        "total_return_pct": -30.33,
+        "max_dd_pct": -58.57,
+        "n_trades": 91,
+        "win_rate_pct": 46.2,
+        "avg_trade_pnl_pct": -0.1769,
+        "profit_factor": 0.927,
+        "btc_correlation": -0.063
+      },
+      "kills": [
+        "Sharpe -0.235 < 0.3",
+        "MaxDD -58.57% > 20%"
+      ]
+    }
+  ],
+  "all_results": [
+    {
+      "strategy": "A: ETH/BTC",
+      "sharpe": -4.513,
+      "total_return_pct": -61.38,
+      "max_dd_pct": -61.8,
+      "n_trades": 107,
+      "win_rate_pct": 9.3,
+      "avg_trade_pnl_pct": -0.6718,
+      "profit_factor": 0.157,
+      "btc_correlation": 0.067
+    },
+    {
+      "strategy": "A: SOL/ETH",
+      "sharpe": -1.125,
+      "total_return_pct": -24.29,
+      "max_dd_pct": -42.45,
+      "n_trades": 85,
+      "win_rate_pct": 24.7,
+      "avg_trade_pnl_pct": -0.0988,
+      "profit_factor": 0.843,
+      "btc_correlation": 0.039
+    },
+    {
+      "strategy": "A: BNB/BTC",
+      "sharpe": -1.331,
+      "total_return_pct": -25.39,
+      "max_dd_pct": -31.42,
+      "n_trades": 95,
+      "win_rate_pct": 21.1,
+      "avg_trade_pnl_pct": -0.1028,
+      "profit_factor": 0.674,
+      "btc_correlation": -0.006
+    },
+    {
+      "strategy": "A: DOGE/XRP",
+      "sharpe": -1.087,
+      "total_return_pct": -42.13,
+      "max_dd_pct": -51.44,
+      "n_trades": 223,
+      "win_rate_pct": 22.9,
+      "avg_trade_pnl_pct": -0.0165,
+      "profit_factor": 0.965,
+      "btc_correlation": -0.004
+    },
+    {
+      "strategy": "B: BTC basis (10bps)",
+      "sharpe": -1.718,
+      "total_return_pct": -1.87,
+      "max_dd_pct": -2.08,
+      "n_trades": 7,
+      "win_rate_pct": 14.3,
+      "avg_trade_pnl_pct": -0.098,
+      "profit_factor": 0.027,
+      "btc_correlation": -0.04
+    },
+    {
+      "strategy": "B: BTC basis (20bps)",
+      "sharpe": -0.883,
+      "total_return_pct": -0.71,
+      "max_dd_pct": -0.93,
+      "n_trades": 4,
+      "win_rate_pct": 50.0,
+      "avg_trade_pnl_pct": -0.0291,
+      "profit_factor": 0.168,
+      "btc_correlation": -0.005
+    },
+    {
+      "strategy": "B: BTC basis (50bps)",
+      "sharpe": 0.0,
+      "total_return_pct": 0.0,
+      "max_dd_pct": 0.0,
+      "n_trades": 0,
+      "win_rate_pct": 0,
+      "avg_trade_pnl_pct": 0,
+      "profit_factor": 0,
+      "btc_correlation": null
+    },
+    {
+      "strategy": "B: ETH basis (10bps)",
+      "sharpe": -1.399,
+      "total_return_pct": -2.27,
+      "max_dd_pct": -2.59,
+      "n_trades": 8,
+      "win_rate_pct": 12.5,
+      "avg_trade_pnl_pct": -0.1117,
+      "profit_factor": 0.153,
+      "btc_correlation": 0.021
+    },
+    {
+      "strategy": "B: ETH basis (20bps)",
+      "sharpe": -0.096,
+      "total_return_pct": -0.08,
+      "max_dd_pct": -0.5,
+      "n_trades": 3,
+      "win_rate_pct": 66.7,
+      "avg_trade_pnl_pct": 0.1062,
+      "profit_factor": 4.117,
+      "btc_correlation": 0.022
+    },
+    {
+      "strategy": "B: ETH basis (50bps)",
+      "sharpe": 0.047,
+      "total_return_pct": 0.03,
+      "max_dd_pct": -0.2,
+      "n_trades": 2,
+      "win_rate_pct": 100.0,
+      "avg_trade_pnl_pct": 0.2135,
+      "profit_factor": Infinity,
+      "btc_correlation": 0.012
+    },
+    {
+      "strategy": "C: XS Momentum L3/S3",
+      "sharpe": -0.235,
+      "total_return_pct": -30.33,
+      "max_dd_pct": -58.57,
+      "n_trades": 91,
+      "win_rate_pct": 46.2,
+      "avg_trade_pnl_pct": -0.1769,
+      "profit_factor": 0.927,
+      "btc_correlation": -0.063
+    }
+  ]
+}
