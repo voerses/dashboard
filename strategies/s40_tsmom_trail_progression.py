@@ -38,4 +38,5 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
         name='s40_tsmom_trail_progression',
         max_trade_pct=getattr(result, 'max_trade_pct', 0.12),
         trail_schedule=TRAIL_SCHEDULE,
+        breakeven_atr=0.5,
     )

@@ -141,4 +141,5 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
         name='s38_momentum_etf_flow',
         max_trade_pct=result.max_trade_pct,
         size_multiplier=size_mult,
+        breakeven_atr=0.5,
     )

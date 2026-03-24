@@ -57,4 +57,5 @@ def strategy(ctx_spot: StrategyContext, ctx_perp: StrategyContext) -> StrategyRe
         exchange=result.exchange,
         name='s43_regime_spot_perp_trail_progression',
         trail_schedule=TRAIL_SCHEDULE,
+        breakeven_atr=0.5,
     )

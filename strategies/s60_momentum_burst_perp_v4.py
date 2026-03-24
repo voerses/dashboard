@@ -160,4 +160,5 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
         size_multiplier=size_mult,
         cap_multiplier=15.0,     # Aggressive ADV cap for capital deployment
         trail_schedule=TRAIL_SCHEDULE,
+        breakeven_atr=0.5,
     )

@@ -126,4 +126,5 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
         size_multiplier=size_mult,
         cap_multiplier=4.0,      # Moderate ADV cap (less aggressive than momentum)
         trail_schedule=TRAIL_SCHEDULE,
+        breakeven_atr=0.5,
     )

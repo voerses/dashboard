@@ -58,4 +58,5 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
         edge=0.40,
         exit_regimes={CRISIS, DOWNTREND},
         name='optimized_trend',
+        breakeven_atr=0.5,
     )

@@ -58,4 +58,5 @@ def strategy(ctx):
         partial_tp_atr=PARTIAL_TP_ATR,
         partial_tp_pct=PARTIAL_TP_PCT,
         partial_tp_trail=PARTIAL_TP_TRAIL,
+        breakeven_atr=0.5,
     )

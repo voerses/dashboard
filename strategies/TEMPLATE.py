@@ -170,7 +170,8 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
         # ── FUTURES FIELDS (defaults = pure spot, no changes needed) ──
         # market_type=MarketType.SPOT,  # 0=spot (default), 1=perp, 2=combined
         # leverage=1.0,                 # notional multiplier (no hard cap)
-        # exchange='binance',           # for fee/funding lookup
+        # exchange='binance',           # for fee/funding lookup,
+        breakeven_atr=0.5,
     )
 
 
@@ -223,7 +224,8 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
 #         no_stop_bars=24, min_hold=18, max_hold=720, edge=0.40,
 #         exit_regimes={CRISIS},   # Don't exit on DOWNTREND — shorts need it
 #         size_multiplier=3.0,     # Aggressive sizing at 1x leverage
-#         cap_multiplier=15.0,     # Relax ADV cap for more capital deployment
+#         cap_multiplier=15.0,     # Relax ADV cap for more capital deployment,
+    breakeven_atr=0.5,
 #     )
 #
 #
@@ -258,4 +260,5 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
 #         stop_mult=3.0, trail_mult=3.0, target_mult=999,
 #         no_stop_bars=24, min_hold=18, max_hold=720, edge=0.40,
 #         exit_regimes={CRISIS, DOWNTREND},
+    breakeven_atr=0.5,
 #     )

@@ -49,6 +49,7 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
             direction=np.ones(n, dtype=np.int8),
             market_type=MarketType.PERP,
             name='s29_funding_carry',
+            breakeven_atr=0.5,
         )
 
     # ── LAYER 1: REGIME FILTER ──────────────────────────────────
@@ -102,4 +103,5 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
         leverage=1.0,         # No leverage — carry is the edge, not magnification
         exchange='binance',
         name='s29_funding_carry',
+        breakeven_atr=0.5,
     )

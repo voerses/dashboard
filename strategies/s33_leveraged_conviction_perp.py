@@ -162,4 +162,5 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
         leverage=leverage_arr,
         exchange='binance',
         name='s33_leveraged_conviction_perp',
+        breakeven_atr=0.5,
     )

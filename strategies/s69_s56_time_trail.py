@@ -51,4 +51,5 @@ def strategy(ctx):
         size_multiplier=result.size_multiplier,
         max_trade_pct=result.max_trade_pct,
         cap_multiplier=result.cap_multiplier,
+        breakeven_atr=0.5,
     )

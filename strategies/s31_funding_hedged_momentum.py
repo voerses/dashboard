@@ -155,4 +155,5 @@ def strategy(ctx_spot: StrategyContext, ctx_perp: StrategyContext) -> StrategyRe
         exit_regimes={CRISIS, DOWNTREND},
         exchange='binance',
         name='s31_funding_hedged_momentum',
+        breakeven_atr=0.5,
     )

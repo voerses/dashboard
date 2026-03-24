@@ -112,4 +112,5 @@ def strategy(ctx_spot: StrategyContext, ctx_perp: StrategyContext) -> StrategyRe
         exchange=result.exchange,
         name='s36_basis_carry_funding_scaled',
         size_multiplier=size_mult,
+        breakeven_atr=0.5,
     )

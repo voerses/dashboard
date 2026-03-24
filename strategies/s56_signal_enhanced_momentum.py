@@ -128,5 +128,6 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
         max_trade_pct=0.12,
         trail_schedule=TRAIL_SCHEDULE,
         size_multiplier=size_mult,
-        cap_multiplier=4.0,       # 4x ADV cap (momentum can handle more)
+        cap_multiplier=4.0,       # 4x ADV cap (momentum can handle more),
+        breakeven_atr=0.5,
     )

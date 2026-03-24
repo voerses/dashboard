@@ -48,6 +48,7 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
             direction=np.ones(n, dtype=np.int8),
             market_type=MarketType.PERP,
             name='s67_funding_momentum_v4',
+            breakeven_atr=0.5,
         )
 
     # ── LAYER 1: REGIME FILTER ──────────────────────────────────
@@ -126,4 +127,5 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
         size_multiplier=size_mult,
         cap_multiplier=4.0,
         trail_schedule=TRAIL_SCHEDULE,
+        breakeven_atr=0.5,
     )

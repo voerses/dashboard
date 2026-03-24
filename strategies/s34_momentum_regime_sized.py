@@ -80,4 +80,5 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
         name='s34_momentum_regime_sized',
         max_trade_pct=result.max_trade_pct,
         size_multiplier=size_mult,
+        breakeven_atr=0.5,
     )

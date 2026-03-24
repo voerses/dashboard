@@ -69,4 +69,5 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
         name='s50_aggressive_momentum',
         trail_schedule=result.trail_schedule,
         size_multiplier=size_mult,
+        breakeven_atr=0.5,
     )

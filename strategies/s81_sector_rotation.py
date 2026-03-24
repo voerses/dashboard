@@ -243,6 +243,7 @@ def strategy(contexts: dict) -> dict:
             bear_max_hold=12,
             size_multiplier=regime_size,
             cap_multiplier=2.5,
+            breakeven_atr=0.5,
         )
 
     return results

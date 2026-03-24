@@ -66,6 +66,7 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
             leverage=3.0,
             name='s52_funding_extremes_leveraged',
             exchange='binance',
+            breakeven_atr=0.5,
         )
 
     # ── LAYER 1: REGIME FILTER ──────────────────────────────────
@@ -135,4 +136,5 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
         name='s52_funding_extremes_leveraged',
         trail_schedule=TRAIL_SCHEDULE,
         size_multiplier=regime_size,
+        breakeven_atr=0.5,
     )

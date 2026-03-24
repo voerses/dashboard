@@ -73,5 +73,6 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
         name='s55_turbo_momentum_leveraged',
         trail_schedule=result.trail_schedule,
         size_multiplier=size_mult,
-        cap_multiplier=4.0,  # 4x the ADV-based cap — balanced aggression
+        cap_multiplier=4.0,  # 4x the ADV-based cap — balanced aggression,
+        breakeven_atr=0.5,
     )

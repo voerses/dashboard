@@ -67,4 +67,5 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
         edge=0.35,
         exit_regimes={CRISIS, DOWNTREND},
         name='skew_momentum',
+        breakeven_atr=0.5,
     )

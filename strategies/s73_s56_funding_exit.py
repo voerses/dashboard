@@ -54,4 +54,5 @@ def strategy(ctx):
         max_trade_pct=result.max_trade_pct,
         cap_multiplier=result.cap_multiplier,
         funding_exit_threshold=FUNDING_EXIT_THRESHOLD,
+        breakeven_atr=0.5,
     )

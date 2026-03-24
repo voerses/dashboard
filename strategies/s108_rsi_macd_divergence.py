@@ -65,4 +65,5 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
         max_trade_pct=0.12,
         exchange='binance',
         name='s108_rsi_macd_divergence',
+        breakeven_atr=0.5,
     )

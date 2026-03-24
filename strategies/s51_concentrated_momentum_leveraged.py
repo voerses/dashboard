@@ -106,4 +106,5 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
         name='s51_concentrated_momentum_leveraged',
         trail_schedule=TRAIL_SCHEDULE,
         size_multiplier=regime_size,
+        breakeven_atr=0.5,
     )

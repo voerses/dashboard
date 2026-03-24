@@ -94,5 +94,6 @@ def strategy(ctx_spot: StrategyContext, ctx_perp: StrategyContext) -> StrategyRe
         name='s54_turbo_carry',
         trail_schedule=result.trail_schedule,
         size_multiplier=size_mult,
-        cap_multiplier=15.0,  # 15x the ADV-based cap — carry MaxDD is tiny, push harder
+        cap_multiplier=15.0,  # 15x the ADV-based cap — carry MaxDD is tiny, push harder,
+        breakeven_atr=0.5,
     )

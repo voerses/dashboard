@@ -79,4 +79,5 @@ def strategy(ctx_spot: StrategyContext, ctx_perp: StrategyContext) -> StrategyRe
         name='s49_aggressive_carry',
         trail_schedule=result.trail_schedule,
         size_multiplier=size_mult,
+        breakeven_atr=0.5,
     )

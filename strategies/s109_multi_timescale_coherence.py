@@ -73,4 +73,5 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
         max_trade_pct=0.12,
         exchange='binance',
         name='s109_multi_timescale_coherence',
+        breakeven_atr=0.5,
     )

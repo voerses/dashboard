@@ -98,4 +98,5 @@ def strategy(ctx_spot: StrategyContext, ctx_perp: StrategyContext) -> StrategyRe
         exchange=result.exchange,
         name='s35_regime_spot_perp_volsized',
         size_multiplier=size_mult,
+        breakeven_atr=0.5,
     )

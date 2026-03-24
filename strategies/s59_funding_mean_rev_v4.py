@@ -64,6 +64,7 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
             no_stop_bars=24, min_hold=12, max_hold=168, edge=0.30,
             exit_regimes={CRISIS}, name='funding_mean_rev_v4',
             market_type=MarketType.PERP, leverage=1.0, exchange='binance',
+            breakeven_atr=0.5,
         )
 
     # ── LAYER 1: REGIME FILTER ──────────────────────────────────
@@ -117,5 +118,6 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
         leverage=1.0,            # 1x leverage (not 2x like s27)
         exchange='binance',
         size_multiplier=3.0,     # Aggressive sizing at 1x leverage
-        cap_multiplier=15.0,     # Relax ADV cap for more capital deployment
+        cap_multiplier=15.0,     # Relax ADV cap for more capital deployment,
+        breakeven_atr=0.5,
     )

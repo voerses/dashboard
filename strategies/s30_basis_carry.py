@@ -134,4 +134,5 @@ def strategy(ctx_spot: StrategyContext, ctx_perp: StrategyContext) -> StrategyRe
         exit_regimes={CRISIS},  # only exit on CRISIS (arb works in trends)
         exchange='binance',
         name='s30_basis_carry',
+        breakeven_atr=0.5,
     )

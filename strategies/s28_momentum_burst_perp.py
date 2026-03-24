@@ -80,4 +80,5 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
         market_type=MarketType.PERP,
         leverage=2.0,
         exchange='binance',
+        breakeven_atr=0.5,
     )

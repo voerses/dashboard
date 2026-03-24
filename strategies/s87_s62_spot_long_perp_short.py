@@ -34,6 +34,7 @@ def strategy(ctx_spot: StrategyContext, ctx_perp: StrategyContext) -> StrategyRe
             direction=np.ones(n, dtype=np.int8),
             market_type=MarketType.SPOT,
             name='s87_s62_spot_long_perp_short',
+            breakeven_atr=0.5,
         )
 
     # ── LAYER 1: REGIME FILTER ──────────────────────────────────
@@ -89,4 +90,5 @@ def strategy(ctx_spot: StrategyContext, ctx_perp: StrategyContext) -> StrategyRe
         trail_schedule=TRAIL_SCHEDULE,
         size_multiplier=size_mult,
         cap_multiplier=2.0,
+        breakeven_atr=0.5,
     )

@@ -58,4 +58,5 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
         exit_regimes={CRISIS, DOWNTREND},
         name='momentum_burst',
         max_trade_pct=0.12,
+        breakeven_atr=0.5,
     )

@@ -226,7 +226,8 @@ def strategy(contexts: dict) -> dict:
                 time_trail_schedule=TIME_TRAIL_SCHEDULE,
                 bear_max_hold=12,
                 size_multiplier=regime_size,
-                cap_multiplier=3.0,   # Moderate cap (diversified, not concentrated)
+                cap_multiplier=3.0,   # Moderate cap (diversified, not concentrated),
+                breakeven_atr=0.5,
             )
         else:
             # Single market
@@ -250,6 +251,7 @@ def strategy(contexts: dict) -> dict:
                 bear_max_hold=12,
                 size_multiplier=regime_size,
                 cap_multiplier=3.0,
+                breakeven_atr=0.5,
             )
 
     return results

@@ -43,6 +43,7 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
             no_stop_bars=8, min_hold=8, max_hold=168, edge=0.25,
             exit_regimes={CRISIS}, name='funding_mean_reversion',
             market_type=MarketType.PERP, leverage=2.0, exchange='binance',
+            breakeven_atr=0.5,
         )
 
     # ── LAYER 1: REGIME FILTER ──
@@ -91,4 +92,5 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
         market_type=MarketType.PERP,
         leverage=2.0,
         exchange='binance',
+        breakeven_atr=0.5,
     )

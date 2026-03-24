@@ -75,4 +75,5 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
         edge=0.35,
         exit_regimes={CRISIS, DOWNTREND},
         name='vol_weighted_tsmom',
+        breakeven_atr=0.5,
     )

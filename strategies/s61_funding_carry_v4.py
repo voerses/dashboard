@@ -55,6 +55,7 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
             direction=np.ones(n, dtype=np.int8),
             market_type=MarketType.PERP,
             name='s61_funding_carry_v4',
+            breakeven_atr=0.5,
         )
 
     # ── LAYER 1: REGIME FILTER ──────────────────────────────────
@@ -113,5 +114,6 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
 
         trail_schedule=TRAIL_SCHEDULE,
         size_multiplier=size_mult,
-        cap_multiplier=8.0,   # Aggressive V4 capital deployment
+        cap_multiplier=8.0,   # Aggressive V4 capital deployment,
+        breakeven_atr=0.5,
     )

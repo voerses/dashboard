@@ -68,4 +68,5 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
         max_trade_pct=getattr(result, 'max_trade_pct', 0.12),
         trail_schedule=TRAIL_SCHEDULE,
         max_trail_mult=max_trail,
+        breakeven_atr=0.5,
     )

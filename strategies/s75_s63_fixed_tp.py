@@ -49,4 +49,5 @@ def strategy(ctx):
         time_trail_schedule=getattr(result, 'time_trail_schedule', None),
         size_multiplier=result.size_multiplier,
         cap_multiplier=getattr(result, 'cap_multiplier', 1.0),
+        breakeven_atr=0.5,
     )
