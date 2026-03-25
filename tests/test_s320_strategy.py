@@ -69,11 +69,23 @@ def make_mock_ctx(n=5000, ticker='BTC'):
         'vrp_z': np.zeros(n, dtype=np.float64),
     }
 
+    # 4-hour bars (n // 4)
+    n_4h = n // 4
+    rsi_4h = np.full(n_4h, 50.0, dtype=np.float64)  # neutral RSI
+    ctx.ind_4h = {'rsi': rsi_4h}
+    ctx.idx_4h = pd.date_range('2020-01-01', periods=n_4h, freq='4h')
+
     # Mock align_daily_to_1h
     def align_daily_to_1h(daily_vals):
         s = pd.Series(daily_vals, index=ctx.idx_d[:len(daily_vals)])
         return s.reindex(ctx.idx_1h, method='ffill').values
     ctx.align_daily_to_1h = align_daily_to_1h
+
+    # Mock align_4h_to_1h
+    def align_4h_to_1h(h4_vals):
+        s = pd.Series(h4_vals, index=ctx.idx_4h[:len(h4_vals)])
+        return s.reindex(ctx.idx_1h, method='ffill').values
+    ctx.align_4h_to_1h = align_4h_to_1h
 
     return ctx
 

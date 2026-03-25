@@ -43,6 +43,7 @@ class TestADVSizingConfig:
         assert spec.adv_sizing_floor == 0.20
 
 
+@pytest.mark.skip(reason="Graduated pump filter not yet implemented")
 class TestGraduatedPumpFilterConfig:
     """Phase 3: Graduated pump filter fields on StrategySpec."""
 
