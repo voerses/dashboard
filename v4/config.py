@@ -1,8 +1,134 @@
 """V4 Portfolio Backtest — Configuration dataclasses."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
+from typing import Optional
 
+
+# ---------------------------------------------------------------------------
+# SizingDefaults — engine-level sizing constants
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class SizingDefaults:
+    """Engine-level sizing constants. Immutable once constructed."""
+
+    # --- Position sizing model ---
+    edge_minimum: float = 0.10        # min edge to allow entry
+    target_vol: float = 0.02          # vol scaling numerator
+    spot_max_equity_pct: float = 1.0  # max position as fraction of equity on spot
+
+    # --- ADV-to-sizing curve defaults ---
+    kelly_mult_floor: float = 0.15
+    kelly_mult_range: float = 0.35
+    cap_pct_floor: float = 0.02
+    cap_pct_range: float = 0.10
+    adv_scaling_divisor: float = 5.0
+
+    # --- Strategy-level direct overrides (bypass ADV curve) ---
+    kelly_mult_override: float = 0.0  # If > 0, use this fixed Kelly instead of ADV curve
+    kelly_mult_scale: float = 1.0     # Multiply ADV-curve output by this (1.0 = no change)
+    cap_pct_override: float = 0.0     # If > 0, use this fixed cap_pct instead of ADV curve
+    cap_pct_scale: float = 1.0        # Multiply ADV-curve output by this
+
+    # --- Liquidity gating ---
+    min_adv_usd: float = 500_000      # minimum ADV to trade
+    adv_lookback_days: int = 30       # rolling ADV window
+
+    # --- Simulator constraints (NOT strategy-overridable) ---
+    unrealized_pnl_floor: float = 0.85  # sizing_eq >= portfolio_eq * this
+    funding_buffer_pct: float = 0.01    # reserve for funding costs
+    vol_floor: float = 0.005            # min volatility (prevents division explosion)
+
+
+# Parameters strategies can override via sizing_overrides in StrategySpec
+SAFETY_RAILS: dict[str, tuple[float, float]] = {
+    "edge_minimum":        (0.05, 0.50),
+    "target_vol":          (0.005, 0.05),
+    "spot_max_equity_pct": (0.10, 1.0),
+    "kelly_mult_override": (0.05, 0.50),
+    "kelly_mult_scale":    (0.5, 2.0),
+    "cap_pct_override":    (0.01, 0.15),
+    "cap_pct_scale":       (0.5, 2.0),
+    "min_adv_usd":         (100_000, 10_000_000),
+    "adv_lookback_days":   (7, 90),
+}
+
+# Engine-absolute — strategies CANNOT override these
+NON_OVERRIDABLE = {
+    "unrealized_pnl_floor",
+    "funding_buffer_pct",
+    "vol_floor",
+    "kelly_mult_floor",
+    "kelly_mult_range",
+    "cap_pct_floor",
+    "cap_pct_range",
+    "adv_scaling_divisor",
+}
+
+
+def resolve_sizing(defaults: SizingDefaults, overrides: dict) -> SizingDefaults:
+    """Merge strategy overrides into defaults, enforcing safety rails.
+
+    Raises ValueError for unknown keys, non-overridable keys, out-of-bounds values,
+    or dangerous parameter combinations.
+    """
+    if not overrides:
+        return defaults
+
+    all_fields = {f.name for f in defaults.__dataclass_fields__.values()}
+
+    for key in overrides:
+        if key not in all_fields:
+            raise ValueError(f"Unknown sizing override key '{key}'")
+        if key in NON_OVERRIDABLE:
+            raise ValueError(f"Sizing parameter '{key}' is not overridable by strategies")
+
+    for key, value in overrides.items():
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(
+                f"Sizing override '{key}' must be numeric, got {type(value).__name__}"
+            )
+        if key in SAFETY_RAILS:
+            # Allow sentinel 0.0 for override fields (means "disabled/use curve")
+            if key.endswith("_override") and value == 0.0:
+                continue
+            lo, hi = SAFETY_RAILS[key]
+            if not (lo <= value <= hi):
+                raise ValueError(
+                    f"Sizing override '{key}' = {value} is out of bounds [{lo}, {hi}]"
+                )
+
+    merged = {**asdict(defaults), **overrides}
+    # Enforce int fields (JSON parses as float)
+    if "adv_lookback_days" in merged:
+        merged["adv_lookback_days"] = int(merged["adv_lookback_days"])
+    resolved = SizingDefaults(**merged)
+
+    _validate_composite(resolved)
+    return resolved
+
+
+def _validate_composite(resolved: SizingDefaults) -> None:
+    """Reject dangerous parameter combinations.
+
+    Even if individual params are within rails, the combination can be dangerous.
+    """
+    max_vol_adj = resolved.target_vol / resolved.vol_floor
+    max_kelly = (resolved.kelly_mult_override if resolved.kelly_mult_override > 0
+                 else (resolved.kelly_mult_floor + resolved.kelly_mult_range) * resolved.kelly_mult_scale)
+    worst_case_frac = max_kelly * max_vol_adj
+    if worst_case_frac > 8.0:
+        raise ValueError(
+            f"Composite sizing check failed: worst-case position = {worst_case_frac:.1f}x equity "
+            f"(kelly={max_kelly:.2f}, vol_adj={max_vol_adj:.1f}). "
+            f"Reduce target_vol or kelly to keep worst-case below 8x."
+        )
+
+
+# ---------------------------------------------------------------------------
+# StrategySpec
+# ---------------------------------------------------------------------------
 
 @dataclass
 class StrategySpec:
@@ -22,6 +148,8 @@ class StrategySpec:
     adv_sizing_floor: float = 0.20
     # Sub-hourly exit resolution (0=hourly only, 1/5/15/30=sub-hourly WebSocket candles)
     exit_resolution: int = 0
+    # Sizing parameter overrides (validated by resolve_sizing)
+    sizing_overrides: dict = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, d: dict) -> StrategySpec:
@@ -39,8 +167,13 @@ class StrategySpec:
             adv_sizing_base=d.get("adv_sizing_base", 100_000_000),
             adv_sizing_floor=d.get("adv_sizing_floor", 0.20),
             exit_resolution=d.get("exit_resolution", 0),
+            sizing_overrides=d.get("sizing_overrides", {}),
         )
 
+
+# ---------------------------------------------------------------------------
+# PortfolioConfig
+# ---------------------------------------------------------------------------
 
 @dataclass
 class PortfolioConfig:
@@ -65,3 +198,4 @@ class PortfolioConfig:
     conviction_mode: str = "shuffle"
     min_conviction_threshold: float = 0.0  # skip entries below this conviction level (0 = no filter)
     max_sizing_equity: Optional[float] = None  # cap portfolio equity used for position sizing (None = uncapped)
+    sizing_defaults: SizingDefaults = field(default_factory=SizingDefaults)

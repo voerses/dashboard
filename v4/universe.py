@@ -97,11 +97,13 @@ def adv_to_tier(adv):
 # ADV → Position Sizing (continuous)
 # ---------------------------------------------------------------------------
 
-def adv_to_sizing(adv):
+def adv_to_sizing(adv, kelly_mult_floor=0.15, kelly_mult_range=0.35,
+                  cap_pct_floor=0.02, cap_pct_range=0.10,
+                  adv_scaling_divisor=5.0):
     """Map ADV to (kelly_mult, cap_pct) — continuous functions.
 
-    kelly_mult: 0.15 (micro) → 0.50 (mega liquid)
-    cap_pct:    0.02 (micro) → 0.12 (mega liquid)
+    kelly_mult: kelly_mult_floor (micro) → kelly_mult_floor+range (mega liquid)
+    cap_pct:    cap_pct_floor (micro) → cap_pct_floor+range (mega liquid)
 
     Both scale with log10(ADV_millions), capped at $10B+ ADV.
 
@@ -113,10 +115,10 @@ def adv_to_sizing(adv):
 
     adv_m = np.maximum(adv, 1.0) / 1_000_000
     log_adv = np.log10(np.maximum(adv_m, 0.1))
-    frac = np.clip((log_adv + 1) / 5.0, 0.0, 1.0)
+    frac = np.clip((log_adv + 1) / adv_scaling_divisor, 0.0, 1.0)
 
-    kelly_mult = 0.15 + 0.35 * frac
-    cap_pct = 0.02 + 0.10 * frac
+    kelly_mult = kelly_mult_floor + kelly_mult_range * frac
+    cap_pct = cap_pct_floor + cap_pct_range * frac
 
     if scalar:
         return float(kelly_mult[0]), float(cap_pct[0])

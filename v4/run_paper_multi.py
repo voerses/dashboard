@@ -20,7 +20,7 @@ import threading
 import time
 
 from v4.paper_config import PaperConfig, validate_paper_config
-from v4.config import StrategySpec
+from v4.config import StrategySpec, SizingDefaults
 from v4.paper_engine import PaperPortfolioEngine
 from v4.signals import discover_tokens
 from v4.paper_utils import restore_state, acquire_pid_lock, compute_sleep_until_next_hour
@@ -51,6 +51,13 @@ def load_multi_config(path: str) -> list[PaperConfig]:
     if not portfolios:
         raise ValueError("No portfolios defined in config")
 
+    # Parse shared sizing_defaults
+    sd_fields = {f.name for f in SizingDefaults.__dataclass_fields__.values()}
+    shared_sd_raw = shared.get("sizing_defaults", {})
+    unknown_shared = set(shared_sd_raw.keys()) - sd_fields
+    if unknown_shared:
+        raise ValueError(f"Unknown shared sizing_defaults keys: {unknown_shared}")
+
     configs: list[PaperConfig] = []
     for i, pf in enumerate(portfolios):
         merged = {**shared, **pf}
@@ -64,8 +71,16 @@ def load_multi_config(path: str) -> list[PaperConfig]:
                 raise ValueError(f"Portfolio {i}, strategy {j} missing 'strategy_id'")
             strategy_list.append(StrategySpec.from_dict(s))
 
+        # Per-portfolio sizing_defaults can override shared
+        pf_sd_raw = pf.get("sizing_defaults", {})
+        unknown_pf = set(pf_sd_raw.keys()) - sd_fields
+        if unknown_pf:
+            raise ValueError(f"Portfolio {i}: unknown sizing_defaults keys: {unknown_pf}")
+        sizing_defaults = SizingDefaults(**{**shared_sd_raw, **pf_sd_raw})
+
         config = PaperConfig(
             strategies=strategy_list,
+            sizing_defaults=sizing_defaults,
             capital=merged.get("initial_capital", 200_000.0),
             max_portfolio_positions=merged.get("max_portfolio_positions", 40),
             concentration_limit=merged.get("concentration_limit", 0.10),
@@ -90,6 +105,7 @@ def load_multi_config(path: str) -> list[PaperConfig]:
             dynamic_weights_smoothing=merged.get("dynamic_weights_smoothing", 0.3),
             conviction_mode=merged.get("conviction_mode", "shuffle"),
             min_conviction_threshold=merged.get("min_conviction_threshold", 0.0),
+            max_sizing_equity=merged.get("max_sizing_equity", None),
             sentinel_mode=merged.get("sentinel_mode", "off"),
             confirmation_tiers=merged.get("confirmation_tiers", {"btc_eth": 30, "top10": 60, "other": 90}),
             carry_strategies=merged.get("carry_strategies", []),

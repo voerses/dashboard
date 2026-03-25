@@ -24,13 +24,52 @@ def compute_position_size(
     adv_sizing_enabled: bool = False,
     adv_sizing_base: float = 100_000_000,
     adv_sizing_floor: float = 0.20,
+    # --- From resolved SizingDefaults ---
+    edge_minimum: float = 0.10,
+    target_vol: float = 0.02,
+    vol_floor: float = 0.005,
+    spot_max_equity_pct: float = 1.0,
+    leverage: float = 1.0,
+    # Kelly/cap overrides (0 = use ADV curve)
+    kelly_mult_override: float = 0.0,
+    kelly_mult_scale: float = 1.0,
+    cap_pct_override: float = 0.0,
+    cap_pct_scale: float = 1.0,
+    # ADV curve params (passed through when no override)
+    kelly_mult_floor: float = 0.15,
+    kelly_mult_range: float = 0.35,
+    cap_pct_floor: float = 0.02,
+    cap_pct_range: float = 0.10,
+    adv_scaling_divisor: float = 5.0,
 ) -> float:
     """Compute position size in USD, matching v3 JIT with ADV cap addition."""
-    if edge < 0.10:
+    if edge < edge_minimum:
         return 0.0
-    kelly_mult, cap_pct = adv_to_sizing(rolling_adv)
+
+    # Resolve kelly_mult and cap_pct
+    if kelly_mult_override > 0:
+        kelly_mult = kelly_mult_override
+        if cap_pct_override > 0:
+            cap_pct = cap_pct_override
+        else:
+            _, cap_pct = adv_to_sizing(
+                rolling_adv, kelly_mult_floor, kelly_mult_range,
+                cap_pct_floor, cap_pct_range, adv_scaling_divisor,
+            )
+            cap_pct *= cap_pct_scale
+    else:
+        kelly_mult, cap_pct = adv_to_sizing(
+            rolling_adv, kelly_mult_floor, kelly_mult_range,
+            cap_pct_floor, cap_pct_range, adv_scaling_divisor,
+        )
+        kelly_mult *= kelly_mult_scale
+        if cap_pct_override > 0:
+            cap_pct = cap_pct_override
+        else:
+            cap_pct *= cap_pct_scale
+
     kelly_frac = kelly_mult * edge * size_multiplier
-    vol_adj = 0.02 / max(volatility, 0.005) if volatility > 0.0 else 1.0
+    vol_adj = target_vol / max(volatility, vol_floor) if volatility > 0.0 else 1.0
     raw = strategy_equity * kelly_frac * vol_adj
     cap = strategy_equity * cap_pct * cap_multiplier
     adv_cap = rolling_adv * adv_cap_pct
@@ -41,6 +80,11 @@ def compute_position_size(
     if adv_sizing_enabled:
         adv_mult = min(1.0, max(adv_sizing_floor, np.sqrt(rolling_adv / max(adv_sizing_base, 1.0))))
         pos_usd *= adv_mult
+
+    # Spot equity cap: on spot (leverage <= 1.0), position cannot exceed equity allocation
+    if leverage <= 1.0:
+        pos_usd = min(pos_usd, strategy_equity * spot_max_equity_pct)
+
     return max(pos_usd, 0.0)
 
 

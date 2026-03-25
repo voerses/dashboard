@@ -13,7 +13,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-from .config import PortfolioConfig, StrategySpec
+from .config import PortfolioConfig, StrategySpec, resolve_sizing
 from .position import Position, ClosedTrade, PositionManager
 from .signals import TokenSignals
 from .sizing import compute_position_size, compute_slippage_bps
@@ -712,11 +712,21 @@ def _process_entries(
         indices = list(range(len(candidates)))
         rng.shuffle(indices)
 
+    # Cache resolved sizing per strategy (resolve once, not per candidate)
+    _resolved_sizing_cache: dict = {}
+
     for idx in indices:
         strategy_id, token, sig = candidates[idx]
         spec = strategy_specs.get(strategy_id)
         if spec is None:
             continue
+
+        # Resolve sizing overrides for this strategy (cached)
+        if strategy_id not in _resolved_sizing_cache:
+            _resolved_sizing_cache[strategy_id] = resolve_sizing(
+                config.sizing_defaults, spec.sizing_overrides
+            )
+        resolved = _resolved_sizing_cache[strategy_id]
 
         bm = bar_maps[token]
         local_bar = int(bm[global_bar])
@@ -770,7 +780,7 @@ def _process_entries(
         # Compute sizing
         portfolio_eq = state.portfolio_equity
         # Apply unrealized P&L constraint (constrain-only: never inflates above realized)
-        sizing_eq = max(min(portfolio_eq + total_unrealized, portfolio_eq), portfolio_eq * 0.85)
+        sizing_eq = max(min(portfolio_eq + total_unrealized, portfolio_eq), portfolio_eq * config.sizing_defaults.unrealized_pnl_floor)
         sizing_eq = max(sizing_eq, 0.0)  # floor at 0 when NLV is negative
         if config.max_sizing_equity is not None:
             sizing_eq = min(sizing_eq, config.max_sizing_equity)
@@ -798,6 +808,20 @@ def _process_entries(
             adv_sizing_enabled=spec.adv_sizing_enabled,
             adv_sizing_base=spec.adv_sizing_base,
             adv_sizing_floor=spec.adv_sizing_floor,
+            edge_minimum=resolved.edge_minimum,
+            target_vol=resolved.target_vol,
+            vol_floor=resolved.vol_floor,
+            spot_max_equity_pct=resolved.spot_max_equity_pct,
+            leverage=lev_val,
+            kelly_mult_override=resolved.kelly_mult_override,
+            kelly_mult_scale=resolved.kelly_mult_scale,
+            cap_pct_override=resolved.cap_pct_override,
+            cap_pct_scale=resolved.cap_pct_scale,
+            kelly_mult_floor=resolved.kelly_mult_floor,
+            kelly_mult_range=resolved.kelly_mult_range,
+            cap_pct_floor=resolved.cap_pct_floor,
+            cap_pct_range=resolved.cap_pct_range,
+            adv_scaling_divisor=resolved.adv_scaling_divisor,
         )
 
         direction = int(sig.direction[local_bar])
@@ -864,7 +888,7 @@ def _process_entries(
 
             if state.free_capital < total_margin + total_entry_fee:
                 # Reserve buffer for per-bar funding costs on open positions
-                funding_buffer = max(state.portfolio_equity * 0.01, 1.0)
+                funding_buffer = max(state.portfolio_equity * config.sizing_defaults.funding_buffer_pct, 1.0)
                 usable = state.free_capital - funding_buffer
                 if usable <= 0:
                     state.rejections.capital += 1
@@ -1061,6 +1085,20 @@ def _process_entries(
                         adv_sizing_enabled=spec.adv_sizing_enabled,
                         adv_sizing_base=spec.adv_sizing_base,
                         adv_sizing_floor=spec.adv_sizing_floor,
+                        edge_minimum=resolved.edge_minimum,
+                        target_vol=resolved.target_vol,
+                        vol_floor=resolved.vol_floor,
+                        spot_max_equity_pct=resolved.spot_max_equity_pct,
+                        leverage=lev_val,
+                        kelly_mult_override=resolved.kelly_mult_override,
+                        kelly_mult_scale=resolved.kelly_mult_scale,
+                        cap_pct_override=resolved.cap_pct_override,
+                        cap_pct_scale=resolved.cap_pct_scale,
+                        kelly_mult_floor=resolved.kelly_mult_floor,
+                        kelly_mult_range=resolved.kelly_mult_range,
+                        cap_pct_floor=resolved.cap_pct_floor,
+                        cap_pct_range=resolved.cap_pct_range,
+                        adv_scaling_divisor=resolved.adv_scaling_divisor,
                     )
 
             # Constraint 5: min position size
@@ -1107,7 +1145,7 @@ def _process_entries(
             # Constraint 8: free capital (scale down if needed)
             if state.free_capital < margin_usd + entry_fee:
                 # Reserve buffer for per-bar funding costs on open positions
-                funding_buffer = max(state.portfolio_equity * 0.01, 1.0)
+                funding_buffer = max(state.portfolio_equity * config.sizing_defaults.funding_buffer_pct, 1.0)
                 usable = state.free_capital - funding_buffer
                 if usable <= 0:
                     state.rejections.capital += 1

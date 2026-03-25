@@ -16,7 +16,7 @@ import sys
 from dataclasses import dataclass, field
 from typing import List
 
-from v4.config import PortfolioConfig, StrategySpec
+from v4.config import PortfolioConfig, StrategySpec, SizingDefaults, resolve_sizing
 
 
 @dataclass
@@ -62,9 +62,18 @@ def load_paper_config(path: str) -> PaperConfig:
             )
         strategy_list.append(StrategySpec.from_dict(s))
 
+    # --- Parse sizing_defaults (optional) ---
+    sd_raw = data.get("sizing_defaults", {})
+    sd_fields = {f.name for f in SizingDefaults.__dataclass_fields__.values()}
+    unknown_sd_keys = set(sd_raw.keys()) - sd_fields
+    if unknown_sd_keys:
+        raise ValueError(f"Unknown sizing_defaults keys: {unknown_sd_keys}")
+    sizing_defaults = SizingDefaults(**sd_raw)
+
     # --- Build PaperConfig ---
     config = PaperConfig(
         strategies=strategy_list,
+        sizing_defaults=sizing_defaults,
         capital=data.get("initial_capital", 200_000.0),
         max_portfolio_positions=data.get("max_portfolio_positions", 40),
         concentration_limit=data.get("concentration_limit", 0.10),
@@ -149,6 +158,16 @@ def validate_paper_config(config: PaperConfig) -> None:
                 f"the largest per-strategy max_positions ({max_per_strategy}). "
                 f"Set max_portfolio_positions >= {max_per_strategy}."
             )
+
+    # --- Sizing overrides validation (catch errors at load time) ---
+    for spec in config.strategies:
+        if spec.sizing_overrides:
+            try:
+                resolve_sizing(config.sizing_defaults, spec.sizing_overrides)
+            except ValueError as e:
+                raise ValueError(
+                    f"Strategy '{spec.strategy_id}' sizing_overrides invalid: {e}"
+                ) from e
 
     # --- Strategy loadability ---
     # Import here to avoid circular imports at module level
