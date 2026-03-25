@@ -62,7 +62,10 @@ def _load_all_contexts(
     WARMUP_DAYS = 180
     anchor = end_date if end_date is not None else pd.Timestamp.now().tz_localize(None)
     trade_start = anchor - pd.DateOffset(months=months)
-    cutoff = trade_start - pd.DateOffset(hours=int(config.train_bars))
+    if config.skip_walk_forward:
+        cutoff = trade_start
+    else:
+        cutoff = trade_start - pd.DateOffset(hours=int(config.train_bars))
     load_from = cutoff - pd.DateOffset(days=WARMUP_DAYS)
 
     contexts = {}
@@ -174,12 +177,17 @@ def _sr_to_token_signals(
         timestamps = ctx_perp.idx_1h[:n_safe].copy()
         p_rsi = _copy_f32(ctx_perp.ind_1h["rsi"], n_safe)
 
+    # 3-stage signal counting: raw → post-liquidity → post-WF
+    raw_count = int(sr.entry_mask[:n_safe].sum())
+
     # Entry mask with liquidity masking
     entry_mask = sr.entry_mask[:n_safe].copy()
     if ctx_spot is not None and ctx_spot.liquidity_mask is not None:
         entry_mask = entry_mask & ctx_spot.liquidity_mask[:n_safe]
     elif ctx_perp is not None and ctx_perp.liquidity_mask is not None:
         entry_mask = entry_mask & ctx_perp.liquidity_mask[:n_safe]
+
+    post_liq_count = int(entry_mask.sum())
 
     # Combined fields
     sec_entry = None
@@ -279,6 +287,7 @@ def _sr_to_token_signals(
         sr_stop_mult = sr_stop_mult[s:]
         sr_trail_mult = sr_trail_mult[s:]
         sr_size_mult = sr_size_mult[s:]
+        sr_cap_mult = sr_cap_mult[s:]
         sr_leverage = sr_leverage[s:]
         if sr_conviction is not None:
             sr_conviction = sr_conviction[s:]
@@ -299,18 +308,22 @@ def _sr_to_token_signals(
             perp_funding_arr = perp_funding_arr[s:]
         n_safe = n_safe - s
 
-    # Skip if too short for walk-forward
-    if n_safe < config.train_bars + config.purge_bars + 100:
-        return None
-
-    # Walk-forward masking
-    entry_mask = _apply_walk_forward_mask(
-        entry_mask, config.train_bars, config.recal_bars, config.purge_bars,
-    )
-    if sec_entry is not None:
-        sec_entry = _apply_walk_forward_mask(
-            sec_entry, config.train_bars, config.recal_bars, config.purge_bars,
+    # Walk-forward masking (conditional on skip_walk_forward)
+    if not config.skip_walk_forward:
+        if n_safe < config.train_bars + config.purge_bars + 100:
+            return None
+        entry_mask = _apply_walk_forward_mask(
+            entry_mask, config.train_bars, config.recal_bars, config.purge_bars,
         )
+        if sec_entry is not None:
+            sec_entry = _apply_walk_forward_mask(
+                sec_entry, config.train_bars, config.recal_bars, config.purge_bars,
+            )
+    else:
+        if n_safe < 200:
+            return None
+
+    post_wf_count = int(entry_mask.sum())
 
     return TokenSignals(
         token=token,
@@ -373,6 +386,14 @@ def _sr_to_token_signals(
         perp_atr=perp_atr_arr,
         perp_rolling_adv=perp_adv_arr,
         perp_funding_1h=perp_funding_arr,
+        # Diagnostic counters
+        raw_entry_count=raw_count,
+        post_liquidity_count=post_liq_count,
+        post_walkforward_count=post_wf_count,
+        # Exit constants from StrategyResult
+        regime_exit_min_bars=getattr(sr, 'regime_exit_min_bars', 6),
+        convex_bar_thresholds=getattr(sr, 'convex_bar_thresholds', (48, 12)),
+        convex_multipliers=getattr(sr, 'convex_multipliers', (2.0, 1.5, 0.3)),
     )
 
 

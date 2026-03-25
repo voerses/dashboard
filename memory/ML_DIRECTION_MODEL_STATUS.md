@@ -138,9 +138,9 @@ The experiment **dropped ~40% of bars** where |fwd_ret| < 1.5% before computing 
 Based on comprehensive quant research (2025-2026), the actionable ML approaches are:
 
 ### Approach 1: ML-Optimized Funding Rate Carry (HIGHEST PRIORITY)
-- **We already have s65 (funding carry) earning +986%/yr in backtest, actively paper trading**
+- **We already have s65 (funding carry) earning +4.9% post-MTM (12mo), actively paper trading (+2.25% in 7d)**
 - ML optimization: predict funding rate persistence, optimize entry/exit timing, venue selection
-- Expected improvement: +20-40% return improvement on an already-profitable strategy
+- Expected improvement: improve returns on the only profitable strategy family we have
 - Data: multi-exchange funding rates, OI, liquidation data
 - Implementation: overlay on s65/s62, NOT a new direction model
 
@@ -184,13 +184,13 @@ Based on comprehensive quant research (2025-2026), the actionable ML approaches 
 
 These strategies are ALREADY working and should be the BASE for ML improvements:
 
-| Strategy | Type | Backtest Return | MaxDD | Status |
-|----------|------|----------------|-------|--------|
-| s56 | Momentum burst perp | +3157% (uncapped) | -4.1% | PRODUCTION |
-| s57 | Signal-timed carry | Part of s58 | — | PRODUCTION |
-| s58 | Multi-strategy portfolio | +1717% | -1.9% | PRODUCTION |
-| s65 | Funding carry V4 | +986% | -8.4% | PAPER TRADING |
-| s62 | Conservative carry | +769% | -10.4% | PAPER TRADING |
-| s60 | Momentum burst perp V4 | Positive | — | PRODUCTION |
-| s80 | Cross-sectional momentum | Sharpe 1.54 | — | DIVERSIFIER |
-| s81 | Sector rotation | Sharpe 1.31 | — | DIVERSIFIER |
+| Strategy | Type | Post-MTM 12mo | MaxDD (MTM) | Status |
+|----------|------|---------------|-------------|--------|
+| s56 | Momentum burst perp | -27.4% | -38.5% | LOSING |
+| s57 | Signal-timed carry | -29.3% | -29.2% | LOSING |
+| s58 | Multi-strategy portfolio | -32.5% | -37.0% | LOSING |
+| s65 | Funding carry V4 | +4.9% | -45.8% | PAPER TRADING (positive) |
+| s62 | Conservative carry | +9.6% | -29.7% | PAPER TRADING (positive) |
+| s60 | Momentum burst perp V4 | -70.5% | -81.3% | DEAD |
+| s80 | Cross-sectional momentum | N/A | N/A | Paper only, losing |
+| s81 | Sector rotation | N/A | N/A | Paper only, losing |

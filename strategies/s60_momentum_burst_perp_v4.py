@@ -8,10 +8,10 @@ micro-trends across 165 perp tokens, generating alpha in sideways/choppy
 markets where s58's carry component (s57) goes flat and s58's momentum
 component (s56, long-only spot) has no sustained trend to ride.
 
-V4 rebuild of s28 (killed at V3 Gate 5 with 6.7% rate). V4 sweep showed
-s28 was the BEST overall V4 candidate: +3157% (12mo), Sharpe 5.2,
-MaxDD -4.1%, 2400+ trades. March 2026: +$15.2K (beats s58's $14.9K).
-V3 kill reason (per-token selectivity) irrelevant in V4 portfolio context.
+V4 rebuild of s28 (killed at V3 Gate 5 with 6.7% rate).
+Post-MTM reality: -70.5% (12mo), MaxDD -81.3%. Paper trading: -25.8%.
+Pre-MTM numbers (+3157%) were wildly inflated by realized-only equity bug.
+Status: DEAD — moved to Graveyard.
 
 Enhancements over original s28:
   1. Progressive trailing stops (proven: s37/s44, Sharpe +0.4-1.4)

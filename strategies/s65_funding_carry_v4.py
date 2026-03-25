@@ -7,8 +7,9 @@ Hypothesis: Structural funding rate imbalance (retail long bias creates persiste
 positive funding) can be harvested. Short when funding extreme positive, long when
 extreme negative. Edge comes from carry income, not price prediction.
 
-V4 rebuild of s29 (Tier B at 20.1% V3 rate). V4 portfolio context transforms weak
-per-token strategies into useful portfolio components (proven: s28->s60 +3157%, s25->s63).
+V4 rebuild of s29 (Tier B at 20.1% V3 rate).
+Post-MTM reality: +4.9% (12mo), MaxDD -45.8%. Paper trading: +2.25% in 7 days.
+Only one of two strategies (with s62) that is positive post-MTM. Tier A.
 
 Key differentiator: CARRY — genuinely uncorrelated with s56 (momentum), s63 (counter-
 trend). s29 had corr -0.16 vs s11, near-zero beta. Carry profits in trending AND ranging

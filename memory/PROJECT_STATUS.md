@@ -1,13 +1,14 @@
 # Project Status — crypto_backtest
 
 > ## BACKTEST REALISM CAVEAT
-> All return figures in this file were generated with uncapped equity compounding.
-> The backtester allows equity to grow to $33-55M and take multi-million dollar
-> altcoin perp positions that CANNOT be executed in practice (exceeds daily token volume).
-> Realistic returns after $2M sizing cap and hourly slippage are estimated at 60-80% lower.
-> See finding #30. No strategy has demonstrated 1000%+ returns under realistic constraints.
+> **POST-MTM CORRECTION (2026-03-25):** Prior return figures used uncapped equity compounding,
+> allowing equity to grow to $33-55M and take multi-million dollar altcoin perp positions
+> that CANNOT be executed in practice (exceeds daily token volume). After mark-to-market
+> equity correction (finding #30a), 12-month returns collapsed: best strategy s62 = +9.6%,
+> s65 = +4.9%. ALL combo portfolios negative. Only s62 and s65 solo are positive post-MTM.
+> Prior figures showing 1000%+ returns were artifacts of compounding inflation (see finding #30a).
 
-> **Last updated:** 2026-03-25T06:00Z
+> **Last updated:** 2026-03-25T12:00Z (post-MTM performance correction applied)
 > **Process mode:** strategy (paper trading monitoring — Gate 6)
 > **Active:** V4 multi-portfolio paper trading: **7 pools**. Runner: `ps aux | grep run_paper_multi | grep -v grep` to find current PID. If restart needed: `kill <PID> && rm -f state/v4_paper_multi/paper.pid && nohup /workspace/venv/bin/python -u -m v4.run_paper_multi --config configs/multi_v4_paper.json > /tmp/runner.log 2>&1 &`
 > **Dashboard:** Live at `http://localhost/`. HTTP server is external (not managed by us) — we only deploy files to `/srv/dashboard/current/` and `/srv/data/`. Updates every 1s via `/data/state.json`. See Operations section below.
@@ -27,7 +28,7 @@
 > **Portfolio consolidation (2026-03-21):** Consolidated from 17 pools to 7 pools. See changelog below.
 > **Sub-hourly exit resolution (2026-03-21):** Per-strategy `exit_resolution` added to StrategySpec (0=hourly, 5/15/30=sub-hourly WebSocket candles). Sweep results: sub-hourly improves profitable strategies (s98 +0.05 Sharpe at 30m, s106/s107 +0.04 at 5m), negligible for losing strategies. Dashboard shows "Exit Res" in strategy cards.
 > **ML Direction Model (DEAD 2026-03-23):** ALL ML direction models conclusively dead. 7 experiments tested (V2/V5 baseline, Exp A-E): TA features have zero OOS edge, microstructure features (Exp D) had inflated precision (60.6% claimed → 53.4% real → 43% after costs). Built and tested 5 strategy variants (s316-s319): all lose money (-2.2% to -99%). Root cause of Exp D inflation: neutral label filtering dropped 40% of bars before precision calc. **ML should NOT be used for direction prediction in crypto.** Pivot plan: ML as overlay on existing profitable strategies (timing/sizing for s65 funding carry), liquidation cascade risk model, CTREND cross-sectional momentum. Full details: `memory/ML_DIRECTION_MODEL_STATUS.md`.
-> **Next step:** Monitor 7 pools. Validate sub-hourly exits fire correctly in production (check trades.jsonl for exit_reason from sub-hourly candles).
+> **Next step:** Monitor 7 pools (all losing since ~Mar 20). Post-MTM backtest correction shows only s62 (+9.6%) and s65 (+4.9%) positive at 12mo. Reassess portfolio composition — most strategies are deeply negative post-MTM. Validate sub-hourly exits fire correctly in production.
 
 ---
 
@@ -35,27 +36,29 @@
 
 ### Removed (6 portfolios) — backed up to `state/archived_2026_03_18/`
 
-| Portfolio | 12mo Return | 12mo MaxDD | All-Time MaxDD | Reason for removal |
-|-----------|------------|------------|----------------|-------------------|
-| **s58+s59** | +392% | -25.4% | -87.6% | s59 solo has -93% all-time DD, -41% 12mo DD. Drags the combo into catastrophic drawdown territory. Low return/risk ratio. |
-| **s58+s63** | +228% | -37.9% | -86.7% | s63 solo has -89% all-time DD, -64% 12mo DD. Worst DD of any combo strategy still running. Return doesn't justify the tail risk. |
-| **s58+s69** | +292% | -11.4% | -58.1% | Identical 12mo performance to s58 solo (same return, same DD) — s69 component adds no diversification value in combo. Redundant slot. |
-| **s80+s81-dyn** | +215% | -83.9% | -96.6% | Near-total wipeout in all-time backtest (-97% DD). Dynamic weights failed to protect. Carry strategies fundamentally fragile under regime shifts. |
-| **s80+s81** | +205% | -81.1% | N/A | Same carry pair without dynamic weights. -81% DD in 12 months alone. Unacceptable tail risk for any allocation. |
-| **s58+s75** | +118% | -41.8% | -92.0% | s75 solo has -91% all-time DD, -58% 12mo DD. Lowest return of any combo at 12mo. Dead weight. |
+> **Note:** 12mo returns below were pre-MTM (compounding inflation artifacts). Post-MTM: ALL these combos would be deeply negative (s58 = -32.5%, s59 = -52.7%, s63 = -78.9%, s69 = -27.4%, s75 = -83.9%).
+
+| Portfolio | Pre-MTM 12mo (OBSOLETE) | 12mo MaxDD | All-Time MaxDD | Reason for removal |
+|-----------|------------------------|------------|----------------|-------------------|
+| **s58+s59** | +392% (pre-MTM) | -25.4% | -87.6% | Post-MTM: both components deeply negative (s58 -32.5%, s59 -52.7%). |
+| **s58+s63** | +228% (pre-MTM) | -37.9% | -86.7% | Post-MTM: s63 = -78.9%, worst performer. |
+| **s58+s69** | +292% (pre-MTM) | -11.4% | -58.1% | Post-MTM: s69 = -27.4%. Redundant slot confirmed. |
+| **s80+s81-dyn** | +215% (pre-MTM) | -83.9% | -96.6% | Near-total wipeout confirmed post-MTM. |
+| **s80+s81** | +205% (pre-MTM) | -81.1% | N/A | Same carry pair. -81% DD confirmed. |
+| **s58+s75** | +118% (pre-MTM) | -41.8% | -92.0% | Post-MTM: s75 = -83.9%. Worst overlay. |
 
 ### Added (2 new solo portfolios)
 
 | Portfolio | 12mo Return | 12mo MaxDD | All-Time MaxDD | Reason for addition |
 |-----------|------------|------------|----------------|-------------------|
-| **s65 solo** | +986% | -14.1% | -8.4% | 4th highest 12mo return, best all-time DD of any strategy (-8.4%). Outstanding risk-adjusted performance. |
-| **s62 solo** | +769% | -21.6% | -10.4% | 5th highest 12mo return, 2nd best all-time DD (-10.4%). Strong standalone performer. |
+| **s65 solo** | +4.9% (post-MTM) | -45.8% | -8.4% | Post-MTM: modest positive return but severe drawdown. Pre-MTM figure (+986%) was compounding inflation artifact. |
+| **s62 solo** | +9.6% (post-MTM) | -29.7% | -10.4% | Best 12mo return post-MTM. Pre-MTM figure (+769%) was compounding inflation artifact. |
 
 ### Already present (confirmed kept)
 
 | Portfolio | 12mo Return | 12mo MaxDD | Note |
 |-----------|------------|------------|------|
-| **s58+s60** | +2,311% (uncapped) | -8.5% | Top combo by 12mo return (uncapped equity). Already in config. |
+| **s58+s60** | +2,311% pre-MTM (OBSOLETE) | -8.5% | Post-MTM: NEGATIVE (s58 -32.5%, s60 -70.5%). Pre-MTM figure was compounding inflation. |
 
 ### Final active pool list after 2026-03-18 rotation (17 portfolios)
 
@@ -270,48 +273,75 @@ The sentinel (`v4/run_sentinel.py`) is no longer needed. Files `v4/stop_store.py
 
 ---
 
-## Strategy Tiers (March 12, 2026)
+## Strategy Tiers (March 12, 2026 — PRE-MTM, see caveat)
 
-### V4 Paper Trading — 17 Pools Active
+> **WARNING:** The paper trading equity figures below are from pre-consolidation (17 pools).
+> Post-consolidation (2026-03-21): 7 pools active. All pools have been losing since ~Mar 20.
+> Post-MTM 12-month backtest results show massive reversals from pre-MTM figures.
+> Only s62 (+9.6%) and s65 (+4.9%) are positive post-MTM at 12 months.
 
-Updated 2026-03-18. Portfolio rotation removed 6 underperformers + added 2 solo strategies. Breakeven ratchet (BE=0.5) deployed universally.
+### V4 Paper Trading — 7 Pools Active (post-consolidation)
+
+Updated 2026-03-25. Consolidated from 17 to 7 pools on 2026-03-21. All pools losing since ~Mar 20. Breakeven ratchet (BE=0.5) deployed universally.
+
+**Current 7-pool configuration (since 2026-03-21, all pools losing since ~Mar 20):**
+
+| Pool | Strategies | Exit Res | Initial Equity | Status |
+|------|-----------|----------|---------------|--------|
+| s58+s65 | s56 (5m), s57 (hourly), s65 (hourly) | 5m effective | $200K | Losing since Mar 20 |
+| s72 | s72 (hourly) | hourly | $200K | Losing since Mar 20 |
+| s65 | s65 (hourly) | hourly | $200K | Losing since Mar 20 |
+| s62 | s62 (hourly) | hourly | $200K | Losing since Mar 20 |
+| s98 | s98 (30m) | 30m | $200K | Losing since Mar 20 |
+| s106 | s106 (5m) | 5m | $200K | Losing since Mar 20 |
+| s107 | s107 (5m) | 5m | $200K | Losing since Mar 20 |
+
+<details><summary>Historical pre-consolidation snapshot (17 pools, ARCHIVED)</summary>
 
 | Pool | Strategies | Tick | Equity | MTM | Status |
 |------|-----------|------|--------|-----|--------|
 | s58 | s56+s57 | 107 | $201,203 | $200,109 | +0.6% realized |
 | s60 | s60 | 102 | $201,021 | $201,297 | +0.5% realized |
-| s58+s60 | s56+s57+s60 | 103 | $209,653 | $209,653 | **+4.8% realized** |
-| s58+s62 | s56+s57+s62 | 87 | $209,746 | $220,184 | **+10.1% MTM** |
+| s58+s60 | s56+s57+s60 | 103 | $209,653 | $209,653 | +4.8% realized |
+| s58+s62 | s56+s57+s62 | 87 | $209,746 | $220,184 | +10.1% MTM |
 | s58+s63 | s56+s57+s63 | 80 | $204,027 | $201,741 | +2.0% realized |
-| s58+s65 | s56+s57+s65 | 79 | $214,973 | $224,549 | **+12.3% MTM** |
+| s58+s65 | s56+s57+s65 | 79 | $214,973 | $224,549 | +12.3% MTM |
 | s58+s59 | s56+s57+s59 | 76 | $197,922 | $200,087 | -1.0% realized |
-| 4-edge | s56+s57+s63+s65 | 76 | $215,280 | $214,120 | **+7.6% realized** |
+| 4-edge | s56+s57+s63+s65 | 76 | $215,280 | $214,120 | +7.6% realized |
 | s69 | s56_time_trail | 48 | $202,443 | $202,124 | +1.2% realized |
 | s58+s69 | s56+s57+s69 | 48 | $202,647 | $202,104 | +1.3% realized |
-| s72 | s65_time_trail | 47 | $201,539 | $226,305 | **+13.2% MTM** |
-| s58+s72 | s56+s57+s72 | 47 | $201,540 | $226,313 | **+13.2% MTM** |
+| s72 | s65_time_trail | 47 | $201,539 | $226,305 | +13.2% MTM |
+| s58+s72 | s56+s57+s72 | 47 | $201,540 | $226,313 | +13.2% MTM |
 | s58+s75 | s56+s57+s75 | 45 | $204,436 | $203,997 | +2.2% realized |
 | s76 | partial_tp | 43 | $202,123 | $201,806 | +1.1% realized |
 | s58+s76 | s56+s57+s76 | 43 | $202,012 | $200,714 | +1.0% realized |
-| 4-edge+ptp | s56+s57+s63+s65+ptp | 41 | $203,727 | $219,240 | **+9.6% MTM** |
+| 4-edge+ptp | s56+s57+s63+s65+ptp | 41 | $203,727 | $219,240 | +9.6% MTM |
 | s80+s81 | xsec_mom+sector_rot | 36 | $207,315 | $207,316 | +3.7% realized |
 | s80+s81-dyn | s80+s81 dynamic weights | 34 | $208,609 | $208,931 | +4.3% realized, DOWNTREND |
 | super5-dyn | s57+s60+s63+s80+s81 dyn | 34 | $208,200 | $211,820 | +4.1% realized |
 | 4-edge-conv | 4-edge + conviction ranked | 32 | $201,283 | $213,800 | +6.9% MTM |
 | super5-conv | super5 + conviction hybrid | 32 | $203,944 | $203,121 | +2.0% realized |
 
+</details>
+
 ### V4 Production Components
 
-| Strategy | V4 12mo Return | V4 Sharpe | OOS (Jan-Mar) | Role |
-|----------|---------------|-----------|---------------|------|
-| **s56** signal_enhanced_momentum | Component of s58 | — | +$72K | Momentum (spot+perp) |
-| **s57** signal_timed_turbo_carry | Component of s58 | — | +$60K | Carry (combined) |
-| **s60** momentum_burst_perp_v4 | +3157% (uncapped) | 5.2 (inflated by uncapped compounding) | +157% | Perp momentum (bidirectional) |
-| **s62** conservative_funding_carry | +269% (uncapped) | 3.1 | +50% | Funding carry |
-| **s63** vol_spike_reversal_v4 | +441% solo (uncapped) | 3.94 | TBD; **paper trading: 0% win rate** | Counter-trend |
-| **s65** funding_carry_v4 | +1217% (w/s58) (uncapped) | 8.52 (inflated by uncapped compounding) | TBD | Funding carry complement |
-| **s80** xsec_momentum | New | — | — | Cross-sectional ranking |
-| **s81** sector_rotation | New | — | — | Sector momentum |
+| Strategy | 12mo Post-MTM | Pre-MTM (uncapped) | Role |
+|----------|--------------|---------------------|------|
+| **s56** signal_enhanced_momentum | **-27.4%** | Component of s58 | Momentum (spot+perp) |
+| **s57** signal_timed_turbo_carry | **-29.3%** | Component of s58 | Carry (combined) |
+| **s58** multi_strategy_portfolio | **-32.5%** | +1717% (uncapped) | s56+s57 combo |
+| **s59** | **-52.7%** | — | Momentum variant |
+| **s60** momentum_burst_perp_v4 | **-70.5%** | +3157% (uncapped) | Perp momentum (bidirectional) |
+| **s62** conservative_funding_carry | **+9.6%** | +269% (uncapped) | Funding carry — **BEST post-MTM** |
+| **s63** vol_spike_reversal_v4 | **-78.9%** | +441% (uncapped) | Counter-trend — **worst post-MTM** |
+| **s65** funding_carry_v4 | **+4.9%** | +1217% w/s58 (uncapped) | Funding carry complement |
+| **s69** s56_time_trail | **-27.4%** | — | s56 + time trail overlay |
+| **s72** s65_time_trail | **+4.9%** | — | s65 + time trail (same as s65 post-MTM) |
+| **s75** s63_fixed_tp | **-83.9%** | — | s63 + fixed TP — severely negative |
+| **s76** partial_tp | **-27.9%** | — | Partial profit-taking |
+| **s80** xsec_momentum | — | New | Cross-sectional ranking |
+| **s81** sector_rotation | — | New | Sector momentum |
 
 ### V4 Overlays & Variants
 
@@ -423,7 +453,7 @@ Updated 2026-03-18. Portfolio rotation removed 6 underperformers + added 2 solo 
 
 0. **V4 portfolio simulation is the new standard.** V4 replaces V3's per-token validation with portfolio-level simulation: shared capital, concentration limits, ADV caps, slippage model. Several strategies killed at V3's per-token gate (s27, s28, s25) are profitable in V4's portfolio context because diversification across many tokens compensates for individual weakness.
 
-0a. **s58 production portfolio: +1717% (12mo, uncapped equity -- realistic: ~200-400%), Sharpe 7.29 (inflated by uncapped compounding), MaxDD -1.9%.** s56 (momentum) + s57 (carry) in V4 shared capital. OOS Jan-Mar 2026: +66% ($131K). March weakness ($833/day vs $2,394/day Feb) due to carry going flat in sideways market. Momentum carried the load in March.
+0a. **s58 production portfolio: -32.5% (12mo, post-MTM), DD -32.5%.** Pre-MTM figure was +1717% (uncapped equity) — a compounding inflation artifact. s56 (momentum) + s57 (carry) in V4 shared capital. Post-MTM reality: s56 = -27.4%, s57 = -29.3%, s58 combo = -32.5%. OOS Jan-Mar 2026 was modestly positive but 12-month post-MTM is negative. March weakness due to carry going flat in sideways market.
 
 0b. **Spot-only strategies fail in sideways markets (Jan-Mar 2026).** Every spot-only strategy in the sweep lost money during Jan-Mar. Only perp (bidirectional) and combined (carry) strategies survived. Implication: any all-weather portfolio MUST include perp/combined components.
 
@@ -454,35 +484,36 @@ Updated 2026-03-18. Portfolio rotation removed 6 underperformers + added 2 solo 
    | 4 | s58+s72 | +1,782,492% (UNREALISTIC) | -5.0% |
    | 5 | 4-edge | +1,738,115% (UNREALISTIC) | -5.6% |
 
-   **LAST 12 MONTHS** — Top 5: *UNCAPPED EQUITY -- not achievable with realistic sizing.*
-   | # | Name | Return | MaxDD |
-   |---|------|--------|-------|
-   | 1 | s60 | +16,013% (uncapped) | -7.2% |
-   | 2 | s58+s60 | +12,956% (uncapped) | -4.2% |
-   | 3 | super5-dyn | +11,536% (uncapped) | -34.5% |
-   | 4 | super5-conv | +10,475% (uncapped) | -38.1% |
-   | 5 | 4-edge+ptp | +7,281% (uncapped) | -10.3% |
+   **LAST 12 MONTHS** — ~~Top 5 (PRE-MTM, OBSOLETE):~~ *These pre-MTM figures are compounding inflation artifacts. See post-MTM table below.*
+   | # | Name | Pre-MTM Return (OBSOLETE) | Post-MTM Return | MaxDD (post-MTM) |
+   |---|------|--------------------------|----------------|-----------------|
+   | 1 | s62 | +269% (uncapped) | **+9.6%** | -29.7% |
+   | 2 | s65 | +1217% w/s58 (uncapped) | **+4.9%** | -45.8% |
+   | 3 | s72 | — | **+4.9%** | -45.8% |
+   | 4 | s56 | Component of s58 | **-27.4%** | — |
+   | 5 | s76 | — | **-27.9%** | — |
+   ALL combo portfolios are negative post-MTM. Only s62 and s65 (and s72, which mirrors s65) are positive.
 
-   **LAST 3 MONTHS** — Top 5:
-   | # | Name | Return | MaxDD |
-   |---|------|--------|-------|
-   | 1 | s60 | +659% | -2.8% |
-   | 2 | super5-conv | +556% | -0.4% |
-   | 3 | super5-dyn | +450% | -4.4% |
-   | 4 | s58+s60 | +297% | -1.1% |
-   | 5 | s58+s65 | +273% | -0.5% |
+   **LAST 3 MONTHS** — Top 5: *PRE-MTM, uncapped compounding. Likely inflated by same compounding effect as 12mo.*
+   | # | Name | Return (pre-MTM) | MaxDD |
+   |---|------|-----------------|-------|
+   | 1 | s60 | +659% (pre-MTM) | -2.8% |
+   | 2 | super5-conv | +556% (pre-MTM) | -0.4% |
+   | 3 | super5-dyn | +450% (pre-MTM) | -4.4% |
+   | 4 | s58+s60 | +297% (pre-MTM) | -1.1% |
+   | 5 | s58+s65 | +273% (pre-MTM) | -0.5% |
 
-   **MARCH 2026** — Top 5:
-   | # | Name | Return | MaxDD |
-   |---|------|--------|-------|
-   | 1 | s60 | +109% | -0.7% |
-   | 2 | super5-dyn | +103% | -0.2% |
-   | 3 | super5-conv | +100% | -2.1% |
-   | 4 | s80+s81-dyn | +90% | -1.1% |
-   | 5 | s80+s81 | +90% | -1.1% |
+   **MARCH 2026** — Top 5: *PRE-MTM, uncapped compounding.*
+   | # | Name | Return (pre-MTM) | MaxDD |
+   |---|------|-----------------|-------|
+   | 1 | s60 | +109% (pre-MTM) | -0.7% |
+   | 2 | super5-dyn | +103% (pre-MTM) | -0.2% |
+   | 3 | super5-conv | +100% (pre-MTM) | -2.1% |
+   | 4 | s80+s81-dyn | +90% (pre-MTM) | -1.1% |
+   | 5 | s80+s81 | +90% (pre-MTM) | -1.1% |
 
-   Key insights: s60 dominates recent periods (1/3/12mo). 4-edge family leads all-time. super5 portfolios strong recently. All 28 strategies profitable across all 4 periods.
-   **All rankings use uncapped equity compounding.** Returns above 1000% are physically impossible at scale. Even shorter-period returns are inflated by unrealistic position sizing.
+   Key insights: **POST-MTM CORRECTION (2026-03-25):** Pre-MTM rankings were dominated by compounding inflation. Post-MTM 12-month: only s62 (+9.6%) and s65/s72 (+4.9%) are positive. s60 went from apparent +16,013% to -70.5%. All combo portfolios negative.
+   **All pre-MTM rankings used uncapped equity compounding.** Returns above 100% were compounding inflation artifacts — physically impossible at scale. Post-MTM results reflect realistic equity curves.
    Full rankings: `results/v4/portfolio_rankings.json`.
 
 7. **Portfolio assembly (Gate 5.5) -- UPDATED with trail progression overlays:** Previous allocation: s30(40%)+s32(25%)+s29(20%)+s11(15%), Sharpe ~4.4 (inflated by uncapped compounding). **New optimal 4-strat portfolio:** s44(35%)+s29(30%)+s37(20%)+s32(15%). Combined Sharpe 6.53 (inflated by uncapped compounding), MaxDD -2.2%. Trail overlays s44 and s37 replace base s30 and s11 respectively. Correlation structure: median pairwise +0.19, no pairs >0.7. s44 (delta-neutral carry + trail) is the anchor (Sharpe 5.80, inflated by uncapped compounding; final equity $8.5M on $200K -- UNREALISTIC, exceeds market capacity). s29 has highest marginal Sharpe (+1.21) due to near-zero correlation with everything. Greedy forward selection adds all 4 strategies with positive cumulative improvement.
@@ -523,32 +554,45 @@ Updated 2026-03-18. Portfolio rotation removed 6 underperformers + added 2 solo 
 
 24. **CRITICAL: Discovered signals only work as overlays, not standalone strategies.** Raw signal-based entries (e.g., enter when `ret_1_1h_vs_4h` z-score > 2) did not generate positive returns on their own. The signals have genuine IC (predictive power), but the IC translates to edge only when layered on top of existing well-performing strategies as timing/sizing overlays. Standalone signal strategies (s56) were killed. The successful approach is s57/s58: use the existing s44/s30 carry strategies as the base, and apply signal discovery outputs to improve entry timing, position sizing, and regime conditioning. **Lesson: IC != tradeable edge. Signals improve existing strategies, they don't replace them.**
 
-25. **Counter-trend (s63) adds return but increases drawdown.** s63 vol spike reversal fades extreme vol spikes (vol_ratio > 3x). s58+s63: +1017% (uncapped equity) (+47.5% vs baseline), but MaxDD increases from 1.2% to 6.4%. Worth it in full portfolio but not as clean as s65. s63 collects positive funding on shorts, partially offsetting s58's negative funding. **Paper trading showed 0% win rate (2 closed shorts both stopped out).**
+25. **Counter-trend (s63) adds return but increases drawdown.** s63 vol spike reversal fades extreme vol spikes (vol_ratio > 3x). Pre-MTM: s58+s63: +1017% (uncapped equity). **Post-MTM: s63 = -78.9% (12mo), worst performer.** The uncapped return was entirely a compounding inflation artifact. s63 collects positive funding on shorts, partially offsetting s58's negative funding. **Paper trading showed 0% win rate (2 closed shorts both stopped out).**
 
-26. **Funding carry (s65) is the best portfolio complement found.** s65 harvests structural funding rate imbalance (retail long bias). s58+s65: +1217% (uncapped equity) (+76.7% vs baseline), Sharpe INCREASES from 8.25 to 8.52 (both inflated by uncapped compounding), MaxDD barely changes (1.2% -> 1.4%). Collects $240K in funding income. Different edge family than momentum or counter-trend.
+26. **Funding carry (s65) is the best portfolio complement found — but post-MTM returns are modest.** s65 harvests structural funding rate imbalance (retail long bias). Pre-MTM: s58+s65 +1217% (uncapped, compounding inflation). **Post-MTM: s65 solo = +4.9% (12mo), DD -45.8%. s58+s65 combo is NEGATIVE because s58 = -32.5% drags it down.** s65 is still the 2nd best strategy post-MTM (behind s62 at +9.6%), but realistic returns are single-digit percent, not 1000%+. Different edge family than momentum or counter-trend.
 
-27. **Four genuinely different edge families now validated in V4 portfolio.** (1) Momentum -- s56, trend following. (2) Basis carry -- s57, premium convergence. (3) Counter-trend -- s63, fades extreme vol spikes. (4) Funding carry -- s65, harvests structural funding payments. Full 4-strategy portfolio: +1684% (uncapped equity), Sharpe 8.26 (inflated by uncapped compounding), MaxDD -5.0%, $3.5M from $200K (UNREALISTIC -- exceeds market capacity).
+27. **Four edge families identified, but post-MTM only funding carry survives.** (1) Momentum -- s56 = -27.4% (post-MTM). (2) Basis carry -- s57 = -29.3% (post-MTM). (3) Counter-trend -- s63 = -78.9% (post-MTM). (4) Funding carry -- s65 = +4.9%, s62 = +9.6% (post-MTM). Pre-MTM: full 4-strategy portfolio showed +1684% (uncapped, compounding inflation artifact). **Post-MTM: only funding carry strategies are positive. Momentum, basis carry, and counter-trend are all significantly negative at 12 months.**
 
 28. **S65 exit sweep: trail(1.5) confirmed optimal for funding carry.** 144-run sweep (2 portfolios × 9 configs × 4 periods). trail(1.5) wins on harmonic rank score across all periods for both s58+s65 (score 2.38) and s58+s72 (score 2.27). 1-month regression (trail_old beats trail_1.5) is a portfolio-level correlated exit effect, not carry-specific. Progressive schedules add no value.
 
-29. **Updated 12-month portfolio rankings (2026-03-15, $140K capital, post exit ablation):**
-    - s60: +39,765% ($140K -> $55.8M), MaxDD -3.6% — UNREALISTIC -- exceeds market capacity, requires positions exceeding daily token volume. Physically impossible to execute.
-    - s58+s60: +31,459% (uncapped, UNREALISTIC), MaxDD -2.9%
-    - 4-edge+ptp: +20,159% (uncapped, UNREALISTIC), MaxDD -4.3%
-    - 4-edge: +24,054% (uncapped, UNREALISTIC), MaxDD -3.3%
-    - s58+s65: +12,786% (uncapped, UNREALISTIC), MaxDD -1.3%
-    - s58: +3,249% (uncapped, UNREALISTIC), MaxDD -1.7%
+29. **Updated 12-month portfolio rankings (2026-03-25, post-MTM correction):**
+    Pre-MTM figures (OBSOLETE, compounding inflation artifacts):
+    - s60: +39,765% → **post-MTM: -70.5%**, MaxDD was reported -3.6% → actual much worse
+    - s58+s60: +31,459% → **post-MTM: negative** (both components negative)
+    - 4-edge+ptp: +20,159% → **post-MTM: negative**
+    - 4-edge: +24,054% → **post-MTM: negative**
+    - s58+s65: +12,786% → **post-MTM: negative** (s58 = -32.5% drags s65's +4.9%)
+    - s58: +3,249% → **post-MTM: -32.5%**
+    Post-MTM 12-month winners: s62 (+9.6%, DD:-29.7%), s65 (+4.9%, DD:-45.8%), s72 (+4.9%, DD:-45.8%).
     Full rankings in `results/v4/portfolio_rankings.json`.
 
 30. **Quant review: backtested Calmar inflated ~100-1000x by 6 factors.** (1) Unlimited equity compounding — accepted, this is intended. (2) DD from daily resampling misses intraday dips — measured, modest impact. (3) cap_multiplier=15 disables ADV caps — needs fix (mission). (4) No market impact modeling at scale — needs capacity analysis (mission). (5) Survivorship bias — accepted. (6) Parameter overfitting — needs quantification (mission). Realistic Calmar likely 1-5, not 100-1000.
 
-31. **PIPPIN funding direction issue investigated, fix rejected.** PIPPIN has +29.6% annualized funding (last 30d). s65's 72h rolling mean briefly dips negative, causing long entries that pay funding. Attempted fix: 8h funding confirmation layer (`funding_confirms = np.sign(funding_short) == np.sign(funding_signed)`). Result: reduced 12mo return from +4,673% (uncapped) to +1,893% (uncapped) (-60%) while improving DD from -2.15% to -1.01%. Fix too aggressive — blocks profitable entries across all tokens, not just PIPPIN. **Reverted.** PIPPIN longs are net profitable despite funding drag because price gains exceed funding costs. Accept as-is.
+30a. **COMPOUNDING INFLATION: Post-MTM results show massive reversals from pre-MTM figures.** The MTM equity fix (b9d108f) exposed that uncapped equity compounding inflated returns by 100-1000x. Pre-MTM vs post-MTM 12-month comparisons:
+    - s62: pre-MTM +269% → **post-MTM +9.6%** (DD: -29.7%)
+    - s65: pre-MTM +1217% (w/s58) → **post-MTM +4.9%** (DD: -45.8%)
+    - s72: **post-MTM +4.9%** (DD: -45.8%, mirrors s65)
+    - s56: **post-MTM -27.4%**, s57: **-29.3%**, s58: **-32.5%**
+    - s59: **-52.7%**, s60: pre-MTM +3157% → **post-MTM -70.5%**
+    - s63: pre-MTM +441% → **post-MTM -78.9%** (worst)
+    - s69: **-27.4%**, s75: **-83.9%**, s76: **-27.9%**
+    ALL combo portfolios are NEGATIVE post-MTM. Only s62 and s65 solo are positive.
+    **Root cause:** Uncapped compounding allowed equity to snowball; a single winning streak would compound into astronomical returns while drawdowns were masked. MTM equity correctly includes unrealized losses, revealing the true equity path. This is the single most important finding of the project — it invalidates most prior return claims.
 
-32. **Monthly returns analysis (all 21 portfolios, $140K, 12mo).** Every portfolio profitable every month. s60 went $140K -> $55.8M (UNREALISTIC -- exceeds market capacity, requires positions exceeding daily token volume; every single month positive in uncapped backtest). Worst month across all portfolios: still positive. Full output in `/tmp/monthly_returns_all.txt`.
+31. **PIPPIN funding direction issue investigated, fix rejected.** PIPPIN has +29.6% annualized funding (last 30d). s65's 72h rolling mean briefly dips negative, causing long entries that pay funding. Attempted fix: 8h funding confirmation layer. Pre-MTM: reduced 12mo return from +4,673% (uncapped) to +1,893% (uncapped). **Post-MTM note:** Both figures are compounding inflation artifacts. s65 post-MTM = +4.9% (12mo). The absolute magnitude of the PIPPIN issue is much smaller than pre-MTM suggested. **Reverted.** Accept as-is.
 
-28. **V4 portfolio transforms weak V3 strategies into excellent complements.** s25 (killed V3) -> s63 (+1017% in portfolio, uncapped equity). s29 (Tier B, 20.1% V3 rate) -> s65 (+1217% in portfolio, uncapped equity, Sharpe increases but inflated). The shared capital + multi-token diversification effect is the key enabler.
+32. **Monthly returns analysis (all 21 portfolios, $140K, 12mo) — PRE-MTM, NOW INVALIDATED.** Pre-MTM claimed every portfolio profitable every month. s60 went $140K -> $55.8M (UNREALISTIC). **Post-MTM: these figures are compounding inflation artifacts. Most strategies are negative at 12 months (see finding #30a).** Full pre-MTM output in `/tmp/monthly_returns_all.txt`.
 
-29. **Portfolio alpha bar is now very high (Sharpe >3 to add value in uncapped backtest).** s67 funding momentum had excellent decorrelation (all <0.2 vs existing) and was profitable standalone (Sharpe 1.90, +94.6%), but failed V4-Gate 5 because adding it diluted capital from higher-performing s63 (3.95, inflated) and s65 (5.65, inflated by uncapped compounding). In the current 4-strategy portfolio, a new strategy needs standalone Sharpe > ~3.0 (uncapped) to overcome capital dilution. Funding momentum (following) is a weaker edge than funding carry (fading): s65 Sharpe 5.65 (inflated) vs s67 Sharpe 1.90.
+28. **V4 portfolio transforms weak V3 strategies — but post-MTM paints a different picture.** Pre-MTM: s25 (killed V3) -> s63 (+1017% in portfolio, uncapped equity). s29 (Tier B) -> s65 (+1217% in portfolio, uncapped equity). **Post-MTM: s63 = -78.9%, s65 = +4.9%.** The uncapped compounding inflated returns by orders of magnitude. Diversification benefit is real but modest, not transformative.
+
+29. **Portfolio alpha bar was high pre-MTM — post-MTM the bar is much lower.** s67 funding momentum had excellent decorrelation (all <0.2 vs existing) and was profitable standalone (Sharpe 1.90, +94.6% pre-MTM), but failed V4-Gate 5. **Post-MTM note:** s63 and s65 Sharpe figures were inflated by uncapped compounding. s63 = -78.9% post-MTM, s65 = +4.9% post-MTM. The "alpha bar" is now much lower — any strategy that can deliver positive post-MTM returns adds value given most are negative.
 
 30. **PAPER TRADING: 80% of exits cluster at the no_stop_bars boundary.** 12 of 15 closed trades held exactly 24 bars (= no_stop_bars for s56/s60/s59). The trailing stop activates and fires immediately when protection expires. Trades never actually run with an active progressive trail. This suggests the 24h protection period is either too long (positions have already moved past stop) or the initial stop is too tight relative to realized volatility.
 
@@ -556,7 +600,7 @@ Updated 2026-03-18. Portfolio rotation removed 6 underperformers + added 2 solo 
 
 32. **PAPER TRADING: Zero profit-taking exits used.** All strategies have target_mult=999 (disabled). The only exit paths triggered in live trading are trailing stop (93%) and regime exit (7%). No RSI, mean-target, or max-hold exits observed. Win/loss ratio is 0.96x with +$41 expectancy — razor-thin. The exit architecture relies entirely on trailing stops, which fire at the no_stop_bars boundary (finding #30).
 
-33. **PAPER TRADING: s65 funding carry validating as best complement.** s58+s65 pool leads at +4.12% MTM return. The 4-edge portfolio (s56+s57+s63+s65) matches at +4.07% despite s63 being underwater. s65's 48h no_stop_bars means very few closed trades — mostly unrealized gains. Need 50+ closed trades to confirm.
+33. **PAPER TRADING: s65 funding carry was early leader but all pools now losing.** Initially s58+s65 pool led at +4.12% MTM return. Post-consolidation (7 pools since 2026-03-21), all pools have been losing since ~Mar 20. Backtest post-MTM confirms: s65 solo = +4.9% (12mo), but s58+s65 combo is negative because s58 = -32.5%. Need continued monitoring.
 
 34. **PAPER TRADING: s63 counter-trend struggling (0% win rate).** 2 closed shorts (BERA -$1,149 at 12 bars, RENDER -$441 at 18 bars) both stopped out. Counter-trend entries may be premature — the vol spike signal fires but the reversal hasn't completed before the stop activates. s63's 12h no_stop_bars may be too short for mean reversion to play out.
 
@@ -638,6 +682,8 @@ These modules are built, tested, and have results. They expand what's possible b
 - [ ] Allow strategy-level overrides within engine-enforced safety rails
 
 ### P2 — Monitoring
-- [ ] Continue paper trading 8 pools, need 50+ closed trades for statistical confidence
+- [ ] Continue paper trading 7 pools (all losing since ~Mar 20), need 50+ closed trades for statistical confidence
+- [ ] Reassess portfolio composition: post-MTM only s62 (+9.6%) and s65 (+4.9%) positive at 12mo
+- [ ] Consider dropping deeply negative strategies from paper trading (s60 -70.5%, s63 -78.9%, s75 -83.9%)
 - [ ] Monitor funding rates for carry reactivation signal
 - [ ] Collect ETF flow data for 2027 re-test

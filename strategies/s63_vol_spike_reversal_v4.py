@@ -7,9 +7,10 @@ Hypothesis: Extreme volatility spikes (vol_ratio > 3x) cause temporary price
 overshoot due to liquidation cascades and retail panic. Price reverts toward
 the pre-spike mean within 12-168h. We FADE the spike direction.
 
-V4 rebuild of s25 (killed at V3 Gate 5 — BTC failed 3x). V4 portfolio
-context transforms weak per-token strategies into useful portfolio components
-(proven: s28->s60 went from 6.7% V3 rate to +3157% V4 return).
+V4 rebuild of s25 (killed at V3 Gate 5 — BTC failed 3x).
+Post-MTM reality: -78.9% (12mo), MaxDD -81.7%. Paper trading: 0% win rate.
+Pre-MTM numbers were wildly inflated by realized-only equity bug.
+Status: DEAD — moved to Graveyard.
 
 Key differentiator: This is COUNTER-TREND — genuinely uncorrelated with
 s56 (momentum), s57 (carry), s60 (momentum perp), s62 (funding carry).

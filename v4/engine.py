@@ -130,34 +130,9 @@ def aggregate_to_timeframe(df_1h, hours=4):
 # Indicator Computation
 # =============================================================================
 
-def compute_indicators_fast(close, high, low, volume, taker_buy=None, quote_vol=None):
-    """Compute all indicators as numpy arrays. No pandas DataFrames."""
+def compute_core(close, high, low, volume, taker_buy=None):
+    """Core indicators always computed: OHLCV, ATR, returns, volatility, taker."""
     n = len(close)
-
-    ema_10 = _ema(close, 10)
-    ema_20 = _ema(close, 20)
-    ema_50 = _ema(close, 50)
-
-    ema12 = _ema(close, 12)
-    ema26 = _ema(close, 26)
-    macd = ema12 - ema26
-    macd_signal = _ema(macd, 9)
-    macd_hist = macd - macd_signal
-
-    delta = np.diff(close, prepend=close[0])
-    gains = np.where(delta > 0, delta, 0.0)
-    losses = np.where(delta < 0, -delta, 0.0)
-    avg_gain = _ema(gains, 14)
-    avg_loss = _ema(losses, 14)
-    rs = avg_gain / np.maximum(avg_loss, 1e-10)
-    rsi = 100 - 100 / (1 + rs)
-
-    sma20 = _rolling_mean(close, 20)
-    bb_std = _rolling_std(close, 20)
-    bb_upper = sma20 + 2 * bb_std
-    bb_lower = sma20 - 2 * bb_std
-    bb_width = 4 * bb_std / np.maximum(sma20, 1e-10)
-    bb_pct = (close - np.nan_to_num(bb_lower, 0)) / np.maximum(4 * np.nan_to_num(bb_std, 1), 1e-10)
 
     tr = np.zeros(n)
     tr[1:] = np.maximum(high[1:] - low[1:],
@@ -165,6 +140,67 @@ def compute_indicators_fast(close, high, low, volume, taker_buy=None, quote_vol=
                                     np.abs(low[1:] - close[:-1])))
     atr = _ema(tr, 14)
 
+    ret_1 = np.log(close / np.maximum(np.roll(close, 1), 1e-10))
+    ret_1[0] = 0
+    vol_20 = _rolling_std(ret_1, 20)
+
+    if taker_buy is not None:
+        taker = np.where(volume > 0, taker_buy / np.maximum(volume, 1e-10), 0.5)
+    else:
+        taker = np.full(n, 0.5)
+
+    return {
+        'close': close, 'high': high, 'low': low, 'volume': volume,
+        'atr': atr, 'ret_1': ret_1, 'vol_20': vol_20, 'taker': taker,
+        '_tr': tr,  # kept for ADX computation
+    }
+
+
+def compute_ema_indicators(close):
+    """EMA indicators: EMA-10, EMA-20, EMA-50."""
+    return {
+        'ema_10': _ema(close, 10),
+        'ema_20': _ema(close, 20),
+        'ema_50': _ema(close, 50),
+    }
+
+
+def compute_macd(close):
+    """MACD: line, signal, histogram."""
+    ema12 = _ema(close, 12)
+    ema26 = _ema(close, 26)
+    macd = ema12 - ema26
+    macd_signal = _ema(macd, 9)
+    macd_hist = macd - macd_signal
+    return {'macd': macd, 'macd_signal': macd_signal, 'macd_hist': macd_hist}
+
+
+def compute_rsi(close):
+    """RSI: 14-period."""
+    delta = np.diff(close, prepend=close[0])
+    gains = np.where(delta > 0, delta, 0.0)
+    losses = np.where(delta < 0, -delta, 0.0)
+    avg_gain = _ema(gains, 14)
+    avg_loss = _ema(losses, 14)
+    rs = avg_gain / np.maximum(avg_loss, 1e-10)
+    rsi = 100 - 100 / (1 + rs)
+    return {'rsi': rsi}
+
+
+def compute_bb(close):
+    """Bollinger Bands: upper, lower, width, pct."""
+    sma20 = _rolling_mean(close, 20)
+    bb_std = _rolling_std(close, 20)
+    bb_upper = sma20 + 2 * bb_std
+    bb_lower = sma20 - 2 * bb_std
+    bb_width = 4 * bb_std / np.maximum(sma20, 1e-10)
+    bb_pct = (close - np.nan_to_num(bb_lower, 0)) / np.maximum(4 * np.nan_to_num(bb_std, 1), 1e-10)
+    return {'bb_upper': bb_upper, 'bb_lower': bb_lower, 'bb_width': bb_width, 'bb_pct': bb_pct}
+
+
+def compute_adx_indicators(high, low, tr):
+    """ADX: directional movement strength (requires pre-computed true range)."""
+    n = len(high)
     plus_dm = np.zeros(n)
     minus_dm = np.zeros(n)
     plus_dm[1:] = np.where((high[1:] - high[:-1]) > (low[:-1] - low[1:]),
@@ -176,33 +212,68 @@ def compute_indicators_fast(close, high, low, volume, taker_buy=None, quote_vol=
     minus_di = 100 * _ema(minus_dm, 14) / np.maximum(smooth_atr, 1e-10)
     dx = np.abs(plus_di - minus_di) / np.maximum(plus_di + minus_di, 1e-10) * 100
     adx = _ema(dx, 14)
+    return {'adx': adx, 'plus_di': plus_di, 'minus_di': minus_di}
 
+
+def compute_volume_indicators(volume):
+    """Volume indicators: vol_ratio (vs SMA20)."""
     vol_sma = _rolling_mean(volume, 20)
     vol_ratio = volume / np.maximum(np.nan_to_num(vol_sma, 1), 1e-10)
+    return {'vol_ratio': vol_ratio}
 
-    ret_1 = np.log(close / np.maximum(np.roll(close, 1), 1e-10))
-    ret_1[0] = 0
-    vol_20 = _rolling_std(ret_1, 20)
 
+def compute_donchian(high, low):
+    """Donchian channels: 20-bar high/low."""
     donch_high = pd.Series(high).rolling(20).max().values
     donch_low = pd.Series(low).rolling(20).min().values
+    return {'donch_high': donch_high, 'donch_low': donch_low}
 
-    if taker_buy is not None:
-        taker = np.where(volume > 0, taker_buy / np.maximum(volume, 1e-10), 0.5)
-    else:
-        taker = np.full(n, 0.5)
 
-    return {
-        'close': close, 'high': high, 'low': low, 'volume': volume,
-        'ema_10': ema_10, 'ema_20': ema_20, 'ema_50': ema_50,
-        'macd': macd, 'macd_signal': macd_signal, 'macd_hist': macd_hist,
-        'rsi': rsi, 'bb_upper': bb_upper, 'bb_lower': bb_lower,
-        'bb_width': bb_width, 'bb_pct': bb_pct,
-        'atr': atr, 'adx': adx, 'plus_di': plus_di, 'minus_di': minus_di,
-        'vol_ratio': vol_ratio, 'ret_1': ret_1, 'vol_20': vol_20,
-        'donch_high': donch_high, 'donch_low': donch_low,
-        'taker': taker,
-    }
+# Mapping of indicator group names to their compute functions.
+# Used by compute_indicators_selective() for opt-in computation.
+_INDICATOR_GROUPS = {
+    'ema': lambda c, h, l, v, tr: compute_ema_indicators(c),
+    'macd': lambda c, h, l, v, tr: compute_macd(c),
+    'rsi': lambda c, h, l, v, tr: compute_rsi(c),
+    'bb': lambda c, h, l, v, tr: compute_bb(c),
+    'adx': lambda c, h, l, v, tr: compute_adx_indicators(h, l, tr),
+    'volume': lambda c, h, l, v, tr: compute_volume_indicators(v),
+    'donchian': lambda c, h, l, v, tr: compute_donchian(h, l),
+}
+
+
+def compute_indicators_selective(close, high, low, volume, taker_buy=None,
+                                 groups=None):
+    """Compute indicators selectively by group name.
+
+    Args:
+        groups: Set of group names to compute (e.g. {'ema', 'rsi', 'adx'}).
+                If None, compute all groups (backward compatible).
+
+    Returns:
+        dict of indicator name -> numpy array. Core indicators always included.
+    """
+    result = compute_core(close, high, low, volume, taker_buy)
+    tr = result.pop('_tr')  # internal, not exposed
+
+    if groups is None:
+        groups = set(_INDICATOR_GROUPS.keys())
+
+    for name in groups:
+        fn = _INDICATOR_GROUPS.get(name)
+        if fn is not None:
+            result.update(fn(close, high, low, volume, tr))
+
+    return result
+
+
+def compute_indicators_fast(close, high, low, volume, taker_buy=None, quote_vol=None):
+    """Compute all indicators as numpy arrays. No pandas DataFrames.
+
+    Backward-compatible wrapper: computes ALL indicator groups.
+    New strategies can use compute_indicators_selective() with specific groups.
+    """
+    return compute_indicators_selective(close, high, low, volume, taker_buy, groups=None)
 
 
 def _align_higher_to_lower(higher_idx, higher_vals, lower_idx):
@@ -215,32 +286,46 @@ def _align_higher_to_lower(higher_idx, higher_vals, lower_idx):
 # Daily Regime Detection
 # =============================================================================
 
-def detect_daily_regime(ind_d):
+def detect_daily_regime(ind_d, adx_threshold=25, crisis_mult=2.0,
+                        quiet_mult=0.7, ema_pair=(20, 50), min_periods=60):
     """Vectorized regime detection on daily indicators.
 
     Uses expanding (causal) percentiles for volatility thresholds to avoid
     look-ahead bias. Each bar's regime is determined using only data up to
-    that point. A minimum of 60 daily bars is required for stable estimates.
+    that point.
+
+    Args:
+        ind_d: dict with 'adx', 'ema_20', 'ema_50', 'vol_20', 'close' keys.
+        adx_threshold: ADX value above which trend is considered strong.
+        crisis_mult: vol_p75 multiplier for crisis detection.
+        quiet_mult: vol_p25 multiplier for quiet detection.
+        ema_pair: (fast, slow) EMA periods for trend direction.
+        min_periods: minimum daily bars for stable quantile estimates.
     """
     n = len(ind_d['adx'])
     adx = ind_d['adx']
-    ema_20 = ind_d['ema_20']
-    ema_50 = ind_d['ema_50']
     vol_20 = ind_d['vol_20']
+
+    # EMA pair: use precomputed if default, otherwise compute from close
+    if ema_pair == (20, 50):
+        ema_fast = ind_d['ema_20']
+        ema_slow = ind_d['ema_50']
+    else:
+        ema_fast = _ema(ind_d['close'], ema_pair[0])
+        ema_slow = _ema(ind_d['close'], ema_pair[1])
 
     # Expanding (causal) percentiles: at bar i, use only vol_20[:i+1]
     vol_series = pd.Series(vol_20)
-    min_periods = 60  # need ~2 months of daily data for stable quantiles
     vol_p75 = vol_series.expanding(min_periods=min_periods).quantile(0.75).values
     vol_p25 = vol_series.expanding(min_periods=min_periods).quantile(0.25).values
 
     regimes = np.full(n, 3, dtype=np.int8)  # default: RANGE
 
     valid = ~np.isnan(adx) & ~np.isnan(vol_20) & ~np.isnan(vol_p75)
-    crisis = valid & (vol_20 > vol_p75 * 2)
-    quiet = valid & ~crisis & (vol_20 < vol_p25 * 0.7)
-    strong = valid & ~crisis & ~quiet & (adx > 25)
-    uptrend = strong & (ema_20 > ema_50)
+    crisis = valid & (vol_20 > vol_p75 * crisis_mult)
+    quiet = valid & ~crisis & (vol_20 < vol_p25 * quiet_mult)
+    strong = valid & ~crisis & ~quiet & (adx > adx_threshold)
+    uptrend = strong & (ema_fast > ema_slow)
     downtrend = strong & ~uptrend
 
     regimes[crisis] = 0
@@ -369,6 +454,11 @@ class StrategyResult:
     # Regime-conditional max hold: shorter hold in DOWNTREND (0 = use max_hold)
     bear_max_hold: int = 0
 
+    # Configurable exit constants (extracted from hardcoded values)
+    regime_exit_min_bars: int = 6                   # min bars before regime exit triggers
+    convex_bar_thresholds: tuple = (48, 12)         # (mature_bars, early_bars)
+    convex_multipliers: tuple = (2.0, 1.5, 0.3)    # (mature_trail_atr, early_profit_mult, early_be_offset)
+
     # Conviction score: per-bar signal strength in [0, 1] for entry prioritization.
     conviction_score: Optional[np.ndarray] = None
 
@@ -404,12 +494,34 @@ CombinedStrategyFn = Callable[[StrategyContext, StrategyContext], StrategyResult
 # =============================================================================
 
 _INDICATOR_PLUGINS: List[Callable] = []
+_NAMED_PLUGINS: Dict[str, Callable] = {}
 
 
-def register_indicator(fn):
-    """Decorator: register a custom indicator computation function."""
-    _INDICATOR_PLUGINS.append(fn)
-    return fn
+def register_indicator(fn=None, *, name=None):
+    """Decorator: register a custom indicator computation function.
+
+    Usage:
+        @register_indicator           # unnamed (backward compat)
+        def _compute_foo(ctx): ...
+
+        @register_indicator(name='obv')  # named (opt-in via REQUIRED_PLUGINS)
+        def _compute_obv(ctx): ...
+
+    Named plugins can be selectively executed when a strategy declares
+    REQUIRED_PLUGINS = ['obv', 'vwap']. Unnamed plugins always execute.
+    """
+    def decorator(f):
+        _INDICATOR_PLUGINS.append(f)
+        if name is not None:
+            _NAMED_PLUGINS[name] = f
+        return f
+
+    if fn is not None:
+        # Called without arguments: @register_indicator
+        _INDICATOR_PLUGINS.append(fn)
+        return fn
+    # Called with arguments: @register_indicator(name='obv')
+    return decorator
 
 
 @register_indicator
@@ -752,6 +864,85 @@ def rolling_corr(arr1, arr2, window):
     s1, s2 = pd.Series(arr1), pd.Series(arr2)
     return s1.rolling(window, min_periods=max(10, window // 4)).corr(s2).fillna(0).values
 
+def ema(arr, span):
+    """Exponential moving average. Reacts faster than rolling_mean to recent data."""
+    s = pd.Series(arr)
+    return s.ewm(span=span, min_periods=1).mean().values
+
+
+# =============================================================================
+# Custom Indicator Utility
+# =============================================================================
+
+def compute_custom_indicators(ctx, periods: list[dict]) -> dict[str, np.ndarray]:
+    """Compute custom indicators from a strategy context.
+
+    Args:
+        ctx: StrategyContext with ind_1h, ind_4h, ind_d data.
+        periods: list of dicts, each with:
+            - type: 'ema', 'sma', 'rsi', 'bb', 'atr', 'donch'
+            - period: int (required)
+            - timeframe: '1h', '4h', 'd' (default: '1h')
+            - std: float (for BB, default 2.0)
+            - source: str (column name, default 'close')
+
+    Returns:
+        dict[str, np.ndarray] with keys like 'ema_14_1h', 'rsi_21_4h', etc.
+    """
+    result = {}
+    tf_map = {'1h': ctx.ind_1h, '4h': ctx.ind_4h, 'd': ctx.ind_d}
+
+    for spec in periods:
+        ind_type = spec['type']
+        period = spec['period']
+        tf = spec.get('timeframe', '1h')
+        source = spec.get('source', 'close')
+        ind = tf_map[tf]
+        arr = ind[source]
+        key = f"{ind_type}_{period}_{tf}"
+
+        if ind_type == 'ema':
+            result[key] = _ema(arr, period)
+        elif ind_type == 'sma':
+            result[key] = _rolling_mean(arr, period)
+        elif ind_type == 'rsi':
+            delta = np.diff(arr, prepend=arr[0])
+            gain = np.where(delta > 0, delta, 0.0)
+            loss = np.where(delta < 0, -delta, 0.0)
+            avg_gain = _ema(gain, period)
+            avg_loss = _ema(loss, period)
+            rs = avg_gain / np.maximum(avg_loss, 1e-10)
+            result[key] = 100.0 - 100.0 / (1.0 + rs)
+        elif ind_type == 'bb':
+            std_mult = spec.get('std', 2.0)
+            mid = _rolling_mean(arr, period)
+            std = _rolling_std(arr, period)
+            result[f"bb_mid_{period}_{tf}"] = mid
+            result[f"bb_upper_{period}_{tf}"] = mid + std_mult * std
+            result[f"bb_lower_{period}_{tf}"] = mid - std_mult * std
+        elif ind_type == 'atr':
+            high = ind['high']
+            low = ind['low']
+            close = ind['close']
+            tr = np.maximum(high - low,
+                           np.maximum(np.abs(high - np.roll(close, 1)),
+                                      np.abs(low - np.roll(close, 1))))
+            tr[0] = high[0] - low[0]
+            result[key] = _ema(tr, period)
+        elif ind_type == 'donch':
+            n = len(arr)
+            high = ind['high']
+            low = ind['low']
+            donch_high = np.full(n, np.nan)
+            donch_low = np.full(n, np.nan)
+            for i in range(period - 1, n):
+                donch_high[i] = np.max(high[i - period + 1:i + 1])
+                donch_low[i] = np.min(low[i - period + 1:i + 1])
+            result[f"donch_high_{period}_{tf}"] = donch_high
+            result[f"donch_low_{period}_{tf}"] = donch_low
+
+    return result
+
 
 # =============================================================================
 # Strategy Loader
@@ -875,7 +1066,11 @@ class Engine:
         idx_d = df_daily.index
 
         regimes_d = detect_daily_regime(ind_d)
-        regime_1h = _align_higher_to_lower(idx_d, regimes_d.astype(float), idx_1h).astype(np.int8)
+        # Shift regime by 1 day to avoid look-ahead bias: day T's regime
+        # uses day T's close, so it's only actionable at day T+1.
+        regimes_d_shifted = np.roll(regimes_d, 1)
+        regimes_d_shifted[0] = RANGE  # default for first bar
+        regime_1h = _align_higher_to_lower(idx_d, regimes_d_shifted.astype(float), idx_1h).astype(np.int8)
         regime_1h = np.nan_to_num(regime_1h, nan=RANGE).astype(np.int8)
 
         enriched = self._load_enriched()
@@ -927,11 +1122,24 @@ class Engine:
         ctx._adv_static = _adv_static
         ctx._tier_static = _tier_static
 
-        for plugin in _INDICATOR_PLUGINS:
-            try:
-                plugin(ctx)
-            except Exception:
-                pass
+        # Run indicator plugins: all by default, or only requested ones
+        required_plugins = getattr(self, '_required_plugins', None)
+        if required_plugins is not None:
+            # Opt-in mode: run only named plugins that are requested
+            for pname in required_plugins:
+                fn = _NAMED_PLUGINS.get(pname)
+                if fn is not None:
+                    try:
+                        fn(ctx)
+                    except Exception:
+                        pass
+        else:
+            # Default: run all plugins (backward compat for 211 strategies)
+            for plugin in _INDICATOR_PLUGINS:
+                try:
+                    plugin(ctx)
+                except Exception:
+                    pass
 
         if use_cache:
             self._context_cache[cache_key] = ctx

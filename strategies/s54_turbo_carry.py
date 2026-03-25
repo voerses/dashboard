@@ -1,13 +1,12 @@
 """
 s54 Turbo Carry — s44 basis carry with maximum aggressive sizing
 
-Wraps s44 (basis carry + trail) with EXTREME size_multiplier to exploit
-the strategy's Sharpe 5.27 and MaxDD -4.3%. With such low risk, we can
-safely 4-5x the sizing to push toward 100%+ annual returns while keeping
-drawdown under 20%.
+Wraps s44 (basis carry + trail) with aggressive size_multiplier.
+WARNING: Sharpe 5.27, MaxDD -4.3% were PRE-MTM (realized-only equity) — unreliable.
+Never re-validated in V4 with post-MTM equity. V3 legacy — do not cite these numbers.
 
-Math: s49 (3x regime sizing) → 36% AnnRet, -4.3% MaxDD
-      s54 (6x regime sizing) → target ~80-120% AnnRet, ~10-15% MaxDD
+Math (V3, unreliable): s49 (3x) → 36% AnnRet, -4.3% MaxDD
+      s54 (6x) → untested post-MTM, likely negative like other V3 strategies
 
 Sizing:
 - CRISIS: 0.0 (zero allocation)

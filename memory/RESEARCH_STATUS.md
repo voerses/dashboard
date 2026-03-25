@@ -1,9 +1,9 @@
 # Research Status — Active Signal Discovery
 
-> **Last updated:** 2026-03-25T05:30Z (session 13 — AUTORESEARCHER AUDIT. 300% goal NOT achieved and NOT achievable. V4 sizing gap ROOT CAUSED: cap_pct=0.12 + concentration_limit=0.10 leave 88% of capital idle for BTC-only s320. Research prototype uses IMPOSSIBLE 1.5x leverage on spot. Realistic annual return: 10-15% on BTC spot. Investigated: shorts in dead regimes (KILLED — unstable, s32 already better), BTC-gated alt baskets (KILLED — levered beta not alpha, -50% DD). V4 engine architecture audit: 60+ params, many hardcoded/invisible. Proposed 3-layer config (engine/portfolio/strategy) following QuantConnect/Backtrader patterns.)
+> **Last updated:** 2026-03-25T11:30Z (session 14 — AUTORESEARCH WAVE 14. 0/~380 new signals pass. Auto-research pipeline CONFIRMED exhausted (342/342 killed 2026-03-21). MVRV IC=-0.162 OOS but IS/OOS sign flip — hurts V3 overlay. DVOL Skew marginal (t=2.05, no IS corroboration). ALL funding structural signals KILLED — variance collapsed 81% post-2022H2. Methodological finding: weekly-windowed IC with overlapping returns is dangerously inflating. RESEARCH IS CONCLUSIVELY EXHAUSTED across all accessible free data sources. Next alpha requires paid data (Tardis.dev LOB, proper GEX) or engineering fixes (s320 sizing, V4 config).)
 
 ## TIMESTAMP
-2026-03-25T05:30Z
+2026-03-25T11:30Z
 
 ---
 
@@ -59,6 +59,12 @@
 | 46 | Realized Vol Structure (6 variants) | S3 skewness: median OOS Sharpe 0.904, 60% WF positive, V3 corr -0.111 | CONDITIONAL — risk signal not alpha, possible sizing overlay |
 | 47 | On-Chain Metrics (16→36 variants) | R115 promising on short data, R118 OVERTURNED with 9yr: addr_growth collapsed 2.40→0.13, 52% IC sign flip | KILLED — reflexive (driven BY price), not predictive |
 | 48 | Multi-TF Divergence (7 variants) | S3 momentum div: WF Sharpe 0.621 (5/10), V3 corr 0.266, but portfolio Sharpe LOWER | MARGINAL — drawdown reducer only, not return enhancer |
+| 49 | Auto-Pipeline (342 candidates, 10 families) | Full screen run 2026-03-21: 0/342 survive. Vol signals MaxDD 40-91%, funding PF<1. | KILLED — entire pipeline library exhausted |
+| 50 | MVRV Ratio (raw + z-scored) | OOS IC=-0.162 (t=-4.91) but IS IC=+0.003 — sign flip. V3 overlay dSharpe=-0.138 | KILLED — IS/OOS inconsistency, hurts V3 overlay |
+| 51 | DVOL Skew Z-Score | 7d IC=+0.036 (t=0.94) KILL. 14d IC=+0.078 (t=2.05) marginal, IS IC=+0.009. V3 overlay dSharpe=+0.106 | KILLED — no IS corroboration, weak evidence |
+| 52 | Funding Flip (sign reversal, 72h decay) | IS IC=-0.151 (t=-2.11), OOS IC=+0.022 (t=+0.25) — sign flip, only 320 events in 6yr | KILLED — IS/OOS sign flip |
+| 53 | Funding RoC Momentum (8h/24h/72h delta) | Best: fr_delta_24h 7d IS IC=-0.172 (t=-2.43), OOS IC=-0.062 (t=-0.70). Funding std 6x collapse | KILLED — OOS insignificant, variance collapsed |
+| 54 | Funding Dispersion (BTC vs alt basket) | Initial weekly IC=+0.13 (t=4.6) was ARTIFACT of overlapping returns. Non-overlapping: all dead. Died post-2024. | KILLED — methodological artifact, structurally dead |
 
 ---
 
@@ -91,6 +97,12 @@
 | Gold Momentum / Gold-BTC Divergence | IC=0.132 14d but decaying: 8/10 weaken over time, last 3 WF windows dead, parameter mode unstable. Non-stationary as BTC matures. | 2026-03-24 |
 | Multi-TF Divergence (standalone) | 3/6 corr>0.5 with V3 (trend-correlated), decorrelated ones fail WF. Price-derived signals can't escape trend information. | 2026-03-24 |
 | On-Chain Metrics (36 variants, 9yr) | R118: 52% IC sign flip across regimes, addr_growth collapsed 2.40→0.13, 0/4 survivors improve portfolio, all FRAGILE. Reflexive not predictive. | 2026-03-25 |
+| Auto-Pipeline (342 candidates) | Full screen 2026-03-21: 0/342 survive. Vol MaxDD 40-91%, funding PF<1, all families dead. | 2026-03-25 |
+| MVRV Ratio (raw + z-scored) | OOS IC=-0.162 real but IS/OOS sign flip. V3 overlay degrades Sharpe -0.138. | 2026-03-25 |
+| DVOL Skew Z-Score | 7d KILL (t=0.94). 14d marginal (t=2.05) but IS IC=0.009 — no corroboration. | 2026-03-25 |
+| Funding Flip (sign reversal) | IS IC=-0.151, OOS IC=+0.022 — sign flip. Only 320 events in 6yr. | 2026-03-25 |
+| Funding RoC Momentum (delta) | Best OOS IC=-0.062 (t=-0.70). Funding std collapsed 6x IS→OOS. | 2026-03-25 |
+| Funding Dispersion (BTC vs alts) | Weekly IC=+0.13 was overlapping-return artifact. Non-overlapping: all dead post-2024. | 2026-03-25 |
 
 ---
 
@@ -310,6 +322,12 @@
 123. **On-chain metrics are reflexive, not predictive** — R118 with 9.2 years of data: 52% of signals flip IC sign across regimes (2020-21 vs 2022-23 vs 2024-26). Active addresses collapsed from WF Sharpe 2.40 (R115, 725 days) to 0.13 (R118, 2258 days). Root cause: on-chain activity is driven BY price, not predictive OF it. Network grows when price rises. Exchange flows reflect recent momentum. Redundant with trend-following.
 124. **Short data ALWAYS overstates on-chain signal quality** — R115 (568-725 days) found 5/16 pass. R118 (2258 days) killed ALL. The 4-6 WF windows from short data were a statistical fluke. Finding #117 (preliminary WF unreliable) extends to data length: insufficient history creates selection bias in walk-forward.
 125. **Diversifier search CONCLUSIVELY FAILED across all signal families** — 48 signals tested across 12 sessions: trend (EMA, ROC), mean-reversion (RSI, BB, z-score), momentum breakout (ATR), positioning (L/S, taker), macro (DXY, 10Y, oil, gold), volatility (VRP, DVOL, skew, vol structure), cross-sectional (ranking), pairs/arb, seasonal, ETF flow, on-chain (netflow, addresses, tx vol, exchange balance), multi-timeframe divergence. NONE survive deep walk-forward as standalone diversifiers for V3. The only validated components are OVERLAYS on V3 itself (positioning, VRP, RSI timing). Accept V3 standalone as the production system.
+126. **MVRV has real negative OOS IC but IS/OOS sign inconsistency kills overlay use** — OOS IC=-0.162 (t=-4.91), but IS IC=+0.003. High MVRV → lower returns is real OOS but wasn't present IS. V3 overlay dSharpe=-0.138. Consistent with finding #85: standalone IC ≠ overlay effectiveness.
+127. **Auto-research pipeline library completely exhausted** — 342 candidates (57 signals × 6 configs) across 10 families run on 2026-03-21. Zero survivors. Vol signals killed by MaxDD (40-91%), funding by PF<1. No re-run needed.
+128. **Funding rate variance collapsed 81% post-2022H2** — std dropped 0.000312 → 0.000061. ALL funding derivatives (flip, RoC, dispersion) structurally dead. Extends finding #95 (extreme funding extinct) to ALL funding-derived signals.
+129. **Weekly-windowed IC with overlapping returns is dangerously inflating** — Funding dispersion showed t=4.6 with weekly windows but t=-2.15 (opposite direction!) with non-overlapping observations. ALWAYS use strictly non-overlapping forward returns for IC computation.
+130. **s320 V3 backtest +387% was entirely from 1.5x leverage bug on spot** — Corrected: +2.9% ann (60mo), +0.2% (12mo). Signals are GOLD-validated (Top Trader L/S IC=-0.166, VRP IC=0.268). Implementation needs architectural rework — see #131.
+131. **s320 implementation IS faithful to research but V4 sizing architecture creates mismatch** — Full fidelity audit: overlay thresholds match exactly, 20/50 EMA was correct choice (R73 confirmed), RSI timing implemented. ROOT CAUSE: overlays reduce size_multiplier → hits V4 min_size floor → 86% rejection rate (752/877 entries). Overlays as continuous size scalers don't work with min_size=$200. Fix options: (a) overlays as binary entry gates, (b) floor size_multiplier at 0.3, (c) lower min_position_usd for BTC-only pool.
 80. **Cross-sectional momentum is long-only beta** — all 12 configs killed by MaxDD (61-86%). When crypto drops, ALL tokens drop. Momentum ranking doesn't hedge direction. BTC corr 0.56-0.68. Need market-neutral (pairs/arb) for true decorrelation.
 81. **"Easy paths" to 300% are all dead** — leverage (funding), alt momentum (chop), alt MR (trend-through), cross-sectional (beta). Higher returns require: multiple uncorrelated strategies, new data sources, or market-neutral approaches.
 82. **ETF flow HURTS V3 as overlay despite strong standalone IC** — IC=+0.191 at 14d, but overlay clips gains during strong uptrends. All 3 variants degrade V3 (worst: dSharpe -0.501, p=0.02). Signal is independent (corr < 0.15) but horizon-mismatched with weekly rebalance.
@@ -596,12 +614,25 @@ Parameters: 0 KILL flags across all tests
 - **When funding recovers**: use Dynamic allocation (100% V3 when dormant, 60/40 when carry active)
 - Scripts: `research/v3_carry_portfolio_test.py`, `research/v3_carry_portfolio_results.md`
 
-### Next Actions (Priority Order) — Updated Session 13
+### Next Actions (Priority Order) — Updated Session 14
 
-**P0 — Fix s320 sizing (blocks accurate performance measurement):**
-1. **Fix s320 leverage bug:** Change `size_multiplier = clip(base × pos_mult × vrp_mult, 0, 1.5)` to `clip(..., 0, 1.0)` in `strategies/s320_v3_momentum_overlays.py`. 1.5x on spot is impossible without margin.
-2. **Fix s320 config for BTC-only:** Set `cap_multiplier=8.0`, `concentration_limit=1.0`, `max_trade_pct=0.95` in paper config. Currently 88% of capital sits idle.
-3. **Run corrected backtest:** Validate 10-15% annual expectation with fixed params.
+**RESEARCH PHASE: COMPLETE.** 54 signals tested across 14 sessions (~380+ candidates including pipeline). No new signal research warranted with free data. Pivot to engineering.
+
+**P0 — Fix s320 sizing: COMPLETE.**
+1. ~~**Fix s320 leverage bug:**~~ **DONE** — MAX_POSITION 1.5→1.0, cap_multiplier=8.0, max_trade_pct=0.95, sizing_overrides added.
+2. ~~**Fix s320 config for BTC-only:**~~ **DONE** — cap_multiplier=8.0, concentration_limit=1.0, max_trade_pct=0.95 applied.
+3. ~~**Run corrected backtest:**~~ **DONE** — s320 corrected: +2.9% ann over 60mo (NOT 387%), +0.2% last 12mo. Leverage bug was root cause of inflated V3 returns.
+4. **All 108 min_size rejections** traced to size_multiplier=0 at entry bars (overlay architecture issue, not sizing bug).
+5. **Knowledge file created:** `knowledge/V4_SIZING_PIPELINE.md`.
+6. **s320 fidelity audit COMPLETE** — Implementation matches research spec exactly (overlay thresholds, base signal, RSI timing). Signals are GOLD-validated. Problem is ARCHITECTURAL: overlays as continuous size_multiplier scalers hit V4's min_size floor, causing 86% entry rejection. NEEDS REWORK — not dead.
+
+**P0.5 — Rework s320 overlay architecture: COMPLETE.**
+- [x] **Option A: Binary gates** — `s320a_binary_gates.py`. Best risk-adjusted: PF=1.42, DD=-5.65%, 91 trades, 0 rejections. Avg PnL $206/trade.
+- [x] **Option B: Floor at 0.3** — `s320b_floored_mult.py`. Best total return: +9.8%, PF=1.39, 123 trades. Same DD as original.
+- [x] **Option C: Lower min_pos** — NO EFFECT. Rejections are from sm=0.0 bars (overlay=0 within entry window), not from min_size floor.
+- [x] All three backtested. Strategy VALIDATED: WF=PASS, CPCV=PASS, PBO=13%.
+- **WINNER: s320a (binary gates)** — cleanest architecture, best risk metrics. Promote to paper trading.
+- **Knowledge files created:** `knowledge/V4_SIZING_PIPELINE.md`, `knowledge/RESEARCHER_BEST_PRACTICES.md` (427 lines, 9-layer parameter catalog + 12 ground rules)
 
 **P1 — V4 architecture (makes engine transparent):**
 4. **Document all 60+ parameters** — create `docs/V4_PARAMETER_REGISTRY.md` mapping every param to its layer (engine/portfolio/strategy), current value, and where it's set.
@@ -609,14 +640,15 @@ Parameters: 0 KILL flags across all tests
 6. **Promote hardcoded params to config** — `vol_adj` target (0.02), ADV-to-sizing formula coefficients, unrealized PnL clamp (0.85).
 7. **Allow strategy-level overrides** — for `kelly_range`, `cap_pct_range`, `target_vol` within engine-enforced safety rails.
 
-**P2 — Optional (diminishing returns):**
+**P2 — Monitoring & conditional triggers:**
 8. ~~Implement V3+RSI Timing~~ **DONE** — Integrated into s320 as Layer 5.
 9. ~~Re-run R115 on-chain with extended data~~ **DONE (R118) — KILLED.**
-10. **DIVERSIFIER SEARCH CONCLUDED** — All paths exhausted. V3 standalone with RSI timing IS the production system.
-11. **Optional: add realized skewness sizing overlay** — R114 S3: V3 corr -0.111, 60% WF positive. Small MaxDD benefit.
-12. **Optional: add V2 seasonal overlay** — +0.119 dSharpe, needs more OOS data.
-13. **Monitor funding rates** — if 30d mean > 0.01%, deploy V3+carry dynamic portfolio.
-14. **Collect more ETF flow data** — re-test overlay in 2027 with 3+ years history.
+10. ~~DIVERSIFIER SEARCH~~ **DONE (Session 14 confirmed)** — All paths exhausted. V3 standalone IS the production system.
+11. ~~Auto-research pipeline~~ **DONE** — 342/342 killed 2026-03-21. Library exhausted.
+12. ~~MVRV, DVOL Skew, Funding structural~~ **DONE (Session 14)** — All killed.
+13. **Monitor funding rates** — if 30d mean > 0.01%, deploy V3+carry dynamic portfolio. Currently -0.000009/hr (wrong direction).
+14. **Monitor paper pools** — 7 active. s320 needs 2160-bar warmup (~90 days) before first trade. Paper trader NOT yet restarted (s320 needs 90-day warmup anyway).
+15. **Optional (paid data):** Tardis.dev LOB/liquidation data ($199/mo) could unlock microstructure signals. Deferred until budget decision.
 
 ### Session 13: Autoresearcher Audit (2026-03-25)
 
@@ -651,6 +683,15 @@ Parameters: 0 KILL flags across all tests
 - BTC spot, 1.5x effective (if margin available): ~20-25% annual
 - Multi-token perp portfolio: 20-50% annual (validated strategies)
 - 100%+ requires aggressive leverage AND favorable regime — not sustainable
+
+### Session 14 Agents Summary (2026-03-25, autoresearch)
+| Agent | Task | Verdict |
+|-------|------|---------|
+| R130 | Auto-research pipeline screening (57 signals) | **ALL KILLED** — 342/342 already screened 2026-03-21, zero survivors |
+| R131 | MVRV + Deribit Skew IC test + V3 overlay | **KILLED** — MVRV sign flip IS/OOS, skew no IS corroboration |
+| R132 | Funding structural signals (flip, RoC, dispersion) | **ALL KILLED** — funding variance collapsed 81%, overlapping IC artifact found |
+
+**Session 14 verdict:** 0/~380 candidates pass. Signal research is CONCLUSIVELY EXHAUSTED across all free data sources. The "57 untested signals" from gap analysis were already tested and killed. Remaining alpha requires paid data (Tardis.dev LOB $199/mo) or engineering fixes (s320 sizing, V4 config). Research phase COMPLETE.
 
 ### Session 13 Agents Summary
 | Agent | Task | Verdict |

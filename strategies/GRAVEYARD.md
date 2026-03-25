@@ -34,3 +34,14 @@ Strategies killed during the gate process. Learn from the dead.
 2026-03-23 | s317_micro_short_v2 | Killed at Gate 4 | Reason: Variant of s316, short p>=0.65, no stops, 2x. -17.9% return, 43.3% WR, 494 trades.
 2026-03-23 | s318_micro_bidir | Killed at Gate 4 | Reason: Variant of s316, bidirectional, no stops, 1x. -86.8% return, 42.7% WR, 7925 trades.
 2026-03-23 | s319_micro_aggressive | Killed at Gate 4 | Reason: Variant of s316, short 3x aggressive. -37.3% return, 42.3% WR, 494 trades.
+| 2026-03-25 | s59_vol_breakout | Post-MTM backtest | Killed in post-MTM (mark-to-market) backtesting. Pre-MTM numbers were fantasy; strategy does not survive realistic accounting. |
+| 2026-03-25 | s60_squeeze_breakout | Post-MTM backtest | Killed in post-MTM backtesting. Pre-MTM numbers were inflated; no real edge after MTM corrections. |
+| 2026-03-25 | s63_vol_spike_reversal | Post-MTM backtest | Killed in post-MTM backtesting. Counter-trend edge vanishes under realistic mark-to-market. |
+| 2026-03-25 | s75_s63_fixed_tp | Post-MTM backtest | Killed in post-MTM backtesting. Base (s63) dead; overlay wrapper inherits the kill. |
+| 2026-03-25 | s80_bear_momentum | Post-MTM backtest | Killed in post-MTM backtesting. Pre-MTM numbers were fantasy; no edge survives MTM corrections. |
+| 2026-03-25 | s81_bear_fade | Post-MTM backtest | Killed in post-MTM backtesting. Pre-MTM numbers were fantasy; no edge survives MTM corrections. |
+| 2026-03-25 | s150_meme_squeeze | Gate 3P | Event-driven squeeze prediction: -0.9% return, PF 0.98. Too many false positives — funding z-score alone can't predict squeezes. |
+| 2026-03-25 | s154_funding_accel | Gate 3P | Funding rate-of-change signal: +2.2% return, PF 1.16, only 57 trades. Acceleration adds lag without improving prediction over raw funding (s151: +26.7%). |
+| 2026-03-25 | s155_multi_confirm | Gate 3P | Multi-confirmation squeeze (funding+volume+breakout): +4.7%, PF 1.47 but only 43 trades. Confirmations filter out too many trades; insufficient sample size. |
+| 2026-03-25 | s156_multi_confirm | Gate 3P | Stricter multi-confirmation variant: -2.0%, PF 0.33, only 10 trades. Over-filtered to uselessness. |
+| 2026-03-25 | s157_vol_funding_ls | Gate 3P | Volume-weighted funding L/S: -9.0%, PF 0.87, 154 trades. Volume weighting dilutes funding signal; pure funding (s151) far superior. |

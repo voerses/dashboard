@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import sys
 import os
+from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -17,6 +18,7 @@ from .config import PortfolioConfig, StrategySpec, resolve_sizing
 from .position import Position, ClosedTrade, PositionManager
 from .signals import TokenSignals
 from .sizing import compute_position_size, compute_slippage_bps
+from .exit_handlers import BarContext, build_exit_chain, run_exit_handlers
 
 # Import fee/MMR lookups from v4
 from v4.universe import get_fee_rate, get_maint_margin_rate, get_liquidation_fee_rate
@@ -34,9 +36,13 @@ class RejectionStats:
     conviction: int = 0  # entries below min_conviction_threshold
     pump_range: int = 0   # blocked by range anomaly filter
     pump_funding: int = 0 # blocked by funding z-score filter
+    direction_zero: int = 0  # entries with direction=0 (defaulted to long)
+    raw_combined_skip: int = 0  # combined strategies skipped in raw mode (not supported)
 
     def total(self) -> int:
+        # raw_combined_skip is a mode limitation, not a constraint rejection, so excluded
         return (self.portfolio_limit + self.strategy_limit + self.min_size +
+                self.direction_zero +
                 self.adv_cap + self.concentration + self.capital + self.conviction +
                 self.pump_range + self.pump_funding)
 
@@ -51,7 +57,28 @@ class RejectionStats:
             "conviction": self.conviction,
             "pump_range": self.pump_range,
             "pump_funding": self.pump_funding,
+            "direction_zero": self.direction_zero,
+            "raw_combined_skip": self.raw_combined_skip,
             "total": self.total(),
+        }
+
+
+@dataclass
+class SignalDiagnostics:
+    """Track signal funnel from raw entries through to opened positions."""
+    raw_entries_fired: dict = field(default_factory=dict)         # per-strategy
+    entries_after_liquidity: dict = field(default_factory=dict)
+    entries_after_walkforward: dict = field(default_factory=dict)
+    entries_opened: dict = field(default_factory=dict)
+    entries_rejected_by: dict = field(default_factory=dict)       # {strategy_id: {reason: count}}
+
+    def to_dict(self) -> dict:
+        return {
+            "raw_entries_fired": dict(self.raw_entries_fired),
+            "entries_after_liquidity": dict(self.entries_after_liquidity),
+            "entries_after_walkforward": dict(self.entries_after_walkforward),
+            "entries_opened": dict(self.entries_opened),
+            "entries_rejected_by": {k: dict(v) for k, v in self.entries_rejected_by.items()},
         }
 
 
@@ -64,6 +91,7 @@ class SimulationState:
     total_funding: float = 0.0
     position_manager: PositionManager = field(default_factory=PositionManager)
     rejections: RejectionStats = field(default_factory=RejectionStats)
+    diagnostics: SignalDiagnostics = field(default_factory=SignalDiagnostics)
     partial_fills: int = 0
     margin_calls: int = 0
     equity_snapshots: list = field(default_factory=list)
@@ -409,183 +437,31 @@ def _process_exits(
         if np.isnan(cur_atr):
             cur_atr = abs(pos.entry_price) * 0.02
 
-        # Step 4.5: Breakeven ratchet
-        if pos.breakeven_atr > 0.0 and not pos.breakeven_triggered:
-            if d == 1:
-                be_profit_atr = (pos.highest - pos.entry_price) / max(cur_atr, 1e-10)
-            else:
-                be_profit_atr = (pos.entry_price - pos.lowest) / max(cur_atr, 1e-10)
-            if be_profit_atr >= pos.breakeven_atr:
-                # Move stop to entry price (breakeven)
-                if d == 1:
-                    pos.stop_price = max(pos.stop_price, pos.entry_price)
-                else:
-                    pos.stop_price = min(pos.stop_price, pos.entry_price)
-                pos.breakeven_triggered = True
+        # Build exit handler chain on first bar (lazy init for backward compat)
+        if not pos.exit_handlers:
+            spec_for_chain = strategy_specs.get(pos.strategy_id) if strategy_specs else None
+            pos.exit_handlers = build_exit_chain(pos, sig, spec_for_chain, state=state, config=config)
 
-        # Step 5: Update trailing stop
-        if pos.convex_exit:
-            if bars_held >= 48 and d == 1:
-                trail = pos.highest - 2.0 * cur_atr
-                pos.stop_price = max(pos.stop_price, trail)
-            elif bars_held >= 12 and d == 1:
-                if pos.highest > pos.entry_price + 1.5 * pos.initial_risk:
-                    be_trail = pos.entry_price + 0.3 * pos.initial_risk
-                    pos.stop_price = max(pos.stop_price, be_trail)
-        else:
-            if bars_held >= pos.no_stop_bars:
-                # Determine effective trail multiplier
-                if pos.trail_schedule is not None:
-                    profit_atr = abs(close_val - pos.entry_price) / max(cur_atr, 1e-10)
-                    eff_tm = pos.trail_mult  # fallback
-                    for si in range(pos.trail_schedule.shape[0]):
-                        if profit_atr >= pos.trail_schedule[si, 0]:
-                            eff_tm = pos.trail_schedule[si, 1]
-                        else:
-                            break
-                else:
-                    eff_tm = pos.trail_mult
+        # Build BarContext for this bar
+        rsi_val = float(sig.rsi[local_bar]) if sig.rsi is not None and local_bar < len(sig.rsi) else float('nan')
+        bar_ctx = BarContext(
+            close=close_val,
+            high=high_val,
+            low=low_val,
+            atr=cur_atr,
+            rsi=rsi_val,
+            regime=int(sig.regime[local_bar]),
+            bars_held=bars_held,
+            local_bar=local_bar,
+            funding_val=funding_val,
+        )
 
-                # Time-based trail tightening (tighten with elapsed time)
-                if pos.time_trail_schedule is not None:
-                    time_tm = pos.trail_mult  # fallback
-                    for si in range(pos.time_trail_schedule.shape[0]):
-                        if bars_held >= pos.time_trail_schedule[si, 0]:
-                            time_tm = pos.time_trail_schedule[si, 1]
-                        else:
-                            break
-                    if time_tm < eff_tm:
-                        eff_tm = time_tm
+        # Run handler chain: update_state -> partial TP -> check_exit
+        exit_result = run_exit_handlers(pos, bar_ctx, global_bar, adv_val)
 
-                # Per-bar ceiling (defensive stop overlay)
-                if pos.max_trail_mult_arr is not None and local_bar < len(pos.max_trail_mult_arr):
-                    if pos.max_trail_mult_arr[local_bar] < eff_tm:
-                        eff_tm = pos.max_trail_mult_arr[local_bar]
-
-                # Chandelier: use lookback-window high/low instead of all-time
-                # When bars_held > lookback, old peaks fall out → stop tightens passively
-                if pos.chandelier_lookback > 0 and bars_held > pos.chandelier_lookback:
-                    lb = pos.chandelier_lookback
-                    start = max(0, local_bar - lb)
-                    want_perp = pos.is_perp if sig.per_bar_is_perp is not None else (pos.leg == "secondary")
-                    if want_perp and sig.perp_high is not None:
-                        h_arr, l_arr = sig.perp_high, sig.perp_low
-                    else:
-                        h_arr, l_arr = sig.high, sig.low
-                    ref_high = float(np.max(h_arr[start:local_bar + 1]))
-                    ref_low = float(np.min(l_arr[start:local_bar + 1]))
-                else:
-                    ref_high = pos.highest
-                    ref_low = pos.lowest
-
-                if d == 1:
-                    trail = ref_high - eff_tm * cur_atr
-                    pos.stop_price = max(pos.stop_price, trail)
-                else:
-                    trail = ref_low + eff_tm * cur_atr
-                    pos.stop_price = min(pos.stop_price, trail)
-
-        # Step 5.5: Partial profit-taking (before full exit checks)
-        # Use intra-bar high/low to detect threshold touches, not just close
-        if (pos.partial_tp_atr > 0.0
-                and not pos.partial_closed
-                and bars_held >= pos.no_stop_bars):
-            if d == 1:
-                profit_atr = (high_val - pos.entry_price) / max(cur_atr, 1e-10)
-            else:
-                profit_atr = (pos.entry_price - low_val) / max(cur_atr, 1e-10)
-            if profit_atr >= pos.partial_tp_atr:
-                _partial_close_position(state, pos, global_bar, close_val, adv_val, config)
-
-        # Step 6: Check exit conditions (order matters, matches engine.py:438-467)
-        exit_signal = False
-        exit_reason = ""
-        exit_price = close_val
-
-        # 0. Circuit breaker: emergency exit regardless of no_stop_bars (Nx initial risk)
-        spec_cb = strategy_specs.get(pos.strategy_id) if strategy_specs else None
-        cb_r = spec_cb.circuit_breaker_r if spec_cb else 0.0
-        if cb_r > 0 and pos.initial_risk > 0:
-            cb_dist = cb_r * pos.initial_risk
-            if d == 1 and low_val <= pos.entry_price - cb_dist:
-                exit_signal = True
-                exit_reason = "circuit_breaker"
-            elif d == -1 and high_val >= pos.entry_price + cb_dist:
-                exit_signal = True
-                exit_reason = "circuit_breaker"
-
-        stop_active = bars_held >= pos.no_stop_bars or pos.convex_exit
-
-        # 1. Stop-loss (intra-bar low/high triggers, fill at bar close)
-        if not exit_signal and stop_active and d == 1 and low_val <= pos.stop_price:
-            exit_signal = True
-            exit_reason = "stop"
-        elif not exit_signal and stop_active and d == -1 and high_val >= pos.stop_price:
-            exit_signal = True
-            exit_reason = "stop"
-
-        # 2. Take-profit (regime-conditional: use tighter target in bear)
-        if not exit_signal:
-            eff_target = pos.target_mult
-            if sig.bear_target_mult > 0.0:
-                regime_val_tp = int(sig.regime[local_bar])
-                if regime_val_tp == 4:  # DOWNTREND
-                    eff_target = sig.bear_target_mult
-            if pos.convex_exit and d == 1 and close_val > pos.entry_price + eff_target * pos.initial_risk:
-                exit_signal = True
-                exit_reason = "target"
-            elif pos.convex_exit and d == -1 and close_val < pos.entry_price - eff_target * pos.initial_risk:
-                exit_signal = True
-                exit_reason = "target"
-            elif not pos.convex_exit and d == 1 and high_val >= pos.entry_price + eff_target * cur_atr:
-                exit_signal = True
-                exit_reason = "target"
-            elif not pos.convex_exit and d == -1 and low_val <= pos.entry_price - eff_target * cur_atr:
-                exit_signal = True
-                exit_reason = "target"
-
-        # 3. Regime exit
-        if not exit_signal:
-            regime_val = int(sig.regime[local_bar])
-            if regime_val in pos.exit_regimes and bars_held > 6:
-                exit_signal = True
-                exit_reason = "regime"
-
-        # 4. RSI exit (symmetric: longs exit on high RSI, shorts on low RSI)
-        if not exit_signal and pos.rsi_exit_level < 999.0 and sig.rsi is not None:
-            rsi_val = sig.rsi[local_bar]
-            if bars_held >= pos.min_hold:
-                if d == 1 and rsi_val > pos.rsi_exit_level:
-                    exit_signal = True
-                    exit_reason = "rsi"
-                elif d == -1 and rsi_val < (100.0 - pos.rsi_exit_level):
-                    exit_signal = True
-                    exit_reason = "rsi"
-
-        # 5. Mean-target exit (convex only)
-        if not exit_signal and pos.convex_exit and sig.mean_target_vals is not None:
-            mt = sig.mean_target_vals[local_bar]
-            if not np.isnan(mt) and d == 1 and close_val >= mt and bars_held >= pos.min_hold:
-                if close_val < pos.entry_price + 2.0 * pos.initial_risk:
-                    exit_signal = True
-                    exit_reason = "mean_target"
-
-        # 6. Max hold (regime-conditional: shorter hold in DOWNTREND)
-        if not exit_signal:
-            eff_max_hold = pos.max_hold
-            if sig.bear_max_hold > 0:
-                regime_val_mh = int(sig.regime[local_bar])
-                if regime_val_mh == 4:  # DOWNTREND
-                    eff_max_hold = sig.bear_max_hold
-            if bars_held >= eff_max_hold:
-                exit_signal = True
-                exit_reason = "max_hold"
-
-        # 7. Funding ceiling (perp only — exit if cumulative funding drag exceeds threshold)
-        if not exit_signal and pos.funding_exit_threshold > 0.0 and pos.is_perp:
-            if pos.margin_usd > 0.0 and pos.cumulative_funding / pos.margin_usd > pos.funding_exit_threshold:
-                exit_signal = True
-                exit_reason = "funding"
+        exit_signal = exit_result.should_exit
+        exit_reason = exit_result.reason
+        exit_price = exit_result.exit_price_override if exit_result.exit_price_override is not None else close_val
 
         if exit_signal:
             positions_to_close.append((pos, exit_price, exit_reason, adv_val))
@@ -594,7 +470,8 @@ def _process_exits(
                 linked = state.position_manager.get_linked(pos.linked_position_id)
                 if linked and not any(p is linked for p, _, _, _ in positions_to_close):
                     is_lk_sec = (linked.leg == "secondary")
-                    lc, _, _, _, la, _ = _get_bar_data(sig, local_bar, not is_lk_sec)
+                    _lkup = linked.is_perp if sig.per_bar_is_perp is not None else None
+                    lc, _, _, _, la, _ = _get_bar_data(sig, local_bar, not is_lk_sec, use_perp=_lkup)
                     positions_to_close.append((linked, lc, "linked_exit", la))
 
     # Execute all closures
@@ -731,6 +608,168 @@ def _process_entries(
         bm = bar_maps[token]
         local_bar = int(bm[global_bar])
 
+        # =====================================================================
+        # RAW MODE FAST PATH — skip portfolio constraints, use strategy sizing
+        # =====================================================================
+        if config.raw_mode:
+            # Combined strategies need atomic two-leg handling; skip in raw mode
+            if sig.is_combined:
+                state.rejections.raw_combined_skip += 1
+                sid = sig.strategy_id if hasattr(sig, 'strategy_id') else strategy_id
+                rej_by = state.diagnostics.entries_rejected_by.setdefault(sid, defaultdict(int))
+                rej_by["raw_combined_skip"] += 1
+                continue
+
+            # Position safety cap
+            if state.position_manager.total_open() >= config.raw_max_positions:
+                state.rejections.portfolio_limit += 1
+                continue
+
+            direction = int(sig.direction[local_bar])
+            if direction == 0:
+                state.rejections.direction_zero += 1
+                continue  # reject: strategies must emit +1 or -1
+
+            close_val = sig.close[local_bar]
+            high_val = sig.high[local_bar]
+            low_val = sig.low[local_bar]
+            atr_val = sig.atr[local_bar]
+            if np.isnan(atr_val):
+                atr_val = close_val * 0.02
+            adv_val = sig.rolling_adv[local_bar]
+            sm_val = float(sig.size_multiplier[local_bar])
+            lev_val = float(sig.leverage[local_bar])
+
+            # Per-bar venue routing for adaptive strategies (BEFORE sizing)
+            is_perp_this_bar = sig.is_perp_primary
+            if sig.per_bar_is_perp is not None:
+                is_perp_this_bar = bool(sig.per_bar_is_perp[local_bar])
+                if is_perp_this_bar and sig.perp_close is not None:
+                    close_val = float(sig.perp_close[local_bar])
+                    high_val = float(sig.perp_high[local_bar])
+                    low_val = float(sig.perp_low[local_bar])
+                    atr_val = float(sig.perp_atr[local_bar])
+                    if np.isnan(atr_val):
+                        atr_val = close_val * 0.02
+                    adv_val = float(sig.perp_rolling_adv[local_bar])
+
+            volatility = max(atr_val / max(close_val, 1e-10), resolved.vol_floor)
+
+            # Fixed equity: config.capital * weight (no PnL adjustment)
+            strategy_equity = config.capital * spec.weight
+
+            pos_usd = compute_position_size(
+                strategy_equity=strategy_equity,
+                rolling_adv=adv_val,
+                volatility=volatility,
+                edge=sig.edge,
+                size_multiplier=sm_val,
+                cap_multiplier=float(sig.cap_multiplier[local_bar]),
+                max_trade_pct=sig.max_trade_pct,
+                adv_cap_pct=config.adv_cap_pct,
+                adv_sizing_enabled=spec.adv_sizing_enabled,
+                adv_sizing_base=spec.adv_sizing_base,
+                adv_sizing_floor=spec.adv_sizing_floor,
+                edge_minimum=resolved.edge_minimum,
+                target_vol=resolved.target_vol,
+                vol_floor=resolved.vol_floor,
+                spot_max_equity_pct=resolved.spot_max_equity_pct,
+                leverage=lev_val,
+                kelly_mult_override=resolved.kelly_mult_override,
+                kelly_mult_scale=resolved.kelly_mult_scale,
+                cap_pct_override=resolved.cap_pct_override,
+                cap_pct_scale=resolved.cap_pct_scale,
+                kelly_mult_floor=resolved.kelly_mult_floor,
+                kelly_mult_range=resolved.kelly_mult_range,
+                cap_pct_floor=resolved.cap_pct_floor,
+                cap_pct_range=resolved.cap_pct_range,
+                adv_scaling_divisor=resolved.adv_scaling_divisor,
+            )
+
+            if pos_usd <= 0:
+                state.rejections.min_size += 1
+                continue
+
+            # Leverage
+            margin_usd = pos_usd
+            if is_perp_this_bar and lev_val > 1.0:
+                notional_usd = pos_usd * lev_val
+            else:
+                notional_usd = pos_usd
+
+            # Slippage (realistic costs)
+            slip_bps = compute_slippage_bps(notional_usd, adv_val, config.base_spread_bps, config.impact_coeff, config.max_slip_bps)
+            slip = close_val * slip_bps / 10000.0
+            entry_price = close_val + slip * direction
+
+            quantity = notional_usd / max(entry_price, 1e-10) * direction
+
+            if is_perp_this_bar:
+                fee_rate = get_fee_rate(config.exchange, "perp", "taker")
+            else:
+                fee_rate = get_fee_rate(config.exchange, "spot", "taker")
+            entry_fee = notional_usd * fee_rate
+
+            initial_risk = float(sig.stop_mult[local_bar]) * atr_val
+            if direction == 1:
+                stop_price = entry_price - initial_risk
+            else:
+                stop_price = entry_price + initial_risk
+
+            pos = Position(
+                position_id=f"{token}:{strategy_id}:{global_bar}:primary",
+                token=token,
+                strategy_id=strategy_id,
+                leg="primary",
+                entry_bar=global_bar,
+                entry_price=entry_price,
+                direction=direction,
+                quantity=quantity,
+                margin_usd=margin_usd,
+                leverage=lev_val,
+                is_perp=is_perp_this_bar,
+                fee_rate=fee_rate,
+                stop_mult=float(sig.stop_mult[local_bar]),
+                trail_mult=float(sig.trail_mult[local_bar]),
+                target_mult=sig.target_mult,
+                no_stop_bars=sig.no_stop_bars,
+                min_hold=sig.min_hold,
+                max_hold=sig.max_hold,
+                exit_regimes=sig.exit_regimes,
+                convex_exit=sig.convex_exit,
+                rsi_exit_level=sig.rsi_exit_level,
+                regime_exit_min_bars=sig.regime_exit_min_bars,
+                convex_bar_thresholds=sig.convex_bar_thresholds,
+                convex_multipliers=sig.convex_multipliers,
+                trail_schedule=sig.trail_schedule,
+                time_trail_schedule=sig.time_trail_schedule,
+                max_trail_mult_arr=sig.max_trail_mult,
+                funding_exit_threshold=sig.funding_exit_threshold,
+                partial_tp_atr=sig.partial_tp_atr,
+                partial_tp_pct=sig.partial_tp_pct,
+                partial_tp_trail=sig.partial_tp_trail,
+                breakeven_atr=sig.breakeven_atr,
+                chandelier_lookback=sig.chandelier_lookback,
+                stop_price=stop_price,
+                highest=high_val,
+                lowest=low_val,
+                initial_risk=initial_risk,
+            )
+
+            state.total_fees += entry_fee
+            state._entry_fees_by_pos[pos.position_id] = entry_fee
+            pos.exit_handlers = build_exit_chain(pos, sig, spec, state=state, config=config)
+            state.position_manager.open_position(pos)
+
+            # Track diagnostic
+            if strategy_id not in state.diagnostics.entries_opened:
+                state.diagnostics.entries_opened[strategy_id] = 0
+            state.diagnostics.entries_opened[strategy_id] += 1
+            continue
+        # =====================================================================
+        # END RAW MODE — normal path below
+        # =====================================================================
+
         # Constraint 0: minimum conviction threshold
         if config.min_conviction_threshold > 0:
             conv = 1.0
@@ -752,20 +791,11 @@ def _process_entries(
         # Pump filter Layer 3: Funding rate extreme — block LONG entries when funding z-score > threshold
         if spec.pump_filter_funding_zscore > 0:
             direction_val = int(sig.direction[local_bar])
-            if direction_val >= 1 and sig.funding_1h is not None:
-                # Compute rolling funding z-score (168h = 7 day lookback)
-                lookback = 168
-                start = max(0, local_bar - lookback)
-                funding_window = sig.funding_1h[start:local_bar + 1]
-                if len(funding_window) >= 24:  # need at least 1 day of data
-                    f_mean = float(np.mean(funding_window))
-                    f_std = float(np.std(funding_window))
-                    if f_std > 0:
-                        f_current = float(sig.funding_1h[local_bar])
-                        f_zscore = (f_current - f_mean) / f_std
-                        if f_zscore > spec.pump_filter_funding_zscore:
-                            state.rejections.pump_funding += 1
-                            continue
+            if direction_val >= 1 and sig.funding_zscore is not None:
+                f_zscore = sig.funding_zscore[local_bar]
+                if not np.isnan(f_zscore) and f_zscore > spec.pump_filter_funding_zscore:
+                    state.rejections.pump_funding += 1
+                    continue
 
         # Constraint 1: portfolio position limit
         if state.position_manager.total_open() >= config.max_portfolio_positions:
@@ -826,7 +856,8 @@ def _process_entries(
 
         direction = int(sig.direction[local_bar])
         if direction == 0:
-            direction = 1
+            state.rejections.direction_zero += 1
+            continue  # reject: strategies must emit +1 or -1
 
         if sig.is_combined:
             # Split capital between legs
@@ -956,6 +987,9 @@ def _process_entries(
                 exit_regimes=sig.exit_regimes,
                 convex_exit=sig.convex_exit,
                 rsi_exit_level=sig.rsi_exit_level,
+                regime_exit_min_bars=sig.regime_exit_min_bars,
+                convex_bar_thresholds=sig.convex_bar_thresholds,
+                convex_multipliers=sig.convex_multipliers,
                 trail_schedule=sig.trail_schedule,
                 time_trail_schedule=sig.time_trail_schedule,
                 max_trail_mult_arr=sig.max_trail_mult,
@@ -1034,6 +1068,9 @@ def _process_entries(
                 exit_regimes=sig.exit_regimes,
                 convex_exit=sig.convex_exit,
                 rsi_exit_level=sig.rsi_exit_level,
+                regime_exit_min_bars=sig.regime_exit_min_bars,
+                convex_bar_thresholds=sig.convex_bar_thresholds,
+                convex_multipliers=sig.convex_multipliers,
                 trail_schedule=sig.trail_schedule,
                 time_trail_schedule=sig.time_trail_schedule,
                 max_trail_mult_arr=sig.max_trail_mult,
@@ -1054,8 +1091,13 @@ def _process_entries(
             state.total_fees += total_entry_fee
             state._entry_fees_by_pos[primary_pos.position_id] = primary_entry_fee
             state._entry_fees_by_pos[secondary_pos.position_id] = secondary_entry_fee
+            primary_pos.exit_handlers = build_exit_chain(primary_pos, sig, spec, state=state, config=config)
+            secondary_pos.exit_handlers = build_exit_chain(secondary_pos, sig, spec, state=state, config=config)
             state.position_manager.open_position(primary_pos)
             state.position_manager.open_position(secondary_pos)
+            if strategy_id not in state.diagnostics.entries_opened:
+                state.diagnostics.entries_opened[strategy_id] = 0
+            state.diagnostics.entries_opened[strategy_id] += 1
 
         else:
             # Single-leg entry
@@ -1203,6 +1245,9 @@ def _process_entries(
                 exit_regimes=sig.exit_regimes,
                 convex_exit=sig.convex_exit,
                 rsi_exit_level=sig.rsi_exit_level,
+                regime_exit_min_bars=sig.regime_exit_min_bars,
+                convex_bar_thresholds=sig.convex_bar_thresholds,
+                convex_multipliers=sig.convex_multipliers,
                 trail_schedule=sig.trail_schedule,
                 time_trail_schedule=sig.time_trail_schedule,
                 max_trail_mult_arr=sig.max_trail_mult,
@@ -1220,7 +1265,11 @@ def _process_entries(
 
             state.total_fees += entry_fee
             state._entry_fees_by_pos[pos.position_id] = entry_fee
+            pos.exit_handlers = build_exit_chain(pos, sig, spec, state=state, config=config)
             state.position_manager.open_position(pos)
+            if strategy_id not in state.diagnostics.entries_opened:
+                state.diagnostics.entries_opened[strategy_id] = 0
+            state.diagnostics.entries_opened[strategy_id] += 1
 
 
 def _process_margin_calls(

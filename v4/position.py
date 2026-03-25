@@ -32,6 +32,10 @@ class Position:
     exit_regimes: set
     convex_exit: bool = False
     rsi_exit_level: float = 999.0
+    # Configurable exit constants
+    regime_exit_min_bars: int = 6
+    convex_bar_thresholds: tuple = (48, 12)
+    convex_multipliers: tuple = (2.0, 1.5, 0.3)
     trail_schedule: Optional[np.ndarray] = None
     time_trail_schedule: Optional[np.ndarray] = None
     max_trail_mult_arr: Optional[np.ndarray] = None
@@ -54,6 +58,8 @@ class Position:
     cumulative_funding: float = 0.0
     linked_position_id: Optional[str] = None
     entry_timestamp: str = ""           # wall-clock time when opened (paper trading)
+    # Exit handler chain (built at entry, not serialized to ClosedTrade)
+    exit_handlers: list = field(default_factory=list)
 
 
 @dataclass

@@ -76,6 +76,10 @@ class TokenSignals:
     bear_target_mult: float = 0.0
     # Regime-conditional max hold: shorter hold in DOWNTREND (0 = use max_hold)
     bear_max_hold: int = 0
+    # Configurable exit constants
+    regime_exit_min_bars: int = 6
+    convex_bar_thresholds: tuple = (48, 12)
+    convex_multipliers: tuple = (2.0, 1.5, 0.3)
     # Exit mode fields
     convex_exit: bool = False
     rsi: Optional[np.ndarray] = None
@@ -102,8 +106,34 @@ class TokenSignals:
     perp_atr: Optional[np.ndarray] = None
     perp_rolling_adv: Optional[np.ndarray] = None
     perp_funding_1h: Optional[np.ndarray] = None
+    # Precomputed funding z-score (rolling 168h window, for pump filter)
+    funding_zscore: Optional[np.ndarray] = None
     # Per-bar venue routing (adaptive spot/perp strategies)
     per_bar_is_perp: Optional[np.ndarray] = None  # bool array: True=perp, False=spot
+    # Signal diagnostic counters (populated during precomputation)
+    raw_entry_count: int = 0          # before liquidity mask
+    post_liquidity_count: int = 0     # after liquidity mask
+    post_walkforward_count: int = 0   # after WF mask
+
+
+def _rolling_funding_zscore(funding: np.ndarray, lookback: int = 168) -> np.ndarray:
+    """Precompute rolling funding z-score (vectorized, replaces per-bar inline).
+
+    Uses ddof=0 (population std) to match the original inline code which used
+    np.std() (ddof=0 by default). Returns NaN for bars with insufficient data.
+    """
+    n = len(funding)
+    zscore = np.full(n, np.nan, dtype=np.float64)
+    if n < 24:
+        return zscore
+    # Use pandas for efficient rolling computation with ddof=0 (population std)
+    # to match the original inline np.std() which defaults to ddof=0
+    s = pd.Series(funding.astype(np.float64))
+    rmean = s.rolling(window=lookback, min_periods=24).mean()
+    rstd = s.rolling(window=lookback, min_periods=24).std(ddof=0)
+    valid = rstd > 0
+    zscore[valid] = ((s[valid] - rmean[valid]) / rstd[valid]).values
+    return zscore
 
 
 def _to_array(val, n: int) -> np.ndarray:
@@ -226,7 +256,10 @@ def precompute_strategy_signals(
             # Trading should start at anchor - months. Cutoff must be
             # train_bars hours earlier so walk-forward mask aligns exactly.
             trade_start = anchor - pd.DateOffset(months=months)
-            cutoff = trade_start - pd.DateOffset(hours=int(config.train_bars))
+            if config.skip_walk_forward:
+                cutoff = trade_start  # no training window needed
+            else:
+                cutoff = trade_start - pd.DateOffset(hours=int(config.train_bars))
             load_from = cutoff - pd.DateOffset(days=WARMUP_DAYS)
 
             df_spot = None
@@ -269,6 +302,32 @@ def precompute_strategy_signals(
                 ctx_perp = eng_perp._build_context(token, df_perp, min_bars=210, market_override="perp")
                 if ctx_perp is None:
                     continue
+
+            # Regime injection: patch ctx.regime_1h BEFORE strategy call
+            if strategy_spec.regime_params is not None:
+                from v4.engine import detect_daily_regime, _ema, _align_higher_to_lower
+                from v4.config import RegimeConfig
+                rc = RegimeConfig(**strategy_spec.regime_params)
+                primary_ctx = ctx_spot if ctx_spot is not None else ctx_perp
+                custom_regime_d = detect_daily_regime(
+                    primary_ctx.ind_d,
+                    adx_threshold=rc.adx_threshold,
+                    crisis_mult=rc.crisis_mult,
+                    quiet_mult=rc.quiet_mult,
+                    ema_pair=rc.ema_pair,
+                    min_periods=rc.min_periods,
+                )
+                # Shift by 1 day (avoid look-ahead) and align to 1h
+                custom_regime_d_shifted = np.roll(custom_regime_d, 1)
+                custom_regime_d_shifted[0] = 3  # RANGE default for first bar
+                custom_regime_1h = _align_higher_to_lower(
+                    primary_ctx.idx_d, custom_regime_d_shifted.astype(float), primary_ctx.idx_1h
+                )
+                custom_regime_1h = np.nan_to_num(custom_regime_1h, nan=3).astype(np.int8)
+                if ctx_spot is not None:
+                    ctx_spot.regime_1h = custom_regime_1h
+                if ctx_perp is not None:
+                    ctx_perp.regime_1h = custom_regime_1h
 
             # Call strategy
             if is_single_ctx:
@@ -314,11 +373,13 @@ def precompute_strategy_signals(
                 p_rsi = _copy_f32(ctx_perp.ind_1h["rsi"], n_safe)
 
             # Entry mask with liquidity masking (walk-forward applied after trim)
+            raw_count = int(sr.entry_mask[:n_safe].sum())  # before liquidity AND
             entry_mask = sr.entry_mask[:n_safe].copy()
             if ctx_spot is not None and ctx_spot.liquidity_mask is not None:
                 entry_mask = entry_mask & ctx_spot.liquidity_mask[:n_safe]
             elif ctx_perp is not None and ctx_perp.liquidity_mask is not None:
                 entry_mask = entry_mask & ctx_perp.liquidity_mask[:n_safe]
+            post_liq_count = int(entry_mask.sum())  # after liquidity mask
 
             # Combined fields
             sec_entry = None
@@ -403,9 +464,14 @@ def precompute_strategy_signals(
             sr_partial_tp_trail = float(getattr(sr, 'partial_tp_trail', 1.5))
             sr_breakeven_atr = float(getattr(sr, 'breakeven_atr', 0.0))
             sr_chandelier_lookback = int(getattr(sr, 'chandelier_lookback', 0))
+            sr_regime_exit_min_bars = int(getattr(sr, 'regime_exit_min_bars', 6))
+            sr_convex_bar_thresholds = tuple(getattr(sr, 'convex_bar_thresholds', (48, 12)))
+            sr_convex_multipliers = tuple(getattr(sr, 'convex_multipliers', (2.0, 1.5, 0.3)))
             sr_bear_target_mult = float(getattr(sr, 'bear_target_mult', 0.0))
             sr_bear_max_hold = int(getattr(sr, 'bear_max_hold', 0))
-            # Conviction score: use explicit if provided, else derive from size_multiplier
+            # Conviction score: use explicit if provided, else derive from size_multiplier.
+            # This auto-derivation eliminates seed sensitivity in ranked conviction mode
+            # by giving each entry a differentiating conviction value based on its sizing signal.
             sr_conviction = None
             if getattr(sr, 'conviction_score', None) is not None:
                 sr_conviction = _to_array(sr.conviction_score, n_safe)
@@ -448,6 +514,7 @@ def precompute_strategy_signals(
                 sr_stop_mult = sr_stop_mult[s:]
                 sr_trail_mult = sr_trail_mult[s:]
                 sr_size_mult = sr_size_mult[s:]
+                sr_cap_mult = sr_cap_mult[s:]
                 sr_leverage = sr_leverage[s:]
                 if sr_conviction is not None:
                     sr_conviction = sr_conviction[s:]
@@ -470,19 +537,30 @@ def precompute_strategy_signals(
                     per_bar_is_perp_arr = per_bar_is_perp_arr[s:]
                 n_safe = n_safe - s
 
-            # Skip token if trimmed window is too short for walk-forward training
-            if n_safe < config.train_bars + config.purge_bars + 100:
-                continue
+            # Skip token if trimmed window is too short
+            if not config.skip_walk_forward:
+                if n_safe < config.train_bars + config.purge_bars + 100:
+                    continue
+            else:
+                if n_safe < 200:
+                    continue
 
             # Walk-forward masking (applied on trimmed arrays so training
             # window starts from the cutoff, not from the token's first bar)
-            entry_mask = _apply_walk_forward_mask(
-                entry_mask, config.train_bars, config.recal_bars, config.purge_bars,
-            )
-            if sec_entry is not None:
-                sec_entry = _apply_walk_forward_mask(
-                    sec_entry, config.train_bars, config.recal_bars, config.purge_bars,
+            if not config.skip_walk_forward:
+                entry_mask = _apply_walk_forward_mask(
+                    entry_mask, config.train_bars, config.recal_bars, config.purge_bars,
                 )
+                if sec_entry is not None:
+                    sec_entry = _apply_walk_forward_mask(
+                        sec_entry, config.train_bars, config.recal_bars, config.purge_bars,
+                    )
+            post_wf_count = int(entry_mask.sum())  # after WF mask (= post_liq if WF skipped)
+
+            # Precompute funding z-score for pump filter (avoids per-bar inline computation)
+            _funding_zscore = None
+            if p_funding is not None and len(p_funding) > 0:
+                _funding_zscore = _rolling_funding_zscore(p_funding, lookback=168)
 
             ts = TokenSignals(
                 token=token,
@@ -522,6 +600,9 @@ def precompute_strategy_signals(
                 chandelier_lookback=sr_chandelier_lookback,
                 bear_target_mult=sr_bear_target_mult,
                 bear_max_hold=sr_bear_max_hold,
+                regime_exit_min_bars=sr_regime_exit_min_bars,
+                convex_bar_thresholds=sr_convex_bar_thresholds,
+                convex_multipliers=sr_convex_multipliers,
                 convex_exit=sr_convex_exit,
                 rsi=p_rsi,
                 rsi_exit_level=sr_rsi_exit_level,
@@ -545,7 +626,11 @@ def precompute_strategy_signals(
                 perp_atr=perp_atr_arr,
                 perp_rolling_adv=perp_adv_arr,
                 perp_funding_1h=perp_funding_arr,
+                funding_zscore=_funding_zscore,
                 per_bar_is_perp=per_bar_is_perp_arr,
+                raw_entry_count=raw_count,
+                post_liquidity_count=post_liq_count,
+                post_walkforward_count=post_wf_count,
             )
             results[token] = ts
 

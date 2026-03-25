@@ -212,7 +212,7 @@ Update Gate 6 with explicit degradation expectations:
 | Max drawdown | < 1.5x backtest | < 1.5x (unchanged) | — |
 
 **Implication for s58:** Backtest Sharpe 7.29 → expected live Sharpe **2.9-4.4**. This
-is still excellent. But if paper trading shows Sharpe < 2.9, investigate — don't panic-kill.
+was the prediction. **POST-MTM REALITY: s58 = -32.5% (12mo). Sharpe 7.29 was pre-MTM fiction.**
 
 ### Part D: Decay Detection Upgrade (Gate 7 Enhancement)
 

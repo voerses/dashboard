@@ -1,0 +1,12 @@
+{
+  "capital": 200000,
+  "min_position_usd": 200,
+  "strategies": [
+    {
+      "strategy_id": "s320",
+      "weight": 1.0,
+      "market": "spot",
+      "max_positions": 1
+    }
+  ]
+}

@@ -21,7 +21,7 @@ import pandas as pd
 from v4.metrics import compute_metrics, build_equity_curve, PerformanceMetrics, load_benchmark_returns
 
 from .position import ClosedTrade
-from .simulator import SimulationState, RejectionStats
+from .simulator import SimulationState, RejectionStats, SignalDiagnostics
 
 
 def _trades_to_dicts(trades: list[ClosedTrade]) -> list[dict]:
@@ -154,7 +154,7 @@ def print_report(
     if rej["total"] > 0 or pf > 0:
         print()
         print("  Entry Rejections:")
-        for reason in ["portfolio_limit", "strategy_limit", "min_size", "adv_cap", "concentration", "capital", "conviction", "pump_range", "pump_funding"]:
+        for reason in ["portfolio_limit", "strategy_limit", "min_size", "adv_cap", "concentration", "capital", "conviction", "pump_range", "pump_funding", "direction_zero"]:
             if rej[reason] > 0:
                 print(f"    {reason:20s} {rej[reason]:>6d}")
         print(f"    {'total':20s} {rej['total']:>6d}")
@@ -213,3 +213,76 @@ def save_results(
             json.dump(eq_data, f, indent=2)
 
     print(f"  Results saved to {output_dir}/")
+
+
+def print_diagnostic_report(
+    state: SimulationState,
+    all_signals: dict,
+    raw_mode: bool = False,
+):
+    """Print signal funnel diagnostic report.
+
+    Shows per-strategy signal funnel (raw -> liquidity -> WF -> opened)
+    and rejection breakdown.
+    """
+    print("\n" + "=" * 70)
+    if raw_mode:
+        print("  DIAGNOSTIC REPORT (RAW MODE — portfolio constraints disabled)")
+    else:
+        print("  DIAGNOSTIC REPORT")
+    print("=" * 70)
+
+    # Aggregate signal funnel from TokenSignals
+    strategy_funnel: dict[str, dict[str, int]] = {}
+    for strategy_id, token_signals in all_signals.items():
+        funnel = {"raw": 0, "post_liquidity": 0, "post_walkforward": 0, "tokens": 0}
+        for token, sig in token_signals.items():
+            funnel["raw"] += sig.raw_entry_count
+            funnel["post_liquidity"] += sig.post_liquidity_count
+            funnel["post_walkforward"] += sig.post_walkforward_count
+            funnel["tokens"] += 1
+        strategy_funnel[strategy_id] = funnel
+
+    # Per-strategy signal funnel
+    print("\n  Signal Funnel (per strategy):")
+    print(f"  {'Strategy':>10s}  {'Tokens':>6s}  {'Raw':>8s}  {'PostLiq':>8s}  {'PostWF':>8s}  {'Opened':>8s}")
+    print(f"  {'-'*10}  {'-'*6}  {'-'*8}  {'-'*8}  {'-'*8}  {'-'*8}")
+    for sid in sorted(strategy_funnel.keys()):
+        f = strategy_funnel[sid]
+        opened = state.diagnostics.entries_opened.get(sid, 0)
+        print(f"  {sid:>10s}  {f['tokens']:>6d}  {f['raw']:>8d}  {f['post_liquidity']:>8d}  "
+              f"{f['post_walkforward']:>8d}  {opened:>8d}")
+
+    # Rejection breakdown
+    rej = state.rejections.to_dict()
+    has_any = any(count > 0 for reason, count in rej.items() if reason != "total")
+    if has_any:
+        print("\n  Rejection Breakdown:")
+        for reason, count in sorted(rej.items()):
+            if reason != "total" and count > 0:
+                print(f"    {reason:20s} {count:>6d}")
+        print(f"    {'total':20s} {rej['total']:>6d}")
+
+    # Funnel leakage check: entries that disappeared without being opened or rejected
+    total_post_wf = sum(f["post_walkforward"] for f in strategy_funnel.values())
+    total_opened = sum(state.diagnostics.entries_opened.get(sid, 0) for sid in strategy_funnel)
+    total_rejected = rej["total"] + rej.get("raw_combined_skip", 0)
+    leakage = total_post_wf - total_opened - total_rejected
+    if leakage > 0:
+        print(f"\n  WARNING: Funnel leakage = {leakage} entries unaccounted for")
+        print(f"    post_walkforward={total_post_wf}  opened={total_opened}  rejected={total_rejected}")
+
+    # Per-token signal summary (top-N tokens by signal count)
+    token_signals_count: dict[str, int] = {}
+    for strategy_id, token_signals in all_signals.items():
+        for token, sig in token_signals.items():
+            token_signals_count[token] = token_signals_count.get(token, 0) + sig.post_walkforward_count
+
+    if token_signals_count:
+        top_tokens = sorted(token_signals_count.items(), key=lambda x: x[1], reverse=True)[:15]
+        print(f"\n  Top {len(top_tokens)} Tokens by Signal Count (post-WF):")
+        for token, count in top_tokens:
+            if count > 0:
+                print(f"    {token:12s} {count:>6d}")
+
+    print("=" * 70)

@@ -7,11 +7,11 @@ Production implementation of the validated V3 momentum strategy.
 Signal stack:
   Layer 1: Regime filter — exclude CRISIS
   Layer 2: EMA crossover base (long when 20d EMA > 50d EMA, pre-computed by engine)
-  Layer 3: Positioning overlay (ctx.custom['pos_mult'], 0.3x-1.5x)
+  Layer 3: Positioning overlay (ctx.custom['pos_mult'], 0.3x-1.0x)
   Layer 4: VRP overlay (ctx.custom['vrp_mult'], 0.3x-1.3x)
   Layer 5: RSI entry timing — defer entry within 168-bar window to first 4h RSI
             cross-up through 35; fallback to rebalance bar if no cross (R106/R111)
-  Compose: clip(base * pos_mult * vrp_mult, 0, 1.5)
+  Compose: clip(base * pos_mult * vrp_mult, 0, 1.0)
   Weekly rebalance (168 bars), 90d warmup (2160 bars), no hard stops.
 
 All overlay data is pre-computed by engine plugins (_compute_positioning_overlay,
@@ -36,7 +36,7 @@ from engine import StrategyContext, StrategyResult, MarketType, CRISIS
 REBALANCE_BARS = 168       # Weekly rebalance (7 * 24h)
 WARMUP_BARS = 2160         # 90 days * 24 hours
 MIN_POSITION = 0.0
-MAX_POSITION = 1.5
+MAX_POSITION = 1.0
 RSI_CROSS_THRESH = 35.0    # 4h RSI cross-up threshold (R111: optimal, 30-40 all work)
 
 
@@ -63,6 +63,8 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
             size_multiplier=np.zeros(n, dtype=np.float64),
             conviction_score=np.zeros(n, dtype=np.float64),
             breakeven_atr=0.0,
+            cap_multiplier=1.0,
+            max_trade_pct=0.0,
         )
 
     # ── DAILY BAR SIGNALS ────────────────────────────────────────────
@@ -144,4 +146,6 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
         market_type=MarketType.SPOT,
         leverage=1.0,
         breakeven_atr=0.0,
+        cap_multiplier=8.0,
+        max_trade_pct=0.95,
     )

@@ -587,7 +587,10 @@ class PaperPortfolioEngine:
                 if local_bar == -1 or local_bar >= sig.n_bars:
                     continue
                 try:
-                    _, _, _, atr_val, adv_val, _ = _get_bar_data(sig, local_bar, True)
+                    use_perp = None
+                    if sig.per_bar_is_perp is not None:
+                        use_perp = bool(sig.per_bar_is_perp[local_bar])
+                    _, _, _, atr_val, adv_val, _ = _get_bar_data(sig, local_bar, True, use_perp=use_perp)
                 except Exception:
                     continue
                 self._cached_bar_data[(sid, token)] = {

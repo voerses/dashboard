@@ -1,0 +1,16 @@
+{
+  "capital": 200000,
+  "min_position_usd": 10,
+  "strategies": [
+    {
+      "strategy_id": "s320",
+      "weight": 1.0,
+      "market": "spot",
+      "max_positions": 1,
+      "sizing_overrides": {
+        "kelly_mult_override": 0.50,
+        "spot_max_equity_pct": 0.95
+      }
+    }
+  ]
+}

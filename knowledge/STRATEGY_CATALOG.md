@@ -1,772 +1,455 @@
-# Strategy Catalog — Compact Reference
+# Strategy Catalog -- Post-MTM Validated (March 2026)
 
-> **WARNING -- BACKTEST REALISM:** All return figures below were generated with
-> uncapped equity compounding on $200K starting capital. The backtester allows
-> equity to grow to $33-55M and take multi-million dollar altcoin perp positions
-> that CANNOT be executed in practice. Realistic returns after $2M sizing cap
-> and hourly slippage are estimated at 60-80% lower. See finding #30 in PROJECT_STATUS.
-> No strategy has demonstrated 1000%+ returns under realistic constraints.
+> **POST-MTM VALIDATED.** All performance numbers in this file are from the V4 portfolio
+> backtester with mark-to-market equity tracking, $200K starting capital, $2M position
+> sizing cap, and hourly slippage. Previous versions of this file contained wildly
+> inflated numbers (+3157%, Sharpe 7.29, Calmar 91.74) generated with uncapped equity
+> compounding that allowed equity to grow to $33-55M. Those numbers were fantasy.
+> This version uses only validated post-MTM data.
 
-> **TL;DR** Trend following is the only consistent edge in crypto at swing timeframes.
-> S56+S57 (momentum+carry) is the production portfolio running in V4. Sharpe 7.29 (inflated by uncapped compounding), +1717% (12mo) (uncapped equity -- realistic: ~200-400%).
-> **21 paper trading pools** active (Mar 15): s58 base, 12 strategy combos, overlays, dynamic weights, conviction scoring.
-> Mean reversion loses money at 18-720hr holds. Simple beats complex (4 conditions > 10).
-> ALL spot-only strategies lose money in Jan-Mar 2026 sideways market. Only perp/combined survive.
-> **Exit ablation (Mar 15):** Progressive trail retired → flat 1.5 ATR trail universally. trail(1.5)+BE confirmed optimal for ALL strategies including s65 carry (144-run sweep).
-> **Calmar caveat:** Backtested Calmar inflated ~100-1000x by compounding + capacity assumptions. Realistic Calmar likely 1-5. See finding #30 in PROJECT_STATUS.
+> **TL;DR -- The honest picture:**
+> Only 2 out of 18 strategies/portfolios made money in the 12-month post-MTM backtest.
+> **s62** (conservative funding carry) returned +9.6% and **s65** (funding carry) returned +4.9%.
+> Everything else lost money -- some catastrophically (s60: -70%, s63: -79%, s75: -84%).
+> The "production portfolio" s58 (s56+s57) lost -32.5%. Adding strategies together mostly
+> made things worse, not better. Paper trading (15 days, Mar 11-25 2026) partially confirms:
+> s65-based combos are slightly positive, s62 is slightly positive, everything else negative.
+> Trend following in crypto at swing timeframes is far harder than pre-MTM backtests suggested.
 > **Full details + 67 citations:** `knowledge/archive/STRATEGY_CATALOG_DETAILS.md`
 
-**Context:** Crypto swing trading, $200K capital, 1H timeframe, 18-720hr holds, 6-111 tokens
-**Last validated:** March 2026, V4 portfolio backtest (12-month + Jan-Mar 2026 OOS)
-**V4 engine:** Portfolio-level simulation with shared capital, concentration limits, ADV caps, slippage model. See `knowledge/V4_ENGINE.md`.
-**Engine enhancements (Mar 12):** conviction entry scoring (shuffle/ranked/hybrid), dynamic regime weights, partial profit-taking.
+**Context:** Crypto swing trading, $200K capital, $2M sizing cap, 1H timeframe, 18-720hr holds
+**Last validated:** March 25, 2026 -- V4 portfolio backtest (12-month, post-MTM)
+**V4 engine:** Portfolio-level simulation with shared capital, concentration limits, ADV caps, slippage model, MTM equity. See `knowledge/V4_ENGINE.md`.
 
 ---
 
-## V4 Portfolio Results (March 2026)
+## V4 Post-MTM Results -- All Strategies Ranked (12-Month, $200K, $2M Cap)
 
-### s58 Production Portfolio: s56 (momentum) + s57 (carry)
+### The Only Profitable Strategies
 
-**12-Month Backtest (Binance, $200K capital):**
+| Rank | Strategy | 12mo Return | Max Drawdown | Trades | Notes |
+|------|----------|-------------|--------------|--------|-------|
+| 1 | **s62** conservative_funding_carry | **+9.6%** (+$19.3K) | -29.7% | 2,030 | Best performer. Paper trading: +1.06% in 15 days |
+| 2 | **s65** funding_carry_v4 | **+4.9%** (+$9.8K) | -45.8% | 1,796 | Paper trading: +2.25% in 15 days |
+| 3 | **s72** s65_time_trail | **+4.9%** (+$9.8K) | -45.8% | 1,796 | Same as s65 (overlay adds no value post-MTM). Paper: +3.21% |
 
-| Metric | Value |
-|--------|-------|
-| Final Equity | $3,634,688 (+1717%) (uncapped equity -- realistic: ~200-400%) |
-| Sharpe | 7.29 (inflated by uncapped compounding) |
-| Sortino | 13.72 (inflated by uncapped compounding) |
-| Calmar | 91.74 (inflated ~100-1000x per finding #30; realistic: 1-5) |
-| Max Drawdown | -1.9% |
-| Total Trades | 1,856 |
+Three strategies barely positive. The rest lose money.
 
-**Out-of-Sample: Jan-Mar 2026 (train→Dec 31, trade Jan 1-Mar 10):**
+### The Losing Strategies (sorted best to worst)
 
-| Month | PnL | Daily Rate | Trades |
-|-------|-----|-----------|--------|
-| January | +$56,528 | $1,823/day | ~110 |
-| February | +$67,020 | $2,394/day | ~120 |
-| March (10 days) | +$8,330 | $833/day | ~50 |
-| **Total OOS** | **+$131,878 (+66%)** | **$1,912/day** | **352** |
+| Rank | Strategy | 12mo Return | Max Drawdown | Trades | Notes |
+|------|----------|-------------|--------------|--------|-------|
+| 4 | s58+s62 | **-11.9%** (-$23.8K) | -19.8% | 4,110 | s62 positive solo but dragged down by s58 |
+| 5 | s58+s72 | **-20.2%** (-$40.4K) | -44.2% | 3,512 | |
+| 6 | s58+s65 | **-20.9%** (-$41.8K) | -36.9% | 3,430 | |
+| 7 | 4-edge (s56+s57+s63+s65) | **-21.2%** (-$42.3K) | -38.5% | 4,331 | "Best combo" in paper -- still loses in backtest |
+| 8 | s56 momentum | **-27.4%** (-$54.7K) | -38.5% | 1,166 | Former "production" component |
+| 9 | s69 (s56+time_trail) | **-27.4%** (-$54.7K) | -38.5% | 1,166 | Time trail adds nothing |
+| 10 | s76 (s56+partial_tp) | **-27.9%** (-$55.7K) | -38.4% | 1,446 | Partial TP adds nothing |
+| 11 | s57 carry | **-29.3%** (-$58.6K) | -29.2% | 1,438 | Former "production" component |
+| 12 | s58 (s56+s57) | **-32.5%** (-$64.9K) | -37.0% | 2,354 | FORMER "production portfolio" -- losing a third of capital |
+| 13 | 4-edge+ptp | **-41.9%** (-$83.7K) | -42.0% | 4,662 | |
+| 14 | s58+s60 | **-45.3%** (-$90.7K) | -56.7% | 3,368 | |
 
-**Per-Strategy OOS Breakdown:**
-- **s56 (momentum)**: +$72,074 — carries load in March choppy market
-- **s57 (carry)**: +$59,804 — strong Jan/Feb, flat in March (-$604)
+### Graveyard -- Strategies Losing >50%
 
-**Exchange Comparison (OOS):** Binance vs Hyperliquid differ by ~$2,500 in fees only (same price data used).
-
-### V4 Strategy Sweep — All Strategies Ranked
-
-**Top 12-Month Performers (V4 portfolio backtest, $200K capital):**
-*UNCAPPED EQUITY -- not achievable with realistic sizing. See backtest realism warning above.*
-
-| # | Strategy | Return | Sharpe | MaxDD | Trades | Market |
-|---|----------|--------|--------|-------|--------|--------|
-| 1 | s28 momentum_burst_perp | +3157% (uncapped) | 5.2 (inflated by uncapped compounding) | -4.1% | 2,400+ | perp |
-| 2 | s54 turbo_carry | +746% | 4.8 | -7.6% | 1,200+ | combined |
-| 3 | s29 funding_carry | +269% | 3.1 | -2.8% | 900+ | perp |
-| 4 | s51 regime_momentum | +238% | 2.9 | -8.2% | 1,100+ | perp |
-| 5 | s49 perp_momentum | +148% | 2.4 | -6.5% | 800+ | perp |
-| 6 | s44 basis_carry_trail | +139% | 2.8 | -3.2% | 700+ | combined |
-
-**Top Jan-Mar 2026 OOS Performers:**
-
-| # | Strategy | OOS Return | Mar PnL | Market |
-|---|----------|-----------|---------|--------|
-| 1 | s28 momentum_burst_perp | +157% | +$15,200 | perp |
-| 2 | s54 turbo_carry | +78% | +$2,100 | combined |
-| 3 | s25 vol_spike_reversal | +67% | +$8,400 | perp |
-| 4 | s29 funding_carry | +50% | +$8,100 | perp |
-| 5 | s49/s44 | +25% | +$3,500 | perp/combined |
-
-**March 2026 Specialists (choppy sideways market):**
-
-| # | Strategy | March PnL | Market | Edge in Sideways |
-|---|----------|-----------|--------|------------------|
-| 1 | s27 funding_mean_rev | +$16,200 | perp | Funding rate extremes revert |
-| 2 | s28 momentum_burst_perp | +$15,200 | perp | Bidirectional catches both sides |
-| 3 | s51 regime_momentum | +$14,300 | perp | Regime-gated short entries |
-| 4 | s25 vol_spike_reversal | +$8,400 | perp | Vol spikes in both directions |
-| 5 | s29 funding_carry | +$8,100 | perp | Funding harvesting regime-stable |
-
-**Critical Finding: ALL spot-only strategies lose money Jan-Mar 2026.** Only perp and combined strategies remain profitable in the sideways/selloff market. The carry strategies (s29, s44, s54, s57) are regime-stable. Momentum strategies need bidirectional capability (perp shorts) to survive sideways.
-
-### V4 Additional Strategies (deployed to paper trading Mar 12)
-
-| Strategy | Type | Market | Entry Logic | Paper Pool |
-|----------|------|--------|-------------|------------|
-| **s59** funding_mean_rev_v4 | Mean reversion | perp | Fade extreme funding rates (z-score > 2), expect mean reversion. 72h lookback. | s58+s59 |
-| **s60** momentum_burst_perp_v4 | Momentum | perp | Bidirectional perp momentum burst: ADX>20, vol_ratio>1.0, regime-scaled. Catches both long and short moves. | s60, s58+s60, super5 |
-| **s62** conservative_funding_carry | Carry | perp | Conservative funding carry: higher threshold than s65, tighter stops, lower position sizes. Regime-gated. | s58+s62 |
-| **s63** vol_spike_reversal_v4 | Counter-trend | perp | Fade extreme vol spikes (vol_ratio > 3x). Bidirectional: short after up-spikes, long after down-spikes. Collects positive funding on shorts. **Paper trading: 0% win rate (2 closed shorts both stopped out).** | s58+s63, 4-edge |
-| **s65** funding_carry_v4 | Carry | perp | Harvest structural funding rate imbalance (retail long bias). s58+s65: Sharpe INCREASES from 8.25->8.52 (both inflated by uncapped compounding), best 2-strategy complement found. | s58+s65, 4-edge |
-| **s80** xsec_momentum | Cross-sectional | perp | Rank all tokens by trailing return, long top quintile on perps. Weekly rebalance. V4-native. Regime-gated. | s80+s81, super5 |
-| **s81** sector_rotation | Sector momentum | perp | 10 sectors (L1, DeFi, Meme, AI, etc.), category-level momentum, top 2 sectors. V4-native. Regime-gated. | s80+s81, super5 |
-
-### V4 Overlay Wrappers (deployed to paper trading Mar 12)
-
-| Strategy | Base | Overlay | Effect | Paper Pool |
-|----------|------|---------|--------|------------|
-| **s69** s56_time_trail | s56 | Time-decayed trail: tighten stop progressively by hold time | Calmar +33% on s56 solo | s69, s58+s69 |
-| **s72** s65_time_trail | s65 | Time-decayed trail on funding carry | Calmar +148% on s65 solo | s72, s58+s72 |
-| **s75** s63_fixed_tp | s63 | Fixed take-profit at 3x ATR | Calmar +17.6%, locks in MR profits before trend resumes | s58+s75 |
-| **s76** partial_tp | s56 | Partial profit-taking: close 50% at 2x ATR, trail remainder | Solo +8.9%, portfolio-dependent | s76, s58+s76 |
-
-### V4 Engine-Level Overlays (portfolio-wide, not per-strategy)
-
-| Overlay | Module | Effect | Paper Pool |
-|---------|--------|--------|------------|
-| **Dynamic regime weights** | `v4/dynamic_weights.py` | Per-tick strategy weights based on BTC regime + historical profit factors. super5-dyn: +28% return in backtest. | s80+s81-dyn, super5-dyn |
-| **Conviction entry scoring** | `v4/simulator.py` | 3 modes: shuffle (random), ranked (conviction descending), hybrid (3 tiers). Ranked eliminates seed sensitivity (0% CV). Calmar +59-281% on diverse portfolios. Not universal — regressions on some combos. | 4-edge-conv (ranked), super5-conv (hybrid) |
-
-### V4 Portfolio Configurations (paper trading)
-
-| Portfolio | Strategies | Conviction | Dynamic Weights | Edge Count |
-|-----------|-----------|-----------|-----------------|------------|
-| **4-edge** | s56+s57+s63+s65 | shuffle | static | 4 families: momentum, carry, counter-trend, funding |
-| **4-edge-conv** | s56+s57+s63+s65 | **ranked** | static | Same strategies, deterministic ordering |
-| **super5-dyn** | s57+s60+s63+s80+s81 | shuffle | **dynamic** | 5 families: carry, perp momentum, counter-trend, cross-sectional, sector |
-| **super5-conv** | s57+s60+s63+s80+s81 | **hybrid** | static | Same strategies, tiered ordering |
+| Rank | Strategy | 12mo Return | Max Drawdown | Trades | Notes |
+|------|----------|-------------|--------------|--------|-------|
+| 15 | s59 funding_mean_rev_v4 | **-52.7%** (-$105.5K) | -58.8% | 2,410 | Mean reversion confirmed dead |
+| 16 | s60 momentum_burst_perp | **-70.5%** (-$141.1K) | -81.3% | 1,633 | Bidirectional momentum destroyed |
+| 17 | s63 vol_spike_reversal | **-78.9%** (-$157.8K) | -81.7% | 2,583 | Counter-trend catastrophic |
+| 18 | s75 (s63+fixed_tp) | **-83.9%** (-$167.9K) | -85.7% | 2,709 | Overlay on a broken strategy |
 
 ---
 
-## V3 Production Strategies (Tier A — Per-Token Validation)
+## Paper Trading Validation (Mar 11-25, 2026 -- 15 Days Live)
 
-### S09 Optimized Trend (Dual Momentum)
+| Portfolio | Return | Peak | DD from Peak | Status |
+|-----------|--------|------|-------------|--------|
+| s65 combo (s56+s57+s65) | +4.75% | +21.5% | -15.7% | Positive, volatile |
+| s72 (s65+time_trail) | +3.21% | +25.8% | -19.5% | Positive, volatile |
+| s65 solo | +2.25% | -- | -- | Slightly positive |
+| s62 solo | +1.06% | -- | -5.3% | Slightly positive, lowest vol |
+| Everything else | Negative | -- | -- | Losing money live |
 
-| Metric | Value |
-|--------|-------|
-| Annual PnL | +$162,898/yr (all 49), +$55,408/yr (CPCV 11) |
-| Win rate / Payoff | 38-45% / 1.8-2.4x |
-| Trade freq | 500-900/yr across token universe |
-| Validation | CPCV (PBO < 40%), walk-forward |
-| Dual-validated tokens | SUI, TRX, BONK, FLOKI |
-
-**Entry logic:** Daily uptrend (EMA50 + ADX>20 + 12d momentum>0) + 4H pullback to EMA20 + 1H volume burst + RSI 30-55. Multi-timeframe stack (1H:4H:Daily) is critical.
-
-**Based on:** Antonacci (2014) dual momentum + Moskowitz et al. (2012) TSMOM. Crypto-adapted with shorter lookbacks (10-28d vs 12mo) because crypto cycles are faster. Borgards (2021) confirms longer momentum periods in crypto.
-
-### S11 Momentum Burst
-
-| Metric | Value |
-|--------|-------|
-| Annual PnL | +$170,240/yr (all 49), +$62,705/yr (CPCV 11) |
-| Win rate / Payoff | 46-47% / 1.81-1.94x |
-| Trade freq | 600-2,400/yr across token universe |
-| Validation | CPCV (PBO < 40%), walk-forward |
-| Dual-validated tokens | PENGU, SUI, AVAX, BONK, FLOKI, ZRO |
-
-**Entry logic:** Explosive hourly move (>3% in one bar) + trend context (ADX>20, price > EMA20). 24-bar protection window (no stop for 24hrs). Internal development, related to Jegadeesh & Titman (1993) momentum persistence.
-
-### Cross-Sectional Momentum (Diversifier)
-
-| Metric | Value |
-|--------|-------|
-| Annual PnL | +$189.7%/yr annualized (backtest 2021-2026) |
-| Sharpe / Sortino | +1.54 / +1.73 |
-| Max Drawdown | -75.2% (805 days) |
-| Basket size | ~10 tokens (top 20% of eligible universe) |
-| Rebalance | Weekly (7d), 14d trailing return lookback |
-| Correlation vs S11 | +0.25 (vs +0.62 among Tier A strategies) |
-| Tokens traded | 81 out of 102 eligible |
-
-**Entry logic:** Rank all eligible tokens by 14-day trailing return. Go long the top quintile, equal-weighted, rebalanced weekly. Eligibility: 365-day history + $500K ADV gate. Slippage + fees applied at each rebalance turnover.
-
-**Diversification value:** Structurally different from per-token time-series strategies. Daily return correlation +0.25 vs S11 (rolling 90d median +0.19, range -0.13 to +0.73). A 50/50 blend with S11 cuts max drawdown by 28.7pp (-75% → -46.5%) while maintaining Sharpe 1.74. Supported by Han, Kang & Ryu (2023): cross-sectional outperforms time-series momentum in crypto.
-
-**Implementation:** `v3/cross_sectional.py` — standalone engine, zero blast radius to existing code. Reuses `aggregate_to_timeframe()`, `compute_portfolio_metrics()`, `get_fee_rate()`, and the engine slippage model.
-
-**Parameter sweep (14d best):**
-| Lookback | Sharpe | Ann Return | Max DD |
-|----------|--------|-----------|--------|
-| 7d | +1.47 | +168.4% | -71.2% |
-| 14d | +1.54 | +189.7% | -75.2% |
-| 30d | +1.48 | +172.1% | -76.2% |
-| 60d | +1.10 | +85.3% | -79.1% |
-
-### Signal Agreement Gate: S11+S09 AND (Overlay)
-
-| Metric | S11 Solo | S11+S09 AND Gate |
-|--------|---------|-----------------|
-| Sharpe | +1.75 | +1.65 (-0.10) |
-| Sortino | +2.39 | +2.41 (+0.02) |
-| Calmar | +2.32 | +2.78 (+0.46) |
-| Max Drawdown | -18.0% | **-11.3%** (+6.7pp) |
-| DD Duration | 311 days | 215 days (-96d) |
-| Profit Factor | 1.39 | **1.63** (+0.24) |
-| Trades | 12,396 | 4,223 (-66%) |
-| Avg Trade PnL | $95 | **$160** (+68%) |
-
-**Entry logic:** Enter only when both S11 (momentum burst) AND S09 (optimized trend) trigger on the same 1H bar. Uses S11's trade parameters (stop, trail, hold times). Walk-forward masked identically to solo strategies.
-
-**Value:** Cuts trades by 66% while improving profit factor by 17%, reducing max drawdown by 6.7pp, and boosting avg PnL by 68%. Sharpe only drops 0.10 — excellent risk/return tradeoff. The gate filters out low-conviction entries where only one signal type fires.
-
-**Implementation:** `v3/signal_agreement.py` — standalone tool supporting AND, N-of-M, and ANY gating modes. Zero blast radius to existing code.
-
-### Regime-Conditional Weighting (Overlay)
-
-| Metric | Baseline (S11+S09) | Regime-Weighted | Delta |
-|--------|-------------------|-----------------|-------|
-| Sharpe | +1.67 | **+1.96** | **+0.29** |
-| Sortino | +2.41 | **+2.79** | **+0.38** |
-| Calmar | +2.51 | **+3.47** | **+0.96** |
-| Max Drawdown | -22.2% | **-17.7%** | **+4.5pp** |
-| DD Duration | 417 days | **229 days** | **-188 days** |
-| Profit Factor | 1.32 | **1.58** | **+0.26** |
-| Trades | 33,498 | 25,528 | -24% |
-| Ann. Return | +55.8% | **+61.5%** | **+5.7pp** |
-
-**Mechanism:** Scales position sizes by market regime (detected from BTC daily bars). Full allocation in UPTREND, reduced in RANGE (68-92%), half in QUIET, minimal/zero in DOWNTREND/CRISIS. Weights derived empirically from per-regime profit factor analysis.
-
-**Key regime findings (BTC 2020-2026):**
-| Regime | Frequency | S11 PF | S09 PF | Weight |
-|--------|-----------|--------|--------|--------|
-| UPTREND | 39% | 1.94 | 1.46 | 1.00 |
-| RANGE | 21% | 1.31 | 1.35 | 0.68-0.92 |
-| QUIET | 12% | 1.15 | 1.17 | 0.50 |
-| DOWNTREND | 27% | 0.93 | 0.78 | 0.00-0.25 |
-| CRISIS | 0.4% | -- | -- | 0.00 |
-
-**Value:** Improves every risk metric while also boosting returns. The biggest win: avoiding DOWNTREND trades where both strategies lose money (PF < 1.0). Eliminates ~8K losing trades while keeping all winning regimes at full allocation.
-
-**Implementation:** `v3/regime_analysis.py` — standalone tool with empirical heatmap analysis + regime-weighted portfolio simulation. Zero blast radius.
-
-### V3 Liquidity Contrarian (Complement)
-
-| Metric | Value |
-|--------|-------|
-| Annual PnL | +$8,000/yr |
-| Win rate | 63% (but only 108 trades in 2 years) |
-| Role | Low-correlation complement to S09/S11 |
-
-### HMM Regime Detection (Overlay)
-
-| Metric | Value |
-|--------|-------|
-| Regime split | 52% range, 19% uptrend, 18% quiet, 10% downtrend, 1% crisis |
-| Implementation | `regime_detector.py`, 2-3 state HMM |
-| Effect | Drives allocation: 80-90% deployed bull, 10-20% bear |
-
-Based on Hamilton (1989). Crypto-validated by Castellano & D'Ecclesia (2025).
-
-### Sector / Narrative Rotation (Diversifier)
-
-| Metric | Value |
-|--------|-------|
-| Annual Return | +100.5% annualized (best config, 2021-2026) |
-| Sharpe / Sortino | +1.31 / +1.07 |
-| Calmar | +1.73 |
-| Max Drawdown | -57.9% (616 days) |
-| Basket size | ~5.8 tokens (top 2 sectors, hybrid mode) |
-| Rebalance | Weekly (7d), 7d trailing return lookback |
-| Regime filter | ON — BTC EMA20/50 crossover + vol (33% days risk-off) |
-| Correlation vs S11 | +0.20 (even lower than cross-sectional's +0.25) |
-| Tokens traded | 79 out of 102 eligible |
-
-**Entry logic:** Classify all tokens into 10 sectors (L1, DeFi, Meme, AI, Gaming, L2, Infra, Privacy, Payments, Emerging). Compute sector-level trailing returns (mean of eligible token returns). Rank sectors, go long top 2. In hybrid mode: within each selected sector, rank tokens by individual trailing return, pick top 5. BTC regime filter goes to cash during downtrends/crises.
-
-**Sector analysis (OOS 2021-2026):**
-| Sector | Ann Return | Sharpe | Max DD |
-|--------|-----------|--------|--------|
-| Meme | +101.3% | +0.91 | -90.8% |
-| AI | +29.7% | +0.84 | -94.2% |
-| Payments | +27.6% | +0.70 | -78.5% |
-| Privacy | +25.6% | +0.72 | -82.3% |
-| Gaming | +26.7% | +0.78 | -98.3% |
-| L1 | +18.3% | +0.62 | -83.8% |
-| DeFi | +4.0% | +0.53 | -87.7% |
-| L2 | -51.5% | -0.14 | -96.0% |
-
-**Diversification value:** Structurally different from both per-token time-series strategies AND individual cross-sectional momentum. Captures "narrative rotation" (AI season, meme season) that individual token strategies miss. Daily return correlation +0.20 vs S11. A 50/50 blend: Sharpe +1.65, DD -33.6%, Ann +77.0%.
-
-**Key insight:** Regime filter is essential — without it, DD is -78% to -83% (always invested through bear markets). With regime filter, 33% of days are risk-off (BTC downtrend), cutting DD from -78% to -58%.
-
-**Parameter sweep (regime filter ON):**
-| Config | Sharpe | Ann Return | Max DD |
-|--------|--------|-----------|--------|
-| lb=7 top=2 hybrid (best) | +1.31 | +100.5% | -57.9% |
-| lb=7 top=2 sector | +1.10 | +69.0% | -66.5% |
-| lb=14 top=2 hybrid | +1.12 | +73.0% | -59.2% |
-| lb=30 top=2 hybrid | +1.11 | +70.2% | -59.5% |
-
-**Implementation:** `v3/sector_rotation.py` — standalone engine with sector analysis, parameter sweep, and regime filter. Zero blast radius.
-
-### Pairs Trading — Statistical Arbitrage (Diversifier)
-
-| Metric | Value |
-|--------|-------|
-| Annual Return | +4.2% annualized (best config, 2021-2026) |
-| Sharpe / Sortino | +0.42 / +0.24 |
-| Calmar | +0.31 |
-| Max Drawdown | -13.6% (486 days) |
-| Trade count | 126 trades (5yr backtest) |
-| Win rate / PF | 57.9% / 1.31 |
-| Rebalance | Weekly (7d), 90d lookback |
-| Regime filter | ON — BTC EMA20/50 (33% days risk-off) |
-| Correlation vs S11 | **-0.06** (near-zero, essentially uncorrelated) |
-| Market | Perpetual futures (both legs) |
-
-**Entry logic:** Identify correlated token pairs via 90-day trailing correlation (>0.60) + half-life of mean reversion (3-60d). Compute rolling z-score of log price spread. Enter when |z| > 3.0 (long underperformer / short outperformer on perps). Exit on mean reversion (|z| < 0.5), stop loss (|z| > 4.0), or max hold (10 days). Max 5 concurrent pairs. BTC regime filter closes all pairs during downtrends.
-
-**Diversification value:** The key selling point. Correlation with S11 is **-0.06** — effectively uncorrelated. This is rare in crypto where everything typically correlates +0.5 to +0.8. Blend analysis:
-
-| Allocation (S11/Pairs) | Sharpe | Sortino | Calmar | Max DD | Ann% |
-|------------------------|--------|---------|--------|--------|------|
-| 100/0 (S11 only) | +1.89 | +3.11 | +2.21 | -18.2% | +40.2% |
-| 90/10 | +1.90 | +3.17 | +2.25 | -16.2% | +36.4% |
-| 85/15 | +1.91 | +3.20 | +2.27 | -15.2% | +34.5% |
-| 70/30 | +1.91 | +3.23 | +2.38 | -12.2% | +28.9% |
-| 50/50 | +1.83 | +2.96 | +2.70 | -8.0% | +21.6% |
-
-**Standalone is modest** (Sharpe +0.42, Calmar +0.31) — does not meet Tier A thresholds. But a 15-30% allocation to pairs improves the combined portfolio's Calmar by 0.06-0.17 while cutting drawdown by 3-6pp. This is pure diversification benefit from near-zero correlation.
-
-**Parameter sweep (regime filter ON):**
-| Config | Sharpe | Ann% | Max DD | Trades |
-|--------|--------|------|--------|--------|
-| lb=90 rb=7 ez=3.0 mh=10 mp=5 (best) | +0.42 | +4.2% | -13.6% | 126 |
-| lb=90 rb=7 ez=3.5 mh=10 mp=10 | +0.22 | +1.0% | -8.7% | 89 |
-| lb=90 rb=7 ez=3.0 mh=10 mp=10 | +0.25 | +1.7% | -11.3% | 232 |
-| lb=75 rb=7 ez=3.0 mh=10 mp=10 | +0.15 | +0.8% | -15.9% | 218 |
-| lb=60 rb=14 ez=3.0 mh=15 SS mp=10 | +0.05 | +0.1% | -11.4% | 206 |
-
-**Key finding:** Higher entry threshold (z=3.0+) is critical — lower thresholds (z=2.0) lose money. Shorter holding periods (10d) beat longer. Fewer max pairs (5) concentrates into highest-quality pairs.
-
-**Implementation:** `v3/pairs_trading.py` — standalone engine using perp futures data. Pair selection via correlation + half-life scoring. Funding rate costs loaded from parquet columns. Zero blast radius.
-
-### S29 Funding Carry (Per-Token Perp, Market-Neutral)
-
-| Metric | Value |
-|--------|-------|
-| Validation Rate | 66/328 (20.1%) — 91.2% among tokens with sufficient funding data |
-| Mean Sharpe | +0.81 |
-| Mean Calmar | +0.76 |
-| Mean Max Drawdown | -1.26% |
-| Trade count | 52 (BTC), varies by token |
-| Correlation vs S11 | +0.002 (effectively zero) |
-| Market | Perpetual futures only |
-
-**Entry logic:** Harvest structural funding rate premium. When rolling 72h mean |funding| > 0.00005/hr (~48% annualized), go opposite direction to funding: long when funding < 0, short when funding > 0. No trend filter — carry works in all regimes except crisis. Wider stops (4.0x ATR initial, 3.5x ATR trail) because carry income compensates for price moves.
-
-**Key parameters:** 72h lookback, 0.00005/hr threshold, Kelly 0.30, max hold 14 days, 48h no-stop protection.
-
-**Value:** First genuinely market-neutral strategy (beta=0.0000). Negative correlation with momentum strategies (-0.155 vs s11, -0.138 vs s31). Best diversifier by marginal Sharpe in 5-strategy portfolio. BTC validation: Sharpe 0.79, PF 2.31, 53.9% win rate, funding drag -18.2% per trade.
-
-**Implementation:** `strategies/s29_funding_carry.py` — per-token perp strategy using standard `strategy(ctx)` signature.
+**Paper trading takeaway:** The two funding carry strategies (s62, s65) show small positive returns
+in live execution. Returns are modest and drawdowns are significant. Nothing suggests the kind of
+edge that would justify high-conviction deployment.
 
 ---
 
-### S30 Basis Carry (Combined Spot+Perp, Delta-Neutral)
+## Strategy Descriptions
 
-| Metric | Value |
-|--------|-------|
-| Validation Rate | 84/109 (77.1%) |
-| Mean Sharpe | +2.63 |
-| Mean Calmar | +12.76 (highest ever) (inflated ~100-1000x per finding #30; realistic: 1-5) |
-| Mean Max Drawdown | -0.43% |
-| Trade count | 36,122 across 84 tokens |
-| Marginal Sharpe | +1.53 (highest contributor) |
-| Market | Combined: long spot + short perp (simultaneous) |
+### Tier A: Paper-Trading Confirmed Positive
 
-**Entry logic:** Delta-neutral cash-and-carry arbitrage. When basis (spot-perp price spread) > 0.1% AND rolling 72h z-score > 1.5, simultaneously go long spot + short perp. Captures the basis premium while eliminating directional risk. Both legs enter on the same bar.
+#### s62 -- Conservative Funding Carry
 
-**Key parameters:** 72h basis z-score > 1.5, basis minimum 0.1%, vol_ratio > 0.5 (relaxed), capital split 50/50, Kelly 0.25, max hold 21 days. Spot: 3.5x ATR trail / 4.0x stop. Perp: 3.0x ATR trail / 3.5x stop (tighter).
+| Metric | Post-MTM Value |
+|--------|---------------|
+| 12mo Return | +9.6% (+$19.3K) |
+| Max Drawdown | -29.7% |
+| Trades | 2,030 |
+| 3mo Return | -8.9% |
+| 1mo Return | +4.0% |
+| Paper (15d) | +1.06%, DD -5.3% |
 
-**Regime stability:** Remarkably consistent across all regimes — PF 2.50 (RANGE) to 2.68 (UPTREND). No regime weighting needed.
+**Entry logic:** Conservative funding carry: higher threshold than s65, tighter stops, lower
+position sizes. Regime-gated. Harvests structural funding rate imbalance (retail long bias).
 
-| Regime | Trades | Win Rate | Profit Factor | Avg Return |
-|--------|--------|----------|---------------|------------|
-| UPTREND | 13,771 | 54.9% | 2.68 | +2.08% |
-| RANGE | 6,451 | 52.9% | 2.50 | +1.77% |
-| QUIET | 5,026 | 53.3% | 2.62 | +1.47% |
-| DOWNTREND | 10,876 | 54.7% | 2.59 | +1.85% |
+**Why it works:** Higher selectivity means fewer losing trades. Tighter stops limit damage.
+Still collects positive funding premium on net-short positions during periods of extreme
+retail leverage.
 
-**BTC validation:** Sharpe 4.33 (inflated by uncapped compounding), Calmar 24.52 (inflated ~100-1000x per finding #30; realistic: 1-5), MaxDD -0.34%, PF 2.78, 836 trades.
+#### s65 -- Funding Carry V4
 
-**Value:** Anchor strategy for combined portfolio. Highest Calmar of any strategy tested (12.76 mean, but inflated ~100-1000x per finding #30; realistic: 1-5). Regime-stable. Moderate correlation with other combined strategies (0.22-0.24). Pattern: simultaneous legs.
+| Metric | Post-MTM Value |
+|--------|---------------|
+| 12mo Return | +4.9% (+$9.8K) |
+| Max Drawdown | -45.8% |
+| Trades | 1,796 |
+| 3mo Return | +8.9% |
+| 1mo Return | +3.9% |
+| Paper (15d) | +2.25% |
 
-**Implementation:** `strategies/s30_basis_carry.py` — combined `strategy(ctx_spot, ctx_perp)` signature. Uses `_simulate_combined` engine method.
+**Entry logic:** Harvest structural funding rate imbalance (retail long bias). Go short tokens
+with elevated positive funding rates; collect funding payments while holding. Regime-gated.
+
+**Warning:** The 45.8% max drawdown on a 4.9% return is terrible risk-adjusted performance.
+The strategy was slightly profitable over 12 months but experienced drawdowns nearly 10x the
+total return. The 3mo and 1mo windows look better, but that could be recency bias.
+
+### Tier C: Losing Money
+
+#### s56 -- Signal-Enhanced Momentum (FORMER Production)
+
+| Metric | Post-MTM Value |
+|--------|---------------|
+| 12mo Return | -27.4% (-$54.7K) |
+| Max Drawdown | -38.5% |
+| Trades | 1,166 |
+
+**Entry logic:** Signal-enhanced momentum on perps. ADX > 20, multi-TF momentum alignment,
+signal discovery timing overlay. 5x aggressive sizing at 1x leverage.
+
+**Post-mortem:** The pre-MTM backtest showed this making thousands of percent because uncapped
+compounding let equity snowball to $30M+. With realistic $2M sizing caps, the edge is negative.
+The aggressive sizing amplifies losses more than gains under realistic constraints.
+
+#### s57 -- Signal-Timed Turbo Carry (FORMER Production)
+
+| Metric | Post-MTM Value |
+|--------|---------------|
+| 12mo Return | -29.3% (-$58.6K) |
+| Max Drawdown | -29.2% |
+| Trades | 1,438 |
+
+**Entry logic:** Carry strategy with signal discovery timing overlay. Aggressive sizing
+(size_multiplier=3.0, cap_multiplier=15.0).
+
+**Post-mortem:** Like s56, the aggressive sizing parameters that produced fantasy returns
+under uncapped compounding produce losses under realistic constraints. Basis convergence
+profits are real but too small to overcome the sizing-amplified losses.
+
+#### s58 -- Multi-Strategy Portfolio: s56+s57 (FORMER "Production Portfolio")
+
+| Metric | Post-MTM Value |
+|--------|---------------|
+| 12mo Return | -32.5% (-$64.9K) |
+| Max Drawdown | -37.0% |
+| Trades | 2,354 |
+| 3mo Return | -1.2% |
+| 1mo Return | -7.8% |
+
+**Previously reported as:** +1717%, Sharpe 7.29, Calmar 91.74. All of that was fiction
+produced by uncapped equity compounding.
+
+**Post-mortem:** Both components (s56 and s57) lose money individually. Combining two losing
+strategies produces a losing portfolio. The "diversification benefit" claimed in previous
+versions was an artifact of the compounding bug.
+
+#### s59 -- Funding Mean Reversion V4
+
+| Metric | Post-MTM Value |
+|--------|---------------|
+| 12mo Return | -52.7% (-$105.5K) |
+| Max Drawdown | -58.8% |
+| Trades | 2,410 |
+
+**Entry logic:** Fade extreme funding rates (z-score > 2), expect mean reversion. 72h lookback.
+
+**Post-mortem:** Mean reversion at swing timeframes confirmed dead. Funding rates can stay
+extreme far longer than expected.
+
+#### s60 -- Momentum Burst Perp V4
+
+| Metric | Post-MTM Value |
+|--------|---------------|
+| 12mo Return | -70.5% (-$141.1K) |
+| Max Drawdown | -81.3% |
+| Trades | 1,633 |
+
+**Entry logic:** Bidirectional perp momentum burst: ADX>20, vol_ratio>1.0, regime-scaled.
+
+**Post-mortem:** Catastrophic failure. Bidirectional momentum on perps generates massive
+fees and funding costs that eat through any edge. Lost over 70% of capital.
+
+#### s63 -- Vol Spike Reversal V4
+
+| Metric | Post-MTM Value |
+|--------|---------------|
+| 12mo Return | -78.9% (-$157.8K) |
+| Max Drawdown | -81.7% |
+| Trades | 2,583 |
+
+**Entry logic:** Fade extreme vol spikes (vol_ratio > 3x). Bidirectional: short after
+up-spikes, long after down-spikes.
+
+**Post-mortem:** Counter-trend strategy in a momentum-driven market. Almost total loss.
+Paper trading confirmed: 0% win rate on initial trades.
+
+#### s80 -- Cross-Sectional Momentum V4 / s81 -- Sector Rotation V4
+
+**Status:** No post-MTM backtest data available. Deployed to paper trading but no results
+reported yet. Given the failure rate of other V4 strategies, treat with extreme caution.
+
+### Overlay Wrappers (Post-MTM Reality)
+
+| Strategy | Base | Overlay | Pre-MTM Claim | Post-MTM Reality |
+|----------|------|---------|---------------|-----------------|
+| s69 (s56+time_trail) | s56 | Time-decayed trail | "Calmar +33%" | -27.4%, same as s56. Overlay adds nothing. |
+| s72 (s65+time_trail) | s65 | Time-decayed trail | "Calmar +148%" | +4.9%, identical to s65. Overlay adds nothing. |
+| s75 (s63+fixed_tp) | s63 | Fixed TP at 3x ATR | "Calmar +17.6%" | -83.9%, worse than s63. Overlay amplifies losses. |
+| s76 (s56+partial_tp) | s56 | Partial TP at 2x ATR | "Solo +8.9%" | -27.9%, same as s56. Overlay adds nothing. |
+
+**Conclusion on overlays:** Every overlay wrapper tested adds zero or negative value post-MTM.
+The pre-MTM "improvements" were artifacts of uncapped compounding dynamics. Time trails,
+partial take-profits, and fixed TPs do not fix losing base strategies.
+
+### Engine-Level Overlays
+
+| Overlay | Pre-MTM Claim | Post-MTM Status |
+|---------|---------------|-----------------|
+| Dynamic regime weights | "super5-dyn: +28% return" | No post-MTM validation. Likely inflated. |
+| Conviction entry scoring | "Calmar +59-281%" | No post-MTM validation. Likely inflated. |
 
 ---
 
-### S31 Funding-Hedged Momentum (Combined Spot+Perp, Conditional)
+## V3 Legacy Strategies -- NO POST-MTM VALIDATION
 
-| Metric | Value |
-|--------|-------|
-| Validation Rate | 60/109 (55.0%) |
-| Mean Sharpe | +0.64 |
-| Mean Calmar | +0.94 |
-| Mean Max Drawdown | -1.68% |
-| Trade count | 10,712 across 60 tokens |
-| Correlation vs S11 | +0.71 (WARNING: redundant) |
-| Market | Combined: spot long momentum + conditional perp short hedge |
+The following strategies were validated only under V3 (per-token, uncapped equity, no MTM fix).
+Their performance numbers are from the old system and **cannot be trusted** until re-tested
+with post-MTM V4 constraints.
 
-**Entry logic:** Primary leg: standard momentum burst on spot (close > EMA20, ADX > 20, ret_1 > 2%, vol_ratio > 1.0, uptrend/range regimes). Secondary leg (conditional): perp short hedge only when funding z-score > 2.5 AND RSI > 70 (overbought). The hedge activates independently — not every momentum entry gets hedged.
+### V3 LEGACY -- Unvalidated (DO NOT USE WITHOUT RE-TESTING)
 
-**Key parameters:** Primary: ret_1 > 2%, ADX > 20, 80% capital. Secondary: funding z > 2.5, RSI > 70, 20% capital. Primary stops: 3.0x ATR trail, max 720h. Secondary stops: 2.5x ATR trail, 4.0x target (take profit), max 120h.
+| Strategy | V3 Claim | Post-MTM Status |
+|----------|----------|-----------------|
+| s28 momentum_burst_perp | "+3157%, Sharpe 5.2" | **V3 LEGACY -- NO POST-MTM VALIDATION.** V3 per-token gate: 6.7% rate (22/329). These numbers were from uncapped equity. |
+| s29 funding_carry | "+269%, Sharpe 3.1" | **V3 LEGACY -- NO POST-MTM VALIDATION.** Per-token mean Sharpe +0.81. Needs V4 re-test. |
+| s44 basis_carry_trail | "+139%, Sharpe 2.8" | **V3 LEGACY -- NO POST-MTM VALIDATION.** |
+| s49 perp_momentum | "+148%, Sharpe 2.4" | **V3 LEGACY -- NO POST-MTM VALIDATION.** |
+| s51 regime_momentum | "+238%, Sharpe 2.9" | **V3 LEGACY -- NO POST-MTM VALIDATION.** |
+| s54 turbo_carry | "+746%, Sharpe 4.8" | **V3 LEGACY -- NO POST-MTM VALIDATION.** |
+| s25 vol_spike_reversal | "+67% OOS" | **V3 LEGACY -- NO POST-MTM VALIDATION.** V4 version (s63) lost -78.9%. |
+| s30 basis_carry | "Sharpe 2.63, Calmar 12.76" | **V3 LEGACY -- NO POST-MTM VALIDATION.** All V3 Calmar/Sharpe numbers inflated by uncapped compounding. |
 
-**WARNING — Redundancy with S11:** Correlation +0.71 with s11_momentum_burst. The primary leg IS essentially momentum burst. Both have negative marginal Sharpe when combined in portfolio. **Recommended: exclude from portfolio when s11 is included.**
+### V3 Per-Token Strategies (Historical Reference Only)
 
-**Regime performance:**
-| Regime | Trades | Win Rate | Profit Factor |
-|--------|--------|----------|---------------|
-| UPTREND | 6,540 | 44.6% | 1.81 |
-| RANGE | 2,310 | 42.5% | 1.53 |
-| QUIET | 1,235 | 43.5% | 1.46 |
-| DOWNTREND | 1,836 | 39.1% | 1.16 (weak) |
+The following V3 strategies (S09, S11, cross-sectional momentum, sector rotation, pairs trading,
+regime overlays, etc.) were validated at the per-token level without portfolio constraints.
+Their metrics (Sharpe, Calmar, PnL) are from uncapped equity backtests and are **not reliable
+indicators of live performance**.
 
-**Implementation:** `strategies/s31_funding_hedged_momentum.py` — combined `strategy(ctx_spot, ctx_perp)` signature. Pattern: conditional secondary leg.
+Key V3 strategies for historical reference:
+- **S09** Optimized Trend (Dual Momentum) -- per-token CPCV validated
+- **S11** Momentum Burst -- per-token CPCV validated
+- **S29** Funding Carry -- per-token, market-neutral carry
+- **S30** Basis Carry -- per-token delta-neutral arbitrage
+- **S31** Funding-Hedged Momentum -- redundant with S11 (corr +0.71)
+- **S32** Regime-Adaptive Spot-Perp -- alternating regime strategy
+- **Cross-sectional momentum** -- portfolio ranking strategy
+- **Sector rotation** -- category momentum
 
----
-
-### S32 Regime-Adaptive Spot-Perp (Combined, Alternating)
-
-| Metric | Value |
-|--------|-------|
-| Validation Rate | 86/109 (78.9%) — highest of combined strategies |
-| Mean Sharpe | +1.37 |
-| Mean Calmar | +2.86 |
-| Mean Max Drawdown | -0.78% |
-| Trade count | 27,469 across 86 tokens |
-| Marginal Sharpe | +0.25 |
-| Market | Combined: spot long (uptrends) / perp short (downtrends), alternating |
-
-**Entry logic:** Alternating regime-gated legs. In UPTREND/QUIET: spot long when close > EMA20, ADX > 25, 24h return > 5%, vol_ratio > 0.8. In DOWNTREND: perp short when close < EMA20, ADX > 20, 24h return < -3%, vol_ratio > 0.8. Never both legs simultaneously — uses spot for longs (no funding drag) and perps for shorts (only instrument that can short).
-
-**Key parameters:** Long: ADX > 25, ret_24h > 5%, 60% capital. Short: ADX > 20, ret_24h < -3%, 40% capital. Long stops: 2.5x ATR trail, 5.0x target, max 720h. Short stops: 2.0x ATR trail, 4.0x target, max 336h.
-
-**Regime performance:**
-| Regime | Trades | Win Rate | Profit Factor |
-|--------|--------|----------|---------------|
-| UPTREND | 8,970 | 46.5% | 2.28 |
-| RANGE | 4,167 | 45.6% | 2.13 |
-| QUIET | 2,501 | 45.4% | 1.91 |
-| DOWNTREND | 12,181 | 42.6% | 1.40 |
-
-**BTC validation:** Sharpe 1.41, Calmar 3.21, MaxDD -0.46%, PF 1.90, 326 trades.
-
-**Value:** Highest validation rate (78.9%) of any combined strategy. Uses the right instrument for each regime — spot for longs avoids funding costs, perps for shorts earn funding in downtrends. Moderate correlation with s30 (0.24), good portfolio complement.
-
-**Implementation:** `strategies/s32_regime_spot_perp.py` — combined `strategy(ctx_spot, ctx_perp)` signature. Pattern: alternating legs.
+These are documented in `knowledge/archive/STRATEGY_CATALOG_DETAILS.md`. Do not use V3
+performance numbers for any deployment decisions.
 
 ---
 
-### Portfolio Assembly — Combined Strategy Portfolio (Gate 5.5)
+## Tier Assignment (Post-MTM, March 2026)
 
-**Recommended 4-strategy allocation** (s31 excluded due to s11 redundancy):
+### Tier A: Paper-Trading Confirmed Positive
 
-| Strategy | Allocation | Marginal Sharpe | Role |
-|----------|-----------|-----------------|------|
-| s30 basis_carry | 40% | +0.95 | Anchor — regime-stable arb |
-| s32 regime_spot_perp | 25% | +0.25 | Regime-adaptive directional |
-| s29 funding_carry | 20% | — | Market-neutral diversifier |
-| s11 momentum_burst | 15% | — | Per-token momentum |
+| Strategy | 12mo Return | Max DD | Paper (15d) | Edge |
+|----------|-------------|--------|-------------|------|
+| s62 | +9.6% | -29.7% | +1.06% | Conservative funding carry |
+| s65 | +4.9% | -45.8% | +2.25% | Funding carry |
 
-**3-strategy combined portfolio metrics (s30+s31+s32):**
+**Honest assessment:** These strategies are slightly profitable but the risk-adjusted returns
+are poor. s62 returned +9.6% with a -29.7% drawdown. s65 returned +4.9% with a -45.8% drawdown.
+A simple bank deposit would have been comparable with zero risk. The edge is real but thin.
 
-| Metric | Value |
-|--------|-------|
-| Sharpe | 4.41 (inflated by uncapped compounding) |
-| Sortino | 6.37 (inflated by uncapped compounding) |
-| Calmar | 14.29 (inflated ~100-1000x per finding #30; realistic: 1-5) |
-| Max Drawdown | -7.1% |
-| DD Duration | 36 days |
-| Total Return | 3,588% (uncapped equity -- not achievable with realistic sizing) |
-| Annualized Return | 101.2% |
-| Total Trades | 75,864 |
-| Tokens Traded | 91 |
+### Tier B: Positive in Backtest, Untested Live
 
-**5-strategy cross-family correlation:**
+*None currently qualify.* s72 shows +4.9% in backtest but is identical to s65 and has been
+paper-traded (so it is effectively part of Tier A). No other strategy shows positive post-MTM
+12-month returns.
 
-| | s30 | s31 | s32 | s11 | s29 |
-|---|-----|-----|-----|-----|-----|
-| s30 | 1.00 | 0.22 | 0.24 | 0.07 | 0.08 |
-| s31 | 0.22 | 1.00 | 0.32 | **0.71** | -0.14 |
-| s32 | 0.24 | 0.32 | 1.00 | 0.21 | -0.02 |
-| s11 | 0.07 | **0.71** | 0.21 | 1.00 | -0.16 |
-| s29 | 0.08 | -0.14 | -0.02 | -0.16 | 1.00 |
+### Tier C: Losing Money (Do Not Deploy)
 
-**Effective N:** 3.03 with 5 strategies (median corr 0.21).
+| Strategy | 12mo Return | Max DD | Status |
+|----------|-------------|--------|--------|
+| s56 | -27.4% | -38.5% | Former production component |
+| s57 | -29.3% | -29.2% | Former production component |
+| s58 (s56+s57) | -32.5% | -37.0% | Former "production portfolio" |
+| s69 (s56+time_trail) | -27.4% | -38.5% | Overlay on losing strategy |
+| s72 (s65+time_trail) | +4.9% | -45.8% | Technically positive but identical to s65 |
+| s76 (s56+partial_tp) | -27.9% | -38.4% | Overlay on losing strategy |
+| s80, s81 | No data | No data | Unvalidated |
+| All portfolios containing s56/s57 | -12% to -46% | -20% to -57% | Adding losers makes more losers |
 
-**Regime weighting verdict:** Not needed. s30 already regime-stable (PF 2.50-2.68 across all regimes). Weighted portfolio only adds +0.03 Sharpe vs baseline — not worth the complexity.
+### Graveyard: Total Loss (>50% Drawdown, Do Not Touch)
 
----
-
-### Dynamic Universe — Point-in-Time Token Eligibility (Infrastructure)
-
-| Metric | Static Universe | Dynamic Universe | Bias |
-|--------|----------------|-----------------|------|
-| Sharpe (liquid, 102 tokens) | +1.75 | +1.74 | +0.2% (minimal) |
-| Sharpe (all, 116 tokens) | +1.75 | +1.70 | +2.7% (modest) |
-| Ghost trades (liquid) | — | 36 trades, $7.8K PnL | |
-| Ghost trades (all) | — | 112 trades, $29.3K PnL | |
-
-**What it fixes:** Static universe locks the token list at backtest start using current ADV/quality. Dynamic universe re-evaluates eligibility every 90 days (matching walk-forward windows) using only data available at each point. Tokens that hadn't listed yet or lost liquidity are excluded from that window.
-
-**Key finding:** The existing per-bar liquidity mask in `engine.py` already handles most of the bias. The residual static-universe look-ahead is **+0.2% to +2.7%** Sharpe inflation depending on universe breadth. Not catastrophic but worth correcting for rigorous backtests.
-
-**Timeline insights (BTC-era 2020-2026):** Universe grew from 21 tokens (2020) to 101 tokens (2026). XMR lost eligibility in 2024 (Binance delisting). OM had intermittent eligibility (3 gaps).
-
-**Implementation:** `v3/dynamic_universe.py` — standalone tool. Zero blast radius.
+| Strategy | 12mo Return | Max DD | Cause of Death |
+|----------|-------------|--------|----------------|
+| s59 | -52.7% | -58.8% | Mean reversion is dead at swing TF |
+| s60 | -70.5% | -81.3% | Perp momentum fees eat edge |
+| s63 | -78.9% | -81.7% | Counter-trend in momentum market |
+| s75 | -83.9% | -85.7% | Overlay on dead s63 |
 
 ---
 
-## Priority Ranking — All Strategies
+## Key Research Findings (Updated Post-MTM)
 
-### Tier A: Production (Validated)
+### What Actually Works (Post-MTM Evidence)
 
-| # | Strategy | Status | Sharpe | Type |
-|---|----------|--------|--------|------|
-| 1 | **S30 Basis Carry** | **VALIDATED (combined)** | **+2.63** | **Delta-neutral arb** |
-| 2 | S11 Momentum Burst | VALIDATED (spot) | +2.58 | Per-token momentum |
-| 3 | S09 Dual Momentum Trend | VALIDATED (spot) | +1.98 | Per-token dual momentum |
-| 4 | **S32 Regime Spot-Perp** | **VALIDATED (combined)** | **+1.37** | **Alternating regime** |
-| 5 | Cross-Sectional Momentum | VALIDATED (diversifier) | +1.54 | Portfolio ranking |
-| 6 | Sector/Narrative Rotation | VALIDATED (diversifier) | +1.31 | Category momentum |
-| 7 | S29 Funding Carry | VALIDATED (perp) | +0.81 | Market-neutral carry |
-| 8 | Regime-Conditional Weighting | VALIDATED (overlay) | +0.29 | Overlay |
-| 9 | **S31 Funding-Hedged Momentum** | **VALIDATED (combined)** | **+0.64** | **Conditional hedge** |
-| 10 | V3 Liquidity Contrarian | VALIDATED (complement) | — | Low-corr complement |
-| 11 | HMM Regime Detection | VALIDATED (overlay) | — | Overlay |
+| Finding | Evidence | Implication |
+|---------|----------|-------------|
+| Funding carry is the only surviving edge | s62 +9.6%, s65 +4.9% -- only profitable strategies | Focus research on funding carry variants |
+| Conservative beats aggressive | s62 (tighter stops, lower size) > s65 (standard) | Reduce position sizes, tighten risk |
+| The edge is thin | Best strategy returns +9.6% with -29.7% DD | Do not over-allocate; this is not a get-rich strategy |
+| Combining strategies mostly hurts | s58+s62: -11.9% vs s62 solo: +9.6% | Adding losing strategies to winning ones makes losers |
+| Overlays add zero value post-MTM | s69=s56, s72=s65, s76=s56 (identical results) | Time trails, partial TP do not help with realistic sizing |
+| Paper trading partially confirms backtest | s62 +1.06%, s65 +2.25% over 15 days | Small edge appears real, but sample too small to be conclusive |
 
-### Recommended Portfolio (Gate 5.5)
+### What Definitively Fails (Post-MTM Evidence)
 
-| Strategy | Weight | Sharpe | MaxDD | Role |
-|----------|--------|--------|-------|------|
-| s30 basis_carry | 40% | 2.63 | -0.4% | Anchor (regime-stable) |
-| s32 regime_spot_perp | 25% | 1.37 | -0.8% | Directional (regime-gated) |
-| s29 funding_carry | 20% | 0.81 | -1.3% | Diversifier (market-neutral) |
-| s11 momentum_burst | 15% | 2.58 | -18.2% | Momentum alpha |
-| **Portfolio** | **100%** | **4.41** (inflated) | **-7.1%** | **Calmar 14.29** (inflated ~100-1000x; realistic: 1-5) |
+| Finding | Evidence | Implication |
+|---------|----------|-------------|
+| Momentum at swing TF (with realistic sizing) | s56: -27.4%, s60: -70.5% | The "momentum works in crypto" thesis is overstated under constraints |
+| Mean reversion at swing TF | s59: -52.7% | Confirmed dead, again |
+| Counter-trend / vol spike reversal | s63: -78.9% | Near-total loss |
+| Aggressive sizing (size_mult=3, cap_mult=15) | s56, s57 both lose ~28-29% | Amplifies losses more than gains under sizing caps |
+| Multi-strategy diversification (with losers) | All combos worse than best solo | Diversification only helps if components are positive |
+| All pre-MTM performance claims | Sharpe 7.29, +1717%, Calmar 91.74 | Were artifacts of uncapped compounding, not real edge |
 
-Note: s31 excluded — redundant with s11 (corr +0.71).
+### What Remains Unknown
 
-### Tier B: Validated / High Priority
-
-| # | Strategy | Signal type | Expected lift | Complexity |
-|---|----------|-------------|---------------|------------|
-| 0 | **Pairs Trading (Stat Arb)** | **VALIDATED (diversifier)** | **corr -0.06 vs S11, cuts DD -6pp** | **Medium** |
-| 1 | Vol scaling (Moreira & Muir 2017) | Sizing overlay | +0.3-0.5 Sharpe | Low |
-| 2 | Momentum crash protection (Barroso 2015) | Sizing overlay | Better drawdowns | Low |
-| 3 | DI crossover direction (Wilder 1978) | Entry filter | Higher win rate | Low |
-| 4 | Volume-weighted TSMOM (Huang 2024) | Signal variant | Sharpe 2.17 (lit.) | Medium |
-| 5 | KAMA adaptive MA (Kaufman 1995) | Signal variant | Fewer whipsaws | Medium |
-| 6 | Meta-labeling (Lopez de Prado 2018) | Entry filter | +10-20% hit rate | Medium |
-
-### Tier C: Worth Testing
-
-| # | Strategy | Signal type | Expected lift | Complexity |
-|---|----------|-------------|---------------|------------|
-| 1 | Dynamic strategy allocation by regime | Allocation | +15-30% Sharpe | Medium |
-| 2 | RS-based token selection | Token filter | Better concentration | Low |
-| ~~3~~ | ~~Sector rotation overlay~~ | ~~Allocation~~ | **PROMOTED to Tier A** — Sharpe +1.31, corr +0.20 vs S11 | ~~Medium~~ |
-| 4 | Pyramiding (Turtle-style adds) | Sizing | Larger trend capture | Medium |
-| 5 | Channel breakout (ATR-based) | Signal | Replace failed vol_breakout | Medium |
-| 6 | CUSUM structural break filter | Entry filter | Fewer noise trades | Medium |
-| 7 | Fractional differentiation | Feature eng. | Better ML inputs | Medium |
+| Question | Status | Next Step |
+|----------|--------|-----------|
+| Can V3 strategies (s28, s29, s30, etc.) survive post-MTM? | Untested | Run V4 post-MTM backtests before any deployment |
+| Is the funding carry edge durable or a 2025 artifact? | 15 days of paper data | Need 3-6 months minimum |
+| Would reduced sizing improve s56/s57? | Untested | Try size_mult=1.0 with MTM constraints |
+| Can cross-sectional/sector rotation survive post-MTM? | s80/s81 untested | Priority backtest targets |
 
 ---
 
 ## Strategy Graveyard (Tier D: Do Not Implement)
 
-| Strategy | Category | Reason for rejection | Our result |
-|----------|----------|---------------------|------------|
-| BB mean reversion (any variant) | Mean reversion | Loses -$25K to -$185K/yr at swing TF | FAILED |
-| RSI extremes (standalone) | Mean reversion | IC=0.004 standalone; MR loses at swing TF | FAILED |
-| Vol breakout (BB squeeze) | Volatility | -$4,220/yr; squeeze too frequent, 55% fakeout | FAILED |
-| TTM Squeeze | Volatility | Same problems as vol breakout; weak academic support | NOT TESTED |
-| ~~Pairs trading~~ | ~~Cross-sectional~~ | **PROMOTED to Tier B** — Sharpe +0.42, corr -0.06 vs S11. Earlier dismissal was "requires shorting" but perp infrastructure now exists. Standalone is modest but diversification value is exceptional: 70/30 S11/Pairs blend cuts DD from -18.2% to -12.2% while maintaining Sharpe 1.91. | VALIDATED |
-| OU-based strategies | Mean reversion | Crypto is momentum-driven, fails OU model test | N/A |
-| ~~Cross-sectional momentum~~ | ~~Cross-sectional~~ | **PROMOTED to Tier A** — Sharpe +1.54, corr +0.25 vs S11. Earlier dismissal based on incomplete reading of Han 2023 (which actually favors XS over TS momentum). | VALIDATED |
-| Order book imbalance | Microstructure | Signal horizon minutes, too short for swing | N/A |
-| RSI-2 / Connors strategies | Mean reversion | Too short-term; RSI IC=0.004 in crypto | N/A |
-| Straddle-like (spot) | Volatility | Requires long+short; spot-only limitation | N/A |
-| Vol risk premium harvesting | Volatility | Requires options/perp infrastructure | N/A |
-| Deep RL for signals | ML | High complexity, low OOS reliability, catastrophic forgetting | N/A |
-| Transformer prediction | ML | Insufficient data, non-stationarity, low interpretability | N/A |
-| GNN token relationships | ML | Unstable graph structure, emerging/unproven | N/A |
-| V2 Daily Momentum | Trend | Too slow; -$13,806/yr (golden cross lag) | FAILED |
-| VPIN filter (current data) | Microstructure | Hurt performance; data quality issue (0.5 fills) | FAILED |
-| s25 Vol Spike Reversal | Volatility | BTC failed 3x; proceeded to G5 on altcoin promise but didn't pass | FAILED |
-| s26 RSI Extreme Reversal | Mean reversion | 14.3% rate (47/329), below 20% threshold | FAILED |
-| s27 Funding Mean Reversion | Mean reversion (perp) | 11.6% rate (38/329), funding data sparse for many tokens | FAILED |
-| s28 Momentum Burst Perp | Momentum (perp) | 6.7% rate (22/329), bidirectional too selective on perp | FAILED |
-| s35 regime_spot_perp_volsized | Vol-managed sizing | Calmar -29%, return halved vs s32. Vol-managed sizing too aggressive on regime-gated strategy | FAILED |
-| s36 basis carry funding-scaled | Funding overlay | Neutral — Calmar -0.29, Sharpe -0.01. Funding rate colinear with basis premium | FAILED |
-| s38 momentum ETF flow | ETF flow overlay | ETF data covers only 15mo; overlay=1.0 for 85% of backtest | FAILED |
-| s42 momentum defensive trail | Per-bar vol ceiling | Zero marginal improvement on top of O5 trail progression | FAILED |
-| s43 regime spot/perp trail | Trail on s32 | Rate -2.2pp; trail tightens short leg prematurely | FAILED |
-| s50 momentum_extreme_leverage | 5x leverage momentum | 65% rate but only +2.7% mean return. Fees amplified more than edge | FAILED |
-| s52 funding_extremes_leveraged | 5x leverage funding | 40% rate, +2.4% mean return. Funding extremes too rare | FAILED |
-| s53 alt_momentum_breakout | Breakout filters | 37% rate, +1.0% mean return. Filters too strict | FAILED |
-| s55 leveraged_carry_momentum | 2-5x leverage carry | -7pp MaxDD degradation exposed by intra-bar liquidation fix | FAILED |
-| s56 max_leverage_momentum | 5x signal-enhanced | 14% rate, negative mean return. Leverage amplifies losses | FAILED |
-| **Standalone signal strategies** | Signal discovery entries | IC != tradeable edge. Signals only work as overlays on proven strategies | FAILED |
-| s61 funding_carry_v4 | Funding carry variant | Overlap >80% with s65; no improvement on Calmar or DD | DEDUP |
-| s66 adx_breakout | ADX breakout entries | Too few trades: only 38 entries on BTC | KILLED Gate 0 |
-| s67 funding_momentum_v4 | Funding momentum (following) | Sharpe 1.90 too low for portfolio (need >3.0). Capital dilution hurts. | KILLED V4-Gate 5 |
-| s68 band_walk | Bollinger band walk | Momentum family saturated, 80% overlap with s56 within 24h | KILLED Gate 2 |
-| s70 s60_time_trail | s60 + time trail | Marginal improvement, not deployed | NOT DEPLOYED |
-| s71 s63_time_trail | s63 + time trail | Counter-trend + time trail conflicts (MR needs different exit) | NOT DEPLOYED |
-| s73 s56_funding_exit | s56 + funding-aware exit | Calmar degrades at every threshold (7 tested). Funding is 1.2% of PnL. | KILLED 5O |
-| s74 s60_funding_exit | s60 + funding-aware exit | Same. Calmar -34% at best threshold. High-funding tokens are best winners AND losers. | KILLED 5O |
+| Strategy | Category | Reason for Rejection | Post-MTM Result |
+|----------|----------|---------------------|-----------------|
+| BB mean reversion (any variant) | Mean reversion | Loses money at swing TF | N/A (never V4 tested) |
+| RSI extremes (standalone) | Mean reversion | IC=0.004; MR dead at swing TF | N/A |
+| Vol breakout (BB squeeze) | Volatility | 55% fakeout rate | N/A |
+| s59 funding_mean_rev_v4 | Mean reversion (perp) | -52.7% in 12 months | **CONFIRMED DEAD** |
+| s60 momentum_burst_perp_v4 | Momentum (perp) | -70.5% in 12 months | **CONFIRMED DEAD** |
+| s63 vol_spike_reversal_v4 | Counter-trend | -78.9% in 12 months, 0% win rate in paper | **CONFIRMED DEAD** |
+| s75 s63_fixed_tp | Counter-trend + TP | -83.9% in 12 months | **CONFIRMED DEAD** |
+| s56 signal_enhanced_momentum | Momentum | -27.4% in 12 months | **CONFIRMED LOSING** |
+| s57 signal_timed_turbo_carry | Carry (aggressive) | -29.3% in 12 months | **CONFIRMED LOSING** |
+| s58 multi_strategy_portfolio | Portfolio (s56+s57) | -32.5% in 12 months | **CONFIRMED LOSING** |
+| s61 funding_carry variant | Funding carry | Overlap >80% with s65; deduped | DEDUP |
+| s66 adx_breakout | ADX breakout | Too few trades (38 on BTC) | KILLED Gate 0 |
+| s67 funding_momentum_v4 | Funding momentum | Sharpe too low for portfolio | KILLED V4-Gate 5 |
+| s68 band_walk | BB band walk | 80% overlap with s56 | KILLED Gate 2 |
+| s70 s60_time_trail | s60 + time trail | Base strategy dead (-70.5%) | NOT DEPLOYED |
+| s71 s63_time_trail | s63 + time trail | Base strategy dead (-78.9%) | NOT DEPLOYED |
+| s73 s56_funding_exit | s56 + funding exit | Calmar degrades at every threshold | KILLED |
+| s74 s60_funding_exit | s60 + funding exit | Base strategy dead | KILLED |
+| All 5x leveraged strategies (s50/s52/s55) | Leverage | Fees amplified 5x eat the edge | KILLED |
+| Standalone signal strategies | Signal entries | IC does not equal tradeable edge | KILLED |
 
 ---
 
-### Overlay Wrappers (s34-s44, s54, s56-s81)
+## Research Principles (Revised)
 
-| Strategy | Base | Overlay | Result | Status |
-|----------|------|---------|--------|--------|
-| s34 momentum_regime_sized | s11 | O2 regime sizing + O3 weekend | Sharpe +0.27, PF +0.08 | Validated |
-| s37 momentum_trail_progression | s11 | O5 progressive trail | Sharpe +0.477, 65/69 token wins | Validated |
-| s39 trend_trail_progression | s09 | O5 progressive trail | Sharpe +0.819, rate 36→59% | Validated |
-| s40 tsmom_trail_progression | s13 | O5 progressive trail | Sharpe +0.752, rate 24→52% | Validated |
-| s41 skew_trail_progression | s21 | O5 progressive trail | Sharpe +0.468, rate 24→47% | Validated |
-| s44 basis_carry_trail_progression | s30 | O5 progressive trail | Sharpe +1.448, MaxDD halved | Validated |
-| s54 turbo_carry | s44 | 2x regime sizing + cap_mult=15 | +160%/yr, +66.5%/yr last 12mo | Validated |
-| **s56 signal_enhanced_momentum** | s11 | Signal discovery timing + perp | V4: component of s58 portfolio | **V4 Production** |
-| **s57 signal_timed_turbo_carry** | s44 | Signal discovery timing | V4: component of s58 portfolio | **V4 Production** |
-| **s58 multi_strategy_portfolio** | s56+s57 | Multi-strategy portfolio | V4: +1717% 12mo (uncapped), Sharpe 7.29 (inflated) | **V4 Paper Trading** |
-| **s69 s56_time_trail** | s56 | Time-decayed trailing stop | Calmar +33% | **V4 Paper Trading** |
-| **s72 s65_time_trail** | s65 | Time-decayed trailing stop | Calmar +148% | **V4 Paper Trading** |
-| **s75 s63_fixed_tp** | s63 | Fixed TP at 3x ATR | Calmar +17.6%, Return +18.5% | **V4 Paper Trading** |
-| **s76 partial_tp** | s56 | Close 50% at 2x ATR, trail rest | Solo +8.9% | **V4 Paper Trading** |
-| **s80 xsec_momentum** | — | V4-native cross-sectional | New edge family | **V4 Paper Trading** |
-| **s81 sector_rotation** | — | V4-native sector momentum | New edge family | **V4 Paper Trading** |
+1. **Post-MTM validation is mandatory.** No strategy should be deployed or recommended based on
+   uncapped equity backtest results. The MTM fix revealed that most "profitable" strategies were
+   artifacts of unrealistic compounding.
 
----
+2. **The edge is thin.** The best post-MTM strategy (s62) returned +9.6% on $200K with -29.7%
+   drawdown. Set expectations accordingly. This is not a path to rapid wealth.
 
-## Key Research Findings
+3. **Simple still beats complex.** The two surviving strategies (s62, s65) are straightforward
+   funding carry plays. Every attempt at complex overlays, multi-strategy portfolios, or
+   sophisticated entry logic produced worse results.
 
-### What Works in Crypto (Swing TF)
+4. **Diversification only works with positive components.** Combining losing strategies produces
+   a losing portfolio. The pre-MTM claim that "multi-strategy diversification always helps"
+   was wrong.
 
-| Finding | Evidence | Implication |
-|---------|----------|-------------|
-| ADX is #1 predictor | IC=0.067, increases with horizon | Keep ADX>20 as core filter |
-| Multi-TF stack beats single-TF | S09/S11 use 1H:4H:Daily | Never reduce to single timeframe |
-| Simple beats complex | S11 (4 conditions) 75.5% vs S16 (10 conditions) 0% | Cap entry conditions at 4-5 |
-| Momentum > everything else | Only profitable strategy type at swing TF | All production strategies are trend-based |
-| Regime filtering is essential | Momentum works bull/neutral, fails bear | Always use regime overlay |
-| Delta-neutral arb is regime-stable | s30 PF 2.50-2.68 across all regimes | Best anchor for portfolio |
-| Combined spot+perp unlocks new edge | 3 patterns: simultaneous, conditional, alternating | Each captures different premium |
-| Funding carry is market-neutral | s29 beta=0.000, corr=+0.002 vs S11 | Best diversifier available |
-| Basis carry has highest Calmar | s30: Calmar 12.76 (inflated ~100-1000x; realistic: 1-5), MaxDD -0.4% | Risk-adjusted king (uncapped backtest) |
-| 3x ATR stop is optimal | Parameter sweep finding | Don't change stop multiplier |
-| TSMOM lookback 10-28d | Han (2023): 28d lookback, Sharpe 1.51 | Crypto cycles faster than equities |
-| Vol-weighted TSMOM promising | Huang (2024): Sharpe 2.17 | Untested in our system; Tier B priority |
-| Cross-TF divergence is most stable signal | `ret_1_1h_vs_4h` IC=-0.376, STABLE | Use as overlay timing, not standalone |
-| Signals only work as overlays | s56 killed, s57/s58 survive | Layer on proven strategy (carry, momentum), not as entries |
-| 92% of signals are sign-consistent | Discovery across 5 horizons | Same signal direction works at all timeframes |
-| Only 23% of signals are genuinely causal | Lead/lag analysis, 57 of 252 | Prioritize HIGH-confidence LEADING signals |
-| Regime-conditional EMAs decay fast | `ema_50_in_QUIET` lost 77% IC | Cross-TF signals more temporally robust |
-| Progressive trailing stops are universal | s37-s44 all improved | Strongest single overlay: +21.5pp avg, 93% win rate |
-| Conviction entry scoring eliminates seed sensitivity | Ranked mode: 0% CV across 10 seeds | Use ranked for diverse portfolios (4+ strategies) |
-| Conviction scoring is NOT universal | Regressions on solo + some 2-strat combos | Only deploy selectively on proven winners |
-| Dynamic regime weights improve multi-strategy | super5-dyn: +28% return vs static | Works when strategies have different regime profiles |
-| Funding carry is best s58 complement | s58+s65: Sharpe 8.25->8.52 (both inflated by uncapped compounding), MTM +5.1% in paper | Different edge family, collects positive funding |
-| 4-edge portfolio leads paper trading | s56+s57+s63+s65: MTM +5.4% after 46 ticks | Four distinct edge families outperform narrower combos |
-| Time-trail on carry is highest Calmar boost | s72 (s65+time_trail): Calmar +148% | Carry positions benefit from progressive exit tightening |
-| Fixed TP suits counter-trend | s75 (s63+TP=3x ATR): Calmar +17.6% | MR has natural profit cap; trails give back gains |
-| Funding-aware exits don't work | s73/s74 killed at every threshold | Funding is 1.2% of PnL; can't discriminate winners vs losers |
-| Regime blocks explain low utilization in downtrends | s56 REGIME_SIZE=0.0 blocks all entries | Not a bug — correct risk management |
+5. **Paper trading is the minimum bar.** 15 days of paper trading showed s62 and s65 slightly
+   positive. This is encouraging but far from conclusive. Need 3-6 months minimum.
 
-### What Fails in Crypto (Swing TF)
+6. **Be honest about what we do not know.** Many V3 strategies have never been re-tested
+   post-MTM. They may be profitable or they may be dead. Do not assume either.
 
-| Finding | Evidence | Why |
-|---------|----------|-----|
-| Mean reversion | All 70-sweep MR strategies lose | Hold period mismatch; MR needs 1-day holds or no stops |
-| RSI as standalone | IC=0.004 | Near-zero predictive power alone |
-| BB squeeze breakout | -$4,220/yr | Too frequent (160/760 days), 55% false breakout rate |
-| Complex entry logic | S16 at 0% survival | More conditions = more overfit paths = worse OOS |
-| Stop-losses on MR | Beluska & Vojtko (2024) | Stops destroy MR performance; conflicts with risk mgmt |
-| Momentum burst on perps | s28: 6.7% rate | Bidirectional momentum too selective; perp fees/funding eat edge |
-| Funding mean reversion | s27: 11.6% rate | Funding data sparse; signal decays fast once widely known |
-| Hedged momentum + s11 redundancy | s31↔s11 corr +0.71 | Momentum primary leg IS momentum burst; hedge adds little |
-| Standalone signal entries | s56: 14% rate, negative mean | IC predicts returns but not enough edge after costs |
-| 5x leverage on any strategy | s50/s52/s56: all killed | Fees amplified 5x eat the edge; use 1x with aggressive sizing instead |
-| Cross-TF signals as standalone | Discovery showed IC=-0.376 | Genuine IC but only ~14% of return variance; needs base strategy |
-| Funding-aware exit timing | s73/s74: Calmar degrades at all 7 thresholds | High-funding tokens produce best winners AND losers; can't discriminate |
-| Conviction scoring on narrow portfolios | s72 solo: DD 3x, s58+s65: DD blows up | Conviction ranking can starve minority strategies of capital |
-| Funding momentum (following) | s67: Sharpe 1.90, decorrelated but dilutes | Need Sharpe >3.0 to add value to current portfolio (capital dilution) |
+7. **Position sizing is the dominant factor.** The difference between "profitable" and "losing"
+   for many strategies appears to be the sizing parameters. Aggressive sizing (3x multiplier)
+   that produced fantasy returns under uncapped compounding produces real losses under constraints.
 
-### RSI Regime Dependency
+8. **CPCV remains the gold standard** for per-token validation. But per-token validation does
+   not guarantee portfolio-level profitability under realistic constraints.
 
-RSI behaves opposite to textbook expectations depending on regime:
+9. **Harvey t-stat > 3.0** threshold for any new signal (multiple testing correction).
 
-| Regime | High RSI predicts | Low RSI predicts | Implication |
-|--------|-------------------|------------------|-------------|
-| Uptrend | MORE upside | Dip-buy opportunity | Use RSI as momentum confirmation |
-| Downtrend | MORE downside | Nothing useful | Fade bounces, not buy dips |
-| Range | Mean reversion (weak) | Mean reversion (weak) | Only regime where textbook RSI works |
-
-### Top 2-Indicator Combinations (1-day horizon)
-
-| Combination | Mean return | Win rate | Token count |
-|-------------|-----------|----------|-------------|
-| RSI_low + MACD_pos | +1.37% | 58.3% | -- |
-| vol_ratio_hi + BB_pct_low | +0.99% | 58.4% | 45 tokens |
-| Taker > 0.55 + positive daily return | +1.18% | 52.1% | 19 tokens |
+10. **Admit failure.** 16 out of 18 strategies/portfolios tested post-MTM are losing money.
+    The pre-MTM catalog painted a picture of robust, highly profitable strategies. That picture
+    was wrong. The honest assessment is that we have found a thin, fragile edge in funding carry
+    and nothing else has survived realistic testing.
 
 ---
 
 ## Regime Model Overview
 
-Our HMM detects 5 regimes that drive all allocation decisions:
+Our HMM detects 5 regimes that drive allocation decisions:
 
-| Regime | Frequency | Action | Deployment |
-|--------|-----------|--------|------------|
-| Uptrend | 19% | Full momentum (S09+S11) | 80-90% |
-| Range | 52% | Reduced exposure, trend-only | 40-60% |
-| Quiet | 18% | Selective, wait for breakout | 30-50% |
-| Downtrend | 10% | Cash/minimal | 10-20% |
-| Crisis | 1% | Circuit breaker: -15% half, -25% cash | 0% |
-
-**Key insight:** 52% of time is range regime where momentum signals are weak. Capturing this dead time is the biggest improvement opportunity (Tier C #1: dynamic strategy allocation).
+| Regime | Frequency | Action | Note |
+|--------|-----------|--------|------|
+| Uptrend | 19% | Full allocation to carry strategies | Only surviving edge is carry |
+| Range | 52% | Reduced exposure | Dead time -- thin edge even thinner |
+| Quiet | 18% | Selective | Wait for funding rate extremes |
+| Downtrend | 10% | Cash/minimal | s62/s65 may still collect funding |
+| Crisis | 1% | Circuit breaker | Exit all positions |
 
 ---
 
-## Unexplored High-Value Techniques (from Lopez de Prado 2018)
+## What Next
 
-| Technique | Chapter | What it does | Priority |
-|-----------|---------|-------------|----------|
-| Meta-labeling | Ch. 3 | Secondary model predicts if S09/S11 signal will win | Tier B |
-| Fractional differentiation | Ch. 5 | Stationary features that preserve long-term memory | Tier C |
-| CUSUM filter | Ch. 17 | Trade only after structural breaks (regime changes) | Tier C |
-| Triple barrier labeling | Ch. 3 | Already implemented (stop/trail/max hold) | DONE |
-| CPCV | Ch. 12 | Already implemented (primary validation) | DONE |
+1. **Re-test V3 strategies under post-MTM constraints.** s29, s30, s44 were promising in V3
+   but have never been validated post-MTM. Priority targets.
 
----
+2. **Reduce sizing on s56/s57.** Try size_multiplier=1.0 to see if the edge is real at
+   moderate sizing.
 
-## Research Principles
+3. **Extend paper trading.** 15 days is not enough. Need 3-6 months of s62 and s65 paper
+   results before considering real capital.
 
-1. **CPCV is the gold standard** for strategy validation. PBO < 40% required.
-2. **Harvey t-stat > 3.0** threshold for any new signal (multiple testing correction for 70+ strategies tested).
-3. **Simple dominates complex** at every validation level we have tested.
-4. **Features that survive costs** are always the same: momentum, volatility, volume, trend strength (ADX). Exotic features (sentiment, NLP, alternative data) rarely survive. (Gu et al. 2020)
-5. **Ensemble > single strategy.** S09 + S11 together diversify better than either alone. Cross-sectional momentum (corr +0.25 vs S11) adds genuine diversification vs the +0.62 pairwise correlation among time-series strategies.
-6. **Combined spot+perp unlocks new strategy classes.** Three distinct patterns (simultaneous, conditional, alternating) each capture different market premiums. s30 basis carry (Calmar 12.76, inflated ~100-1000x per finding #30; realistic: 1-5) is the best risk-adjusted strategy ever validated in uncapped backtest.
-7. **Diversification across market types beats within-type.** s30(combined)+s29(perp)+s11(spot) have median pairwise corr 0.08 vs 0.62 among spot-only strategies. Effective N=3.03 with 5 strategies vs N=2.02 with 6 spot strategies.
-8. **IC != tradeable edge.** Signal discovery found 252 FDR-passing signals with genuine IC, but standalone signal strategies generated zero positive returns. Signals only work as overlays on existing profitable strategies (carry, momentum). The base strategy provides the structural edge; the signal improves timing and sizing.
-9. **Cross-TF divergence is the most robust alpha source.** `ret_1_1h_vs_4h` (IC=-0.376) and `rsi_1h_vs_4h` (IC=-0.291) are STABLE, LEADING, and work across ALL regimes. They exploit information lag between timeframes — a genuine market microstructure effect, not curve-fitting.
-10. **Aggressive sizing beats leverage.** s54/s57/s58 use `size_multiplier=3.0` + `cap_multiplier=15.0` at 1x leverage instead of 5x leverage. Same position sizes, but fees are on 1x notional not 5x. Every 5x leveraged strategy was killed.
+4. **Investigate why funding carry survives.** The structural explanation (retail long bias
+   creates persistent positive funding) is plausible. Need to test whether this edge is
+   durable or a 2024-2025 artifact.
 
-### V4-Specific Research Findings
-
-| Finding | Evidence | Implication |
-|---------|----------|-------------|
-| Spot-only strategies fail in sideways markets | ALL spot strategies negative Jan-Mar 2026 | Must include perp/combined for all-weather portfolio |
-| Carry is regime-stable, momentum is not | s57 carry: flat in March; s56 momentum: still positive | Carry anchors portfolio, momentum adds alpha in trends |
-| Basis convergence > funding payments | s57: +$1.97M PnL, only +$331 from funding | Carry profits from premium convergence, not yield |
-| Bidirectional perp momentum survives choppy markets | s28: +$15K March, s51: +$14K March | Short capability critical for sideways/bearish regimes |
-| V4 concentration limits prevent blow-ups | MaxDD -1.9% on +1717% return (uncapped equity) | Shared capital pool with constraints works |
-| Exchange fees matter less than expected | Binance vs Hyperliquid: ~$2.5K difference on $130K OOS | Focus on strategy edge, not fee optimization |
-
-### Opportunities for New Strategies (Complementing s58)
-
-**Gap analysis from V4 sweep — strategies that complement s58 in sideways markets:**
-
-1. **Funding mean reversion (s27 variant for V4)**: +$16K March, exploits funding rate extremes. Currently failed V3 gate but works in V4 portfolio context with shared capital.
-2. **Bidirectional perp momentum (s28 variant)**: +$15K March, best single-strategy March performer. Failed V3 gate (too selective per-token) but thrives in V4 portfolio with many tokens.
-3. **Vol spike reversal (s25 on perps)**: +$8.4K March, catches both-direction vol spikes. Again, failed V3 per-token gate but works in V4.
-4. **Pure funding carry (s29)**: +$8.1K March, regime-stable, near-zero correlation with everything.
-
-**Key insight:** Several strategies killed at V3's per-token gate survive and profit in V4's portfolio context. V4's shared capital pool, position limits, and multi-token diversification transform individually weak strategies into useful portfolio components.
+5. **Run s80/s81 through post-MTM backtest.** Cross-sectional and sector rotation are
+   structurally different from funding carry and could provide genuine diversification --
+   but only if they are actually profitable.
 
 *Full strategy descriptions, parameter tables, and 67 academic citations archived in `knowledge/archive/STRATEGY_CATALOG_DETAILS.md`.*

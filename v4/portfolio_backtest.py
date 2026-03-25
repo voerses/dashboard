@@ -9,6 +9,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import os
 import sys
 import time
@@ -23,7 +24,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from v4.config import PortfolioConfig, StrategySpec
 from v4.signals import precompute_strategy_signals, discover_tokens, infer_data_end_date
 from v4.simulator import simulate_portfolio
-from v4.report import compute_portfolio_metrics, print_report, save_results
+from v4.report import compute_portfolio_metrics, print_report, save_results, print_diagnostic_report
 
 
 def _detect_strategy_type(strategy_id: str) -> str:
@@ -41,6 +42,28 @@ def _detect_strategy_type(strategy_id: str) -> str:
             spec.loader.exec_module(mod)
             return getattr(mod, 'STRATEGY_TYPE', 'per_token')
     return 'per_token'
+
+
+def _load_strategy_module_attrs(strategy_id: str) -> dict:
+    """Load optional module-level attributes from strategy file.
+
+    Returns dict with keys: sizing_overrides, regime_params (if present).
+    """
+    import importlib.util
+    result = {}
+    strategies_dir = os.path.join(str(PROJECT_ROOT), "strategies")
+    for fname in os.listdir(strategies_dir):
+        if fname.startswith(strategy_id + "_") and fname.endswith(".py"):
+            fpath = os.path.join(strategies_dir, fname)
+            spec = importlib.util.spec_from_file_location(f"_attrs_{strategy_id}", fpath)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            if hasattr(mod, 'SIZING_OVERRIDES'):
+                result['sizing_overrides'] = mod.SIZING_OVERRIDES
+            if hasattr(mod, 'REGIME_PARAMS'):
+                result['regime_params'] = mod.REGIME_PARAMS
+            break
+    return result
 
 
 def parse_args() -> argparse.Namespace:
@@ -67,6 +90,10 @@ def parse_args() -> argparse.Namespace:
                         help="Output directory for JSON results")
     parser.add_argument("--market", type=str, default=None,
                         help="Override market type for all strategies (spot/perp/combined)")
+    parser.add_argument("--raw", action="store_true",
+                        help="Raw mode: skip portfolio constraints, use strategy's own sizing")
+    parser.add_argument("--skip-wf", action="store_true",
+                        help="Skip walk-forward masking (orthogonal to --raw)")
     return parser.parse_args()
 
 
@@ -85,12 +112,15 @@ def run_backtest(
     strategy_specs = {}
     for sid in strategy_ids:
         stype = _detect_strategy_type(sid)
+        mod_attrs = _load_strategy_module_attrs(sid)
         spec = StrategySpec(
             strategy_id=sid,
             weight=1.0 / len(strategy_ids),
             max_positions=config.max_portfolio_positions // len(strategy_ids) if len(strategy_ids) > 1 else config.max_portfolio_positions,
             market=config._market_overrides.get(sid, "combined") if hasattr(config, '_market_overrides') else "combined",
             strategy_type=stype,
+            sizing_overrides=mod_attrs.get('sizing_overrides', {}),
+            regime_params=mod_attrs.get('regime_params', None),
         )
         # Use the per-strategy max_positions from config if only 1 strategy
         if len(strategy_ids) == 1:
@@ -109,20 +139,9 @@ def run_backtest(
             precomputed_signals[sid] = signals
 
     # Run simulation
-    config_run = PortfolioConfig(
+    config_run = dataclasses.replace(config,
         strategies=list(strategy_specs.values()),
         capital=capital,
-        max_portfolio_positions=config.max_portfolio_positions,
-        concentration_limit=config.concentration_limit,
-        adv_cap_pct=config.adv_cap_pct,
-        min_position_usd=config.min_position_usd,
-        exchange=config.exchange,
-        base_spread_bps=config.base_spread_bps,
-        impact_coeff=config.impact_coeff,
-        seed=config.seed,
-        train_bars=config.train_bars,
-        recal_bars=config.recal_bars,
-        purge_bars=config.purge_bars,
     )
 
     print(f"\n  Simulating portfolio (capital=${capital:,.0f})...")
@@ -149,6 +168,8 @@ def main():
         adv_cap_pct=args.adv_cap,
         max_portfolio_positions=args.max_portfolio_positions,
         seed=args.seed,
+        raw_mode=args.raw,
+        skip_walk_forward=args.skip_wf,
     )
 
     print("=" * 70)
@@ -160,6 +181,13 @@ def main():
     print(f"  Exchange:   {args.exchange}")
     print(f"  Market:     {market}")
     print(f"  Seed:       {args.seed}")
+    if args.raw:
+        print(f"  Raw Mode:   ON (portfolio constraints disabled)")
+        if not args.skip_wf:
+            print(f"  NOTE: --raw without --skip-wf still burns {config.train_bars}h training window.")
+            print(f"         Add --skip-wf to use full data range for signal research.")
+    if args.skip_wf:
+        print(f"  Skip WF:    ON (walk-forward masking disabled)")
 
     # Infer data end date for deterministic backtesting
     data_end = infer_data_end_date(market)
@@ -169,12 +197,15 @@ def main():
     strategy_specs_for_precompute = {}
     for sid in strategy_ids:
         stype = _detect_strategy_type(sid)
+        mod_attrs = _load_strategy_module_attrs(sid)
         spec = StrategySpec(
             strategy_id=sid,
             weight=1.0 / len(strategy_ids),
             max_positions=args.max_positions,
             market=market,
             strategy_type=stype,
+            sizing_overrides=mod_attrs.get('sizing_overrides', {}),
+            regime_params=mod_attrs.get('regime_params', None),
         )
         if stype == "portfolio":
             print(f"  {sid}: detected as portfolio (Class B) strategy")
@@ -192,20 +223,9 @@ def main():
     # Run simulation(s)
     all_results = []
     for capital in capital_levels:
-        config_run = PortfolioConfig(
+        config_run = dataclasses.replace(config,
             strategies=[strategy_specs_for_precompute[sid] for sid in strategy_ids],
             capital=capital,
-            max_portfolio_positions=args.max_portfolio_positions,
-            concentration_limit=args.concentration,
-            adv_cap_pct=args.adv_cap,
-            min_position_usd=config.min_position_usd,
-            exchange=args.exchange,
-            base_spread_bps=config.base_spread_bps,
-            impact_coeff=config.impact_coeff,
-            seed=args.seed,
-            train_bars=config.train_bars,
-            recal_bars=config.recal_bars,
-            purge_bars=config.purge_bars,
         )
 
         print(f"\n  Simulating portfolio (capital=${capital:,.0f})...")
@@ -218,6 +238,7 @@ def main():
         all_results.append((capital, metrics, extra_info, state))
 
         print_report(metrics, extra_info, capital, strategy_ids)
+        print_diagnostic_report(state, all_precomputed, raw_mode=config.raw_mode)
 
         # Save results
         label = f"{'_'.join(strategy_ids)}_{args.months}mo_{int(capital/1000)}k"

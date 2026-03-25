@@ -1,0 +1,20 @@
+{
+  "BONK": {"chain": "sol", "address": "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"},
+  "WIF": {"chain": "sol", "address": "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm"},
+  "FARTCOIN": {"chain": "sol", "address": "9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump"},
+  "MOODENG": {"chain": "sol", "address": "ED5nyyWEzpPPiWimP8vYm7sD7TD3LAt3Q3gRTWHzPJBY"},
+  "PENGU": {"chain": "sol", "address": "2zMMhcVQEXDtdE6vsFS7S7D5oUodfJHE8vd1gnBouauv"},
+  "TRUMP": {"chain": "sol", "address": "6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN"},
+  "NEIRO": {"chain": "eth", "address": "0xee2a03aa6dacf51c18679c516ad5283d8e7c2637"},
+  "FLOKI": {"chain": "eth", "address": "0xcf0c122c6b73ff809c693db761e7baebe62b6a2e"},
+  "PEPE": {"chain": "eth", "address": "0x6982508145454ce325ddbe47a25d4ec3d2311933"},
+  "TURBO": {"chain": "eth", "address": "0xa35923162c49cf95e6bf26623385eb431ad920d3"},
+  "VIRTUAL": {"chain": "base", "address": "0x0b3e328455c4059EEb9e3f84b5543F74E24e7E1b"},
+  "JUP": {"chain": "sol", "address": "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN"},
+  "ORCA": {"chain": "sol", "address": "orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE"},
+  "DOGE": {"chain": "eth", "address": "native"},
+  "SHIB": {"chain": "eth", "address": "0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE"},
+  "DEXE": {"chain": "eth", "address": "0xde4EE8057785A7e8e800Db58F9784999aA1920680"},
+  "SPX": {"chain": "eth", "address": "0xe0f63a424a4439cbe457d80e4f4b51ad25b2c56c"},
+  "PIPPIN": {"chain": "sol", "address": "Dfm5RAsAuzNbBSTBMf4wTMkBQC5MmQQ7bvjMdU1Ppump"}
+}

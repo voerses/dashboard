@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict
-from typing import Optional
+from typing import Optional, Tuple
 
 
 # ---------------------------------------------------------------------------
@@ -65,6 +65,21 @@ NON_OVERRIDABLE = {
     "cap_pct_range",
     "adv_scaling_divisor",
 }
+
+
+@dataclass(frozen=True)
+class RegimeConfig:
+    """Custom regime detection parameters for per-strategy regime overrides."""
+    adx_threshold: float = 25.0
+    crisis_mult: float = 2.0
+    quiet_mult: float = 0.7
+    ema_pair: Tuple[int, int] = (20, 50)
+    min_periods: int = 60
+
+    def __post_init__(self):
+        # JSON parses lists not tuples; coerce to tuple for equality checks
+        if isinstance(self.ema_pair, list):
+            object.__setattr__(self, 'ema_pair', tuple(self.ema_pair))
 
 
 def resolve_sizing(defaults: SizingDefaults, overrides: dict) -> SizingDefaults:
@@ -150,6 +165,10 @@ class StrategySpec:
     exit_resolution: int = 0
     # Sizing parameter overrides (validated by resolve_sizing)
     sizing_overrides: dict = field(default_factory=dict)
+    # Custom regime detection parameters (None = use engine defaults)
+    regime_params: Optional[dict] = None
+    # Sizing model selection ("kelly" = default, extensible via sizing registry)
+    sizing_model: str = "kelly"
 
     @classmethod
     def from_dict(cls, d: dict) -> StrategySpec:
@@ -168,6 +187,8 @@ class StrategySpec:
             adv_sizing_floor=d.get("adv_sizing_floor", 0.20),
             exit_resolution=d.get("exit_resolution", 0),
             sizing_overrides=d.get("sizing_overrides", {}),
+            regime_params=d.get("regime_params", None),
+            sizing_model=d.get("sizing_model", "kelly"),
         )
 
 
@@ -199,3 +220,9 @@ class PortfolioConfig:
     min_conviction_threshold: float = 0.0  # skip entries below this conviction level (0 = no filter)
     max_sizing_equity: Optional[float] = None  # cap portfolio equity used for position sizing (None = uncapped)
     sizing_defaults: SizingDefaults = field(default_factory=SizingDefaults)
+    # Raw mode: skip portfolio constraints, use strategy's own sizing pipeline
+    raw_mode: bool = False
+    # Skip walk-forward masking (orthogonal to raw_mode)
+    skip_walk_forward: bool = False
+    # Safety cap for concurrent positions in raw mode
+    raw_max_positions: int = 500

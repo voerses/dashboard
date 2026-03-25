@@ -34,14 +34,14 @@ The dominant institutional strategy. Buy spot + short perpetual = collect fundin
 
 ### 1.2 Momentum / Trend Following
 
-The single most consistent edge in crypto at swing timeframes. Your own backtest data confirms this -- s28 momentum_burst_perp returned +3157% with Sharpe 5.2 in 12-month backtest, and s56 momentum carried the load in the March 2026 choppy market.
+The single most consistent edge in crypto at swing timeframes. **WARNING: s28's "+3157%, Sharpe 5.2" was pre-MTM (realized-only equity) — post-MTM: s60 (V4 rebuild of s28) = -70.5%. s56 momentum also lost -27.4% post-MTM.** All momentum strategies are currently losing in sideways market.
 
 **Expected Sharpe:** 2.0-5.0+ depending on timeframe and market regime
 **Critical requirement:** Must be bidirectional (perp shorts) to survive sideways markets. ALL spot-only momentum strategies lost money Jan-Mar 2026.
 
 **What's new in 2025-2026:**
 - Regime-gated momentum (your s51): Sharpe 2.9, avoids false signals in range-bound markets
-- Momentum + carry combination (your s58): Sharpe 7.29 -- the diversification benefit is enormous
+- Momentum + carry combination (your s58): **WARNING: Sharpe 7.29 was pre-MTM fiction. Post-MTM: s58 = -32.5%.**
 - Bidirectional burst strategies that catch short-duration moves in both directions
 
 ### 1.3 Basis / Carry Trades (ETF-Era)
@@ -197,7 +197,7 @@ Introduced by Marcos Lopez de Prado. Addresses three central issues of classical
 
 ### 3.4 Strategy Combination
 
-Your own s58 portfolio (s56 momentum + s57 carry) demonstrates the power of strategy combination: Sharpe 7.29 vs individual strategy Sharpes of ~3-5. The diversification benefit from combining uncorrelated strategy types is enormous.
+Your own s58 portfolio (s56 momentum + s57 carry) demonstrates the power of strategy combination. **WARNING: Sharpe 7.29 was pre-MTM fiction. Post-MTM: s58 = -32.5% (12mo).** The diversification thesis was correct but the numbers were artifacts of realized-only equity accounting.
 
 **Recommended combinations:**
 - Momentum + carry (your proven s58 approach)
@@ -490,7 +490,7 @@ Based on the research above and calibrated against your existing backtest result
 
 ## 10. Key Takeaways for Your System
 
-1. **Your s58 (momentum + carry) combination at Sharpe 7.29 is world-class.** 1Token benchmarks show top teams achieving Sharpe 3-10 on funding arb alone. Your combination approach outperforms most institutional desks.
+1. **WARNING: s58 Sharpe 7.29 was pre-MTM fiction. Post-MTM: s58 = -32.5%.** 1Token benchmarks show top teams achieving Sharpe 3-10 on funding arb alone. Our s62/s65 carry strategies are the only ones positive post-MTM (+9.6% and +4.9% respectively).
 
 2. **All spot-only strategies losing money in sideways markets is the critical finding.** The industry is moving entirely toward perp-based and combined strategies. Your system is already ahead of this curve.
 

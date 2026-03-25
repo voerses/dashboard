@@ -17,25 +17,25 @@ Before proposing a strategy, know what tools and strategy types exist.
 
 | Type | Module | Example | Validated? |
 |------|--------|---------|------------|
-| Per-token signal | `strategies/sNN_*.py` | s11 momentum burst (Sharpe 2.58) | Yes — 6 Tier A |
-| Per-token perp | `strategies/sNN_*.py` | s29 funding carry (Sharpe 0.81, market-neutral) | Yes — Tier B |
-| Combined spot+perp | `strategies/sNN_*.py` | s30 basis carry (Sharpe 2.63, Calmar 12.76) | Yes — 3 Tier A |
-| Cross-sectional ranking | `v3/cross_sectional.py` | Long top quintile by 14d return (Sharpe 1.54, corr +0.25 vs S11) | Yes — Tier A diversifier |
-| Sector rotation | `v3/sector_rotation.py` | Long top 2 of 10 sectors by category momentum (Sharpe 1.31, corr +0.20) | Yes — Tier A diversifier |
-| Pairs / stat arb | `v3/pairs_trading.py` | Cointegrated pairs on perps, z-score entry (Sharpe 0.42, corr -0.06) | Yes — Tier B diversifier |
+| Per-token signal | `strategies/sNN_*.py` | s11 momentum burst (Sharpe 2.58 PRE-MTM -- likely inflated) | Yes — 6 Tier A |
+| Per-token perp | `strategies/sNN_*.py` | s29 funding carry (Sharpe 0.81 PRE-MTM -- likely inflated, market-neutral) | Yes — Tier B |
+| Combined spot+perp | `strategies/sNN_*.py` | s30 basis carry (Sharpe 2.63, Calmar 12.76 PRE-MTM -- likely inflated) | Yes — 3 Tier A |
+| Cross-sectional ranking | `v3/cross_sectional.py` | Long top quintile by 14d return (Sharpe 1.54 PRE-MTM -- likely inflated, corr +0.25 vs S11) | Yes — Tier A diversifier |
+| Sector rotation | `v3/sector_rotation.py` | Long top 2 of 10 sectors by category momentum (Sharpe 1.31 PRE-MTM -- likely inflated, corr +0.20) | Yes — Tier A diversifier |
+| Pairs / stat arb | `v3/pairs_trading.py` | Cointegrated pairs on perps, z-score entry (Sharpe 0.42 PRE-MTM -- likely inflated, corr -0.06) | Yes — Tier B diversifier |
 
 ### Overlays (Improve Existing Strategies)
 
 | Overlay | Module | Effect |
 |---------|--------|--------|
-| Regime weighting | `v3/regime_analysis.py` | Scale allocation by BTC regime. S11+S09: Sharpe +0.29, DD +4.5pp |
-| Signal agreement | `v3/signal_agreement.py` | AND/N-of-M gating. S11+S09 AND: trades -66%, Calmar +0.46, DD +6.7pp |
-| Regime sizing (O2) | wrapper strategy | `size_multiplier` per regime. s34 (s11+O2+O3): Sharpe +0.27, PF +0.08 |
+| Regime weighting | `v3/regime_analysis.py` | Scale allocation by BTC regime. S11+S09: Sharpe +0.29, DD +4.5pp (PRE-MTM -- likely inflated) |
+| Signal agreement | `v3/signal_agreement.py` | AND/N-of-M gating. S11+S09 AND: trades -66%, Calmar +0.46, DD +6.7pp (PRE-MTM -- likely inflated) |
+| Regime sizing (O2) | wrapper strategy | `size_multiplier` per regime. s34 (s11+O2+O3): Sharpe +0.27, PF +0.08 (PRE-MTM -- likely inflated) |
 | Weekend reduction (O3) | wrapper strategy | Reduce size Fri 20:00–Sun 20:00. Part of s34 wrapper |
-| Time-decayed trail | wrapper strategy | Tighten stop by hold time. s69 (s56): Calmar +33%. s72 (s65): Calmar +148% |
-| Fixed take-profit | wrapper strategy | Lock in profits at Nx ATR. s75 (s63, TP=3x): Calmar +17.6% |
-| Partial profit-taking | engine field | Close fraction at target, trail remainder. s76 (s56): +8.9% solo |
-| Dynamic regime weights | `v4/dynamic_weights.py` | Per-tick strategy weighting by regime. super5-dyn: +28% return |
+| Time-decayed trail | wrapper strategy | Tighten stop by hold time. s69 (s56): Calmar +33% (PRE-MTM -- likely inflated). s72 (s65): Calmar +148% (PRE-MTM -- likely inflated) |
+| Fixed take-profit | wrapper strategy | Lock in profits at Nx ATR. s75 (s63, TP=3x): Calmar +17.6% (PRE-MTM -- likely inflated) |
+| Partial profit-taking | engine field | Close fraction at target, trail remainder. s76 (s56): +8.9% solo (PRE-MTM -- likely inflated) |
+| Dynamic regime weights | `v4/dynamic_weights.py` | Per-tick strategy weighting by regime. super5-dyn: +28% return (PRE-MTM -- likely inflated) |
 | Conviction entry scoring | `v4/simulator.py` | Rank entries by conviction (from size_multiplier). 0% seed sensitivity |
 
 **Overlay implementation rule (AIPIP-0018):** NEVER modify base strategies. Create a new
@@ -75,6 +75,9 @@ each other. Skip directional overlays at Gate 0 for delta-neutral bases.
 |-------|---------|---------|
 | `conviction_mode` | `"shuffle"` | Entry ordering: `shuffle` (random), `ranked` (conviction descending), `hybrid` (3 tiers) |
 | `min_conviction_threshold` | `0.0` | Skip entries below this conviction score |
+
+> **Sizing deep dive:** `knowledge/V4_SIZING_PIPELINE.md` — full pipeline reference covering all three configuration layers, exact formulas, ADV curve, entry rejection order, and common sizing patterns.
+> **Researcher ground rules:** `knowledge/RESEARCHER_BEST_PRACTICES.md` — complete parameter catalog (9 layers, every configurable vs hardcoded param) + 12 ground rules with project examples (no spot overleverage, no look-ahead bias, non-overlapping IC, etc.).
 
 ### Paper Trader Operations
 
@@ -216,10 +219,10 @@ for independent portfolio strategies and per-token robustness testing.
 
 | Strategy | Base | Overlay | Key Result |
 |----------|------|---------|------------|
-| s37 momentum_trail | s11 | O5 trail | Sharpe +0.477, 65/69 token wins |
-| s39 trend_trail | s09 | O5 trail | Sharpe +0.819, rate 36→59% |
-| s44 basis_carry_trail | s30 | O5 trail | Sharpe +1.448, MaxDD halved |
-| s54 turbo_carry | s44 | 2x sizing + cap_mult=15 | +160%/yr, paper trading |
+| s37 momentum_trail | s11 | O5 trail | Sharpe +0.477, 65/69 token wins (PRE-MTM -- likely inflated) |
+| s39 trend_trail | s09 | O5 trail | Sharpe +0.819, rate 36→59% (PRE-MTM -- likely inflated) |
+| s44 basis_carry_trail | s30 | O5 trail | Sharpe +1.448, MaxDD halved (PRE-MTM -- likely inflated) |
+| s54 turbo_carry | s44 | 2x sizing + cap_mult=15 | +160%/yr (PRE-MTM -- likely inflated), paper trading |
 | s57 signal_timed_carry | s44 | Signal discovery timing | Paper trading |
 | s58 multi_strategy | s44+ | Multi-signal composite | Paper trading |
 
@@ -236,9 +239,9 @@ for independent portfolio strategies and per-token robustness testing.
 
 ### Portfolio Assembly (Gate 5.5 Result)
 
-**Recommended 4-strategy allocation (Sharpe ~4.7, MaxDD ~-4%):**
+**Recommended 4-strategy allocation (Sharpe ~4.7, MaxDD ~-4% PRE-MTM -- likely inflated):**
 
-| Strategy | Weight | Solo Sharpe | Marginal Sharpe | Corr vs S11 | Role |
+| Strategy | Weight | Solo Sharpe (PRE-MTM) | Marginal Sharpe (PRE-MTM) | Corr vs S11 | Role |
 |----------|--------|-------------|-----------------|-------------|------|
 | s30 Basis Carry | 40% | 5.47 | +0.95 | +0.21 | Core — delta-neutral arb, regime-stable |
 | s32 Regime Spot/Perp | 25% | 3.01 | +0.41 | +0.25 | Complementary — negative beta hedge |
@@ -562,12 +565,12 @@ but required for portfolio complement test at V4-Gate 5.
 
 **V4 reference strategies:**
 
-| Strategy | V4 12mo | OOS Jan-Mar | March | Role |
-|----------|---------|-------------|-------|------|
-| s58 (s56+s57) | +1717% | +66% | +66% | Production baseline |
-| s28 momentum_burst_perp | +3157% | +157% | — | V4 candidate (failed V3) |
-| s27 funding_mean_rev | — | — | +$16K | Best March performer |
-| s29 funding_carry | +269% | +50% | — | Regime-stable, low corr |
+| Strategy | V4 12mo (PRE-MTM) | **POST-MTM** | Role |
+|----------|---------|-------------|------|
+| s58 (s56+s57) | +1717% (FICTION) | **-32.5%** | Production baseline (LOSING) |
+| s60 (V4 rebuild of s28) | +3157% (FICTION) | **-70.5%** | DEAD |
+| s62 conservative_carry | N/A | **+9.6%** | Tier A (only profitable) |
+| s65 funding_carry | +269% (inflated) | **+4.9%** | Tier A (paper confirmed) |
 
 > Deep dive: `knowledge/process/STRATEGY_PIPELINE_GATES.md` (V4 OOS test template)
 
@@ -616,7 +619,7 @@ the full deployment checklist. Do NOT set `gate6` until the strategy is confirme
 **Expected degradation (Suhonen et al. 2017):**
 - 215 strategies across 17 banks: **median 73% Sharpe deterioration**
 - Budget **50-60% Sharpe degradation** backtest → live
-- s58 example: backtest Sharpe 7.29 → expected live **2.9-4.4**
+- s58 example: backtest Sharpe 7.29 (PRE-MTM -- likely inflated) → expected live **2.9-4.4**
 
 **Acceptable Degradation:**
 
