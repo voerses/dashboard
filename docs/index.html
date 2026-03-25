@@ -1,10 +1,13 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-generated-at="2026-03-25T06:04:14Z" data-source="runner" data-pools="1">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Paper Trading Dashboard — Live</title>
-<script src="plotly-2.27.0.min.js"></script>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>Paper Trading Dashboard V2</title>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
 body { font-family:-apple-system,'Segoe UI',system-ui,sans-serif; background:#0a0e17; color:#c9d1d9; font-size:13px; }
@@ -12,18 +15,6 @@ body { font-family:-apple-system,'Segoe UI',system-ui,sans-serif; background:#0a
 .header { background:#0d1117; padding:12px 20px; border-bottom:1px solid #21262d; display:flex; justify-content:space-between; align-items:center; position:sticky; top:0; z-index:100; }
 .header h1 { font-size:1.1em; color:#bc8cff; font-weight:600; }
 .header .meta { color:#484f58; font-size:0.75em; }
-
-.conn-status { display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:12px; font-size:0.75em; font-weight:700; }
-.conn-status .dot { width:8px; height:8px; border-radius:50%; }
-.conn-status.live { background:#0d3520; color:#3fb950; }
-.conn-status.live .dot { background:#3fb950; animation:pulse 2s infinite; }
-.conn-status.offline { background:#3d1418; color:#f85149; }
-.conn-status.offline .dot { background:#f85149; }
-.conn-status.stale { background:#2d1f0e; color:#d29922; }
-.conn-status.stale .dot { background:#d29922; }
-.conn-status.busy { background:#1c2541; color:#58a6ff; }
-.conn-status.busy .dot { background:#58a6ff; animation:pulse 1s infinite; }
-@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
 
 .stale-banner { background:#5c0a0a; border:1px solid #f85149; color:#f85149; padding:8px 20px; font-size:0.85em; font-weight:600; display:none; }
 .stale-banner.visible { display:block; }
@@ -52,6 +43,7 @@ body { font-family:-apple-system,'Segoe UI',system-ui,sans-serif; background:#0a
 .card { background:#161b22; border:1px solid #21262d; border-radius:6px; }
 .chart { padding:8px; }
 
+/* Fund allocation panel */
 .fund-panel { display:grid; grid-template-columns:1fr 1fr; gap:12px; padding:12px; }
 .fund-bar { height:20px; border-radius:4px; display:flex; overflow:hidden; margin:6px 0; }
 .fund-bar .spot { background:#1f6feb; } .fund-bar .perp { background:#d29922; }
@@ -63,20 +55,16 @@ body { font-family:-apple-system,'Segoe UI',system-ui,sans-serif; background:#0a
 .pill.long { background:#0d3520; color:#3fb950; } .pill.short { background:#3d1418; color:#f85149; }
 .pill.spot { background:#1a2332; color:#58a6ff; } .pill.perp { background:#2d1f0e; color:#d29922; }
 
-/* view toggle removed */
+.view-toggle { display:flex; gap:4px; }
+.view-btn { padding:5px 14px; border-radius:6px; cursor:pointer; background:transparent; color:#8b949e; border:1px solid #21262d; font-size:0.8em; font-weight:600; transition:all 0.15s; }
+.view-btn:hover { color:#c9d1d9; border-color:#30363d; }
+.view-btn.active { background:#d29922; color:#000; border-color:#d29922; }
 
 table { width:100%; border-collapse:collapse; }
 th { background:#161b22; color:#484f58; padding:6px 8px; text-align:left; font-weight:600; font-size:0.65em; text-transform:uppercase; letter-spacing:0.5px; position:sticky; top:0; }
 td { padding:5px 8px; border-bottom:1px solid #161b22; font-size:0.8em; }
 tr:hover { background:#1c2128; }
 tr.trade-row { cursor:pointer; }
-
-@keyframes priceFlashUp { 0%{background:rgba(63,185,80,0.25);color:#3fb950} 100%{background:transparent;color:inherit} }
-@keyframes priceFlashDown { 0%{background:rgba(248,81,73,0.25);color:#f85149} 100%{background:transparent;color:inherit} }
-.live-price.flash-up { animation:priceFlashUp 1.2s ease-out; }
-.live-price.flash-down { animation:priceFlashDown 1.2s ease-out; }
-.price-arrow { font-size:0.7em; margin-left:2px; font-weight:700; opacity:1; transition:opacity 1.5s ease-out; }
-.price-arrow.fade { opacity:0; }
 
 .tbl-wrap { overflow-x:auto; max-height:700px; overflow-y:auto; }
 .frow { display:flex; gap:3px; margin-bottom:8px; }
@@ -95,33 +83,26 @@ tr.trade-row { cursor:pointer; }
 
 <div class="header">
     <div style="display:flex;align-items:center;gap:16px">
-        <h1>Paper Trading Dashboard — Live</h1>
+        <h1>Paper Trading Dashboard V2</h1>
+        <div class="view-toggle">
+            <div class="view-btn active" id="vb-trading" onclick="switchView('trading')">Trading</div>
+            <div class="view-btn" id="vb-sentinel" onclick="switchView('sentinel')">Sentinel</div>
+        </div>
     </div>
-    <div style="display:flex;align-items:center;gap:12px">
-        <div class="conn-status stale" id="conn-indicator"><span class="dot"></span><span id="conn-label">CONNECTING</span></div>
-        <div class="meta" id="hdr-time">Updated: —</div>
-    </div>
+    <div class="meta" id="hdr-time">Updated: 2026-03-25T06:04:14Z</div>
 </div>
 <div class="stale-banner" id="stale-banner">
-    Data is stale — no updates from runner. Check if paper trading engine is running.
+    Data is stale — last update was more than 2 hours ago. Check paper trading engine.
 </div>
 <div class="sim-tabs" id="sim-tabs"></div>
 <div id="app"></div>
 
 <script>
-/* ---- State ---- */
-let SIMS = [];
-let activeSim = 0;
-let _lastModified = null;
-let _lastGeneratedAt = null;
-let _pollErrors = 0;
-let _chartExists = false;
-let _prevPrices = {};
-let _lastTradeCount = -1;
-let _lastOpenCount = -1;
-let _renderScheduled = false; // RAF coalescing flag
+const SIMS = [{"id":"paper_trading","name":"paper_trading","capital":200000.0,"strategies":[{"id":"paper_trading","name":"paper_trading","weight":0,"final_equity":200000.0,"trade_count":0,"open_positions":0,"strategies":[],"exit_resolution":"hourly","strategy_resolutions":{}}],"all_trades":[],"equity_history":[{"timestamp":"2026-03-24T22:21:04Z","mark_to_market_equity":200000.0},{"timestamp":"2026-03-24T22:35:08Z","mark_to_market_equity":200000.0},{"timestamp":"2026-03-24T22:40:43Z","mark_to_market_equity":200000.0},{"timestamp":"2026-03-24T23:04:39Z","mark_to_market_equity":200000.0},{"timestamp":"2026-03-25T00:04:26Z","mark_to_market_equity":200000.0},{"timestamp":"2026-03-25T01:04:29Z","mark_to_market_equity":200000.0},{"timestamp":"2026-03-25T02:03:42Z","mark_to_market_equity":200000.0},{"timestamp":"2026-03-25T03:04:30Z","mark_to_market_equity":200000.0},{"timestamp":"2026-03-25T04:04:15Z","mark_to_market_equity":200000.0},{"timestamp":"2026-03-25T05:04:36Z","mark_to_market_equity":200000.0},{"timestamp":"2026-03-25T06:04:09Z","mark_to_market_equity":200000.0}],"shadow_pools":{"spot_funds":0.0,"perp_funds":0.0,"spot_deployed":0.0,"perp_deployed":0.0,"imbalance_pct":0.0,"blocked_entries_count":0},"rebalance_history":[],"last_updated":"2026-03-25T06:04:09Z","is_stale":false,"tick_counter":11,"portfolio_equity":200000.0,"open_positions":0,"realized_pnl":0.0,"total_fees":0.0,"total_funding":0.0,"sentinel_events":[],"sentinel_heartbeat":{},"sentinel_metrics":{},"sentinel_summary":{"total_breaches":0,"wick_filters":0,"true_positives":0,"false_triggers":0},"sentinel_strategy_breakdown":{},"sentinel_reconciliation":{"records":[],"total_savings":0.0,"avg_savings":0.0,"sentinel_better_count":0,"matched_count":0}}];
+let activeSim = (() => {const h=decodeURIComponent(location.hash.slice(1)); if(!h) return 0; const i=SIMS.findIndex(s=>s.name===h); return i>=0?i:0;})();
+/* Convert header time to user locale */
+{const el=document.getElementById('hdr-time');if(el){const m=el.textContent.match(/Updated:\s*(.+)/);if(m){const d=new Date(m[1]);if(!isNaN(d))el.textContent='Updated: '+d.toLocaleString();}}}
 
-/* ---- Formatters ---- */
 const DK = {
     paper_bgcolor:'transparent', plot_bgcolor:'transparent',
     font:{color:'#8b949e',size:10},
@@ -131,248 +112,39 @@ const DK = {
     legend:{bgcolor:'transparent',font:{color:'#8b949e',size:10},orientation:'h',y:-0.15},
 };
 
-const fmt = v => (+v||0).toLocaleString(undefined,{maximumFractionDigits:0});
-const fmtUsd = v => { v=+v||0; const a = Math.abs(v); const s = v<0?'-$':'$'; return s+a.toLocaleString(undefined,{maximumFractionDigits:0}); };
-const fmtPct = v => ((+v||0)>=0?'+':'')+((+v||0)).toFixed(1)+'%';
-const pc = v => (v??0)>=0?'g':'r';
-const fmtPrice = v => {if(v===null||v===undefined) return '-'; v=+v; if(!v) return '$0.00'; if(v>=1000) return '$'+v.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); if(v>=100) return '$'+v.toFixed(2); if(v>=1) return '$'+v.toFixed(4); if(v>=0.01) return '$'+v.toFixed(6); return '$'+v.toPrecision(4);};
+const fmt = v => v.toLocaleString(undefined,{maximumFractionDigits:0});
+const fmtUsd = v => { const a = Math.abs(v); const s = v<0?'-$':'$'; return s+a.toLocaleString(undefined,{maximumFractionDigits:0}); };
+const fmtPct = v => (v>=0?'+':'')+v.toFixed(1)+'%';
+const pc = v => v>=0?'g':'r';
+const fmtPrice = v => {if(!v) return '-'; if(v>=1000) return '$'+v.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); if(v>=100) return '$'+v.toFixed(2); if(v>=1) return '$'+v.toFixed(4); if(v>=0.01) return '$'+v.toFixed(6); return '$'+v.toPrecision(4);};
 
-/* ---- Connection status ---- */
-let _runnerStatus = 'idle';
-function updateConnStatus(status, label_override) {
-    const el = document.getElementById('conn-indicator');
-    const label = document.getElementById('conn-label');
-    el.className = 'conn-status ' + status;
-    if (label_override) label.textContent = label_override;
-    else if (status === 'live') label.textContent = 'LIVE';
-    else if (status === 'stale') label.textContent = 'STALE';
-    else if (status === 'busy') label.textContent = 'BUSY';
-    else label.textContent = 'OFFLINE';
-}
-
-/* ---- Staleness check (called when data hasn't changed) ---- */
-function _checkStaleness() {
-    if (!_lastGeneratedAt) return;
-    const age = (Date.now() - new Date(_lastGeneratedAt).getTime()) / 1000;
-    // Runner is actively fetching/ticking — show busy, not stale
-    if (_runnerStatus === 'fetching' || _runnerStatus === 'ticking') {
-        if (age > 10) {
-            const label = _runnerStatus === 'fetching' ? 'FETCHING' : 'TICKING';
-            updateConnStatus('busy', label);
-        }
-        return;
-    }
-    if (age > 10) updateConnStatus('stale');
-    if (age > 60) {
-        document.getElementById('stale-banner').classList.add('visible');
-    }
-}
-
-/* ---- Resolve state.json URL relative to page (ngrok-safe) ---- */
-const _stateUrl = new URL('../data/state.json', window.location.href).href;
-
-/* ---- Render scheduling (RAF coalescing — never blocks click events) ---- */
-let _fullRenderNeeded = true;
-function scheduleRender() {
-    if (_renderScheduled) return;
-    _renderScheduled = true;
-    requestAnimationFrame(() => {
-        _renderScheduled = false;
-        try {
-            renderTabs();
-            if (_fullRenderNeeded) {
-                render();
-                _fullRenderNeeded = false;
-            } else {
-                updateLiveData();
-            }
-        } catch(e) {
-            console.error('Render error:', e);
-        }
-    });
-}
-
-/* ---- Polling ---- */
-async function pollState() {
-    try {
-        const headers = {};
-        if (_lastModified) headers['If-Modified-Since'] = _lastModified;
-        const resp = await fetch(_stateUrl, {headers});
-        if (resp.status === 304) {
-            _checkStaleness();
-            return;
-        }
-        if (!resp.ok) {
-            _pollErrors++;
-            if (_pollErrors > 3) updateConnStatus('offline');
-            return;
-        }
-        _pollErrors = 0;
-        _lastModified = resp.headers.get('Last-Modified');
-        const state = await resp.json();
-        if (state.generated_at === _lastGeneratedAt) {
-            _checkStaleness();
-            return;
-        }
-        _runnerStatus = state.runner_status || 'idle';
-        if (_runnerStatus === 'fetching' || _runnerStatus === 'ticking') {
-            const label = _runnerStatus === 'fetching' ? 'FETCHING' : 'TICKING';
-            updateConnStatus('busy', label);
-        } else {
-            updateConnStatus('live');
-        }
-        _lastGeneratedAt = state.generated_at;
-        document.getElementById('stale-banner').classList.remove('visible');
-
-        // Update header time
-        const timeEl = document.getElementById('hdr-time');
-        try { timeEl.textContent = 'Updated: ' + new Date(state.generated_at).toLocaleString(); }
-        catch(e) { timeEl.textContent = 'Updated: ' + state.generated_at; }
-
-        // Coerce numeric fields that may arrive as strings
-        (state.portfolios || []).forEach(p => {
-            p.portfolio_equity = parseFloat(p.portfolio_equity) || 0;
-            p.capital = parseFloat(p.capital) || 0;
-            p.realized_pnl = parseFloat(p.realized_pnl) || 0;
-            p.total_fees = parseFloat(p.total_fees) || 0;
-            p.total_funding = parseFloat(p.total_funding) || 0;
-            (p.strategies || []).forEach(st => { st.final_equity = parseFloat(st.final_equity) || 0; });
-            (p.all_trades || []).forEach(t => {
-                t.unrealized_pnl = parseFloat(t.unrealized_pnl) || 0;
-                t.pnl = parseFloat(t.pnl) || 0;
-                t.current_price = parseFloat(t.current_price) || 0;
-                t.entry_price = parseFloat(t.entry_price) || 0;
-                t.margin_usd = parseFloat(t.margin_usd) || 0;
-                t.cumulative_funding = parseFloat(t.cumulative_funding) || 0;
-                t.entry_fee = parseFloat(t.entry_fee) || 0;
-                t.exit_fee = parseFloat(t.exit_fee) || 0;
-                t.funding_cost = parseFloat(t.funding_cost) || 0;
-                t.stop_price = parseFloat(t.stop_price) || 0;
-                t.exit_price = parseFloat(t.exit_price) || 0;
-            });
-            (p.equity_history || []).forEach(e => {
-                e.portfolio_equity = parseFloat(e.portfolio_equity) || 0;
-                e.mark_to_market_equity = parseFloat(e.mark_to_market_equity) || 0;
-            });
-        });
-
-        // Map portfolios to SIMS format
-        SIMS = state.portfolios || [];
-        if (activeSim >= SIMS.length) activeSim = 0;
-
-        // Detect structural changes (new trades opened/closed) → full render
-        const s = SIMS[activeSim];
-        if (s) {
-            const tc = (s.all_trades || []).length;
-            const oc = s.open_positions || 0;
-            if (tc !== _lastTradeCount || oc !== _lastOpenCount) _fullRenderNeeded = true;
-            _lastTradeCount = tc;
-            _lastOpenCount = oc;
-        }
-
-        // Schedule render on next animation frame (never blocks click events)
-        scheduleRender();
-    } catch(e) {
-        _pollErrors++;
-        if (_pollErrors > 5) updateConnStatus('offline');
-    }
-}
-
-// Start polling
-setInterval(pollState, 1000);
-pollState();
-
-/* ---- Tabs (event delegation — click always works) ---- */
-document.getElementById('sim-tabs').addEventListener('click', function(e) {
-    const tab = e.target.closest('[data-tab]');
-    if (!tab) return;
-    const i = parseInt(tab.getAttribute('data-tab'), 10);
-    if (i === activeSim || isNaN(i)) return;
-    switchSim(i);
-});
+/* ---- Tabs ---- */
 function renderTabs() {
-    const container = document.getElementById('sim-tabs');
-    // DOM reconciliation: add/remove individual tabs (never innerHTML)
-    while (container.children.length > SIMS.length) {
-        container.removeChild(container.lastChild);
-    }
-    while (container.children.length < SIMS.length) {
-        const tab = document.createElement('div');
-        tab.className = 'stab';
-        tab.setAttribute('data-tab', container.children.length);
-        tab.innerHTML = '<div class="tab-name"></div><div class="tab-pnl"></div><div class="tab-row"><span class="tab-equity"></span><span class="tab-days"></span></div>';
-        container.appendChild(tab);
-    }
-    SIMS.forEach((s,i) => {
-        const tab = container.children[i];
-        if (!tab) return;
-        if (tab.getAttribute('data-tab') !== String(i)) tab.setAttribute('data-tab', String(i));
-        const nameEl = tab.querySelector('.tab-name');
-        if (nameEl.textContent !== s.name) nameEl.textContent = s.name;
-        const cap = +s.capital||200000;
-        const openUnreal = (s.all_trades||[]).filter(t=>t.status==='open').reduce((a,t)=>a+(+t.unrealized_pnl||0),0);
-        const mtm = (+s.portfolio_equity||cap) + openUnreal;
+    document.getElementById('sim-tabs').innerHTML = SIMS.map((s,i) => {
+        const eh = s.equity_history||[];
+        const cap = s.capital||200000;
+        const openUnreal = (s.all_trades||[]).filter(t=>t.status==='open').reduce((a,t)=>a+(t.unrealized_pnl||0),0);
+        const mtm = (s.portfolio_equity||cap) + openUnreal;
         const pnlPct = cap > 0 ? (mtm - cap) / cap * 100 : 0;
         const pnlStr = (pnlPct >= 0 ? '+' : '') + pnlPct.toFixed(1) + '%';
-        const wantCls = 'stab' + (i===activeSim?' active':'');
-        if (tab.className !== wantCls) tab.className = wantCls;
-        const pnlEl = tab.querySelector('.tab-pnl');
-        if (pnlEl.textContent !== pnlStr) pnlEl.textContent = pnlStr;
-        const wantPnlCls = 'tab-pnl ' + (pnlPct >= 0 ? 'pos' : 'neg');
-        if (pnlEl.className !== wantPnlCls) pnlEl.className = wantPnlCls;
-        const eqStr = '$'+(mtm/1000).toFixed(1)+'k';
-        const eqEl = tab.querySelector('.tab-equity');
-        if (eqEl.textContent !== eqStr) eqEl.textContent = eqStr;
-        const eh = s.equity_history||[];
-        const daysEl = tab.querySelector('.tab-days');
-        let dStr = '';
+        const pnlCls = pnlPct >= 0 ? 'pos' : 'neg';
+        let daysStr = '';
         if (eh.length > 0) {
             const first = new Date(eh[0].timestamp);
-            dStr = Math.max(0, Math.floor((Date.now() - first.getTime()) / 86400000)) + 'd';
+            const days = Math.max(0, Math.floor((Date.now() - first.getTime()) / 86400000));
+            daysStr = days + 'd';
         }
-        if (daysEl.textContent !== dStr) daysEl.textContent = dStr;
-    });
+        return `<div class="stab ${i===activeSim?'active':''}" onclick="switchSim(${i})">
+            <div class="tab-name">${s.name}</div>
+            <div class="tab-pnl ${pnlCls}">${pnlStr}</div>
+            <div class="tab-row">
+                <span class="tab-equity">$${(mtm/1000).toFixed(1)}k</span>
+                ${daysStr ? `<span class="tab-days">${daysStr}</span>` : ''}
+            </div>
+        </div>`;
+    }).join('');
 }
-function switchSim(i) {
-    activeSim=i;
-    _fullRenderNeeded=true;
-    _lastTradeCount=-1;
-    _lastOpenCount=-1;
-    _chartExists=false;
-    renderTabs();
-    try { render(); } catch(e) { console.error('Render error on tab switch:', e); }
-}
-
-/* ---- Incremental update (no DOM rebuild, preserves scroll) ---- */
-function updateLiveData() {
-    if (!SIMS.length) return;
-    const s = SIMS[activeSim];
-    const trades = s.all_trades || [];
-    const openTrades = trades.filter(t => t.status === 'open');
-    const closedTrades = trades.filter(t => t.status !== 'open');
-    const nT = closedTrades.length;
-    const nW = closedTrades.filter(t => (t.pnl || 0) > 0).length;
-    const nOpen = s.open_positions || 0;
-    const unrealizedPnl = openTrades.reduce((a, t) => a + (t.unrealized_pnl || 0), 0);
-    const equity = s.portfolio_equity || s.capital;
-    const mtmEquity = equity + unrealizedPnl;
-    const totalInvested = openTrades.reduce((a, t) => a + (t.margin_usd || 0), 0);
-    const investedPct = mtmEquity > 0 ? (totalInvested / mtmEquity * 100) : 0;
-    const totalPnl = s.realized_pnl !== undefined ? s.realized_pnl : 0;
-
-    // Update KPIs in-place
-    const kpis = document.querySelectorAll('.kpi .val');
-    if (kpis.length >= 1) { kpis[0].className = 'val ' + pc(mtmEquity - s.capital); kpis[0].innerHTML = '$' + fmt(mtmEquity) + '<div style="font-size:0.45em;color:#484f58;margin-top:2px">start $' + fmt(s.capital) + '</div>'; }
-    if (kpis.length >= 2) { kpis[1].innerHTML = '$' + fmt(totalInvested) + '<div style="font-size:0.45em;color:#484f58;margin-top:2px">' + investedPct.toFixed(1) + '% of equity &middot; ' + nOpen + ' pos</div>'; }
-    if (kpis.length >= 3) { kpis[2].className = 'val ' + pc(totalPnl); kpis[2].innerHTML = fmtUsd(totalPnl); }
-    if (kpis.length >= 4) { kpis[3].className = 'val ' + pc(unrealizedPnl); kpis[3].innerHTML = fmtUsd(unrealizedPnl); }
-
-    // Update trade table
-    renderTrades(trades, curFilter);
-
-    // Update equity chart
-    drawEquity();
-}
+function switchSim(i) { activeSim=i; location.hash=encodeURIComponent(SIMS[i].name); renderTabs(); render(); }
 
 /* ---- Imbalance color ---- */
 function imbClass(pct) {
@@ -383,10 +155,6 @@ function imbClass(pct) {
 
 /* ---- Main render ---- */
 function render() {
-    if (!SIMS.length) {
-        document.getElementById('app').innerHTML = '<div style="padding:60px;text-align:center;color:#484f58;font-size:1.1em">Waiting for data from runner...</div>';
-        return;
-    }
     const s = SIMS[activeSim];
     const trades = s.all_trades||[];
     const closedTrades = trades.filter(t=>t.status!=='open');
@@ -394,14 +162,15 @@ function render() {
     const nT = closedTrades.length;
     const nW = closedTrades.filter(t=>(t.pnl||0)>0).length;
     const wr = nT>0?(nW/nT*100):0;
-    const totalPnl = +(s.realized_pnl ?? trades.reduce((a,t)=>a+(+t.pnl||0),0)) || 0;
-    const closedFees = +(s.total_fees ?? closedTrades.reduce((a,t)=>a+(+t.entry_fee||0)+(+t.exit_fee||0),0)) || 0;
-    const openFees = openTrades.reduce((a,t)=>a+(+t.entry_fee||0),0);
+    const totalPnl = s.realized_pnl !== undefined ? s.realized_pnl : trades.reduce((a,t)=>a+(t.pnl||0),0);
+    // Fees & funding from state.json (engine source of truth)
+    const closedFees = s.total_fees !== undefined ? s.total_fees : closedTrades.reduce((a,t)=>a+(t.entry_fee||0)+(t.exit_fee||0),0);
+    const openFees = openTrades.reduce((a,t)=>a+(t.entry_fee||0),0);
     const totalFees = closedFees + openFees;
-    const closedFunding = +(s.total_funding ?? closedTrades.reduce((a,t)=>a+(+t.funding_cost||0),0)) || 0;
-    const openFunding = openTrades.reduce((a,t)=>a+(+t.cumulative_funding||0),0);
+    const closedFunding = s.total_funding !== undefined ? s.total_funding : closedTrades.reduce((a,t)=>a+(t.funding_cost||0),0);
+    const openFunding = openTrades.reduce((a,t)=>a+(t.cumulative_funding||0),0);
     const totalFunding = closedFunding + openFunding;
-    const equity = +s.portfolio_equity || +s.capital || 0;
+    const equity = s.portfolio_equity || s.capital;
     const returnPct = s.capital>0 ? (equity - s.capital)/s.capital*100 : 0;
     const nOpen = s.open_positions || 0;
 
@@ -410,13 +179,13 @@ function render() {
     if (s.is_stale) banner.classList.add('visible');
     else banner.classList.remove('visible');
 
-    // Drawdown
+    // Drawdown from equity history
     let maxDD = 0;
     const eh = s.equity_history||[];
     if (eh.length > 1) {
         let peak = 0;
         eh.forEach(p => {
-            const eq = +p.mark_to_market_equity||0;
+            const eq = p.mark_to_market_equity||0;
             if (eq > peak) peak = eq;
             const dd = peak > 0 ? (eq - peak) / peak * 100 : 0;
             if (dd < maxDD) maxDD = dd;
@@ -433,8 +202,9 @@ function render() {
     const imbPct = sp.imbalance_pct || 0;
     const blockedCount = sp.blocked_entries_count || 0;
 
-    const unrealizedPnl = openTrades.reduce((a,t)=>a+(+t.unrealized_pnl||0),0);
-    const totalInvested = openTrades.reduce((a,t)=>a+(+t.margin_usd||0),0);
+    const unrealizedPnl = openTrades.reduce((a,t)=>a+(t.unrealized_pnl||0),0);
+    const totalInvested = openTrades.reduce((a,t)=>a+(t.margin_usd||0),0);
+    // MTM = portfolio equity (from state.json) + unrealized P&L — all from same source
     const mtmEquity = equity + unrealizedPnl;
     const investedPct = mtmEquity > 0 ? (totalInvested / mtmEquity * 100) : 0;
 
@@ -452,7 +222,7 @@ function render() {
         <div class="kpi"><div class="lbl">Tick</div><div class="val b">${s.tick_counter||0}<div style="font-size:0.45em;color:#484f58;margin-top:2px">${s.last_updated ? new Date(s.last_updated).toLocaleString() : 'N/A'}</div></div></div>
     </div>`;
 
-    // ---- Fund Allocation Panel ----
+    // ---- Fund Allocation Panel (AC26) ----
     if (poolTotal > 0) {
         h += `<div class="sec">
         <h2 style="color:#bc8cff">Fund Allocation (Shadow Pools)</h2>
@@ -509,7 +279,7 @@ function render() {
             <div class="card sc">
                 <h3>${st.name}</h3>
                 <div class="row"><span class="k">Weight</span><span>${(st.weight*100).toFixed(0)}%</span></div>
-                ${st.final_equity ? `<div class="row"><span class="k">Equity</span><span class="${pc((+st.final_equity||0)-s.capital)}" style="font-weight:700">$${fmt(st.final_equity)}</span></div>` : ''}
+                ${st.final_equity ? `<div class="row"><span class="k">Equity</span><span class="${pc((st.final_equity||0)-s.capital)}" style="font-weight:700">$${fmt(st.final_equity)}</span></div>` : ''}
                 ${st.trade_count !== undefined ? `<div class="row"><span class="k">Trades</span><span>${st.trade_count}</span></div>` : ''}
                 ${st.open_positions !== undefined ? `<div class="row"><span class="k">Open</span><span>${st.open_positions}</span></div>` : ''}
                 ${st.strategies ? `<div class="row"><span class="k">Contains</span><span>${st.strategies.join(', ')}</span></div>` : ''}
@@ -537,8 +307,8 @@ function render() {
             <table>
                 <thead><tr>
                     <th>Strategy</th><th>Token</th><th>Dir</th><th>Mkt</th>
-                    <th>Entered</th><th>Hold</th><th>Entry $</th><th>Live</th>
-                    <th>Stop/Exit $</th><th>% to Stop</th><th>Regime</th>
+                    <th>Entered</th><th>Hold</th><th>Entry $</th><th>Exit/Now $</th>
+                    <th>Stop $</th><th>% to Stop</th><th>Regime</th>
                     <th>Size</th><th>P&L</th><th>Fees</th><th>Fund</th><th>Exit</th>
                 </tr></thead>
                 <tbody id="tb-trades"></tbody>
@@ -565,9 +335,14 @@ function render() {
     <div style="height:80px"></div>`;
 
     document.getElementById('app').innerHTML = h;
+    // Force correct filter button highlight after DOM rebuild
+    document.querySelectorAll('.frow .fb').forEach(b => {
+        const f = b.getAttribute('onclick').match(/'(\w+)'/);
+        if (f) b.classList.toggle('active', f[1] === curFilter);
+    });
     renderTrades(trades, curFilter);
     renderTokens(trades);
-    drawEquity();
+    setTimeout(() => drawEquity(), 0);
 }
 
 /* ---- Filter ---- */
@@ -588,6 +363,7 @@ function renderTrades(trades, filter) {
     if (filter==='winners') ft = trades.filter(t=>t.status!=='open'&&(t.pnl||0)>0);
     else if (filter==='losers') ft = trades.filter(t=>t.status!=='open'&&(t.pnl||0)<=0);
     else if (filter==='open') ft = trades.filter(t=>t.status==='open');
+    // Sort: open positions first, then by exit_bar desc
     _allFiltered = [...ft].sort((a,b)=>{
         if (a.status==='open' && b.status!=='open') return -1;
         if (b.status==='open' && a.status!=='open') return 1;
@@ -595,54 +371,44 @@ function renderTrades(trades, filter) {
     });
     const visible = _allFiltered.slice(0, _tradeLimit);
     const tbody = document.getElementById('tb-trades');
-    if (!tbody) return;
     let rows = '';
     visible.forEach(t => {
         const isOpen = t.status==='open';
-        const pnl = isOpen ? (+t.unrealized_pnl||0) : (+t.pnl||0);
+        const pnl = isOpen ? (t.unrealized_pnl||0) : (t.pnl||0);
         const dir = t.direction===-1?'SHORT':'LONG';
         const mt = (t.market_type||'').toLowerCase();
-        const tradeFees = (+t.entry_fee||0)+(+t.exit_fee||0);
-        const tradeFunding = (+t.funding_cost||0)+(+t.cumulative_funding||0);
-
-        // Live column: only for open trades
-        let liveCol = '-';
-        if (isOpen) {
-            const lpKey = `${t.token}:${t.strategy}:${t.entry_bar||0}`;
-            liveCol = `<span class="live-price" data-lp="${lpKey}" data-price="${t.current_price||0}">${fmtPrice(t.current_price)}</span>`;
-        }
-
-        // Stop/Exit column: stop for open, exit price for closed
-        let stopExitCol = '-';
+        const tradeFees = (t.entry_fee||0)+(t.exit_fee||0);
+        const tradeFunding = (t.funding_cost||0)+(t.cumulative_funding||0);
+        const exitCol = isOpen ? fmtPrice(t.current_price) + ' <span style="color:#3fb950;font-size:0.7em">LIVE</span>' : fmtPrice(t.exit_price);
+        const reasonCol = isOpen ? '<span class="pill" style="background:#1f3d1f;color:#3fb950">LIVE</span>' : ((t.exit_reason||'-') + (t.exit_timestamp ? '<div style="font-size:0.65em;color:#484f58">' + new Date(t.exit_timestamp).toLocaleString() + '</div>' : ''));
+        const pnlLabel = '';
+        // Stop / regime columns (open positions only)
+        let stopCol = '-';
         let pctStopCol = '-';
         let regimeCol = '-';
         if (isOpen) {
             if (t.stop_price) {
                 if (t.stop_active === false) {
-                    const graceLeft = (+t.no_stop_bars||0) - (+t.hold_bars||0);
-                    stopExitCol = `<span style="color:#484f58">${fmtPrice(t.stop_price)}</span> <span style="font-size:0.6em;color:#6e7681">grace ${graceLeft}h</span>`;
+                    // Grace period: stop won't trigger yet
+                    const graceLeft = (t.no_stop_bars||0) - (t.hold_bars||0);
+                    stopCol = `<span style="color:#484f58">${fmtPrice(t.stop_price)}</span> <span style="font-size:0.6em;color:#6e7681">grace ${graceLeft}h</span>`;
                 } else {
-                    stopExitCol = fmtPrice(t.stop_price);
+                    stopCol = fmtPrice(t.stop_price);
                 }
             }
-            const pts = +t.pct_to_stop;
-            if (!isNaN(pts)) {
+            const pts = t.pct_to_stop;
+            if (pts !== undefined && pts !== null) {
                 const ptsClass = pts < 2 ? 'r' : pts < 5 ? 'y' : 'g';
                 pctStopCol = `<span class="${ptsClass}" style="font-weight:700">${pts.toFixed(1)}%</span>`;
             }
             if (t.regime) {
                 const rc = {'CRISIS':'r','DOWNTREND':'r','RANGE':'y','QUIET':'b','UPTREND':'g'}[t.regime]||'';
                 const exitR = t.exit_regimes||[];
+                const wouldExit = exitR.includes(t.regime);
                 regimeCol = `<span class="${rc}" style="font-weight:600">${t.regime}</span>`;
                 if (exitR.length) regimeCol += `<div style="font-size:0.6em;color:#484f58">exits: ${exitR.join(',')}</div>`;
             }
-        } else {
-            // Closed trade: show exit price in stop/exit column
-            stopExitCol = fmtPrice(t.exit_price);
         }
-
-        const reasonCol = isOpen ? '-' : ((t.exit_reason||'-') + (t.exit_timestamp ? '<div style="font-size:0.65em;color:#484f58">' + new Date(t.exit_timestamp).toLocaleString() + '</div>' : ''));
-
         rows += `<tr class="trade-row" style="${isOpen?'background:#0d1f0d;':''}">
             <td style="color:#8b949e;font-size:0.7em">${t.strategy||''}</td>
             <td><b>${t.token||''}</b></td>
@@ -651,19 +417,18 @@ function renderTrades(trades, filter) {
             <td style="font-size:0.75em;color:#8b949e">${t.entry_timestamp ? new Date(t.entry_timestamp).toLocaleString() : '—'}</td>
             <td>${(() => { if (isOpen && t.entry_timestamp) { const hrs = (Date.now() - new Date(t.entry_timestamp).getTime()) / 3600000; return hrs < 1 ? Math.round(hrs*60)+'m' : hrs.toFixed(1)+'h'; } if (!isOpen && t.exit_timestamp) { const hrs = (new Date(t.exit_timestamp).getTime() - new Date(t.entry_timestamp||t.exit_timestamp).getTime()) / 3600000; return hrs < 1 ? Math.round(hrs*60)+'m' : hrs.toFixed(1)+'h'; } return (t.hold_bars||0)+'h'; })()}</td>
             <td style="font-size:0.85em">${fmtPrice(t.entry_price)}</td>
-            <td style="font-size:0.85em">${liveCol}</td>
-            <td style="font-size:0.85em">${stopExitCol}</td>
+            <td style="font-size:0.85em">${exitCol}</td>
+            <td style="font-size:0.85em">${stopCol}</td>
             <td>${pctStopCol}</td>
             <td style="font-size:0.75em">${regimeCol}</td>
-            <td>${(() => { const m = +t.margin_usd||0; const lev = +t.leverage||1; if (lev > 1) { return '$' + fmt(m) + '<div style="font-size:0.65em;color:#bc8cff">' + lev + 'x → $' + fmt(m*lev) + '</div>'; } return '$' + fmt(m); })()}</td>
-            <td class="${pc(pnl)}" style="font-weight:600">${fmtUsd(pnl)}</td>
+            <td>${(() => { const m = t.margin_usd||0; const lev = t.leverage||1; if (lev > 1) { return '$$' + fmt(m) + '<div style="font-size:0.65em;color:#bc8cff">' + lev + 'x → $$' + fmt(m*lev) + '</div>'; } return '$$' + fmt(m); })()}</td>
+            <td class="${pc(pnl)}" style="font-weight:600">${pnlLabel}${fmtUsd(pnl)}</td>
             <td class="r">${tradeFees===0?'—':'-$'+fmt(tradeFees)}</td>
             <td class="${pc(-tradeFunding)}">${tradeFunding===0?(mt==='perp'?'$0':'—'):(-tradeFunding<0?'-':'')+'$'+fmt(Math.abs(tradeFunding))}</td>
             <td style="color:#484f58">${reasonCol}</td>
         </tr>`;
     });
     tbody.innerHTML = rows;
-    animatePriceChanges();
     const sm = document.getElementById('show-more-wrap');
     if(sm) sm.style.display = _allFiltered.length > _tradeLimit ? 'block' : 'none';
 }
@@ -673,65 +438,24 @@ function showMore() {
     renderTrades(SIMS[activeSim].all_trades||[], curFilter);
 }
 
-/* ---- Live price animation (batched — 1 reflow instead of N) ---- */
-function animatePriceChanges() {
-    // Phase 1: Read — collect elements that need animation
-    const updates = [];
-    document.querySelectorAll('.live-price[data-lp]').forEach(el => {
-        const key = el.getAttribute('data-lp');
-        const price = parseFloat(el.getAttribute('data-price'));
-        const prev = _prevPrices[key];
-        if (prev !== undefined && prev !== price) {
-            updates.push({ el, up: price > prev });
-        }
-        _prevPrices[key] = price;
-    });
-    if (updates.length === 0) return;
-
-    // Phase 2: Write — remove old classes/arrows (batch)
-    updates.forEach(({ el }) => {
-        const oldArrow = el.querySelector('.price-arrow');
-        if (oldArrow) oldArrow.remove();
-        el.classList.remove('flash-up', 'flash-down');
-    });
-
-    // Phase 3: Single forced reflow (1 instead of N)
-    void document.body.offsetHeight;
-
-    // Phase 4: Write — add new classes/arrows (batch)
-    updates.forEach(({ el, up }) => {
-        const arrow = document.createElement('span');
-        arrow.className = 'price-arrow';
-        arrow.style.color = up ? '#3fb950' : '#f85149';
-        arrow.textContent = up ? '\u25B2' : '\u25BC';
-        el.appendChild(arrow);
-        el.classList.add(up ? 'flash-up' : 'flash-down');
-        setTimeout(() => arrow.classList.add('fade'), 200);
-        setTimeout(() => { if (arrow.parentNode) arrow.remove(); }, 1800);
-        setTimeout(() => el.classList.remove('flash-up', 'flash-down'), 800);
-    });
-}
-
 /* ---- Per-token table ---- */
 function renderTokens(trades) {
     const m = {};
     trades.filter(t=>t.status!=='open').forEach(t => {
         const tk = t.token||'?';
         if(!m[tk]) m[tk]={pnl:0,n:0,wins:0,fees:0,funding:0,hasPerp:false,best:-Infinity,worst:Infinity};
-        const p = +t.pnl||0;
+        const p = t.pnl||0;
         m[tk].pnl += p;
         m[tk].n++;
-        m[tk].fees += (+t.entry_fee||0)+(+t.exit_fee||0);
-        m[tk].funding += (+t.funding_cost||0);
+        m[tk].fees += (t.entry_fee||0)+(t.exit_fee||0);
+        m[tk].funding += (t.funding_cost||0);
         if((t.market_type||'')==='perp') m[tk].hasPerp=true;
         if(p>0) m[tk].wins++;
         if(p>0 && p>m[tk].best) m[tk].best=p;
         if(p<0 && p<m[tk].worst) m[tk].worst=p;
     });
     const tks = Object.keys(m).sort((a,b)=>m[b].pnl-m[a].pnl);
-    const el = document.getElementById('tb-tokens');
-    if (!el) return;
-    el.innerHTML = tks.map(tk => {
+    document.getElementById('tb-tokens').innerHTML = tks.map(tk => {
         const d=m[tk];
         const wr = d.n>0 ? (d.wins/d.n*100).toFixed(1) : '-';
         const bestStr = d.best!==-Infinity ? fmtUsd(d.best) : '-';
@@ -749,55 +473,258 @@ function renderTokens(trades) {
 /* ---- Equity Chart ---- */
 function drawEquity() {
     const s = SIMS[activeSim];
-    if (!s) return;
     const eh = s.equity_history || [];
-    const chEl = document.getElementById('ch-equity');
-    if (!chEl) return;
-    if (typeof Plotly === 'undefined') {
-        chEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#484f58;font-size:0.9em">Chart library loading...</div>';
-        return;
-    }
     if (eh.length < 2) {
-        chEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#484f58;font-size:0.9em">No equity data yet</div>';
-        _chartExists = false;
+        document.getElementById('ch-equity').innerHTML =
+            '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#484f58;font-size:0.9em">No equity data yet — will appear after paper trading produces snapshots</div>';
         return;
     }
-    const cap = +s.capital || 0;
+    const cap = s.capital || 0;
     const traces = [{
         x: eh.map(p=>p.timestamp),
-        y: eh.map(p=>(+p.mark_to_market_equity||0) - cap),
+        y: eh.map(p=>(p.mark_to_market_equity||0) - cap),
         name: s.name||'P&L', type:'scatter', mode:'lines',
         line:{color:'#58a6ff',width:2},
         fill:'tozeroy', fillcolor:'rgba(88,166,255,0.1)',
     }];
-    const layout = {
+    Plotly.newPlot('ch-equity', traces, {
         ...DK, title:'Cumulative P&L (mark-to-market)',
         xaxis:{...DK.xaxis, type:'date'},
         yaxis:{...DK.yaxis,title:'USD',tickprefix:'$'},
         shapes:[{type:'line',x0:eh[0].timestamp,x1:eh[eh.length-1].timestamp,y0:0,y1:0,line:{color:'#484f58',width:1,dash:'dot'}}],
-    };
-    // Use Plotly.react for efficient updates
-    Plotly.react('ch-equity', traces, layout, {responsive:true});
-    _chartExists = true;
+    }, {responsive:true});
 }
 
-/* ---- (sentinel removed) ---- */
-
-/* ---- (sentinel removed) ---- */
-
-/* ---- Global error handler (non-destructive) ---- */
-window.onerror = function(msg, url, line, col, err) {
-    console.error('Dashboard error:', msg, 'at', line + ':' + col, err);
-    return true; // suppress default browser error
-};
-
-/* ---- Initial render ---- */
-try {
-    renderTabs();
-    render();
-} catch(e) {
-    console.error('Init error:', e);
+/* ---- View toggle (Trading / Sentinel) ---- */
+let currentView = 'trading';
+function switchView(view) {
+    currentView = view;
+    document.getElementById('vb-trading').classList.toggle('active', view==='trading');
+    document.getElementById('vb-sentinel').classList.toggle('active', view==='sentinel');
+    document.getElementById('sim-tabs').style.display = view==='trading' ? 'flex' : 'none';
+    if (view==='trading') render();
+    else renderSentinel();
 }
+
+/* ---- Sentinel view ---- */
+function renderSentinel() {
+    // Aggregate sentinel data across all portfolios
+    let allEvts = [];
+    let hb = {};
+    let met = {};
+    let summary = {total_breaches:0, wick_filters:0, true_positives:0, false_triggers:0};
+    let stratBreakdown = {};
+    let reconTotalSavings = 0;
+    let reconMatchedCount = 0;
+    let reconBetterCount = 0;
+    let reconByPid = {};
+    SIMS.forEach(s => {
+        const evts = (s.sentinel_events||[]).map(e => ({...e, _portfolio: s.name}));
+        allEvts = allEvts.concat(evts);
+        if (Object.keys(s.sentinel_heartbeat||{}).length > 0 && !hb.timestamp) hb = s.sentinel_heartbeat;
+        if (Object.keys(s.sentinel_metrics||{}).length > 0 && !met.timestamp) met = s.sentinel_metrics;
+        // Merge summaries
+        const ss = s.sentinel_summary||{};
+        summary.total_breaches += ss.total_breaches||0;
+        summary.wick_filters += ss.wick_filters||0;
+        summary.true_positives += ss.true_positives||0;
+        summary.false_triggers += ss.false_triggers||0;
+        // Merge strategy breakdown
+        const sb = s.sentinel_strategy_breakdown||{};
+        Object.keys(sb).forEach(sid => {
+            if (!stratBreakdown[sid]) stratBreakdown[sid] = {count:0,TRUE_POSITIVE:0,FALSE_TRIGGER:0,PREEMPTED:0,PENDING:0};
+            const src = sb[sid];
+            stratBreakdown[sid].count += src.count||0;
+            stratBreakdown[sid].TRUE_POSITIVE += src.TRUE_POSITIVE||0;
+            stratBreakdown[sid].FALSE_TRIGGER += src.FALSE_TRIGGER||0;
+            stratBreakdown[sid].PREEMPTED += src.PREEMPTED||0;
+            stratBreakdown[sid].PENDING += src.PENDING||0;
+        });
+        // Merge sentinel reconciliation
+        const sr = s.sentinel_reconciliation||{};
+        reconTotalSavings += sr.total_savings||0;
+        reconMatchedCount += sr.matched_count||0;
+        reconBetterCount += sr.sentinel_better_count||0;
+        (sr.records||[]).forEach(r => { reconByPid[r.position_id] = r; });
+    });
+    const reconAvgSavings = reconMatchedCount > 0 ? reconTotalSavings / reconMatchedCount : 0;
+
+    // Build table from reconciliation records (full shadow history, not just ring buffer)
+    let allRecon = Object.values(reconByPid);
+    // Sort: pending first, then by sentinel timestamp descending
+    allRecon.sort((a,b) => {
+        if (a.classification === 'pending' && b.classification !== 'pending') return -1;
+        if (b.classification === 'pending' && a.classification !== 'pending') return 1;
+        const ta = a.sentinel_ts ? new Date(a.sentinel_ts).getTime() : 0;
+        const tb = b.sentinel_ts ? new Date(b.sentinel_ts).getTime() : 0;
+        return tb - ta;
+    });
+    const pendingRecs = allRecon.filter(r => r.classification === 'pending');
+    const resolvedRecs = allRecon.filter(r => r.classification !== 'pending');
+
+    const wsOk = hb.ws_connected ? '<span class="g" style="font-weight:700">CONNECTED</span>' : '<span class="r" style="font-weight:700">DISCONNECTED</span>';
+    const spotOk = hb.spot_ws_connected ? '<span class="g" style="font-weight:700">CONNECTED</span>' : '<span style="color:#484f58">OFF</span>';
+    const hbAge = hb.timestamp ? Math.round((Date.now()/1000 - hb.timestamp)) + 's ago' : 'N/A';
+    const uptime = (met.uptime_pct||0).toFixed(1);
+
+    let h = `
+    <div class="kpi-row">
+        <div class="kpi"><div class="lbl">Perp WS</div><div class="val">${wsOk}<div style="font-size:0.45em;color:#484f58;margin-top:2px">${(hb.active_tokens||0)} tokens</div></div></div>
+        <div class="kpi"><div class="lbl">Spot WS</div><div class="val">${spotOk}</div></div>
+        <div class="kpi"><div class="lbl">Uptime</div><div class="val ${parseFloat(uptime)>90?'g':'y'}">${uptime}%</div></div>
+        <div class="kpi"><div class="lbl">Heartbeat</div><div class="val b">${hbAge}</div></div>
+        <div class="kpi"><div class="lbl">24h Breaches</div><div class="val y">${summary.total_breaches}</div></div>
+        <div class="kpi"><div class="lbl">True Positives</div><div class="val g">${summary.true_positives}</div></div>
+        <div class="kpi"><div class="lbl">False Triggers</div><div class="val r">${summary.false_triggers}</div></div>
+        <div class="kpi"><div class="lbl">Wick Filtered</div><div class="val">${summary.wick_filters}</div></div>
+    </div>
+    <div class="kpi-row">
+        <div class="kpi"><div class="lbl">Sentinel Savings</div><div class="val ${reconTotalSavings>=0?'g':'r'}">${fmtUsd(reconTotalSavings)}</div></div>
+        <div class="kpi"><div class="lbl">Avg / Trade</div><div class="val ${reconAvgSavings>=0?'g':'r'}">${fmtUsd(reconAvgSavings)}</div></div>
+        <div class="kpi"><div class="lbl">Sentinel Better</div><div class="val">${reconBetterCount}/${reconMatchedCount} <span style="font-size:0.5em;color:#8b949e">${reconMatchedCount>0?(reconBetterCount/reconMatchedCount*100).toFixed(0)+'%':'—'}</span></div></div>
+    </div>`;
+
+    // Format short timestamp for display
+    function fmtTs(ts) {
+        if (!ts) return '—';
+        try { const d = new Date(ts); return d.toLocaleDateString(undefined,{month:'short',day:'numeric'}) + ' ' + d.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'}); }
+        catch(e) { return '—'; }
+    }
+
+    // Exit type badge
+    function exitTypeBadge(t) {
+        if (t === 'target') return '<span style="background:#3fb95022;color:#3fb950;padding:1px 6px;border-radius:4px;font-size:0.75em;font-weight:700">TGT</span>';
+        return '<span style="background:#f8514922;color:#f85149;padding:1px 6px;border-radius:4px;font-size:0.75em;font-weight:700">STP</span>';
+    }
+
+    function reconRow(r) {
+        const dir = (r.direction||1)===1 ? '<span class="pill long">L</span>' : '<span class="pill short">S</span>';
+        const isPending = r.classification === 'pending';
+        let sentPnlCol = '—';
+        let hourlyExitCol = isPending ? '<span style="color:#d29922;font-style:italic">open</span>' : '—';
+        let hourlyPnlCol = isPending ? '<span style="color:#d29922;font-style:italic">open</span>' : '—';
+        let hourlyTsCol = isPending ? '<span style="color:#d29922;font-style:italic">open</span>' : '—';
+        let savingsCol = isPending ? '<span style="color:#d29922;font-style:italic">open</span>' : '—';
+        if (r.sentinel_pnl !== undefined) {
+            sentPnlCol = `<span class="${pc(r.sentinel_pnl)}">${fmtUsd(r.sentinel_pnl)}</span>`;
+            hourlyExitCol = fmtPrice(r.hourly_exit);
+            hourlyPnlCol = `<span class="${pc(r.hourly_pnl)}">${fmtUsd(r.hourly_pnl)}</span>`;
+            savingsCol = `<span class="${pc(r.savings)}" style="font-weight:700">${fmtUsd(r.savings)}</span>`;
+            hourlyTsCol = `<span style="font-size:0.8em;color:#8b949e">${fmtTs(r.hourly_ts)}</span>`;
+        } else if (r.hourly_exit !== undefined && !isPending) {
+            hourlyExitCol = fmtPrice(r.hourly_exit);
+        }
+        const rowStyle = isPending ? ' style="background:#d2992211"' : '';
+        return `<tr${rowStyle}>
+            <td><b>${r.token||''}</b> ${dir}</td>
+            <td style="font-size:0.8em;color:#bc8cff">${r.portfolio||''}</td>
+            <td>${exitTypeBadge(r.exit_type)}</td>
+            <td>${fmtPrice(r.entry_price)}</td>
+            <td class="g" style="font-weight:700">${fmtPrice(r.sentinel_exit)}</td>
+            <td>${sentPnlCol}</td>
+            <td style="font-size:0.8em;color:#8b949e">${fmtTs(r.sentinel_ts)}</td>
+            <td>${hourlyExitCol}</td>
+            <td>${hourlyPnlCol}</td>
+            <td>${hourlyTsCol}</td>
+            <td>${savingsCol}</td>
+            <td>$${fmt(r.margin_usd||0)}</td>
+        </tr>`;
+    }
+
+    const hdr = `<thead><tr><th>Token</th><th>Portfolio</th><th>Type</th><th>Entry $</th><th>Sentinel Exit $</th><th>Sentinel P&L</th><th>Sentinel Time</th><th>Hourly Exit $</th><th>Hourly P&L</th><th>Hourly Time</th><th>Savings</th><th>Margin</th></tr></thead>`;
+
+    if (pendingRecs.length > 0) {
+        h += `<div class="sec">
+        <h2 style="color:#d29922">Awaiting Hourly Exit (${pendingRecs.length})</h2>
+        <div class="card tbl-wrap">
+        <table>${hdr}
+            <tbody>${pendingRecs.map(reconRow).join('')}</tbody>
+        </table></div></div>`;
+    }
+
+    if (resolvedRecs.length > 0) {
+        h += `<div class="sec">
+        <h2>Sentinel vs Hourly Comparison (${resolvedRecs.length})</h2>
+        <div class="card tbl-wrap">
+        <table>${hdr}
+            <tbody>${resolvedRecs.map(reconRow).join('')}</tbody>
+        </table></div></div>`;
+    } else if (pendingRecs.length === 0) {
+        h += `<div class="sec"><div style="padding:30px;text-align:center;color:#484f58;font-size:1em">
+            No sentinel shadow events recorded yet.
+        </div></div>`;
+    }
+
+    // Per-strategy breakdown
+    const sids = Object.keys(stratBreakdown).sort();
+    if (sids.length > 0) {
+        h += `<div class="sec">
+        <details><summary style="cursor:pointer;color:#8b949e;font-size:0.9em;padding:8px 0">
+            Per-Strategy Breakdown
+        </summary>
+        <div class="card tbl-wrap" style="margin-top:8px">
+        <table>
+            <thead><tr><th>Strategy</th><th>Events</th><th>TP</th><th>FT</th><th>Preempted</th><th>Pending</th></tr></thead>
+            <tbody>${sids.map(sid => {
+                const s = stratBreakdown[sid];
+                return `<tr>
+                    <td><b>${sid}</b></td>
+                    <td>${s.count}</td>
+                    <td class="g">${s.TRUE_POSITIVE}</td>
+                    <td class="r">${s.FALSE_TRIGGER}</td>
+                    <td class="y">${s.PREEMPTED}</td>
+                    <td>${s.PENDING}</td>
+                </tr>`;
+            }).join('')}</tbody>
+        </table></div></details></div>`;
+    }
+
+    h += '<div style="height:80px"></div>';
+    document.getElementById('app').innerHTML = h;
+}
+
+renderTabs();
+render();
+
+/* ---- Live data: poll state.json every 1s, update in-place ---- */
+(function() {
+    let _liveErr = 0;
+    setInterval(async () => {
+        try {
+            const r = await fetch('/data/state.json', {cache:'no-store'});
+            if (!r.ok) { _liveErr++; return; }
+            const data = await r.json();
+            _liveErr = 0;
+            if (!data.portfolios) return;
+            // Update SIMS in-place with live data
+            for (const lp of data.portfolios) {
+                const idx = SIMS.findIndex(s => s.name === lp.id || s.id === lp.id);
+                if (idx < 0) continue;
+                // Preserve fields the generator embeds but state.json may not have
+                const prev = SIMS[idx];
+                SIMS[idx] = Object.assign({}, prev, lp);
+            }
+            // Update header timestamp
+            const hdr = document.getElementById('hdr-time');
+            if (hdr && data.generated_at) {
+                const d = new Date(data.generated_at);
+                hdr.textContent = 'Updated: ' + (isNaN(d) ? data.generated_at : d.toLocaleString());
+            }
+            // Re-render tabs (equity/pnl changes) and current view
+            renderTabs();
+            const s = SIMS[activeSim];
+            const trades = s.all_trades || [];
+            renderTrades(trades, curFilter);
+            renderTokens(trades);
+            // Update stale banner
+            const sb = document.getElementById('stale-banner');
+            if (sb) {
+                const anyStale = SIMS.some(s => s.is_stale);
+                sb.classList.toggle('visible', anyStale);
+            }
+        } catch(e) { _liveErr++; }
+    }, 1000);
+})();
 </script>
 </body>
 </html>

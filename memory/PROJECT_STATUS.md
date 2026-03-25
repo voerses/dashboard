@@ -7,7 +7,7 @@
 > Realistic returns after $2M sizing cap and hourly slippage are estimated at 60-80% lower.
 > See finding #30. No strategy has demonstrated 1000%+ returns under realistic constraints.
 
-> **Last updated:** 2026-03-22T09:55Z
+> **Last updated:** 2026-03-25T06:00Z
 > **Process mode:** strategy (paper trading monitoring — Gate 6)
 > **Active:** V4 multi-portfolio paper trading: **7 pools**. Runner: `ps aux | grep run_paper_multi | grep -v grep` to find current PID. If restart needed: `kill <PID> && rm -f state/v4_paper_multi/paper.pid && nohup /workspace/venv/bin/python -u -m v4.run_paper_multi --config configs/multi_v4_paper.json > /tmp/runner.log 2>&1 &`
 > **Dashboard:** Live at `http://localhost/`. HTTP server is external (not managed by us) — we only deploy files to `/srv/dashboard/current/` and `/srv/data/`. Updates every 1s via `/data/state.json`. See Operations section below.
@@ -605,3 +605,39 @@ These modules are built, tested, and have results. They expand what's possible b
 | **15-min data** | `tools/fetch_binance_15m.py` | Bulk 15m candle download for all spot tokens. Enables sub-hourly analysis and defensive stops. |
 | **ETF flow data** | `tools/fetch_etf_flows.py` | Daily BTC/ETH ETF inflows from SoSoValue + Farside. Enables ETF flow overlay strategies. |
 | **Progressive trailing stops** | `v3/engine.py` (`trail_schedule`) | Dynamic trail tightening by profit level. Strategies define schedule as [[atr_profit, trail_mult], ...]. |
+
+---
+
+## Session 13 Findings — Autoresearcher Audit (2026-03-25)
+
+43. **300% annual return target NOT achievable on BTC spot.** 48 signals tested across 13 sessions. All diversifier paths exhausted (cross-asset, vol structure, on-chain, multi-TF, intraday momentum, macro regime, pairs/arb, cross-sectional, seasonal, ETF flow). Best realistic annual return: 10-15% on BTC spot without leverage. Multi-token perp portfolio: 20-50% annual.
+
+44. **Research prototype leverage bug.** `strategies/s320_v3_momentum_overlays.py` clips `size_multiplier` to [0, 1.5], meaning $300K BTC exposure on $200K cash — impossible on spot without margin. Research prototype's +17.52% OOS was inflated by ~2x from this impossible leverage. Must clip to [0, 1.0] for spot.
+
+45. **V4 sizing gap root cause: 88% of capital idle for BTC-only.** `cap_pct=0.12` and `concentration_limit=0.10` cap BTC position at $24K on $200K portfolio. For a 40-token portfolio engine running 1-token s320, this is the expected behavior but wrong config. Fix: `cap_multiplier=8.0`, `concentration_limit=1.0`, `max_trade_pct=0.95` for s320 paper pool.
+
+46. **V4 engine has 60+ parameters across 6 files, many hardcoded/invisible.** Three hidden traps found: (1) ADV-to-sizing formula in `v4/universe.py` — `kelly_mult` and `cap_pct` are computed by formulas not visible to strategies. (2) Unrealized PnL clamp in `v4/simulator.py` — `sizing_eq = max(min(portfolio_eq + total_unrealized, portfolio_eq), portfolio_eq * 0.85)` invisibly caps equity. (3) `vol_adj = 0.02 / max(volatility, 0.005)` hardcoded target vol in `v4/sizing.py`. Proposed: 3-layer config (Engine → Portfolio → Strategy) following QuantConnect/Backtrader patterns.
+
+47. **Shorts in dead regimes: KILLED.** Only DOWNTREND has positive short Sharpe (+0.54) but unstable (driven entirely by 2022 crash). CRISIS shorts Sharpe -2.37. s32 already captures short-side alpha better via regime-gated spot/perp.
+
+48. **BTC-gated alt baskets: KILLED.** 1.6x beta amplification in UPTREND but IS→OOS degradation 6.7x worse than BTC-only. MaxDD -50% fails Gate 5 threshold. Leveraged beta, not alpha.
+
+---
+
+## Open Action Items (Priority Order)
+
+### P0 — Fix s320 Sizing (blocks accurate measurement)
+- [ ] Fix s320 leverage bug: clip `size_multiplier` to [0, 1.0] (currently [0, 1.5])
+- [ ] Fix s320 paper config: `cap_multiplier=8.0`, `concentration_limit=1.0`, `max_trade_pct=0.95`
+- [ ] Run corrected backtest to validate 10-15% annual expectation
+
+### P1 — V4 Architecture Transparency
+- [ ] Document all 60+ parameters in `docs/V4_PARAMETER_REGISTRY.md`
+- [ ] Add sizing diagnostics logging (which constraint bound, by how much)
+- [ ] Promote hardcoded params to config (`vol_adj` target, ADV formula coefficients, unrealized PnL clamp)
+- [ ] Allow strategy-level overrides within engine-enforced safety rails
+
+### P2 — Monitoring
+- [ ] Continue paper trading 8 pools, need 50+ closed trades for statistical confidence
+- [ ] Monitor funding rates for carry reactivation signal
+- [ ] Collect ETF flow data for 2027 re-test

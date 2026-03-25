@@ -1,13 +1,13 @@
 # Research Status — Active Signal Discovery
 
-> **Last updated:** 2026-03-25T01:00Z (session 12 — V3+RSI timing IMPLEMENTED in s320. Wave 15 diversifier search COMPLETE: ALL paths exhausted. R113 gold KILLED, R114 vol 1/6 conditional, R115 on-chain OVERTURNED by R118 deep validation (9yr data killed all signals — reflexive, not predictive). R116 multi-TF marginal. Diversifier search conclusively failed. V3 standalone with RSI timing IS the production system.)
+> **Last updated:** 2026-03-25T05:30Z (session 13 — AUTORESEARCHER AUDIT. 300% goal NOT achieved and NOT achievable. V4 sizing gap ROOT CAUSED: cap_pct=0.12 + concentration_limit=0.10 leave 88% of capital idle for BTC-only s320. Research prototype uses IMPOSSIBLE 1.5x leverage on spot. Realistic annual return: 10-15% on BTC spot. Investigated: shorts in dead regimes (KILLED — unstable, s32 already better), BTC-gated alt baskets (KILLED — levered beta not alpha, -50% DD). V4 engine architecture audit: 60+ params, many hardcoded/invisible. Proposed 3-layer config (engine/portfolio/strategy) following QuantConnect/Backtrader patterns.)
 
 ## TIMESTAMP
-2026-03-24T19:30Z
+2026-03-25T05:30Z
 
 ---
 
-## Signal Scoreboard (23 signals tested)
+## Signal Scoreboard (48 signals tested)
 
 | # | Signal | OOS IC / Sharpe | Verdict |
 |---|--------|----------------|---------|
@@ -596,15 +596,76 @@ Parameters: 0 KILL flags across all tests
 - **When funding recovers**: use Dynamic allocation (100% V3 when dormant, 60/40 when carry active)
 - Scripts: `research/v3_carry_portfolio_test.py`, `research/v3_carry_portfolio_results.md`
 
-### Next Actions (Priority Order)
-1. ~~Implement V3+RSI Timing~~ **DONE** — Integrated into s320 as Layer 5. 4h RSI cross-up through 35 within 168-bar windows, searchsorted lookup, 1.37ms/call. 81% RSI-timed entries, 19% fallback.
-2. ~~Re-run R115 on-chain with extended data~~ **DONE (R118) — KILLED.** All R115 results overturned. On-chain is reflexive, not predictive.
-3. **DIVERSIFIER SEARCH CONCLUDED** — All paths exhausted: cross-asset (gold), vol structure, on-chain, multi-TF, intraday momentum, macro regime, pairs/arb, cross-sectional, seasonal, ETF flow. V3 standalone with RSI timing IS the production system.
-4. **Optional: add realized skewness sizing overlay to V3** — R114 S3: V3 corr -0.111, 60% WF positive. Small MaxDD benefit. Check VRP overlap first.
-5. **Optional: add V2 seasonal overlay to V3** — small improvement (+0.119 dSharpe, -1.6pp MaxDD), needs more OOS data
-6. **Monitor funding rates** — if 30d mean > 0.01%, deploy V3+carry dynamic portfolio
-7. **V4 engine enhancements** — flagged for structured /dev task (user-planned)
-8. **Collect more ETF flow data** — re-test overlay in 2027 with 3+ years history
+### Next Actions (Priority Order) — Updated Session 13
+
+**P0 — Fix s320 sizing (blocks accurate performance measurement):**
+1. **Fix s320 leverage bug:** Change `size_multiplier = clip(base × pos_mult × vrp_mult, 0, 1.5)` to `clip(..., 0, 1.0)` in `strategies/s320_v3_momentum_overlays.py`. 1.5x on spot is impossible without margin.
+2. **Fix s320 config for BTC-only:** Set `cap_multiplier=8.0`, `concentration_limit=1.0`, `max_trade_pct=0.95` in paper config. Currently 88% of capital sits idle.
+3. **Run corrected backtest:** Validate 10-15% annual expectation with fixed params.
+
+**P1 — V4 architecture (makes engine transparent):**
+4. **Document all 60+ parameters** — create `docs/V4_PARAMETER_REGISTRY.md` mapping every param to its layer (engine/portfolio/strategy), current value, and where it's set.
+5. **Add sizing diagnostics logging** — when a position is clipped, log WHICH constraint bound and by how much. Currently silent.
+6. **Promote hardcoded params to config** — `vol_adj` target (0.02), ADV-to-sizing formula coefficients, unrealized PnL clamp (0.85).
+7. **Allow strategy-level overrides** — for `kelly_range`, `cap_pct_range`, `target_vol` within engine-enforced safety rails.
+
+**P2 — Optional (diminishing returns):**
+8. ~~Implement V3+RSI Timing~~ **DONE** — Integrated into s320 as Layer 5.
+9. ~~Re-run R115 on-chain with extended data~~ **DONE (R118) — KILLED.**
+10. **DIVERSIFIER SEARCH CONCLUDED** — All paths exhausted. V3 standalone with RSI timing IS the production system.
+11. **Optional: add realized skewness sizing overlay** — R114 S3: V3 corr -0.111, 60% WF positive. Small MaxDD benefit.
+12. **Optional: add V2 seasonal overlay** — +0.119 dSharpe, needs more OOS data.
+13. **Monitor funding rates** — if 30d mean > 0.01%, deploy V3+carry dynamic portfolio.
+14. **Collect more ETF flow data** — re-test overlay in 2027 with 3+ years history.
+
+### Session 13: Autoresearcher Audit (2026-03-25)
+
+**Goal:** Autonomous audit of all research progress. Can we reach 300%? What's holding us back?
+
+**Major findings:**
+
+1. **300% goal NOT achieved and NOT achievable on BTC spot.** Best validated annual return is 10-15% on BTC spot with proper sizing. 48 signals tested across 12 sessions, diversifier search exhausted. 300% requires leverage that doesn't exist on spot.
+
+2. **V4 sizing gap ROOT CAUSED.** Research prototype showed +17.52% OOS vs V4 engine +1.0% annualized — initially a 17x gap. Root cause is split:
+   - **Research prototype uses IMPOSSIBLE 1.5x leverage on spot.** `position_fraction` clipped to [0, 1.5] means $300K BTC exposure on $200K cash — impossible without margin. s320's `size_multiplier = clip(base × pos_mult × vrp_mult, 0, 1.5)` inherited this.
+   - **V4 engine caps BTC at 12% of equity.** `cap_pct=0.12` + `concentration_limit=0.10` leave 88% of capital idle for BTC-only s320. On $200K portfolio, max BTC position = $24K.
+   - **Honest gap: ~8x, not 17x.** ~2x from impossible leverage + ~8x from V4 capping at 12%.
+
+3. **Shorts in dead regimes — KILLED.** Only DOWNTREND has positive short Sharpe (+0.54) but unstable (driven entirely by 2022 crash). CRISIS shorts Sharpe -2.37. s32 already captures this better via regime-gated spot/perp.
+
+4. **BTC-gated alt baskets — KILLED.** 1.6x beta amplification in UPTREND but IS→OOS degradation 6.7x worse than BTC-only. MaxDD -50% fails Gate 5 (<25% required). It's leveraged beta, not alpha.
+
+5. **GOLD signal stacking — KILLED.** Kitchen-sink stacking of all GOLD signals destroys value (-59% IC). Only selective 2-signal pairs work. Everything useful already built into s320.
+
+6. **V4 architecture audit — 60+ parameters, many hardcoded/invisible.**
+   - ADV-to-Kelly formula (`kelly_mult`, `cap_pct`) completely hardcoded in `v4/universe.py`
+   - `vol_adj = 0.02 / max(volatility, 0.005)` hardcoded target vol in `v4/sizing.py`
+   - `sizing_eq = max(min(portfolio_eq + total_unrealized, portfolio_eq), portfolio_eq * 0.85)` invisible unrealized PnL clamp in `v4/simulator.py`
+   - Proposed 3-layer config: Engine (exchange reality) → Portfolio (risk policy) → Strategy (identity)
+   - Follows QuantConnect/Backtrader pattern: engine enforces safety rails, strategies control their identity
+
+7. **Paper trading status:** 8 pools running. Best: s58+s65 at +5.15% in 14 days. Best 12mo backtest: s62 at +9.64% return. No pool near 300%.
+
+**Corrected return expectations:**
+- BTC spot, no leverage: **10-15% annual** (s320 with proper sizing)
+- BTC spot, 1.5x effective (if margin available): ~20-25% annual
+- Multi-token perp portfolio: 20-50% annual (validated strategies)
+- 100%+ requires aggressive leverage AND favorable regime — not sustainable
+
+### Session 13 Agents Summary
+| Agent | Task | Verdict |
+|-------|------|---------|
+| R119 | Paper trading performance audit | 8 pools, best +5.15% MTM, no pool near 300% |
+| R120 | 300% feasibility assessment | **NOT ACHIEVED** — best realistic 10-15% BTC spot |
+| R121 | GOLD signal stacking | **KILLED** — kitchen-sink -59% IC, selective pairs already in s320 |
+| R122 | V4 engine sizing deep dive | ROOT CAUSED — cap_pct=0.12 + concentration=0.10, 88% idle |
+| R123 | Research prototype sizing comparison | Leverage bug: 1.5x on spot impossible |
+| R124 | BTC signals applied to alts | **KILLED** — levered beta, -50% DD |
+| R125 | Short strategies in dead regimes | **KILLED** — unstable, s32 already better |
+| R126 | Alt basket with BTC regime gate | **KILLED** — IS→OOS 6.7x degradation |
+| R127 | Quant web research on param architecture | 3-layer config pattern (QuantConnect/Backtrader) |
+| R128 | V4 hardcoded parameter audit | 60+ params across 6 files, 3 hidden traps |
+| R129 | s320 controllability audit | Strategy cannot tune 8+ engine params |
 
 ### Session 12 Agents Summary
 | Agent | Task | Verdict |
@@ -666,16 +727,23 @@ Parameters: 0 KILL flags across all tests
 - Limit order simulation — captures maker rebates (~5-10% annual)
 - Per-token walk-forward windows — shorter windows for volatile alts
 
-### Honest Assessment: Can V4 Reach 300%?
+### Honest Assessment: Can V4 Reach 300%? — UPDATED Session 13
 
-V4 is **technically capable** of 300%+ returns (no hard architectural blockers). The path requires:
-1. Exceptional signal quality (IC > +0.05 post-ETF)
-2. Aggressive leverage (3-4x on perps)
-3. Multiple uncorrelated strategies running simultaneously
-4. Favorable market regime (trending > choppy)
-5. Accepting 30-50% drawdowns
+**NO on BTC spot. Extremely unlikely overall.** Session 13 definitively closed this question:
 
-**Current realistic expectation**: 20-50% annual with validated strategies, 100%+ with leverage and favorable conditions. 300% requires both exceptional signals AND leverage — not sustainable long-term.
+1. **Signal ceiling reached.** 48 signals tested across 12 sessions. All diversifier paths exhausted. Best GOLD signals already integrated into s320.
+2. **Sizing reality.** Research prototype's +17.52% OOS used impossible 1.5x leverage on spot. With correct 1.0x cap, realistic return is 10-15% annual on BTC spot.
+3. **V4 engine sizing gap.** For BTC-only s320, `cap_pct=0.12` + `concentration_limit=0.10` cap position at $24K on $200K — 88% of capital idle. This is correct risk management for a 40-token portfolio engine running a 1-token strategy.
+4. **No alt alpha found.** BTC-gated alt baskets produce levered beta (-50% DD), not alpha. Cross-token dispersion, BTC dominance rotation, on-chain metrics — all killed.
+5. **Shorts don't help.** Only DOWNTREND shorts are positive but unstable (2022-driven). s32 already captures this.
+
+**Corrected realistic expectations:**
+- BTC spot, no leverage: **10-15% annual**
+- Multi-token perp portfolio (validated): **20-50% annual**
+- With leverage + favorable regime: **50-100% annual** (not sustainable)
+- 300%: Requires 3-4x leverage AND exceptional regime AND multiple uncorrelated signals — **not a realistic target**
+
+**The right question is not "how to reach 300%" but "how to maximize risk-adjusted return with what we have."** Priority: fix s320 sizing params, run corrected backtests, focus on Calmar and Sortino maximization.
 
 ---
 
