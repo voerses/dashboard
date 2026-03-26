@@ -33,6 +33,7 @@ class TestADVSizingConfig:
         """StrategySpec.from_dict should parse ADV sizing fields."""
         d = {
             "strategy_id": "s56",
+            "market": "perp",
             "adv_sizing_enabled": True,
             "adv_sizing_base": 75_000_000,
             "adv_sizing_floor": 0.20,
@@ -67,6 +68,7 @@ class TestGraduatedPumpFilterConfig:
         """StrategySpec.from_dict should parse graduated pump filter fields."""
         d = {
             "strategy_id": "s60",
+            "market": "perp",
             "pump_grad_enabled": True,
             "pump_grad_window": 168,
             "pump_grad_t1": 0.25,

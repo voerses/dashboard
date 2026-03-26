@@ -103,6 +103,9 @@ def load_paper_config(path: str) -> PaperConfig:
         confirmation_tiers=data.get("confirmation_tiers", {"btc_eth": 30, "top10": 60, "other": 90}),
         carry_strategies=data.get("carry_strategies", []),
         exit_resolution=data.get("exit_resolution", 0),
+        raw_mode=data.get("raw_mode", False),
+        raw_max_positions=data.get("raw_max_positions", 500),
+        skip_walk_forward=data.get("skip_walk_forward", False),
     )
 
     config.config_path = path

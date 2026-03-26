@@ -162,10 +162,17 @@ class TestConfigFlags:
     def test_strategy_spec_from_dict_parses_regime_params(self):
         d = {
             "strategy_id": "test",
+            "market": "spot",
             "regime_params": {"adx_threshold": 20, "ema_pair": [10, 30]},
         }
         ss = StrategySpec.from_dict(d)
         assert ss.regime_params == {"adx_threshold": 20, "ema_pair": [10, 30]}
+
+    def test_strategy_spec_from_dict_requires_market(self):
+        """from_dict raises ValueError when market is missing."""
+        import pytest
+        with pytest.raises(ValueError, match="missing required 'market' field"):
+            StrategySpec.from_dict({"strategy_id": "test"})
 
     def test_dataclasses_replace_forwards_new_fields(self):
         pc = PortfolioConfig(raw_mode=True, skip_walk_forward=True, raw_max_positions=100)

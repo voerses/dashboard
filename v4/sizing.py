@@ -219,6 +219,56 @@ def compute_position_size(
     )
 
 
+# ---------------------------------------------------------------------------
+# Slippage model protocol + registry
+# ---------------------------------------------------------------------------
+
+@runtime_checkable
+class SlippageModel(Protocol):
+    """Interface for market impact / slippage models."""
+
+    def compute_slippage(
+        self,
+        pos_usd: float,
+        adv: float,
+        base_spread_bps: float,
+        impact_coeff: float,
+        max_slip_bps: float,
+    ) -> float: ...
+
+
+class SqrtImpactSlippage:
+    """Square-root market impact model (matches v3 JIT engine.py:534-538).
+
+    slip_bps = base_spread + impact_coeff * sqrt(participation) * 10000
+    where participation = pos_usd / (adv / 24)
+    """
+
+    def compute_slippage(
+        self,
+        pos_usd: float,
+        adv: float,
+        base_spread_bps: float = 3.0,
+        impact_coeff: float = 0.03,
+        max_slip_bps: float = 300.0,
+    ) -> float:
+        participation = pos_usd / max(adv / 24.0, 1.0)
+        slip_bps = base_spread_bps + impact_coeff * np.sqrt(participation) * 10000.0
+        return min(slip_bps, max_slip_bps)
+
+
+_DEFAULT_SLIPPAGE = SqrtImpactSlippage()
+
+_SLIPPAGE_MODELS: dict[str, SlippageModel] = {
+    "sqrt": _DEFAULT_SLIPPAGE,
+}
+
+
+def get_slippage_model(name: str = "sqrt") -> SlippageModel:
+    """Look up a slippage model by name. Raises KeyError for unknown models."""
+    return _SLIPPAGE_MODELS[name]
+
+
 def compute_slippage_bps(
     pos_usd: float,
     adv: float,
@@ -226,7 +276,11 @@ def compute_slippage_bps(
     impact_coeff: float = 0.03,
     max_slip_bps: float = 300.0,
 ) -> float:
-    """Square-root market impact model (matches v3 JIT engine.py:534-538)."""
-    participation = pos_usd / max(adv / 24.0, 1.0)
-    slip_bps = base_spread_bps + impact_coeff * np.sqrt(participation) * 10000.0
-    return min(slip_bps, max_slip_bps)
+    """Square-root market impact model — backward-compatible wrapper.
+
+    Delegates to _DEFAULT_SLIPPAGE. The simulator uses get_slippage_model()
+    for registry-based dispatch; this function exists for external callers.
+    """
+    return _DEFAULT_SLIPPAGE.compute_slippage(
+        pos_usd, adv, base_spread_bps, impact_coeff, max_slip_bps,
+    )

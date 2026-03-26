@@ -17,7 +17,7 @@ import pandas as pd
 from .config import PortfolioConfig, StrategySpec, resolve_sizing
 from .position import Position, ClosedTrade, PositionManager
 from .signals import TokenSignals
-from .sizing import compute_position_size, compute_slippage_bps
+from .sizing import compute_slippage_bps, get_sizing_model, get_slippage_model
 from .exit_handlers import BarContext, build_exit_chain, run_exit_handlers
 
 # Import fee/MMR lookups from v4
@@ -97,6 +97,7 @@ class SimulationState:
     equity_snapshots: list = field(default_factory=list)
     _entry_fees_by_pos: dict = field(default_factory=dict)  # position_id -> entry fee
     last_known_atrs: dict = field(default_factory=dict)    # token -> last ATR value
+    _slippage_models: dict = field(default_factory=dict)   # strategy_id -> SlippageModel
 
     @property
     def portfolio_equity(self) -> float:
@@ -167,7 +168,11 @@ def _close_position(
         effective_adv = exit_adv
         if exit_reason in ("stop", "margin_call"):
             effective_adv = exit_adv * config.stress_adv_multiplier
-        slip_bps = compute_slippage_bps(notional, effective_adv, config.base_spread_bps, config.impact_coeff, config.max_slip_bps)
+        _slip_model = state._slippage_models.get(pos.strategy_id)
+        if _slip_model is not None:
+            slip_bps = _slip_model.compute_slippage(notional, effective_adv, config.base_spread_bps, config.impact_coeff, config.max_slip_bps)
+        else:
+            slip_bps = compute_slippage_bps(notional, effective_adv, config.base_spread_bps, config.impact_coeff, config.max_slip_bps)
         slip = exit_price * slip_bps / 10000.0
         if pos.direction == 1:
             exit_price -= slip
@@ -260,10 +265,17 @@ def _partial_close_position(
     notional_closed = abs(pos.quantity * exit_price) * close_pct
 
     # Exit slippage on the closed portion
-    slip_bps = compute_slippage_bps(
-        notional_closed, exit_adv, config.base_spread_bps,
-        config.impact_coeff, config.max_slip_bps,
-    )
+    _slip_model = state._slippage_models.get(pos.strategy_id)
+    if _slip_model is not None:
+        slip_bps = _slip_model.compute_slippage(
+            notional_closed, exit_adv, config.base_spread_bps,
+            config.impact_coeff, config.max_slip_bps,
+        )
+    else:
+        slip_bps = compute_slippage_bps(
+            notional_closed, exit_adv, config.base_spread_bps,
+            config.impact_coeff, config.max_slip_bps,
+        )
     slip = exit_price * slip_bps / 10000.0
     if pos.direction == 1:
         adj_exit_price = exit_price - slip
@@ -444,6 +456,9 @@ def _process_exits(
 
         # Build BarContext for this bar
         rsi_val = float(sig.rsi[local_bar]) if sig.rsi is not None and local_bar < len(sig.rsi) else float('nan')
+        volume_val = float(sig.volume[local_bar]) if sig.volume is not None and local_bar < len(sig.volume) else float('nan')
+        vol_20_val = float(sig.vol_20[local_bar]) if sig.vol_20 is not None and local_bar < len(sig.vol_20) else float('nan')
+        ret_1h_val = float(sig.ret_1h[local_bar]) if sig.ret_1h is not None and local_bar < len(sig.ret_1h) else float('nan')
         bar_ctx = BarContext(
             close=close_val,
             high=high_val,
@@ -454,6 +469,9 @@ def _process_exits(
             bars_held=bars_held,
             local_bar=local_bar,
             funding_val=funding_val,
+            volume=volume_val,
+            vol_20=vol_20_val,
+            ret_1h=ret_1h_val,
         )
 
         # Run handler chain: update_state -> partial TP -> check_exit
@@ -591,6 +609,7 @@ def _process_entries(
 
     # Cache resolved sizing per strategy (resolve once, not per candidate)
     _resolved_sizing_cache: dict = {}
+    _sizing_model_cache: dict = {}
 
     for idx in indices:
         strategy_id, token, sig = candidates[idx]
@@ -598,12 +617,15 @@ def _process_entries(
         if spec is None:
             continue
 
-        # Resolve sizing overrides for this strategy (cached)
+        # Resolve sizing overrides and sizing model for this strategy (cached)
         if strategy_id not in _resolved_sizing_cache:
             _resolved_sizing_cache[strategy_id] = resolve_sizing(
                 config.sizing_defaults, spec.sizing_overrides
             )
+            _sizing_model_cache[strategy_id] = get_sizing_model(spec.sizing_model)
         resolved = _resolved_sizing_cache[strategy_id]
+        sizing_model = _sizing_model_cache[strategy_id]
+        slippage_model = state._slippage_models.get(strategy_id)
 
         bm = bar_maps[token]
         local_bar = int(bm[global_bar])
@@ -658,7 +680,7 @@ def _process_entries(
             # Fixed equity: config.capital * weight (no PnL adjustment)
             strategy_equity = config.capital * spec.weight
 
-            pos_usd = compute_position_size(
+            pos_usd = sizing_model.compute_size(
                 strategy_equity=strategy_equity,
                 rolling_adv=adv_val,
                 volatility=volatility,
@@ -698,7 +720,10 @@ def _process_entries(
                 notional_usd = pos_usd
 
             # Slippage (realistic costs)
-            slip_bps = compute_slippage_bps(notional_usd, adv_val, config.base_spread_bps, config.impact_coeff, config.max_slip_bps)
+            if slippage_model is not None:
+                slip_bps = slippage_model.compute_slippage(notional_usd, adv_val, config.base_spread_bps, config.impact_coeff, config.max_slip_bps)
+            else:
+                slip_bps = compute_slippage_bps(notional_usd, adv_val, config.base_spread_bps, config.impact_coeff, config.max_slip_bps)
             slip = close_val * slip_bps / 10000.0
             entry_price = close_val + slip * direction
 
@@ -826,7 +851,7 @@ def _process_entries(
         sm_val = float(sig.size_multiplier[local_bar])
         lev_val = float(sig.leverage[local_bar])
 
-        pos_usd = compute_position_size(
+        pos_usd = sizing_model.compute_size(
             strategy_equity=strategy_equity,
             rolling_adv=adv_val,
             volatility=volatility,
@@ -953,7 +978,10 @@ def _process_entries(
             p_low = sig.low[local_bar]
             p_atr = atr_val
 
-            p_slip_bps = compute_slippage_bps(primary_notional, adv_val, config.base_spread_bps, config.impact_coeff, config.max_slip_bps)
+            if slippage_model is not None:
+                p_slip_bps = slippage_model.compute_slippage(primary_notional, adv_val, config.base_spread_bps, config.impact_coeff, config.max_slip_bps)
+            else:
+                p_slip_bps = compute_slippage_bps(primary_notional, adv_val, config.base_spread_bps, config.impact_coeff, config.max_slip_bps)
             p_slip = p_close * p_slip_bps / 10000.0
             p_entry_price = p_close + p_slip * direction
 
@@ -1024,7 +1052,10 @@ def _process_entries(
                 s_atr = atr_val
                 s_adv = adv_val
 
-            s_slip_bps = compute_slippage_bps(secondary_notional, s_adv, config.base_spread_bps, config.impact_coeff, config.max_slip_bps)
+            if slippage_model is not None:
+                s_slip_bps = slippage_model.compute_slippage(secondary_notional, s_adv, config.base_spread_bps, config.impact_coeff, config.max_slip_bps)
+            else:
+                s_slip_bps = compute_slippage_bps(secondary_notional, s_adv, config.base_spread_bps, config.impact_coeff, config.max_slip_bps)
             s_slip = s_close * s_slip_bps / 10000.0
             s_entry_price = s_close + s_slip * sec_dir
 
@@ -1115,7 +1146,7 @@ def _process_entries(
                     adv_val = float(sig.perp_rolling_adv[local_bar])
                     volatility = atr_val / max(close_val, 1e-10)
                     # Recompute position size with perp venue data
-                    pos_usd = compute_position_size(
+                    pos_usd = sizing_model.compute_size(
                         strategy_equity=strategy_equity,
                         rolling_adv=adv_val,
                         volatility=volatility,
@@ -1211,7 +1242,10 @@ def _process_entries(
                 state.partial_fills += 1
 
             # Entry slippage
-            slip_bps = compute_slippage_bps(notional_usd, adv_val, config.base_spread_bps, config.impact_coeff, config.max_slip_bps)
+            if slippage_model is not None:
+                slip_bps = slippage_model.compute_slippage(notional_usd, adv_val, config.base_spread_bps, config.impact_coeff, config.max_slip_bps)
+            else:
+                slip_bps = compute_slippage_bps(notional_usd, adv_val, config.base_spread_bps, config.impact_coeff, config.max_slip_bps)
             slip = close_val * slip_bps / 10000.0
             entry_price = close_val + slip * direction
 
@@ -1374,6 +1408,9 @@ def simulate_portfolio(
     n_bars = len(unified_ts)
 
     state = SimulationState(initial_capital=config.capital)
+    # Pre-resolve slippage models per strategy (cached on state for exit paths)
+    for sid, spec in strategy_specs.items():
+        state._slippage_models[sid] = get_slippage_model(spec.slippage_model)
     rng = np.random.RandomState(config.seed)
 
     for global_bar in range(n_bars):

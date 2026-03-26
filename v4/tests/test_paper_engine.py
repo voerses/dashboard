@@ -149,6 +149,7 @@ def _make_mock_token_signals(
     stop_mult_arr = np.full(n_bars, 2.0, dtype=np.float32)
     trail_mult_arr = np.full(n_bars, 3.0, dtype=np.float32)
     size_mult_arr = np.ones(n_bars, dtype=np.float32)
+    cap_mult_arr = np.ones(n_bars, dtype=np.float32)
     leverage_arr = np.ones(n_bars, dtype=np.float32)
     rsi_arr = np.full(n_bars, 50.0, dtype=np.float32)
     timestamps = (np.datetime64('2025-01-01') + np.arange(n_bars) * np.timedelta64(1, 'h'))
@@ -182,7 +183,7 @@ def _make_mock_token_signals(
         max_hold=720,
         edge=0.5,
         size_multiplier=size_mult_arr,
-        cap_multiplier=1.0,
+        cap_multiplier=cap_mult_arr,
         leverage=leverage_arr,
         max_trade_pct=0.0,
         rsi=rsi_arr,

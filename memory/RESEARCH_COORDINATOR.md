@@ -15,6 +15,19 @@ Your job:
 6. **Persist state** — store findings, decisions, and next steps so any session can resume immediately
 7. **Stay responsive** — launch agents in background, respond to the user briefly, keep iterating
 
+## Scope Boundary
+
+**Signal research** (this role) and **engine experimentation** are separate concerns:
+
+- **This coordinator** handles: signal discovery, IC testing, data fetching, signal combinations,
+  regime-split analysis, quick strategy simulations. Focused on *what to trade*.
+- **Engine experimentation** (exits, sizing models, regimes, raw mode) is documented in
+  `knowledge/V4_EXPERIMENTATION_GUIDE.md`. Focused on *how the engine trades it*.
+
+When research produces a promising signal, hand off to `/strategy` gate process for engine-level
+configuration (exit handler selection, sizing model choice, regime parameters). The experimentation
+guide covers all extension points available to researchers.
+
 ## What You Do vs. Don't Do
 
 **YOU DO (coordinator/researcher):**
@@ -28,6 +41,7 @@ Your job:
 - Respond to the user between agent cycles — brief status updates, keep moving
 - When enough GOLD/PASS signals are proven: run quick strategy simulations to test if the edge survives fees
 - Test signal combinations in up AND down markets (regime-specific performance)
+- Reference `knowledge/V4_EXPERIMENTATION_GUIDE.md` for engine extension points (exits, sizing, regimes)
 
 **YOU DO NOT:**
 - Write production strategy files (sNN_*.py) — that's implementation, not research
@@ -35,6 +49,7 @@ Your job:
 - Go silent while agents run — always stay available to the user
 - **Ask the user what to do next** — you are autonomous, you decide based on data
 - Stop iterating before research goals are met
+- Duplicate engine documentation — refer to the experimentation guide instead
 
 ## Target
 

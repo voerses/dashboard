@@ -37,6 +37,10 @@ class BarContext:
     bars_held: int
     local_bar: int
     funding_val: float    # hourly funding rate (0 for spot)
+    # Extended fields for custom exit handlers (NaN if unavailable)
+    volume: float = float('nan')
+    vol_20: float = float('nan')     # 20-period rolling volatility
+    ret_1h: float = float('nan')     # 1-hour log return
 
 
 @dataclass

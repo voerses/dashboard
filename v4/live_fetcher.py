@@ -343,6 +343,24 @@ class LiveFetcher:
         if not isinstance(df.index, pd.DatetimeIndex):
             df.index = pd.to_datetime(df.index, unit="ms")
 
+        # Detect settlement interval from timestamp spacing (8h Binance,
+        # 4h Hyperliquid, 1h some).  Divide raw rate by interval hours so
+        # the stored funding_1h is the per-hour portion — matching what the
+        # simulator applies at each hourly bar.
+        timestamps_ms = sorted(int(r["timestamp"]) for r in funding_rates)
+        if len(timestamps_ms) >= 2:
+            diffs_hours = [(timestamps_ms[i+1] - timestamps_ms[i]) / 3_600_000
+                           for i in range(len(timestamps_ms) - 1)]
+            median_h = sorted(diffs_hours)[len(diffs_hours) // 2]
+            if median_h < 2:
+                interval_hours = 1
+            elif median_h < 6:
+                interval_hours = 4
+            else:
+                interval_hours = 8
+        else:
+            interval_hours = 8  # default to Binance 8h settlement
+
         # Build mapping: convert ms timestamps to tz-naive Timestamp to match
         # the parquet DatetimeIndex.  Floor to the nearest hour so that
         # settlement timestamps (e.g. 00:00:03.456) align with the hourly
@@ -351,7 +369,7 @@ class LiveFetcher:
         for r in funding_rates:
             ts_ms = int(r["timestamp"])
             ts = pd.Timestamp(ts_ms, unit="ms").floor("h")
-            funding_map[ts] = float(r["fundingRate"])
+            funding_map[ts] = float(r["fundingRate"]) / interval_hours
 
         # Map parquet index to funding values
         new_funding = df.index.map(lambda idx: funding_map.get(idx))

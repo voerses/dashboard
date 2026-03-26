@@ -88,8 +88,9 @@ def parse_args() -> argparse.Namespace:
                         help="Random seed (default: 42)")
     parser.add_argument("--output", type=str, default="results/v4",
                         help="Output directory for JSON results")
-    parser.add_argument("--market", type=str, default=None,
-                        help="Override market type for all strategies (spot/perp/combined)")
+    parser.add_argument("--market", type=str, required=True,
+                        choices=["spot", "perp", "combined"],
+                        help="Market type for all strategies (spot/perp/combined) — REQUIRED")
     parser.add_argument("--raw", action="store_true",
                         help="Raw mode: skip portfolio constraints, use strategy's own sizing")
     parser.add_argument("--skip-wf", action="store_true",
@@ -102,13 +103,19 @@ def run_backtest(
     months: int,
     capital: float,
     config: PortfolioConfig,
+    market: str,
     precomputed_signals: dict | None = None,
     end_date: pd.Timestamp | None = None,
 ) -> tuple:
     """Run a single backtest with given parameters.
 
+    Args:
+        market: Market type — "spot", "perp", or "combined". Required.
+
     Returns (metrics, extra_info, trades, state)
     """
+    if market not in ("spot", "perp", "combined"):
+        raise ValueError(f"Invalid market '{market}'. Must be 'spot', 'perp', or 'combined'.")
     strategy_specs = {}
     for sid in strategy_ids:
         stype = _detect_strategy_type(sid)
@@ -117,7 +124,7 @@ def run_backtest(
             strategy_id=sid,
             weight=1.0 / len(strategy_ids),
             max_positions=config.max_portfolio_positions // len(strategy_ids) if len(strategy_ids) > 1 else config.max_portfolio_positions,
-            market=config._market_overrides.get(sid, "combined") if hasattr(config, '_market_overrides') else "combined",
+            market=market,
             strategy_type=stype,
             sizing_overrides=mod_attrs.get('sizing_overrides', {}),
             regime_params=mod_attrs.get('regime_params', None),
@@ -161,7 +168,7 @@ def main():
     is_sweep = len(capital_levels) > 1
 
     # Build config
-    market = args.market or "combined"
+    market = args.market
     config = PortfolioConfig(
         exchange=args.exchange,
         concentration_limit=args.concentration,

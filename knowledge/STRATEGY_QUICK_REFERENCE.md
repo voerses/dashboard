@@ -7,6 +7,29 @@
 > Do NOT modify any v3/ files. Strategy modules (`v3/cross_sectional.py`, etc.) still
 > live in v3/ but are read-only — new strategies go in `strategies/sNN_*.py` or `v4/`.
 
+## CRITICAL: Performance Reporting Rule
+
+**The LAST 12 MONTHS is the primary performance metric. Full-period numbers are context only.**
+
+Full-period backtests are dominated by 2020-2021 bull returns that will not repeat.
+Always lead with recent metrics. Example: a strategy showing +33%/yr full-period but
++4%/yr in the last 12 months should be evaluated as a **4%/yr strategy**, not a 33%/yr one.
+
+If last-12-month Sharpe < 0.3, the strategy is not production-ready regardless of
+full-period metrics. See `RESEARCHER_BEST_PRACTICES.md` Rule 13 for full details.
+
+**BTC funding rates are structurally declining:** 30.7% (2021) → 8.2% (2025) → 2.4% (2026 YTD).
+Do NOT use historical averages (14.5%) to project future carry income.
+
+**`--market` is REQUIRED.** There is no default. Every backtest and paper config must
+explicitly specify `spot`, `perp`, or `combined`. Running a single-market strategy with
+`--market combined` produces 0 trades (the engine requires both legs to signal). If a
+strategy doesn't support combined mode, the engine now warns and falls back to single-leg
+— but always specify the correct market type explicitly.
+
+**`StrategySpec.from_dict()` requires `"market"` in JSON.** Paper configs and tool configs
+that omit it will crash at load time. All existing configs already specify it.
+
 ---
 
 ## Available Capabilities (Read Before Ideating)
@@ -57,6 +80,8 @@ each other. Skip directional overlays at Gate 0 for delta-neutral bases.
 | `funding_exit_threshold` | `float` | `0.0` | Exit if cumulative funding / margin exceeds threshold. Disabled by default (KILLED at 5O). |
 | `market_type` (per-bar) | `int` or `np.ndarray` | scalar | Per-bar venue routing: SPOT(0) or PERP(1) per entry. Engine routes fees/funding/prices per position. No current use case (KILLED at 5O — spot fees 2x perp). |
 
+**Expanded BarContext for custom exit handlers:** Exit handlers now receive `volume`, `vol_20` (20-period rolling vol), and `ret_1h` (1-hour log return) in `BarContext` (NaN if unavailable). Enables volume-aware exits, vol-scaled stops, and momentum-based exit logic.
+
 ### V4 Per-Strategy Risk Controls (StrategySpec)
 
 | Field | Default | Purpose |
@@ -64,6 +89,10 @@ each other. Skip directional overlays at Gate 0 for delta-neutral bases.
 | `circuit_breaker_r` | `0.0` | Emergency exit at Nx initial risk (e.g. 4.0). 0=disabled. Essential for s59/s80. |
 | `pump_filter_funding_zscore` | `0.0` | Block long entries when funding z-score > threshold (e.g. 3.0). 0=disabled. |
 | `pump_filter_range_threshold` | `0.0` | Block entries when bar range/ATR > threshold (e.g. 4.0). 0=disabled. Only helps s60. |
+| `sizing_model` | `"kelly"` | Position sizing algorithm. Registry in `v4/sizing.py`. Only `"kelly"` registered. |
+| `slippage_model` | `"sqrt"` | Slippage algorithm. Registry in `v4/sizing.py`. Only `"sqrt"` registered. |
+
+**Sizing curve overrides (via `sizing_overrides`):** `kelly_mult_floor` (0.05–0.40), `kelly_mult_range` (0.10–0.80), `cap_pct_floor` (0.005–0.08), `cap_pct_range` (0.02–0.30), `adv_scaling_divisor` (1.0–20.0) are now per-strategy overridable with SAFETY_RAILS bounds.
 
 **Current live settings (0d59ff4):** s59/s80: CB=4.0. s56/s57/s65/s69/s72/s76/s81: funding=3.0. s60: funding=3.0 + range=4.0. s62/s63/s75: no filters.
 
@@ -77,6 +106,7 @@ each other. Skip directional overlays at Gate 0 for delta-neutral bases.
 | `min_conviction_threshold` | `0.0` | Skip entries below this conviction score |
 
 > **Sizing deep dive:** `knowledge/V4_SIZING_PIPELINE.md` — full pipeline reference covering all three configuration layers, exact formulas, ADV curve, entry rejection order, and common sizing patterns.
+> **Experimentation guide:** `knowledge/V4_EXPERIMENTATION_GUIDE.md` — comprehensive reference for experimenting with exits, sizing models, regimes, raw mode, and all strategy extension points. Includes recipes for custom sizing models, exit combinations, regime-adaptive sizing, and more.
 > **Researcher ground rules:** `knowledge/RESEARCHER_BEST_PRACTICES.md` — complete parameter catalog (9 layers, every configurable vs hardcoded param) + 12 ground rules with project examples (no spot overleverage, no look-ahead bias, non-overlapping IC, etc.).
 
 ### Paper Trader Operations
@@ -97,6 +127,24 @@ each other. Skip directional overlays at Gate 0 for delta-neutral bases.
 | Portfolio simulation | `v3/portfolio.py` | Shared cash pool, realistic capital, concentration caps |
 | Correlation analysis | `v3/correlation.py` | Pairwise strategy corr, marginal Sharpe, greedy portfolio selection |
 | Dynamic universe | `v3/dynamic_universe.py` | Point-in-time token eligibility at each WF window |
+
+### Auto-Research Coordination
+
+The **Research Coordinator** role (`memory/RESEARCH_COORDINATOR.md`) defines an autonomous
+signal discovery workflow. It coordinates parallel subagent research, tracks a signal
+scoreboard of 54+ tested signals, and prevents repeating killed research.
+
+| Tool | Module | Purpose |
+|------|--------|---------|
+| Auto-research pipeline | `tools/auto_research_pipeline.py` | 3-stage signal screening: generate 40+ variants → parallel backtest → rank survivors |
+| Sweep framework | `tools/sweep_framework.py` | Canonical parameter sweep orchestration with parallel execution |
+| Signal discovery engine | `tools/signal_discovery/` | 300+ features, walk-forward IC, FDR correction, temporal analysis, clustering |
+
+**Signal scoreboard:** `memory/RESEARCH_STATUS.md` — 54 signals tested with GOLD/PASS/KILLED verdicts.
+Check before proposing new signals to avoid repeating killed research.
+
+> **Engine experimentation:** `knowledge/V4_EXPERIMENTATION_GUIDE.md` — for experiments with exits,
+> sizing models, regimes, and other engine extension points (not signal research).
 
 ### Strategy Research & Sweep Tools
 
@@ -409,10 +457,14 @@ Layer 6: Position sizing → ADV-based Kelly (engine computes from volume data)
 | All 6 layers present? | Yes | Missing regime/exit |
 
 **Vectorization Rules:**
-- Use `ctx.ind_1h['rsi']` — never recompute indicators
+- Use `ctx.ind_1h['rsi']` — never recompute built-in indicators (7 groups: ema, macd, rsi, bb, adx, volume, donchian)
+- Custom indicators: compute inline or use `@register_indicator` plugin → writes to `ctx.custom`
+- Alternative data: load in plugin, align to `ctx.idx_1h` with ffill, write to `ctx.custom`
 - Use `rolling_mean(arr, window)` — never `for i in range()` over bars
 - Vectorized: 0.04ms/call. Looped: 1,864ms/call (46,600x slower)
 - **Combined strategies:** Use `_fast_rolling_zscore` (numpy cumsum) instead of `rolling_zscore` (pandas) — saves ~1ms on 54K bars
+
+> **Exit, sizing, indicators & data:** `knowledge/V4_EXPERIMENTATION_GUIDE.md` — complete reference for exit handlers, custom sizing models, regime customization, raw mode, indicator pipeline (3 tiers), alternative data integration, and experimentation recipes with code examples.
 
 **Combined Strategy Template (Class A2):**
 ```python

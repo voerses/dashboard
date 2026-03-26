@@ -52,18 +52,19 @@ SAFETY_RAILS: dict[str, tuple[float, float]] = {
     "cap_pct_scale":       (0.5, 2.0),
     "min_adv_usd":         (100_000, 10_000_000),
     "adv_lookback_days":   (7, 90),
+    # ADV-to-sizing curve shape (wide bounds for research experimentation)
+    "kelly_mult_floor":    (0.05, 0.40),
+    "kelly_mult_range":    (0.10, 0.80),
+    "cap_pct_floor":       (0.005, 0.08),
+    "cap_pct_range":       (0.02, 0.30),
+    "adv_scaling_divisor": (1.0, 20.0),
 }
 
-# Engine-absolute — strategies CANNOT override these
+# Engine-absolute — strategies CANNOT override these (safety-critical params)
 NON_OVERRIDABLE = {
     "unrealized_pnl_floor",
     "funding_buffer_pct",
     "vol_floor",
-    "kelly_mult_floor",
-    "kelly_mult_range",
-    "cap_pct_floor",
-    "cap_pct_range",
-    "adv_scaling_divisor",
 }
 
 
@@ -169,15 +170,22 @@ class StrategySpec:
     regime_params: Optional[dict] = None
     # Sizing model selection ("kelly" = default, extensible via sizing registry)
     sizing_model: str = "kelly"
+    # Slippage model selection ("sqrt" = default, extensible via slippage registry)
+    slippage_model: str = "sqrt"
 
     @classmethod
     def from_dict(cls, d: dict) -> StrategySpec:
         """Create from a JSON-parsed dict.  Single source of truth for field mapping."""
+        if "market" not in d:
+            raise ValueError(
+                f"Strategy '{d.get('strategy_id', '?')}' missing required 'market' field. "
+                f"Must be 'spot', 'perp', or 'combined'."
+            )
         return cls(
             strategy_id=d["strategy_id"],
             weight=d.get("weight", 1.0),
             max_positions=d.get("max_positions", 15),
-            market=d.get("market", "combined"),
+            market=d["market"],
             strategy_type=d.get("strategy_type", "per_token"),
             circuit_breaker_r=d.get("circuit_breaker_r", 0.0),
             pump_filter_funding_zscore=d.get("pump_filter_funding_zscore", 0.0),
@@ -189,6 +197,7 @@ class StrategySpec:
             sizing_overrides=d.get("sizing_overrides", {}),
             regime_params=d.get("regime_params", None),
             sizing_model=d.get("sizing_model", "kelly"),
+            slippage_model=d.get("slippage_model", "sqrt"),
         )
 
 

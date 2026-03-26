@@ -135,9 +135,7 @@ class TestResolveSizing:
         from v4.config import SizingDefaults, resolve_sizing
 
         sd = SizingDefaults()
-        for key in ["vol_floor", "unrealized_pnl_floor", "funding_buffer_pct",
-                     "kelly_mult_floor", "kelly_mult_range", "cap_pct_floor",
-                     "cap_pct_range", "adv_scaling_divisor"]:
+        for key in ["vol_floor", "unrealized_pnl_floor", "funding_buffer_pct"]:
             with pytest.raises(ValueError, match="not overridable"):
                 resolve_sizing(sd, {key: 0.5})
 
@@ -792,7 +790,7 @@ class TestConfigLoading:
         from v4.config import SizingDefaults
 
         config_data = {
-            "strategies": [{"strategy_id": "s30", "weight": 0.5}]
+            "strategies": [{"strategy_id": "s30", "market": "spot", "weight": 0.5}]
         }
         # Parse strategies
         specs = [StrategySpec.from_dict(s) for s in config_data["strategies"]]
@@ -806,7 +804,7 @@ class TestConfigLoading:
 
         config_data = {
             "sizing_defaults": {"edge_minimum": 0.08, "target_vol": 0.03},
-            "strategies": [{"strategy_id": "s30", "weight": 0.5}],
+            "strategies": [{"strategy_id": "s30", "market": "spot", "weight": 0.5}],
         }
         sd = SizingDefaults(**config_data["sizing_defaults"])
         pc = PortfolioConfig(
@@ -820,6 +818,7 @@ class TestConfigLoading:
         """StrategySpec.from_dict() parses sizing_overrides from JSON."""
         d = {
             "strategy_id": "s320",
+            "market": "spot",
             "weight": 0.5,
             "sizing_overrides": {
                 "kelly_mult_scale": 1.5,
@@ -869,3 +868,71 @@ class TestIntegration:
 
         assert size_default == 0.0  # Rejected by default edge_minimum=0.10
         assert size_custom > 0.0   # Accepted by custom edge_minimum=0.05
+
+
+# ---------------------------------------------------------------------------
+# Tests 22-25: Sizing model registry
+# ---------------------------------------------------------------------------
+
+class TestSizingModelRegistry:
+
+    def test_get_sizing_model_kelly(self):
+        """get_sizing_model('kelly') returns a SizingModel instance."""
+        from v4.sizing import get_sizing_model, SizingModel
+
+        model = get_sizing_model("kelly")
+        assert isinstance(model, SizingModel)
+
+    def test_get_sizing_model_unknown_raises(self):
+        """get_sizing_model('unknown') raises KeyError."""
+        from v4.sizing import get_sizing_model
+
+        with pytest.raises(KeyError):
+            get_sizing_model("unknown")
+
+    def test_custom_sizing_model_dispatch(self):
+        """Register a custom model, verify simulator dispatches to it."""
+        from v4.sizing import SizingModel, _SIZING_MODELS, get_sizing_model
+
+        class FixedSizing:
+            """Always returns a fixed position size."""
+            FIXED_SIZE = 42_000.0
+
+            def compute_size(self, **kwargs) -> float:
+                return self.FIXED_SIZE
+
+        # Register custom model
+        _SIZING_MODELS["fixed"] = FixedSizing()
+        try:
+            model = get_sizing_model("fixed")
+            assert isinstance(model, SizingModel)
+            result = model.compute_size(
+                strategy_equity=100_000,
+                rolling_adv=50_000_000,
+                volatility=0.02,
+                edge=0.20,
+                size_multiplier=1.0,
+                cap_multiplier=1.0,
+                max_trade_pct=0.0,
+            )
+            assert result == 42_000.0
+        finally:
+            del _SIZING_MODELS["fixed"]
+
+    def test_default_kelly_unchanged(self):
+        """Default kelly model produces identical results via registry vs direct wrapper."""
+        from v4.sizing import get_sizing_model, compute_position_size
+
+        model = get_sizing_model("kelly")
+        common = dict(
+            strategy_equity=100_000,
+            rolling_adv=50_000_000,
+            volatility=0.02,
+            edge=0.20,
+            size_multiplier=1.0,
+            cap_multiplier=1.0,
+            max_trade_pct=0.0,
+        )
+        via_registry = model.compute_size(**common)
+        via_wrapper = compute_position_size(**common)
+        assert via_registry == via_wrapper

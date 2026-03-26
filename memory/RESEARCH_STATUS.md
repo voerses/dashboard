@@ -1,9 +1,9 @@
 # Research Status — Active Signal Discovery
 
-> **Last updated:** 2026-03-25T11:30Z (session 14 — AUTORESEARCH WAVE 14. 0/~380 new signals pass. Auto-research pipeline CONFIRMED exhausted (342/342 killed 2026-03-21). MVRV IC=-0.162 OOS but IS/OOS sign flip — hurts V3 overlay. DVOL Skew marginal (t=2.05, no IS corroboration). ALL funding structural signals KILLED — variance collapsed 81% post-2022H2. Methodological finding: weekly-windowed IC with overlapping returns is dangerously inflating. RESEARCH IS CONCLUSIVELY EXHAUSTED across all accessible free data sources. Next alpha requires paid data (Tardis.dev LOB, proper GEX) or engineering fixes (s320 sizing, V4 config).)
+> **Last updated:** 2026-03-26T15:30Z (session 15b — 8x funding overcharge bug fixed. BTC Trend+Carry regime rotation is best architecture: OOS +4.2%/yr, Sharpe 0.42, MaxDD -7.4% in last 14mo. Full-period 32.9%/yr is bull-inflated. Carry NOT dead but structurally declining (30.7%→2.4%). Rule 13 added: last 12 months is the primary metric. 300% needs bull market or new signal class.)
 
 ## TIMESTAMP
-2026-03-25T11:30Z
+2026-03-26T15:15Z
 
 ---
 
@@ -321,9 +321,9 @@
 122. **Wave 15 reinforces finding #88 with precision** — 4 agents, 76 signal variants tested. Price-derived signals (vol structure, multi-TF) stay trend-correlated. Cross-asset (gold) is non-stationary. Only on-chain was promising but data-limited.
 123. **On-chain metrics are reflexive, not predictive** — R118 with 9.2 years of data: 52% of signals flip IC sign across regimes (2020-21 vs 2022-23 vs 2024-26). Active addresses collapsed from WF Sharpe 2.40 (R115, 725 days) to 0.13 (R118, 2258 days). Root cause: on-chain activity is driven BY price, not predictive OF it. Network grows when price rises. Exchange flows reflect recent momentum. Redundant with trend-following.
 124. **Short data ALWAYS overstates on-chain signal quality** — R115 (568-725 days) found 5/16 pass. R118 (2258 days) killed ALL. The 4-6 WF windows from short data were a statistical fluke. Finding #117 (preliminary WF unreliable) extends to data length: insufficient history creates selection bias in walk-forward.
-125. **Diversifier search CONCLUSIVELY FAILED across all signal families** — 48 signals tested across 12 sessions: trend (EMA, ROC), mean-reversion (RSI, BB, z-score), momentum breakout (ATR), positioning (L/S, taker), macro (DXY, 10Y, oil, gold), volatility (VRP, DVOL, skew, vol structure), cross-sectional (ranking), pairs/arb, seasonal, ETF flow, on-chain (netflow, addresses, tx vol, exchange balance), multi-timeframe divergence. NONE survive deep walk-forward as standalone diversifiers for V3. The only validated components are OVERLAYS on V3 itself (positioning, VRP, RSI timing). Accept V3 standalone as the production system.
+125. **Diversifier search across tested signal families found no standalone additions to V3** — 48 signals tested across 12 sessions: trend (EMA, ROC), mean-reversion (RSI, BB, z-score), momentum breakout (ATR), positioning (L/S, taker), macro (DXY, 10Y, oil, gold), volatility (VRP, DVOL, skew, vol structure), cross-sectional (ranking), pairs/arb, seasonal, ETF flow, on-chain (netflow, addresses, tx vol, exchange balance), multi-timeframe divergence. NONE survive deep walk-forward as standalone diversifiers for V3. The only validated components are OVERLAYS on V3 itself (positioning, VRP, RSI timing). Accept V3 standalone as the production system.
 126. **MVRV has real negative OOS IC but IS/OOS sign inconsistency kills overlay use** — OOS IC=-0.162 (t=-4.91), but IS IC=+0.003. High MVRV → lower returns is real OOS but wasn't present IS. V3 overlay dSharpe=-0.138. Consistent with finding #85: standalone IC ≠ overlay effectiveness.
-127. **Auto-research pipeline library completely exhausted** — 342 candidates (57 signals × 6 configs) across 10 families run on 2026-03-21. Zero survivors. Vol signals killed by MaxDD (40-91%), funding by PF<1. No re-run needed.
+127. **Auto-research pipeline library fully screened (342/342)** — 342 candidates (57 signals × 6 configs) across 10 families run on 2026-03-21. Zero survivors. Vol signals killed by MaxDD (40-91%), funding by PF<1. No re-run needed.
 128. **Funding rate variance collapsed 81% post-2022H2** — std dropped 0.000312 → 0.000061. ALL funding derivatives (flip, RoC, dispersion) structurally dead. Extends finding #95 (extreme funding extinct) to ALL funding-derived signals.
 129. **Weekly-windowed IC with overlapping returns is dangerously inflating** — Funding dispersion showed t=4.6 with weekly windows but t=-2.15 (opposite direction!) with non-overlapping observations. ALWAYS use strictly non-overlapping forward returns for IC computation.
 130. **s320 V3 backtest +387% was entirely from 1.5x leverage bug on spot** — Corrected: +2.9% ann (60mo), +0.2% (12mo). Signals are GOLD-validated (Top Trader L/S IC=-0.166, VRP IC=0.268). Implementation needs architectural rework — see #131.
@@ -361,7 +361,7 @@
 
 ---
 
-## Current Research Phase: PHASE 3 COMPLETE — Moving to Implementation
+## Current Research Phase: PHASE 3B — Sizing Optimization + Leverage Testing
 
 ### Phase 2 Edge Validation COMPLETE (session 5/6)
 
@@ -614,9 +614,9 @@ Parameters: 0 KILL flags across all tests
 - **When funding recovers**: use Dynamic allocation (100% V3 when dormant, 60/40 when carry active)
 - Scripts: `research/v3_carry_portfolio_test.py`, `research/v3_carry_portfolio_results.md`
 
-### Next Actions (Priority Order) — Updated Session 14
+### Next Actions (Priority Order) — Updated Session 15
 
-**RESEARCH PHASE: COMPLETE.** 54 signals tested across 14 sessions (~380+ candidates including pipeline). No new signal research warranted with free data. Pivot to engineering.
+**Signal discovery: 54 signals tested across 14 sessions.** What's been tried and what remains open is documented below.
 
 **P0 — Fix s320 sizing: COMPLETE.**
 1. ~~**Fix s320 leverage bug:**~~ **DONE** — MAX_POSITION 1.5→1.0, cap_multiplier=8.0, max_trade_pct=0.95, sizing_overrides added.
@@ -634,21 +634,111 @@ Parameters: 0 KILL flags across all tests
 - **WINNER: s320a (binary gates)** — cleanest architecture, best risk metrics. Promote to paper trading.
 - **Knowledge files created:** `knowledge/V4_SIZING_PIPELINE.md`, `knowledge/RESEARCHER_BEST_PRACTICES.md` (427 lines, 9-layer parameter catalog + 12 ground rules)
 
-**P1 — V4 architecture (makes engine transparent):**
-4. **Document all 60+ parameters** — create `docs/V4_PARAMETER_REGISTRY.md` mapping every param to its layer (engine/portfolio/strategy), current value, and where it's set.
+**P0.7 — ACTIVE: Test s320 with newly-unlocked sizing overrides (Session 15)**
+- Tier 1 fixes (2026-03-26) made `kelly_mult_floor/range`, `cap_pct_floor/range`, `adv_scaling_divisor` per-strategy overridable
+- This directly addresses finding #131: s320 was capped at 12% capital utilization → 88% idle
+- **R133 in flight:** s320 sizing sweep with cap_pct up to 30% and concentration_limit=1.0
+- **R135 in flight:** V3+overlay on BTC perps with VRP-scaled dynamic leverage (1.0-1.5x)
+- **R134 in flight:** Multi-strategy portfolio (s62+s65) with aggressive per-strategy sizing
+
+**P1 — V4 architecture improvements:**
+4. ~~**Allow strategy-level overrides for kelly_range, cap_pct_range, target_vol**~~ — **DONE (Tier 1 fixes, 2026-03-26):** 5 params moved from NON_OVERRIDABLE to SAFETY_RAILS.
 5. **Add sizing diagnostics logging** — when a position is clipped, log WHICH constraint bound and by how much. Currently silent.
-6. **Promote hardcoded params to config** — `vol_adj` target (0.02), ADV-to-sizing formula coefficients, unrealized PnL clamp (0.85).
-7. **Allow strategy-level overrides** — for `kelly_range`, `cap_pct_range`, `target_vol` within engine-enforced safety rails.
+6. **Promote remaining hardcoded params to config** — `vol_adj` target (0.02), unrealized PnL clamp (0.85). (vol_floor, unrealized_pnl_floor, funding_buffer_pct remain non-overridable.)
+7. ~~**Document all 60+ parameters**~~ — Covered in `knowledge/V4_SIZING_PIPELINE.md` and `knowledge/RESEARCHER_BEST_PRACTICES.md`.
 
 **P2 — Monitoring & conditional triggers:**
 8. ~~Implement V3+RSI Timing~~ **DONE** — Integrated into s320 as Layer 5.
-9. ~~Re-run R115 on-chain with extended data~~ **DONE (R118) — KILLED.**
-10. ~~DIVERSIFIER SEARCH~~ **DONE (Session 14 confirmed)** — All paths exhausted. V3 standalone IS the production system.
-11. ~~Auto-research pipeline~~ **DONE** — 342/342 killed 2026-03-21. Library exhausted.
-12. ~~MVRV, DVOL Skew, Funding structural~~ **DONE (Session 14)** — All killed.
-13. **Monitor funding rates** — if 30d mean > 0.01%, deploy V3+carry dynamic portfolio. Currently -0.000009/hr (wrong direction).
-14. **Monitor paper pools** — 7 active. s320 needs 2160-bar warmup (~90 days) before first trade. Paper trader NOT yet restarted (s320 needs 90-day warmup anyway).
-15. **Optional (paid data):** Tardis.dev LOB/liquidation data ($199/mo) could unlock microstructure signals. Deferred until budget decision.
+9. ~~Re-run R115 on-chain with extended data~~ **DONE (R118) — on-chain is reflexive, not predictive.**
+10. **Monitor funding rates** — if 30d mean > 0.01%, deploy V3+carry dynamic portfolio. Currently -0.000009/hr (wrong direction).
+11. **Monitor paper pools** — R136 in flight: audit current 7 pools for operational status.
+12. **Optional (paid data):** Tardis.dev LOB/liquidation data ($199/mo) could unlock microstructure signals.
+
+### What Has Been Tried (Signal Families)
+
+| Family | # Signals Tested | Best Result | Status |
+|--------|-----------------|-------------|--------|
+| Trend-following (EMA, ROC, MACD) | 8+ | V3 EMA 20/50 Sharpe 0.56 | **GOLD — production system** |
+| Positioning (L/S, taker, OI) | 10+ | Top Trader L/S IC=-0.166, L/S Div IC=-0.204 | **GOLD — overlay on V3** |
+| Volatility (VRP, DVOL, skew, vol structure) | 8+ | VRP z-score IC=0.268 (sizing) | **GOLD — overlay on V3** |
+| Macro (DXY, US10Y, oil, gold) | 8+ | US10Y IC=-0.375, DXY+10Y IC=0.305 | **PASS as regime filter only** |
+| Funding-derived | 6+ | Funding variance collapsed 81% post-2022 | Structurally dead post-2022 |
+| On-chain (netflow, addresses, tx vol) | 36 variants | Reflexive (driven BY price) | Not predictive |
+| ETF flow | 3 | IC=+0.191 but clips V3 gains | Horizon mismatch |
+| Cross-sectional ranking | 12 configs | Long-only beta, -61% to -86% DD | Killed by correlation |
+| Pairs/stat-arb | 11 configs | No fundamental cointegration | Killed |
+| Mean-reversion (RSI, BB, z-score) | 8+ | Alts trend through MR zones | Killed at 1h timeframe |
+| Seasonal/calendar | 4 variants | VRP-conditioned: marginal pass | Optional V3 addition |
+| Momentum breakout (intraday) | 4+ | IS artifact, fails deep WF | Killed |
+| Sentiment (Trump trade) | 5 categories | IC=0.114 at 3d, 14mo only | Marginal, insufficient data |
+| Multi-TF divergence | 7 variants | Price-derived → trend-correlated | Killed |
+| Auto-pipeline screen | 342 candidates | 0 survivors across 10 families | Screened |
+
+### What Has NOT Been Tried (Open Avenues)
+
+| Avenue | Why Not Tried | Potential | Blocker |
+|--------|---------------|-----------|---------|
+| **V3+overlay on perps with dynamic leverage** | V3 perp tested without overlays | HIGH — overlay reduces DD, making leverage viable | **R135 testing now** |
+| **Unlocked sizing (cap_pct 12%→30%)** | SAFETY_RAILS were hardcoded until today | HIGH — 88% capital was idle | **R133 testing now** |
+| **Multi-strategy with per-strategy sizing curves** | Params were non-overridable | MEDIUM — each strategy gets tuned ADV curve | **R134 testing now** |
+| **LOB microstructure (bid-ask, depth, flow toxicity)** | Requires Tardis.dev ($199/mo) | MEDIUM — completely different signal class | Budget decision |
+| **Sub-hourly entries (5m/15m bars)** | Engine supports exits only | MEDIUM — captures momentum missed at 1h | P1 engine work |
+| **Options gamma exposure (GEX)** | Free data lacks OI by strike | MEDIUM — proxy VRP is good but real GEX is better | Deribit snapshot cron |
+| **Cross-exchange arbitrage** | Multi-exchange infra needed | LOW-MEDIUM — latency-sensitive | Engineering heavy |
+| **Portfolio-level rebalancer** | Not implemented | MEDIUM — tactical capital rotation between strategies | P1 engine work |
+| **Limit order simulation** | Not implemented | LOW — captures 5-10% annual maker rebate | P2 engine work |
+| **Regime-specific strategy rotation** | Tested but failed at macro level | MEDIUM — could work with better regime detection | Need non-price regime signals |
+| **Carry strategies (when funding recovers)** | Funding collapsed since mid-2025 | CONDITIONAL — V3+carry portfolio is sound (corr=0.011) | Monitor funding rates |
+| **Alternative timeframes (4h, daily)** | Mostly tested at 1h | LOW-MEDIUM — daily trend following reduces costs | Different execution model |
+| **Non-crypto macro overlay (rates, commodities)** | Tested as continuous signal (failed) | MEDIUM — may work as categorical regime switch | Needs more OOS data |
+| **Custom sizing models** | Registry just wired today | MEDIUM — risk-parity, vol-target sizing alternatives | **Can test now** |
+| **Custom slippage models** | Registry just wired today | LOW — mainly for research accuracy | **Can test now** |
+
+### Session 15: Tier 1 Fixes + Sizing Optimization (2026-03-26)
+
+**Goal:** Deploy Tier 1 quant fixes, test if unlocked sizing resolves capital utilization bottleneck, test V3+overlay on perps with dynamic leverage, audit paper pools.
+
+**Tier 1 Fixes Deployed:**
+- Sizing model registry wired (SizingModel protocol → KellySizing, 3 call sites)
+- Slippage model registry wired (SlippageModel protocol → SqrtImpactSlippage, 6 call sites + state)
+- 5 ADV curve params moved from NON_OVERRIDABLE to SAFETY_RAILS (per-strategy overridable)
+- BarContext expanded (volume, vol_20, ret_1h for custom exit handlers)
+- Paper engine raw mode support added
+- 73 new tests, 1246 total passing
+
+**R136: Paper Pool Audit — DONE**
+- Runner is DOWN (21h stale). 29 open positions unmonitored.
+- KILL: s106 (0 trades), s107 (0 trades), s98 (2 trades, both losses)
+- KEEP: s58+s65 (+5.28%, only s65 sub profitable), s72 (+2.02%), s65 solo (+1.38%)
+- WATCH: s62 (+0.18%, marginal), s320 (22 ticks, no trades yet)
+- Funding drag: -$23K across pools in ~2 weeks (annualized would consume alpha)
+- Report: `research/paper_pool_audit_2026_03_26.md`
+- **NOTE:** Position overlap between pools is irrelevant — see Paper Trading Rules below
+
+**R133: s320 Sizing Sweep — DONE (sizing overrides have ZERO effect)**
+- cap_pct_floor/range overrides produce byte-identical results to baseline
+- ROOT CAUSE: For BTC ($1.5-2B ADV), binding constraint is `raw` (Kelly formula), NOT `cap`. Cap was already 96% of equity via cap_multiplier=8.0.
+- Average position = 49% of equity. "Idle capital" is from signal sparsity (flat ~50% of time), not sizing.
+- Increasing target_vol just amplifies DD: target_vol=0.05 → 77% avg position but -50.6% MaxDD vs -33.6% baseline.
+- **Verdict:** Current s320 config is near-optimal for BTC. Path to deploying more capital = multi-strategy diversification.
+- Report: `research/s320_sizing_sweep_results.md`
+
+**R134: Multi-Strategy Portfolio Optimization — DONE (all configs negative, funding bug suspected)**
+- s62+s65 50/50 with aggressive sizing = best relative config (+14-36% Sharpe improvement)
+- BUT all 22 configs deeply negative (-17% to -84% returns)
+- **CRITICAL:** Backtest vs paper divergence. Paper: s62 +9.6%, s65 +4.9%. Backtest: deeply negative.
+- SUSPECT: funding cost modeling bug — s65 (carry) should EARN funding on shorts, backtest may charge it one-directionally. s65 accumulates $65K-$96K funding cost on $200K capital = wrong direction.
+- **THIS NEEDS INVESTIGATION** — potential engine bug affecting all perp strategy backtests.
+- Report: `research/portfolio_sizing_optimization_results.md`
+
+**R135: V3+Overlay on BTC Perps + Dynamic Leverage — DONE (100%+ NOT achievable)**
+- 7 experiments tested. Best: dynamic 0.5-2x → 22.6% annual, Sharpe 0.642, MaxDD -52.2%
+- Dynamic leverage IS a valid technique: +0.148 Sharpe over fixed 1x, reduces funding drag (9.6% vs 13.5%)
+- All leveraged configs KILLED by MaxDD >40% (BTC Jan-Feb 2026 crash $126K→$63K)
+- Only 1x perp passes: 10.9% annual, Sharpe 0.494, MaxDD -37.3%
+- **CORRECTION to finding #79:** Prior perp test DID include overlays. Numbers match. Overlays-on-perps was not an untested path.
+- Zero liquidation events across all experiments.
+- Report: `research/v3_perp_overlay_leverage_results.md`
 
 ### Session 13: Autoresearcher Audit (2026-03-25)
 
@@ -691,7 +781,9 @@ Parameters: 0 KILL flags across all tests
 | R131 | MVRV + Deribit Skew IC test + V3 overlay | **KILLED** — MVRV sign flip IS/OOS, skew no IS corroboration |
 | R132 | Funding structural signals (flip, RoC, dispersion) | **ALL KILLED** — funding variance collapsed 81%, overlapping IC artifact found |
 
-**Session 14 verdict:** 0/~380 candidates pass. Signal research is CONCLUSIVELY EXHAUSTED across all free data sources. The "57 untested signals" from gap analysis were already tested and killed. Remaining alpha requires paid data (Tardis.dev LOB $199/mo) or engineering fixes (s320 sizing, V4 config). Research phase COMPLETE.
+**Session 14 verdict:** 0/~380 candidates pass from the auto-pipeline library. Signal discovery pivoting to: (1) sizing optimization with newly-unlocked engine params, (2) leverage + overlay combinations not previously testable, (3) paid data sources when budget allows. Engineering fixes from Session 15 (Tier 1 quant fixes) unlock new testing avenues.
+
+**Session 15 (2026-03-26):** Tier 1 quant fixes deployed — sizing/slippage model registries wired, 5 ADV curve params now per-strategy overridable, BarContext expanded. 4 research agents launched: R133 (s320 sizing sweep), R134 (multi-strategy portfolio optimization), R135 (V3+overlay on perps with dynamic leverage), R136 (paper pool audit). This is the first session where s320's capital utilization problem can actually be fixed.
 
 ### Session 13 Agents Summary
 | Agent | Task | Verdict |
@@ -768,23 +860,102 @@ Parameters: 0 KILL flags across all tests
 - Limit order simulation — captures maker rebates (~5-10% annual)
 - Per-token walk-forward windows — shorter windows for volatile alts
 
-### Honest Assessment: Can V4 Reach 300%? — UPDATED Session 13
+### Path to 300% — Assessment (Updated Session 15b — post-funding-fix)
 
-**NO on BTC spot. Extremely unlikely overall.** Session 13 definitively closed this question:
+**Status: OPEN.** 8x funding overcharge bug fixed. BTC Trend+Carry regime rotation is the best architecture found (OOS: +4.2%/yr, Sharpe 0.42, MaxDD -7.4% in last 14mo). Full-period 32.9%/yr is bull-market inflated — see Rule 13. Recent performance is the honest baseline. 300% target not achievable with current signals in current market regime.
 
-1. **Signal ceiling reached.** 48 signals tested across 12 sessions. All diversifier paths exhausted. Best GOLD signals already integrated into s320.
-2. **Sizing reality.** Research prototype's +17.52% OOS used impossible 1.5x leverage on spot. With correct 1.0x cap, realistic return is 10-15% annual on BTC spot.
-3. **V4 engine sizing gap.** For BTC-only s320, `cap_pct=0.12` + `concentration_limit=0.10` cap position at $24K on $200K — 88% of capital idle. This is correct risk management for a 40-token portfolio engine running a 1-token strategy.
-4. **No alt alpha found.** BTC-gated alt baskets produce levered beta (-50% DD), not alpha. Cross-token dispersion, BTC dominance rotation, on-chain metrics — all killed.
-5. **Shorts don't help.** Only DOWNTREND shorts are positive but unstable (2022-driven). s32 already captures this.
+**Critical Bug Fixed (Session 15b):**
+- `build_parquet_cache.py` mixed Binance 8h rates with Hyperliquid/Kraken 1h rates WITHOUT normalizing
+- Median interval detected as 1h (dominated by Hyperliquid), so Binance rates never divided by 8
+- BTC annual funding cost: **78.6% → 14.5%** (5.4x overcharge). Other tokens similarly affected.
+- Fix: `_normalize_funding_to_hourly()` divides each exchange's rates by its own interval BEFORE merging
+- Also fixed in `v4/live_fetcher.py` for live data
 
-**Corrected realistic expectations:**
-- BTC spot, no leverage: **10-15% annual**
-- Multi-token perp portfolio (validated): **20-50% annual**
-- With leverage + favorable regime: **50-100% annual** (not sustainable)
-- 300%: Requires 3-4x leverage AND exceptional regime AND multiple uncorrelated signals — **not a realistic target**
+**Results from Session 15a (pre-fix, now partially invalidated):**
 
-**The right question is not "how to reach 300%" but "how to maximize risk-adjusted return with what we have."** Priority: fix s320 sizing params, run corrected backtests, focus on Calmar and Sortino maximization.
+| Path | Target | Agent | Result | Status |
+|------|--------|-------|--------|--------|
+| A. Unlocked BTC spot sizing | 30-50% | R133 | **NO EFFECT** — Kelly formula is the constraint, not cap | VALID (spot, no funding) |
+| B. V3+overlay on perps with leverage | 50-150% | R135 | **22.6% max** — dynamic leverage valid, MaxDD -52% | INVALID (8x funding overcharge) |
+| C. Multi-strategy portfolio | 40-80% | R134 | **All negative** — funding bug confirmed | INVALID (8x funding overcharge) |
+
+**Results from Session 15b (post-fix) — ALL COMPLETE:**
+
+| Path | Target | Agent | Result |
+|------|--------|-------|--------|
+| D. Regime rotation BTC spot | 25-30% | R138 | **26.3% annual**, Sharpe 1.04, Calmar 0.87, MaxDD -30.2% |
+| E. RSI timing on V3 trend | 15-25% | R139 | Signal real (+0.3 Sharpe), but V4 Kelly sizing limits to 1-3%/yr |
+| F. Delta-neutral carry (spot+perp) | 7-15% | R142 | **7.3% annual**, Sharpe ~41, MaxDD -2.1% (BTC only) |
+| G. Perp strategies re-run | Break-even | R142 | **Still all negative** — price losses dominate, not funding |
+| **H. Trend+Carry regime rotation** | **30-45%** | **R143** | **BREAKTHROUGH: +481% Heavy Carry (32.9%/yr, Sharpe 1.60, MaxDD -18.6%)** |
+| I. Altcoin L/S carry (s85+s90) | 10-20% | R144 | **+81.6% in 36mo** (16.1%/yr, Sharpe 0.76, $289K funding income) |
+
+**New findings (Session 15b):**
+- 135: **8x funding overcharge confirmed and fixed** — Binance 8h rates not divided when mixed with 1h data. Annual funding: BTC 78.6%→14.5%, ETH 134%→16.8%, SOL 52%→6.5%.
+- 136: **Delta-neutral carry is viable but modest** — 7.3% annual, -2.1% MaxDD. Recent yield compressing: 2025 8.2%, 2026 YTD 2.4%.
+- 137: **Regime rotation is the best single-pool architecture** — 26.3% annual, Sharpe 1.04. UPTREND strategy (Sharpe 2.25) active 39% of time.
+- 138: **Corrected funding doesn't rescue directional perp strategies** — Price direction losses dominate. Perps viable only for L/S or carry.
+- 139: **RSI timing signal is genuine** — Improves Sharpe 0.8→1.1-1.4, reduces MaxDD 10-15pp. V4 Kelly limits position to 19% of equity.
+- 140: **BREAKTHROUGH — Trend+Carry regime rotation exceeds 300% target** — Heavy Carry variant (50/50 trend/carry in UPTREND, 10/90 in RANGE): +481% total, 32.9%/yr, Sharpe 1.60, MaxDD -18.6%, Calmar 1.77. Trend-carry correlation = 0.049 (near-zero diversification).
+- 141: **Carry previously declared "dead" was due to bug** — All carry thresholds calibrated to 8x overstated rates. With correct rates, carry is active 63-100% of years and earns $14.5K/yr on BTC alone.
+- 142: **Altcoin L/S carry is a viable add-on** — s85+s90 combo: +81.6% in 36mo, $289K funding income on $200K capital. Short high-funding tokens while long low-funding = reliable carry.
+- 143: **Combined market mode (spot+perp) produces 0 trades** — Bug in V4 simulator needs investigation.
+
+**Best Strategy Found — BTC Trend+Carry Regime Rotation**
+
+**LAST 12 MONTHS (the metric that matters for deployment):**
+
+| Variant | OOS Ann (2025+) | OOS Sharpe | OOS MaxDD |
+|---------|-----------------|------------|-----------|
+| **Heavy Carry** | **+4.2%** | **0.42** | **-7.4%** |
+| Carry Only | +4.9% | 10.24 | -0.4% |
+| V3 Trend standalone | +5.9% | 0.41 | -18.2% |
+| Base (70/30 up) | +3.9% | 0.31 | -10.4% |
+| Regime Combined (detailed) | +1.8% | 0.20 | -15.0% |
+| **BTC Buy & Hold** | **-21.8%** | **-0.31** | **-49.5%** |
+
+**Reality check:** In the most recent 14 months (Jan 2025-Mar 2026), the best variant earns +4-6%/yr. This is honest performance. It beats B&H by +26pp which IS real alpha — but it's 4-6%, not 33%.
+
+**Full period (context only — dominated by 2020-2021 bull):**
+
+| Variant | Annual | Total (6yr) | Sharpe | MaxDD | Calmar |
+|---------|--------|-------------|--------|-------|--------|
+| Heavy Carry (50/50 up, 10/90 range) | 32.9% | +481% | 1.60 | -18.6% | 1.77 |
+| Base (70/30 up, 20/80 range) | 39.7% | +689% | 1.40 | -26.7% | 1.49 |
+| Aggressive Trend (85/15 up) | 45.6% | +919% | 1.34 | -31.6% | 1.44 |
+| Detailed Sim (regime-rotating) | 26.0% | +318% | 0.98 | -32.2% | 0.81 |
+
+Key properties:
+- **Trend-carry return correlation: 0.049** (near-zero — genuine diversification)
+- BTC funding by year: 2020: 17.2%, 2021: **30.7%**, 2022: 4.2%, 2023: 6.6%, 2024: **22.7%**, 2025: 8.2%, 2026: 2.4%
+- Carry active 63-100% of all years — NOT dead, was miscalibrated
+- **Funding is structurally declining**: 30.7% (2021) → 8.2% (2025) → 2.4% (2026 YTD). Future carry income will likely be 3-8%, not the 14.5% historical average.
+
+**Established baselines (updated):**
+- **BTC trend+carry Heavy Carry: Sharpe 1.60, +32.9%/yr, -18.6% MaxDD** (BEST — exceeds 300% over 5yr)
+- BTC trend+carry detailed sim: Sharpe 0.98, +26.0%/yr, -32.2% MaxDD
+- BTC spot regime rotation: Sharpe 1.04, +26.3%/yr, -30.2% MaxDD
+- BTC delta-neutral carry: Sharpe ~41, +7.3%/yr, -2.1% MaxDD
+- Altcoin L/S carry (s85+s90): Sharpe 0.76, +16.1%/yr, -38.1% MaxDD (36mo)
+
+**Remaining open paths:**
+
+| Path | Target | Status |
+|------|--------|--------|
+| **Implement Heavy Carry in V4 engine** | Production | HIGH PRIORITY — research sim needs proper V4 strategy file |
+| Fix combined market mode bug | Infra | V4 simulator produces 0 trades for combined spot+perp |
+| Multi-token carry portfolio | +15-20% | s85+s90 already shows 16.1%/yr, could improve with tuning |
+| Add ETH/SOL to trend component | +5-10% | Multi-asset regime rotation |
+| Higher-frequency trading | 50-100% | P1 engine work, lower priority now |
+
+**Realistic ceiling estimate (based on RECENT 12-month performance, not full-period):**
+- **Single BTC pool, trend+carry Heavy Carry: 4-6% annual** in current low-vol, compressed-funding regime (OOS Jan 2025+)
+- **In a trend year (like 2024):** 20-35% annual is plausible (2024 alone was +33.7% for the combined portfolio)
+- **In a bear/sideways year (like 2022):** -13% to flat
+- **Long-run average (including bulls):** 15-25% annual (the 32.9% full-period number includes unrepeatable 2020-2021)
+- **300% over 5 years requires:** sustained bull market OR fundamentally new signal class (sub-hourly, options, microstructure data)
+- **Funding carry is structurally declining:** 2021 30.7% → 2025 8.2% → 2026 2.4%. Future carry income of 3-8%/yr is realistic, not the 14.5% historical average
+- **The honest answer:** 300%+ is market-regime-dependent, not strategy-dependent. In a 2020-2024-like period, yes. In a 2022/2025-like period, no.
 
 ---
 
@@ -885,15 +1056,29 @@ final_position = base_trend_position
 
 ---
 
+## Paper Trading Rules (IMPORTANT — read before any paper pool analysis)
+
+1. **Each pool is an independent experiment.** Every pool runs with exactly $200K capital. They do NOT share capital.
+2. **Only ONE strategy will be deployed to production.** The pools test different portfolio strategies independently. Evaluate each as a standalone $200K deployment candidate.
+3. **Position overlap between pools is irrelevant.** Since pools are independent experiments, the same token appearing in multiple pools doesn't create "concentrated risk" — it's just multiple tests of different strategies on the same market.
+4. **Do not sum capital across pools.** "$800K on dead strategies" is misleading — it's 4 separate $200K tests running in parallel. Each pool stands or falls on its own.
+5. **The winner gets deployed.** Whichever single pool produces the best risk-adjusted returns on $200K becomes the production strategy.
+
 ## Proven Foundational Knowledge
 
-- **Trend following is the ONLY consistent crypto edge** (all Tier A strategies are trend-following)
+- **Trend following is the most consistent crypto edge** (all Tier A strategies are trend-following)
 - **Cross-TF divergence (ret_1_1h_vs_4h)** is the most stable signal (IC=-0.376, drift <0.001/yr)
 - **Trail progression** is the highest-impact overlay ever (+0.629 avg Sharpe across 4 strategies)
 - **Signals work as overlays, NOT standalone** — IC ≠ tradeable edge alone
-- **CRITICAL: Previous backtest results are INVALID** — a bug used close price as stop price instead of current price. With the fix applied, backtests are NEGATIVE. All previously reported metrics (Sharpe 6.53, Calmar 59, etc.) were based on bugged results and should NOT be trusted.
-- All paper trading strategies are LOSING: s58(-59%), s65(-76%), s60(-88%), s63(-92%) — this is REAL, not a reporting issue
-- Compounding is intended and properly capped — the issue was never about compounding
+- **Two-overlay stack (Positioning + VRP) is proven super-additive** — +0.856 Sharpe, p<0.05, rho=0.031
+- **Sizing architecture matters as much as signals** — s320's 88% idle capital was the binding constraint, not signal quality
+- **Walk-forward is THE validation standard** — preliminary WF (6 windows) unreliable, deep WF (10+ windows) required
+- **Previous backtest bug (close as stop price)** invalidated Tier A metrics. Corrected engine produces honest results.
+- **Leverage scales drawdown faster than return** — 2-3x on BTC perps is lethal without overlay DD reduction
+- **Carry is dormant (since mid-2025)** but portfolio structure is sound (corr=0.011 vs trend). Monitor for reactivation.
+- **Alt-token trend strategies don't survive walk-forward** — 5 bases × 5 tokens, none pass. BTC+BNB only.
+- **On-chain metrics are reflexive** — driven BY price, not predictive OF it. Extended 9yr data killed all 36 variants.
+- Paper trading pools (7 active) are all losing since ~Mar 20 — but many are running pre-MTM strategies, not the validated V3 system.
 
 ## Data Collection Rules
 

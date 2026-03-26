@@ -251,34 +251,20 @@ def read_hyperliquid_funding(token):
 # ============================================================
 
 def resample_funding_to_1h(funding_df):
-    """Resample funding rates to 1h grid.
+    """Resample already-normalized per-hour funding rates to 1h grid.
 
-    Detects the settlement interval dynamically from median timestamp diffs
-    (typically 8h for Binance, 4h for Hyperliquid, 1h for some).
-    Computes per-hour rate and forward-fills to 1h grid.
+    Input funding_rate values are already per-hour (normalized by
+    _normalize_funding_to_hourly in merge_funding). This function simply
+    creates a funding_1h column (equal to funding_rate) and forward-fills
+    to the 1h grid.
 
-    Returns DataFrame with columns: funding_rate (raw ffilled), funding_1h (per-hour portion)
+    Returns DataFrame with columns: funding_rate (per-hour ffilled), funding_1h (same)
     """
     if funding_df is None or len(funding_df) < 2:
         return None
 
-    # Detect interval from median timestamp diffs
-    diffs_hours = funding_df.index.to_series().diff().dt.total_seconds().dropna() / 3600
-    if len(diffs_hours) == 0:
-        return None
-
-    median_interval = float(diffs_hours.median())
-    # Round to nearest standard interval
-    if median_interval < 2:
-        interval_hours = 1
-    elif median_interval < 6:
-        interval_hours = 4
-    else:
-        interval_hours = 8
-
-    # Per-hour rate: divide settlement rate by interval hours
     funding_df = funding_df.copy()
-    funding_df['funding_1h'] = funding_df['funding_rate'] / interval_hours
+    funding_df['funding_1h'] = funding_df['funding_rate']
 
     # Resample to 1h grid with forward-fill
     funding_1h = funding_df.resample('1h').ffill()
@@ -364,14 +350,48 @@ def merge_ohlcv(token, verbose=False, market='perp'):
     return primary, fill_info
 
 
+def _normalize_funding_to_hourly(df):
+    """Normalize a single exchange's funding rates to per-hour values.
+
+    Detects the settlement interval from median timestamp diffs and divides
+    accordingly.  Returns the DataFrame with funding_rate converted to per-hour.
+    """
+    if df is None or len(df) < 2:
+        return df
+
+    diffs_hours = df.index.to_series().diff().dt.total_seconds().dropna() / 3600
+    if len(diffs_hours) == 0:
+        return df
+
+    median_h = float(diffs_hours.median())
+    if median_h < 2:
+        interval_hours = 1
+    elif median_h < 6:
+        interval_hours = 4
+    else:
+        interval_hours = 8
+
+    if interval_hours > 1:
+        df = df.copy()
+        df['funding_rate'] = df['funding_rate'] / interval_hours
+
+    return df
+
+
 def merge_funding(token):
-    """Load funding rates from all exchanges, merge with longest history."""
+    """Load funding rates from all exchanges, normalize to per-hour, then merge.
+
+    Each exchange's raw rates are divided by their settlement interval BEFORE
+    merging, so Binance 8h rates and Hyperliquid 1h rates are in the same unit.
+    """
     sources = {}
     for name, reader in [('binance', read_binance_funding),
                           ('kraken', read_kraken_funding),
                           ('hyperliquid', read_hyperliquid_funding)]:
         df = reader(token)
         if df is not None and len(df) > 0:
+            # Normalize to per-hour rates before merging
+            df = _normalize_funding_to_hourly(df)
             sources[name] = df
 
     if not sources:

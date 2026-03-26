@@ -164,3 +164,10 @@ Fees are looked up by exchange name in the simulator:
 | binance | 0.10% | 0.05% | Per-bar from data | 0.50% |
 | hyperliquid | 0.01% | 0.035% | Per-bar from data | 0.50% |
 | kraken | 0.22% | 0.05% | Per-bar from data | 0.50% |
+
+---
+
+## Related Documentation
+
+- **Sizing pipeline:** `knowledge/V4_SIZING_PIPELINE.md` — Kelly formula, ADV curve, 3 config layers, safety rails
+- **Experimentation guide:** `knowledge/V4_EXPERIMENTATION_GUIDE.md` — exit handlers, custom sizing models, regime customization, raw mode, extension points, experimentation recipes

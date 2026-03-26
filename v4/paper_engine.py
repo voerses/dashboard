@@ -29,6 +29,7 @@ from v4.position import Position, ClosedTrade, PositionManager
 import v4.simulator as _sim
 from v4.simulator import SimulationState
 from v4.signals import precompute_strategy_signals, discover_tokens
+from v4.sizing import get_slippage_model
 from v4.paper_state import (
     serialize_state, atomic_write_state, append_trades, append_equity,
     _closed_trade_to_dict,
@@ -107,6 +108,9 @@ class PaperPortfolioEngine:
             self.state = None  # Not used in independent mode (use strategy_states)
         else:
             self.state = SimulationState(initial_capital=config.capital)
+            # Pre-resolve slippage models per strategy (cached on state for exit paths)
+            for spec in config.strategies:
+                self.state._slippage_models[spec.strategy_id] = get_slippage_model(spec.slippage_model)
             self.strategy_states = {}
 
     def _init_independent_mode(self) -> None:
@@ -114,9 +118,9 @@ class PaperPortfolioEngine:
         self.strategy_states: dict[str, SimulationState] = {}
         for spec in self.config.strategies:
             capital = self.config.capital * spec.weight
-            self.strategy_states[spec.strategy_id] = SimulationState(
-                initial_capital=capital
-            )
+            sstate = SimulationState(initial_capital=capital)
+            sstate._slippage_models[spec.strategy_id] = get_slippage_model(spec.slippage_model)
+            self.strategy_states[spec.strategy_id] = sstate
 
     # ------------------------------------------------------------------
     # Sentinel stop extraction (AC2, AC17)

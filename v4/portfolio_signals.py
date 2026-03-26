@@ -166,6 +166,10 @@ def _sr_to_token_signals(
         p_funding = np.zeros(n_safe, dtype=np.float32)
         timestamps = ctx_spot.idx_1h[:n_safe].copy()
         p_rsi = _copy_f32(ctx_spot.ind_1h["rsi"], n_safe)
+        _ind = ctx_spot.ind_1h
+        p_volume = _copy_f32(_ind["volume"], n_safe) if "volume" in _ind else None
+        p_vol_20 = _copy_f32(_ind["vol_20"], n_safe) if "vol_20" in _ind else None
+        p_ret_1h = _copy_f32(_ind["ret_1"], n_safe) if "ret_1" in _ind else None
     else:
         p_close = _copy_f32(ctx_perp.ind_1h["close"], n_safe)
         p_high = _copy_f32(ctx_perp.ind_1h["high"], n_safe)
@@ -176,6 +180,10 @@ def _sr_to_token_signals(
         p_funding = _copy_f32(ctx_perp.funding_1h, n_safe) if ctx_perp.funding_1h is not None else np.zeros(n_safe, dtype=np.float32)
         timestamps = ctx_perp.idx_1h[:n_safe].copy()
         p_rsi = _copy_f32(ctx_perp.ind_1h["rsi"], n_safe)
+        _ind = ctx_perp.ind_1h
+        p_volume = _copy_f32(_ind["volume"], n_safe) if "volume" in _ind else None
+        p_vol_20 = _copy_f32(_ind["vol_20"], n_safe) if "vol_20" in _ind else None
+        p_ret_1h = _copy_f32(_ind["ret_1"], n_safe) if "ret_1" in _ind else None
 
     # 3-stage signal counting: raw → post-liquidity → post-WF
     raw_count = int(sr.entry_mask[:n_safe].sum())
@@ -306,6 +314,12 @@ def _sr_to_token_signals(
             perp_atr_arr = perp_atr_arr[s:]
             perp_adv_arr = perp_adv_arr[s:]
             perp_funding_arr = perp_funding_arr[s:]
+        if p_volume is not None:
+            p_volume = p_volume[s:]
+        if p_vol_20 is not None:
+            p_vol_20 = p_vol_20[s:]
+        if p_ret_1h is not None:
+            p_ret_1h = p_ret_1h[s:]
         n_safe = n_safe - s
 
     # Walk-forward masking (conditional on skip_walk_forward)
@@ -386,6 +400,9 @@ def _sr_to_token_signals(
         perp_atr=perp_atr_arr,
         perp_rolling_adv=perp_adv_arr,
         perp_funding_1h=perp_funding_arr,
+        volume=p_volume,
+        vol_20=p_vol_20,
+        ret_1h=p_ret_1h,
         # Diagnostic counters
         raw_entry_count=raw_count,
         post_liquidity_count=post_liq_count,

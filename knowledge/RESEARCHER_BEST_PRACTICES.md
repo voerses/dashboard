@@ -24,16 +24,16 @@ Immutable dataclass. Strategies override via `sizing_overrides` in config JSON, 
 | `cap_pct_scale` | 1.0 | Yes | 0.5--2.0 | `sizing.py:59-69` | Multiplier on ADV-curve cap output |
 | `min_adv_usd` | 500,000 | Yes | 100K--10M | `universe.py:265` | Minimum ADV to be tradeable |
 | `adv_lookback_days` | 30 | Yes | 7--90 | `universe.py:267` | Rolling ADV window in days |
-| `kelly_mult_floor` | 0.15 | **NO** | -- | `universe.py:100` | ADV curve floor for kelly |
-| `kelly_mult_range` | 0.35 | **NO** | -- | `universe.py:100` | ADV curve range for kelly |
-| `cap_pct_floor` | 0.02 | **NO** | -- | `universe.py:101` | ADV curve floor for cap |
-| `cap_pct_range` | 0.10 | **NO** | -- | `universe.py:101` | ADV curve range for cap |
-| `adv_scaling_divisor` | 5.0 | **NO** | -- | `universe.py:102` | ADV log-scale denominator |
+| `kelly_mult_floor` | 0.15 | Yes | 0.05--0.40 | `sizing.py` | ADV curve floor for kelly |
+| `kelly_mult_range` | 0.35 | Yes | 0.10--0.80 | `sizing.py` | ADV curve range for kelly |
+| `cap_pct_floor` | 0.02 | Yes | 0.005--0.08 | `sizing.py` | ADV curve floor for cap |
+| `cap_pct_range` | 0.10 | Yes | 0.02--0.30 | `sizing.py` | ADV curve range for cap |
+| `adv_scaling_divisor` | 5.0 | Yes | 1.0--20.0 | `sizing.py` | ADV log-scale denominator |
 | `unrealized_pnl_floor` | 0.85 | **NO** | -- | `simulator.py:783` | sizing_eq >= portfolio_eq * 0.85 |
 | `funding_buffer_pct` | 0.01 | **NO** | -- | `simulator.py:891,1148` | Reserve for funding costs |
 | `vol_floor` | 0.005 | **NO** | -- | `sizing.py:72` | Min volatility (prevents size explosion) |
 
-**To make a non-overridable parameter configurable:** Remove it from `NON_OVERRIDABLE` set in `config.py:58-67`, add a `SAFETY_RAILS` entry with min/max bounds.
+**Non-overridable parameters (only 3 remain):** `vol_floor`, `unrealized_pnl_floor`, `funding_buffer_pct`. All other sizing params are now overridable via `sizing_overrides` with SAFETY_RAILS bounds. To make a non-overridable parameter configurable: remove from `NON_OVERRIDABLE` set in `config.py`, add a `SAFETY_RAILS` entry with min/max bounds.
 
 ### Layer 2: Portfolio Config (PortfolioConfig) -- config JSON files
 
@@ -408,6 +408,53 @@ If ADV data is wrong, everything downstream is wrong:
 - [ ] For combined strategies, confirm both spot AND perp data exist with sufficient overlap
 - [ ] Tokens in `NO_COMBINED` set (LIT, XMR, PAXG) are excluded from combined strategies due to data gaps
 
+### Rule 13: Recent Performance is the Only Metric That Matters
+
+**Full-period backtests are dominated by 2020-2021 bull market returns that will not repeat. The ONLY performance that matters for deployment decisions is the most recent 12 months.**
+
+Crypto markets have undergone structural regime changes:
+- **2020-2021:** Retail-driven mania, 10x BTC run, funding rates 30%+ annualized. Anything long made money.
+- **2022:** Bear market, -76% BTC drawdown. Regime completely different from 2020-2021.
+- **2023-2024:** Institutional era (ETF approvals), moderate trends, lower volatility, compressed funding.
+- **2025-2026:** Post-ETF, low volatility, tight ranges, funding 2-8% annualized.
+
+A strategy showing +40%/yr over 6 years but +2%/yr in the last 12 months tells you it captured 2020-2021 alpha that no longer exists. **You should expect the last 12 months to predict forward performance, not the full period.**
+
+**Mandatory reporting format for all strategy evaluations:**
+
+```
+LAST 12 MONTHS (primary decision metric):
+  Annual Return: XX%, Sharpe: X.XX, MaxDD: XX%
+
+Full Period (context only — DO NOT use for deployment decisions):
+  Annual Return: XX%, Sharpe: X.XX, MaxDD: XX%
+```
+
+**Project example (critical):** BTC Trend+Carry regime rotation showed **+32.9%/yr** over 6 years but only **+4.2%/yr** in the last 14 months (Jan 2025-Mar 2026). The 32.9% was inflated by 2020 (+47%) and 2023 (+76%) — exceptional years that skew the average. The "Heavy Carry" variant (best risk-adjusted) earned +4.2% OOS vs +32.9% full-period — an **8x overstatement** if you used full-period numbers. (Finding #140 in RESEARCH_STATUS)
+
+**Another example:** Altcoin L/S carry (s85+s90) showed +16.1%/yr over 36 months but the 60-month number is +7.5%/yr because the earliest data includes 2021 funding compression post-bull. The 36mo number cherry-picked the best window.
+
+**Rules:**
+1. ALWAYS lead with last-12-month metrics in any report or assessment
+2. NEVER use full-period annual return for deployment decisions
+3. If last-12-month Sharpe < 0.3, the strategy is not production-ready regardless of full-period metrics
+4. Funding carry rates are structurally declining (30% 2021 → 8% 2025 → 2% 2026 YTD) — do NOT use historical averages to project future carry income
+5. When comparing strategies, compare their recent-12-month windows, not their full-period CAGRs
+
+**BTC Funding Rate Trend (annualized, corrected):**
+
+| Year | Annual Rate | Status |
+|------|-----------|--------|
+| 2020 | 17.2% | Bull ramp |
+| 2021 | 30.7% | Peak mania |
+| 2022 | 4.2% | Bear |
+| 2023 | 6.6% | Recovery |
+| 2024 | 22.7% | ETF + bull |
+| 2025 | 8.2% | Cooling |
+| 2026 YTD | 2.4% | Compressed |
+
+Any carry strategy projecting >10%/yr should justify why future funding will exceed the 2025-2026 baseline.
+
 ---
 
 ## Quick Reference: Where to Change Things
@@ -422,6 +469,6 @@ If ADV data is wrong, everything downstream is wrong:
 | Add a conviction-based exit | Return `conviction_score` array from strategy | Strategy code |
 | Change indicator period (e.g., RSI 21) | Edit `compute_indicators_fast()` | `v4/engine.py` (affects ALL strategies) |
 | Exclude a token from combined | Add to `NO_COMBINED` set | `v4/universe.py` |
-| Change ADV curve shape | Cannot override; edit `kelly_mult_floor`, `kelly_mult_range`, etc. | `v4/config.py` (NON_OVERRIDABLE) |
+| Change ADV curve shape | Override via `sizing_overrides`: `kelly_mult_floor` (0.05-0.40), `kelly_mult_range` (0.10-0.80), `cap_pct_floor` (0.005-0.08), `cap_pct_range` (0.02-0.30), `adv_scaling_divisor` (1.0-20.0) | `v4/config.py` (SAFETY_RAILS) |
 | Cap compounding | Set `max_sizing_equity` | Config JSON (PortfolioConfig) |
 | Change PBO threshold | `--pbo-threshold 0.30` | CLI flag for `v4/validation.py` |

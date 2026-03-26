@@ -199,9 +199,12 @@ READ: .claude/.strategy-mission — FIRST. Check if file exists and has `status:
       If file doesn't exist or status is closed: proceed without mission context.
 READ: memory/PROJECT_STATUS.md — open tasks, capability inventory, strategy tiers, key findings
 READ: knowledge/STRATEGY_QUICK_REFERENCE.md — "Available Capabilities" + "Gate 0" sections
+READ: memory/RESEARCH_COORDINATOR.md — research coordination role, auto-research tools, anti-patterns
+READ: memory/RESEARCH_STATUS.md — signal scoreboard (skim Signal Scoreboard table for GOLD/PASS/KILLED verdicts)
 ```
 
-This tells you what's been built, what's broken, what you're searching for, and what tools you have.
+This tells you what's been built, what's broken, what you're searching for, what tools you have,
+and what signals have already been tested (so you don't repeat killed research).
 
 **If an active mission exists:** The mission defines the current strategy search goal, baselines
 to beat, and mission-specific kill criteria. These are ADDITIVE to standard gate thresholds —

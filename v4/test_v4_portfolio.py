@@ -124,6 +124,7 @@ def _make_token_signals(
     funding_array = np.full(n_bars, funding_rate, dtype=np.float64)
 
     sm_array = np.full(n_bars, size_multiplier, dtype=np.float64)
+    cap_mult_array = np.full(n_bars, cap_multiplier, dtype=np.float64)
     lev_array = np.full(n_bars, leverage, dtype=np.float64)
     stop_arr = np.full(n_bars, stop_mult, dtype=np.float64)
     trail_arr = np.full(n_bars, trail_mult, dtype=np.float64)
@@ -162,7 +163,7 @@ def _make_token_signals(
         max_hold=max_hold,
         edge=edge,
         size_multiplier=sm_array,
-        cap_multiplier=cap_multiplier,
+        cap_multiplier=cap_mult_array,
         leverage=lev_array,
         max_trade_pct=max_trade_pct,
         convex_exit=convex_exit,
@@ -1152,9 +1153,14 @@ class TestCapitalModel:
     """Test 16: Equity bookkeeping excludes unrealized PnL."""
 
     def test_equity_unchanged_while_position_open(self):
-        """Equity should not include unrealized PnL during the sim."""
+        """Realized equity (portfolio_equity) should not include unrealized PnL.
+
+        equity_snapshots record mark-to-market (portfolio_equity + unrealized),
+        so they WILL reflect price changes. The invariant is that portfolio_equity
+        itself (realized-only) stays flat while a position is open.
+        """
         n = 200
-        # Price rises -- but equity should not reflect unrealized gains
+        # Price rises -- but realized equity should not reflect unrealized gains
         close = np.linspace(100.0, 200.0, n)
         high = close + 1.0
         low = close - 1.0
@@ -1168,14 +1174,18 @@ class TestCapitalModel:
         spec = StrategySpec(strategy_id="s30", weight=1.0, max_positions=15)
         state = simulate_portfolio({"s30": {"BTC": sig}}, {"s30": spec}, config)
 
-        # Check equity snapshots: while the position is open, equity = initial - fees
-        # (no realized PnL until close). The entry fee is deducted at bar 10.
-        # After bar 10 and before exit, equity should be flat (just initial - entry_fee).
-        if len(state.equity_snapshots) > 20:
+        # equity_snapshots are mark-to-market (include unrealized), so they WILL
+        # rise with the price. With rising prices, later snapshots > earlier ones.
+        if len(state.equity_snapshots) > 30:
             _, eq_at_15 = state.equity_snapshots[15]
             _, eq_at_30 = state.equity_snapshots[30]
-            # Both should be approximately equal: initial minus entry fee (no unrealized)
-            assert eq_at_15 == pytest.approx(eq_at_30, abs=0.01)
+            assert eq_at_30 > eq_at_15  # MTM rises with price
+
+        # The invariant: portfolio_equity (realized) = initial - fees (no unrealized)
+        # If position is still open, realized_pnl == 0
+        if state.position_manager.total_open() > 0:
+            expected = state.initial_capital - state.total_fees - state.total_funding
+            assert state.portfolio_equity == pytest.approx(expected, rel=1e-6)
 
     def test_equity_accounts_for_all_costs(self):
         """Final equity = initial + realized_pnl - total_fees - total_funding."""

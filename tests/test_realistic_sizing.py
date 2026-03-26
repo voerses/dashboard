@@ -336,7 +336,7 @@ class TestEquityCapWiring:
         from v4.paper_config import load_paper_config
 
         config_data = {
-            "strategies": [{"strategy_id": "s30"}],
+            "strategies": [{"strategy_id": "s30", "market": "spot"}],
             "initial_capital": 200_000,
             "max_sizing_equity": 2_000_000,
         }
@@ -354,7 +354,7 @@ class TestEquityCapWiring:
         from v4.paper_config import load_paper_config
 
         config_data = {
-            "strategies": [{"strategy_id": "s30"}],
+            "strategies": [{"strategy_id": "s30", "market": "spot"}],
             "initial_capital": 200_000,
         }
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:

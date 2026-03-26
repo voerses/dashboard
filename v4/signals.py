@@ -110,6 +110,10 @@ class TokenSignals:
     funding_zscore: Optional[np.ndarray] = None
     # Per-bar venue routing (adaptive spot/perp strategies)
     per_bar_is_perp: Optional[np.ndarray] = None  # bool array: True=perp, False=spot
+    # Extended bar-level data for custom exit handlers (Optional, None = unavailable)
+    volume: Optional[np.ndarray] = None       # hourly volume (from ctx.ind_1h)
+    vol_20: Optional[np.ndarray] = None       # 20-period rolling volatility
+    ret_1h: Optional[np.ndarray] = None       # 1-hour log return
     # Signal diagnostic counters (populated during precomputation)
     raw_entry_count: int = 0          # before liquidity mask
     post_liquidity_count: int = 0     # after liquidity mask
@@ -361,6 +365,10 @@ def precompute_strategy_signals(
                 p_funding = np.zeros(n_safe, dtype=np.float32)
                 timestamps = ctx_spot.idx_1h[:n_safe].copy()
                 p_rsi = _copy_f32(ctx_spot.ind_1h["rsi"], n_safe)
+                _ind = ctx_spot.ind_1h
+                p_volume = _copy_f32(_ind["volume"], n_safe) if "volume" in _ind else None
+                p_vol_20 = _copy_f32(_ind["vol_20"], n_safe) if "vol_20" in _ind else None
+                p_ret_1h = _copy_f32(_ind["ret_1"], n_safe) if "ret_1" in _ind else None
             else:
                 p_close = _copy_f32(ctx_perp.ind_1h["close"], n_safe)
                 p_high = _copy_f32(ctx_perp.ind_1h["high"], n_safe)
@@ -371,6 +379,10 @@ def precompute_strategy_signals(
                 p_funding = _copy_f32(ctx_perp.funding_1h, n_safe) if ctx_perp.funding_1h is not None else np.zeros(n_safe, dtype=np.float32)
                 timestamps = ctx_perp.idx_1h[:n_safe].copy()
                 p_rsi = _copy_f32(ctx_perp.ind_1h["rsi"], n_safe)
+                _ind = ctx_perp.ind_1h
+                p_volume = _copy_f32(_ind["volume"], n_safe) if "volume" in _ind else None
+                p_vol_20 = _copy_f32(_ind["vol_20"], n_safe) if "vol_20" in _ind else None
+                p_ret_1h = _copy_f32(_ind["ret_1"], n_safe) if "ret_1" in _ind else None
 
             # Entry mask with liquidity masking (walk-forward applied after trim)
             raw_count = int(sr.entry_mask[:n_safe].sum())  # before liquidity AND
@@ -393,8 +405,19 @@ def precompute_strategy_signals(
             is_perp_primary = False
             is_perp_secondary = False
 
-            if is_combined and ctx_perp is not None:
-                sec_entry = sr.secondary_entry_mask[:n_safe].copy() if sr.secondary_entry_mask is not None else np.zeros(n_safe, dtype=bool)
+            token_is_combined = is_combined  # per-token copy; never mutate is_combined
+            if token_is_combined and ctx_perp is not None:
+                if sr.secondary_entry_mask is None or len(sr.secondary_entry_mask) == 0:
+                    import warnings
+                    warnings.warn(
+                        f"Strategy '{strategy_spec.strategy_id}' running in combined mode for {token} "
+                        f"but produced no secondary_entry_mask. Falling back to single-leg mode. "
+                        f"Use --market spot or --market perp if this strategy doesn't support combined.",
+                        stacklevel=2,
+                    )
+                    token_is_combined = False
+            if token_is_combined and ctx_perp is not None:
+                sec_entry = sr.secondary_entry_mask[:n_safe].copy()
                 if ctx_perp.liquidity_mask is not None:
                     sec_entry = sec_entry & ctx_perp.liquidity_mask[:n_safe]
                 sec_dir = sr.secondary_direction[:n_safe].copy() if sr.secondary_direction is not None else np.ones(n_safe, dtype=np.int8)
@@ -414,8 +437,8 @@ def precompute_strategy_signals(
 
             # Per-bar venue routing: detect per-bar market_type (adaptive spot/perp)
             per_bar_is_perp_arr = None
-            ts_is_combined = is_combined
-            if is_combined and isinstance(sr.market_type, np.ndarray):
+            ts_is_combined = token_is_combined
+            if token_is_combined and isinstance(sr.market_type, np.ndarray):
                 # Strategy returns per-bar market routing (SPOT for longs, PERP for shorts)
                 # Use single-leg path with per-bar fee/funding/price routing
                 per_bar_is_perp_arr = (sr.market_type[:n_safe] == MarketType.PERP).astype(bool)
@@ -509,6 +532,12 @@ def precompute_strategy_signals(
                 p_regime = p_regime[s:]
                 p_funding = p_funding[s:]
                 p_rsi = p_rsi[s:]
+                if p_volume is not None:
+                    p_volume = p_volume[s:]
+                if p_vol_20 is not None:
+                    p_vol_20 = p_vol_20[s:]
+                if p_ret_1h is not None:
+                    p_ret_1h = p_ret_1h[s:]
                 entry_mask = entry_mask[s:]
                 sr_direction = sr_direction[s:]
                 sr_stop_mult = sr_stop_mult[s:]
@@ -628,6 +657,9 @@ def precompute_strategy_signals(
                 perp_funding_1h=perp_funding_arr,
                 funding_zscore=_funding_zscore,
                 per_bar_is_perp=per_bar_is_perp_arr,
+                volume=p_volume,
+                vol_20=p_vol_20,
+                ret_1h=p_ret_1h,
                 raw_entry_count=raw_count,
                 post_liquidity_count=post_liq_count,
                 post_walkforward_count=post_wf_count,

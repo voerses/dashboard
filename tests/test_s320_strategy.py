@@ -199,10 +199,13 @@ class TestBaseSignal:
 # ===========================================================================
 
 class TestFinalPositionComputation:
-    """AC11: final = clip(base * pos_mult * vrp_mult, 0.0, 1.5)"""
+    """AC11: final = clip(base * pos_mult * vrp_mult, 0.0, 1.0)
+
+    MAX_POSITION is 1.0 because this is a spot-only strategy — no leverage.
+    """
 
     def test_clip_upper_bound(self):
-        """base=1.0, pos_mult=1.3, vrp_mult=1.3 -> clip(1.69, 0, 1.5) = 1.5"""
+        """base=1.0, pos_mult=1.3, vrp_mult=1.3 -> clip(1.69, 0, 1.0) = 1.0"""
         mod = _load_strategy_module()
         n = 5000
         ctx = make_mock_ctx(n=n)
@@ -214,12 +217,13 @@ class TestFinalPositionComputation:
         ctx.custom['pos_mult'] = np.full(n, 1.3, dtype=np.float64)
         ctx.custom['vrp_mult'] = np.full(n, 1.3, dtype=np.float64)
         result = mod.strategy(ctx)
-        # size_multiplier at entry points should be 1.5 (clipped from 1.69)
+        # size_multiplier at entry points should be 1.0 (clipped from 1.69)
+        # MAX_POSITION = 1.0 for spot strategy (no leverage available)
         if result.size_multiplier is not None and isinstance(result.size_multiplier, np.ndarray):
             entry_sizes = result.size_multiplier[result.entry_mask]
             if len(entry_sizes) > 0:
-                assert np.allclose(entry_sizes, 1.5, atol=0.01), (
-                    f"Expected clipped size_multiplier = 1.5, got {entry_sizes[:5]}"
+                assert np.allclose(entry_sizes, 1.0, atol=0.01), (
+                    f"Expected clipped size_multiplier = 1.0, got {entry_sizes[:5]}"
                 )
 
     def test_base_zero_means_no_position(self):
@@ -429,9 +433,9 @@ class TestStrategyResultFields:
 # ===========================================================================
 
 class TestSizeMultiplierAndConviction:
-    """AC16: size_multiplier is a float array in [0, 1.5],
+    """AC16: size_multiplier is a float array in [0, 1.0],
     conviction_score is a float array in [0, 1],
-    conviction = size_multiplier / 1.5."""
+    conviction = clip(size_multiplier / MAX_POSITION, 0, 1)."""
 
     @pytest.fixture(autouse=True)
     def run_strategy(self):
@@ -453,7 +457,7 @@ class TestSizeMultiplierAndConviction:
     def test_size_multiplier_range(self):
         sm = self.result.size_multiplier
         assert np.all(sm >= 0.0), "size_multiplier values must be >= 0"
-        assert np.all(sm <= 1.5), "size_multiplier values must be <= 1.5"
+        assert np.all(sm <= 1.0), "size_multiplier values must be <= 1.0 (spot, no leverage)"
 
     def test_conviction_score_is_array(self):
         cs = self.result.conviction_score
@@ -467,13 +471,14 @@ class TestSizeMultiplierAndConviction:
         assert np.all(cs >= 0.0), "conviction_score values must be >= 0"
         assert np.all(cs <= 1.0), "conviction_score values must be <= 1"
 
-    def test_conviction_equals_size_div_1_5(self):
-        """conviction_score = size_multiplier / 1.5"""
+    def test_conviction_equals_size_div_max_pos(self):
+        """conviction_score = clip(size_multiplier / MAX_POSITION, 0, 1)"""
         sm = self.result.size_multiplier
         cs = self.result.conviction_score
-        expected = sm / 1.5
+        # MAX_POSITION = 1.0, so conviction = clip(sm / 1.0, 0, 1) = sm
+        expected = np.clip(sm / 1.0, 0.0, 1.0)
         assert np.allclose(cs, expected, atol=1e-10), (
-            "conviction_score should equal size_multiplier / 1.5"
+            "conviction_score should equal clip(size_multiplier / MAX_POSITION, 0, 1)"
         )
 
 

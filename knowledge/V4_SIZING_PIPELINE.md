@@ -4,6 +4,13 @@
 > `spot_max_equity_pct` (default 1.0, max safety rail 1.0). Any strategy returning
 > `size_multiplier > 1.0` on spot will be capped. There is NO leverage on spot.
 
+## Sizing Model (Pluggable Registry)
+
+Position sizing is dispatched through the `SizingModel` protocol (`v4/sizing.py`).
+Each strategy selects its model via `StrategySpec.sizing_model` (default `"kelly"`).
+The simulator caches resolved models in `_sizing_model_cache` per strategy.
+See `knowledge/V4_EXPERIMENTATION_GUIDE.md` §4 for custom sizing model implementation.
+
 ## How Position Size is Computed
 
 ```
@@ -43,14 +50,19 @@ Immutable engine constants. Non-overridable params marked with ❌.
 | cap_pct_scale | 1.0 | ✅ | 0.5–2.0 | Scale ADV-curve cap |
 | min_adv_usd | 500K | ✅ | 100K–10M | Liquidity gate |
 | adv_lookback_days | 30 | ✅ | 7–90 | ADV window |
-| kelly_mult_floor | 0.15 | ❌ | — | ADV curve floor |
-| kelly_mult_range | 0.35 | ❌ | — | ADV curve range |
-| cap_pct_floor | 0.02 | ❌ | — | Cap curve floor |
-| cap_pct_range | 0.10 | ❌ | — | Cap curve range |
-| adv_scaling_divisor | 5.0 | ❌ | — | ADV log-scale denominator |
+| kelly_mult_floor | 0.15 | ✅ | 0.05–0.40 | ADV curve floor |
+| kelly_mult_range | 0.35 | ✅ | 0.10–0.80 | ADV curve range |
+| cap_pct_floor | 0.02 | ✅ | 0.005–0.08 | Cap curve floor |
+| cap_pct_range | 0.10 | ✅ | 0.02–0.30 | Cap curve range |
+| adv_scaling_divisor | 5.0 | ✅ | 1.0–20.0 | ADV log-scale denominator |
 | vol_floor | 0.005 | ❌ | — | Min volatility |
 | unrealized_pnl_floor | 0.85 | ❌ | — | Sizing equity floor |
 | funding_buffer_pct | 0.01 | ❌ | — | Funding cost reserve |
+
+> **Changed 2026-03-26:** `kelly_mult_floor`, `kelly_mult_range`, `cap_pct_floor`,
+> `cap_pct_range`, and `adv_scaling_divisor` moved from NON_OVERRIDABLE to SAFETY_RAILS.
+> Now overridable per-strategy via `sizing_overrides` with bounded min/max values.
+> Only `vol_floor`, `unrealized_pnl_floor`, and `funding_buffer_pct` remain non-overridable.
 
 ### Layer 2: Portfolio Config (PortfolioConfig) — configs/*.json
 Set per-portfolio in the JSON config. NOT strategy-overridable.
@@ -109,6 +121,8 @@ cap_pct    = cap_pct_floor + cap_pct_range × frac         # [0.02, 0.12]
 
 **Override short-circuits the curve:** `kelly_mult_override > 0` → use fixed value.
 
+**ADV curve shape is now per-strategy configurable** via `sizing_overrides`: `kelly_mult_floor`, `kelly_mult_range`, `cap_pct_floor`, `cap_pct_range`, `adv_scaling_divisor` can all be overridden within SAFETY_RAILS bounds.
+
 ## Entry Rejection Order
 
 1. Min conviction → REJECT
@@ -116,7 +130,7 @@ cap_pct    = cap_pct_floor + cap_pct_range × frac         # [0.02, 0.12]
 3. Pump filter (funding z-score) → REJECT
 4. Portfolio position limit → REJECT
 5. Strategy position limit → REJECT
-6. `compute_position_size()` → compute pos_usd
+6. `sizing_model.compute_size()` → compute pos_usd (dispatched via `StrategySpec.sizing_model`)
 7. `pos_usd < min_position_usd` → REJECT (min_size)
 8. `pos_usd > rolling_adv × adv_cap_pct` → REJECT (adv_cap)
 9. Concentration limit → SCALE DOWN (not reject)
@@ -132,13 +146,20 @@ sizing_eq = max(
 strategy_equity = sizing_eq × strategy_weight
 ```
 
-## Slippage Model
+## Slippage Model (Pluggable Registry)
 
+The slippage model is now pluggable via the `SlippageModel` protocol in `v4/sizing.py`.
+Each strategy can select its slippage model via `StrategySpec.slippage_model` (default `"sqrt"`).
+
+**Default: SqrtImpactSlippage (`"sqrt"`)**
 ```
 participation = pos_usd / (rolling_adv / 24)
 slip_bps = base_spread_bps + impact_coeff × sqrt(participation) × 10000
 slip_bps = min(slip_bps, max_slip_bps)
 ```
+
+Custom slippage models can be registered in `_SLIPPAGE_MODELS` and selected per-strategy.
+See `knowledge/V4_EXPERIMENTATION_GUIDE.md` §4.5 for implementation details.
 
 ## Common Sizing Patterns
 
