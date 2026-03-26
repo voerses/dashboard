@@ -1,0 +1,692 @@
+{
+  "exp1": [
+    {
+      "name": "exp1_baseline_50_50",
+      "description": "s62+s65 equal weight (50/50), default sizing",
+      "months": 12,
+      "capital": 200000,
+      "annual_return_pct": -34.420173692929325,
+      "total_return_pct": -57.042546875,
+      "max_dd_pct": -63.2045203823371,
+      "sharpe": -1.1540103951429843,
+      "calmar": -0.5445840500760806,
+      "sortino": -0.9442662169843864,
+      "total_trades": 3660,
+      "win_rate_pct": 43.44262295081967,
+      "profit_factor": "0.84488976",
+      "avg_trade_pnl": "-28.407003",
+      "final_equity": "85516.45",
+      "total_fees": "20974.455",
+      "total_funding": "-99986.81",
+      "rejections_total": 85216,
+      "strategy_attribution": {
+        "s62": {
+          "trades": 1916,
+          "pnl": "-39646.21",
+          "funding": "-34127.402"
+        },
+        "s65": {
+          "trades": 1744,
+          "pnl": "-64323.344",
+          "funding": "-65858.01"
+        }
+      }
+    },
+    {
+      "name": "exp1_aggressive_50_50",
+      "description": "s62+s65 equal weight (50/50), aggressive cap_pct + kelly",
+      "months": 12,
+      "capital": 200000,
+      "annual_return_pct": -31.840523620374505,
+      "total_return_pct": -53.59162109375,
+      "max_dd_pct": -60.685566406250004,
+      "sharpe": -0.9945968756939924,
+      "calmar": -0.5246803400865226,
+      "sortino": -0.8358021586193456,
+      "total_trades": 3266,
+      "win_rate_pct": 43.9987752602572,
+      "profit_factor": "0.8459378",
+      "avg_trade_pnl": "-29.82627",
+      "final_equity": "92359.57",
+      "total_fees": "20387.518",
+      "total_funding": "-89188.23",
+      "rejections_total": 101254,
+      "strategy_attribution": {
+        "s62": {
+          "trades": 1748,
+          "pnl": "-67716.02",
+          "funding": "-36916.21"
+        },
+        "s65": {
+          "trades": 1518,
+          "pnl": "-29696.621",
+          "funding": "-52271.895"
+        }
+      }
+    },
+    {
+      "name": "exp1_aggressive_70_30",
+      "description": "s62+s65 weight 70/30, aggressive cap_pct + kelly",
+      "months": 12,
+      "capital": 200000,
+      "annual_return_pct": -43.767312523090894,
+      "total_return_pct": -68.428681640625,
+      "max_dd_pct": -71.206466796875,
+      "sharpe": -1.6477499254802215,
+      "calmar": -0.6146536191430816,
+      "sortino": -1.3061197122008905,
+      "total_trades": 3235,
+      "win_rate_pct": 42.84389489953632,
+      "profit_factor": "0.7846188",
+      "avg_trade_pnl": "-39.537617",
+      "final_equity": "62850.57",
+      "total_fees": "18492.287",
+      "total_funding": "-79962.0",
+      "rejections_total": 103100,
+      "strategy_attribution": {
+        "s62": {
+          "trades": 1811,
+          "pnl": "-73252.02",
+          "funding": "-42678.445"
+        },
+        "s65": {
+          "trades": 1424,
+          "pnl": "-54652.11",
+          "funding": "-37283.977"
+        }
+      }
+    },
+    {
+      "name": "exp1_s62_solo_default",
+      "description": "s62 solo, default sizing (baseline for exp2)",
+      "months": 12,
+      "capital": 200000,
+      "annual_return_pct": -45.84141337398374,
+      "total_return_pct": -70.71771484375,
+      "max_dd_pct": -71.17798935454285,
+      "sharpe": -2.0034250583170468,
+      "calmar": -0.6440391726386687,
+      "sortino": -1.5108807553554895,
+      "total_trades": 2019,
+      "win_rate_pct": 41.60475482912333,
+      "profit_factor": "0.76802003",
+      "avg_trade_pnl": "-65.8054",
+      "final_equity": "58293.066",
+      "total_fees": "17684.926",
+      "total_funding": "-71533.12",
+      "rejections_total": 47902,
+      "strategy_attribution": {
+        "s62": {
+          "trades": 2019,
+          "pnl": "-132860.9",
+          "funding": "-71533.02"
+        }
+      }
+    },
+    {
+      "name": "exp1_s65_solo_default",
+      "description": "s65 solo, default sizing",
+      "months": 12,
+      "capital": 200000,
+      "annual_return_pct": -43.07452386746326,
+      "total_return_pct": -67.64488476562501,
+      "max_dd_pct": -70.61104330106996,
+      "sharpe": -1.4248922628749352,
+      "calmar": -0.6100253140829964,
+      "sortino": -1.1685293544417241,
+      "total_trades": 1787,
+      "win_rate_pct": 42.697257974258534,
+      "profit_factor": "0.7929889",
+      "avg_trade_pnl": "-70.745735",
+      "final_equity": "64382.023",
+      "total_fees": "18316.713",
+      "total_funding": "-96199.81",
+      "rejections_total": 31809,
+      "strategy_attribution": {
+        "s65": {
+          "trades": 1787,
+          "pnl": "-126422.62",
+          "funding": "-96200.45"
+        }
+      }
+    },
+    {
+      "name": "exp1_baseline_50_50",
+      "description": "s62+s65 equal weight (50/50), default sizing",
+      "months": 3,
+      "capital": 200000,
+      "annual_return_pct": -22.231567539415764,
+      "total_return_pct": -26.9569375,
+      "max_dd_pct": -31.467851562499998,
+      "sharpe": -1.3542580188123727,
+      "calmar": -0.7064850771671033,
+      "sortino": -0.597808025757625,
+      "total_trades": 1214,
+      "win_rate_pct": 42.66886326194398,
+      "profit_factor": "0.7944212",
+      "avg_trade_pnl": "-42.109776",
+      "final_equity": "145350.47",
+      "total_fees": "7042.3853",
+      "total_funding": "-60009.234",
+      "rejections_total": 60002,
+      "strategy_attribution": {
+        "s65": {
+          "trades": 597,
+          "pnl": "-29792.668",
+          "funding": "-42087.48"
+        },
+        "s62": {
+          "trades": 617,
+          "pnl": "-21328.598",
+          "funding": "-17921.746"
+        }
+      }
+    },
+    {
+      "name": "exp1_aggressive_50_50",
+      "description": "s62+s65 equal weight (50/50), aggressive cap_pct + kelly",
+      "months": 3,
+      "capital": 200000,
+      "annual_return_pct": -17.53974821334474,
+      "total_return_pct": -21.4107421875,
+      "max_dd_pct": -32.90369926693369,
+      "sharpe": -0.8607497056022081,
+      "calmar": -0.5330631085292944,
+      "sortino": -0.4256244961114135,
+      "total_trades": 1167,
+      "win_rate_pct": 40.531276778063415,
+      "profit_factor": "0.85590136",
+      "avg_trade_pnl": "-34.274662",
+      "final_equity": "156396.5",
+      "total_fees": "7361.505",
+      "total_funding": "-54916.535",
+      "rejections_total": 62352,
+      "strategy_attribution": {
+        "s65": {
+          "trades": 570,
+          "pnl": "-586.4658",
+          "funding": "-38133.062"
+        },
+        "s62": {
+          "trades": 597,
+          "pnl": "-39412.062",
+          "funding": "-16783.61"
+        }
+      }
+    },
+    {
+      "name": "exp1_aggressive_70_30",
+      "description": "s62+s65 weight 70/30, aggressive cap_pct + kelly",
+      "months": 3,
+      "capital": 200000,
+      "annual_return_pct": -29.092107903054664,
+      "total_return_pct": -34.916562500000005,
+      "max_dd_pct": -37.6536796875,
+      "sharpe": -1.8329320736077248,
+      "calmar": -0.7726232374763748,
+      "sortino": -0.7935375094543434,
+      "total_trades": 1106,
+      "win_rate_pct": 43.30922242314648,
+      "profit_factor": "0.73144853",
+      "avg_trade_pnl": "-60.68249",
+      "final_equity": "129609.984",
+      "total_fees": "6751.98",
+      "total_funding": "-50648.758",
+      "rejections_total": 64751,
+      "strategy_attribution": {
+        "s65": {
+          "trades": 526,
+          "pnl": "-25599.838",
+          "funding": "-30314.3"
+        },
+        "s62": {
+          "trades": 580,
+          "pnl": "-41514.977",
+          "funding": "-20334.379"
+        }
+      }
+    },
+    {
+      "name": "exp1_s62_solo_default",
+      "description": "s62 solo, default sizing (baseline for exp2)",
+      "months": 3,
+      "capital": 200000,
+      "annual_return_pct": -35.898705906893866,
+      "total_return_pct": -42.6259140625,
+      "max_dd_pct": -45.96062710404837,
+      "sharpe": -2.346861558290383,
+      "calmar": -0.7810751978127771,
+      "sortino": -0.9465546906000389,
+      "total_trades": 636,
+      "win_rate_pct": 39.15094339622642,
+      "profit_factor": "0.66252595",
+      "avg_trade_pnl": "-129.90735",
+      "final_equity": "114138.414",
+      "total_fees": "6612.766",
+      "total_funding": "-35485.61",
+      "rejections_total": 34789,
+      "strategy_attribution": {
+        "s62": {
+          "trades": 636,
+          "pnl": "-82621.09",
+          "funding": "-35485.566"
+        }
+      }
+    },
+    {
+      "name": "exp1_s65_solo_default",
+      "description": "s65 solo, default sizing",
+      "months": 3,
+      "capital": 200000,
+      "annual_return_pct": -35.23493434858304,
+      "total_return_pct": -41.8827265625,
+      "max_dd_pct": -46.90315172643296,
+      "sharpe": -1.7448426056565862,
+      "calmar": -0.7512274346528801,
+      "sortino": -0.754022212560561,
+      "total_trades": 636,
+      "win_rate_pct": 37.57861635220126,
+      "profit_factor": "0.6913725",
+      "avg_trade_pnl": "-127.3764",
+      "final_equity": "115610.984",
+      "total_fees": "6730.327",
+      "total_funding": "-59564.703",
+      "rejections_total": 22758,
+      "strategy_attribution": {
+        "s65": {
+          "trades": 636,
+          "pnl": "-81011.39",
+          "funding": "-59564.402"
+        }
+      }
+    }
+  ],
+  "exp2": [
+    {
+      "name": "exp2_s62_optimized_v1",
+      "description": "s62 solo: kelly_mult_override=0.40, cap_pct_override=0.10, conc=0.15",
+      "months": 12,
+      "capital": 200000,
+      "annual_return_pct": -50.41125366960348,
+      "total_return_pct": -75.456771484375,
+      "max_dd_pct": -76.934451171875,
+      "sharpe": -1.808493991676834,
+      "calmar": -0.655249409097395,
+      "sortino": -1.4717905867082832,
+      "total_trades": 1902,
+      "win_rate_pct": 43.217665615141954,
+      "profit_factor": "0.72997284",
+      "avg_trade_pnl": "-75.260254",
+      "final_equity": "48837.04",
+      "total_fees": "16081.493",
+      "total_funding": "-66070.75",
+      "rejections_total": 53666,
+      "strategy_attribution": {
+        "s62": {
+          "trades": 1902,
+          "pnl": "-143145.05",
+          "funding": "-66070.45"
+        }
+      }
+    },
+    {
+      "name": "exp2_s62_optimized_v2",
+      "description": "s62 solo: raised ADV curve (floor=0.25/0.05, range=0.50/0.15), conc=0.15",
+      "months": 12,
+      "capital": 200000,
+      "annual_return_pct": -60.259532231444865,
+      "total_return_pct": -84.246830078125,
+      "max_dd_pct": -84.3675693359375,
+      "sharpe": -2.818269977291869,
+      "calmar": -0.7142499506119646,
+      "sortino": -2.008468859717593,
+      "total_trades": 1864,
+      "win_rate_pct": 43.99141630901288,
+      "profit_factor": "0.652293",
+      "avg_trade_pnl": "-86.74764",
+      "final_equity": "31380.648",
+      "total_fees": "13999.02",
+      "total_funding": "-57474.934",
+      "rejections_total": 55177,
+      "strategy_attribution": {
+        "s62": {
+          "trades": 1864,
+          "pnl": "-161697.61",
+          "funding": "-57474.582"
+        }
+      }
+    },
+    {
+      "name": "exp2_s62_max_aggressive",
+      "description": "s62 solo: max kelly_mult_scale=2.0, cap_pct_scale=2.0, conc=0.20",
+      "months": 12,
+      "capital": 200000,
+      "annual_return_pct": -58.25881099848782,
+      "total_return_pct": -82.61838671875,
+      "max_dd_pct": -82.96345117187501,
+      "sharpe": -1.9545462727440728,
+      "calmar": -0.7022226073719293,
+      "sortino": -1.6307105204646177,
+      "total_trades": 1772,
+      "win_rate_pct": 41.817155756207676,
+      "profit_factor": "0.7048089",
+      "avg_trade_pnl": "-89.00425",
+      "final_equity": "34596.387",
+      "total_fees": "15385.773",
+      "total_funding": "-54508.348",
+      "rejections_total": 58440,
+      "strategy_attribution": {
+        "s62": {
+          "trades": 1772,
+          "pnl": "-157715.42",
+          "funding": "-54508.125"
+        }
+      }
+    },
+    {
+      "name": "exp2_s62_optimized_v1",
+      "description": "s62 solo: kelly_mult_override=0.40, cap_pct_override=0.10, conc=0.15",
+      "months": 3,
+      "capital": 200000,
+      "annual_return_pct": -39.08740426158269,
+      "total_return_pct": -46.16913671875,
+      "max_dd_pct": -52.581695312499996,
+      "sharpe": -2.184632967184922,
+      "calmar": -0.7433652344086865,
+      "sortino": -0.8946471578436483,
+      "total_trades": 614,
+      "win_rate_pct": 39.902280130293164,
+      "profit_factor": "0.5923227",
+      "avg_trade_pnl": "-147.04274",
+      "final_equity": "106903.68",
+      "total_fees": "5742.9453",
+      "total_funding": "-33429.9",
+      "rejections_total": 36201,
+      "strategy_attribution": {
+        "s62": {
+          "trades": 614,
+          "pnl": "-90284.22",
+          "funding": "-33429.832"
+        }
+      }
+    },
+    {
+      "name": "exp2_s62_optimized_v2",
+      "description": "s62 solo: raised ADV curve (floor=0.25/0.05, range=0.50/0.15), conc=0.15",
+      "months": 3,
+      "capital": 200000,
+      "annual_return_pct": -43.59297787940282,
+      "total_return_pct": -51.09685546875,
+      "max_dd_pct": -52.15683203125,
+      "sharpe": -2.492809297988762,
+      "calmar": -0.8358057071657246,
+      "sortino": -0.9067332797082671,
+      "total_trades": 605,
+      "win_rate_pct": 42.14876033057851,
+      "profit_factor": "0.59853595",
+      "avg_trade_pnl": "-164.50977",
+      "final_equity": "97362.555",
+      "total_fees": "6208.3076",
+      "total_funding": "-37139.38",
+      "rejections_total": 36207,
+      "strategy_attribution": {
+        "s62": {
+          "trades": 605,
+          "pnl": "-99528.44",
+          "funding": "-37139.49"
+        }
+      }
+    },
+    {
+      "name": "exp2_s62_max_aggressive",
+      "description": "s62 solo: max kelly_mult_scale=2.0, cap_pct_scale=2.0, conc=0.20",
+      "months": 3,
+      "capital": 200000,
+      "annual_return_pct": -41.741778398445994,
+      "total_return_pct": -49.083652343749996,
+      "max_dd_pct": -50.12092578125,
+      "sharpe": -1.863058614987262,
+      "calmar": -0.8328213764571243,
+      "sortino": -0.720067305272197,
+      "total_trades": 596,
+      "win_rate_pct": 42.281879194630875,
+      "profit_factor": "0.6304204",
+      "avg_trade_pnl": "-160.91997",
+      "final_equity": "101020.17",
+      "total_fees": "6127.8657",
+      "total_funding": "-42579.258",
+      "rejections_total": 36670,
+      "strategy_attribution": {
+        "s62": {
+          "trades": 596,
+          "pnl": "-95908.36",
+          "funding": "-42579.25"
+        }
+      }
+    }
+  ],
+  "exp3": [
+    {
+      "name": "exp3_pool_baseline",
+      "description": "s56+s57+s65 pool, production config (default sizing)",
+      "months": 12,
+      "capital": 200000,
+      "annual_return_pct": -47.513601265854575,
+      "total_return_pct": -72.500388671875,
+      "max_dd_pct": -76.66135844044256,
+      "sharpe": -1.7262154009930866,
+      "calmar": -0.6197855377526008,
+      "sortino": -1.3480469510280024,
+      "total_trades": 2837,
+      "win_rate_pct": 43.531899894254494,
+      "profit_factor": "0.78449863",
+      "avg_trade_pnl": "-47.529392",
+      "final_equity": "54738.22",
+      "total_fees": "20779.104",
+      "total_funding": "-64108.477",
+      "rejections_total": 39068,
+      "strategy_attribution": {
+        "s65": {
+          "trades": 1751,
+          "pnl": "-67096.63",
+          "funding": "-64237.676"
+        },
+        "s57": {
+          "trades": 692,
+          "pnl": "-32170.795",
+          "funding": "338.37924"
+        },
+        "s56": {
+          "trades": 394,
+          "pnl": "-35573.484",
+          "funding": "-209.35202"
+        }
+      }
+    },
+    {
+      "name": "exp3_pool_tuned_v1",
+      "description": "s56+s57+s65 pool, per-strategy sizing (s56/s65 higher cap)",
+      "months": 12,
+      "capital": 200000,
+      "annual_return_pct": -46.52240617707025,
+      "total_return_pct": -71.45046875000001,
+      "max_dd_pct": -71.99586328125001,
+      "sharpe": -1.4753569438786367,
+      "calmar": -0.6461816562339374,
+      "sortino": -1.2183218928387176,
+      "total_trades": 2813,
+      "win_rate_pct": 43.9033060789193,
+      "profit_factor": "0.7932341",
+      "avg_trade_pnl": "-47.24518",
+      "final_equity": "56845.76",
+      "total_fees": "20713.887",
+      "total_funding": "-65577.23",
+      "rejections_total": 39306,
+      "strategy_attribution": {
+        "s65": {
+          "trades": 1735,
+          "pnl": "-70387.22",
+          "funding": "-65330.66"
+        },
+        "s57": {
+          "trades": 694,
+          "pnl": "-31540.752",
+          "funding": "-57.982136"
+        },
+        "s56": {
+          "trades": 384,
+          "pnl": "-30972.66",
+          "funding": "-188.63289"
+        }
+      }
+    },
+    {
+      "name": "exp3_pool_aggressive",
+      "description": "s56+s57+s65 pool, aggressive sizing all strategies",
+      "months": 12,
+      "capital": 200000,
+      "annual_return_pct": -50.41874180075601,
+      "total_return_pct": -75.464193359375,
+      "max_dd_pct": -78.73732054785432,
+      "sharpe": -1.9312354561804022,
+      "calmar": -0.6403410917458503,
+      "sortino": -1.4487606805655084,
+      "total_trades": 2755,
+      "win_rate_pct": 44.06533575317604,
+      "profit_factor": "0.7864584",
+      "avg_trade_pnl": "-50.97145",
+      "final_equity": "48886.633",
+      "total_fees": "21898.305",
+      "total_funding": "-70256.72",
+      "rejections_total": 40049,
+      "strategy_attribution": {
+        "s65": {
+          "trades": 1728,
+          "pnl": "-85522.97",
+          "funding": "-70095.58"
+        },
+        "s57": {
+          "trades": 640,
+          "pnl": "-32376.348",
+          "funding": "-15.740975"
+        },
+        "s56": {
+          "trades": 387,
+          "pnl": "-22527.037",
+          "funding": "-145.07735"
+        }
+      }
+    },
+    {
+      "name": "exp3_pool_baseline",
+      "description": "s56+s57+s65 pool, production config (default sizing)",
+      "months": 3,
+      "capital": 200000,
+      "annual_return_pct": -26.53986742543112,
+      "total_return_pct": -31.976906250000003,
+      "max_dd_pct": -40.200765466961215,
+      "sharpe": -1.2576799681065243,
+      "calmar": -0.660183136245074,
+      "sortino": -0.5333134343623349,
+      "total_trades": 896,
+      "win_rate_pct": 39.955357142857146,
+      "profit_factor": "0.7620596",
+      "avg_trade_pnl": "-68.22219",
+      "final_equity": "135330.47",
+      "total_fees": "7055.791",
+      "total_funding": "-54839.824",
+      "rejections_total": 25449,
+      "strategy_attribution": {
+        "s65": {
+          "trades": 628,
+          "pnl": "-51863.434",
+          "funding": "-53955.785"
+        },
+        "s56": {
+          "trades": 90,
+          "pnl": "-6016.957",
+          "funding": "-383.75934"
+        },
+        "s57": {
+          "trades": 178,
+          "pnl": "-3246.701",
+          "funding": "-500.4023"
+        }
+      }
+    },
+    {
+      "name": "exp3_pool_tuned_v1",
+      "description": "s56+s57+s65 pool, per-strategy sizing (s56/s65 higher cap)",
+      "months": 3,
+      "capital": 200000,
+      "annual_return_pct": -29.913572940906263,
+      "total_return_pct": -35.857167968750005,
+      "max_dd_pct": -39.80669122110668,
+      "sharpe": -1.5954106866404103,
+      "calmar": -0.7514709719215549,
+      "sortino": -0.7448859837812836,
+      "total_trades": 851,
+      "win_rate_pct": 40.42303172737955,
+      "profit_factor": "0.72045016",
+      "avg_trade_pnl": "-80.94955",
+      "final_equity": "127587.06",
+      "total_fees": "7012.75",
+      "total_funding": "-45122.51",
+      "rejections_total": 25829,
+      "strategy_attribution": {
+        "s65": {
+          "trades": 636,
+          "pnl": "-57134.887",
+          "funding": "-43967.61"
+        },
+        "s56": {
+          "trades": 77,
+          "pnl": "-8435.176",
+          "funding": "-1190.9082"
+        },
+        "s57": {
+          "trades": 138,
+          "pnl": "-3318.0256",
+          "funding": "36.203045"
+        }
+      }
+    },
+    {
+      "name": "exp3_pool_aggressive",
+      "description": "s56+s57+s65 pool, aggressive sizing all strategies",
+      "months": 3,
+      "capital": 200000,
+      "annual_return_pct": -23.841508642222642,
+      "total_return_pct": -28.841148437499996,
+      "max_dd_pct": -39.61924479292349,
+      "sharpe": -1.1189443522013534,
+      "calmar": -0.6017658531058382,
+      "sortino": -0.5115008617626611,
+      "total_trades": 872,
+      "win_rate_pct": 42.43119266055046,
+      "profit_factor": "0.792521",
+      "avg_trade_pnl": "-62.945675",
+      "final_equity": "141510.7",
+      "total_fees": "7221.745",
+      "total_funding": "-50198.105",
+      "rejections_total": 25578,
+      "strategy_attribution": {
+        "s65": {
+          "trades": 630,
+          "pnl": "-52892.273",
+          "funding": "-48516.332"
+        },
+        "s56": {
+          "trades": 96,
+          "pnl": "2126.474",
+          "funding": "-1734.6133"
+        },
+        "s57": {
+          "trades": 146,
+          "pnl": "-4122.8525",
+          "funding": "52.789852"
+        }
+      }
+    }
+  ]
+}
