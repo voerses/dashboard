@@ -220,6 +220,20 @@ def restore_state(engine: PaperPortfolioEngine, config) -> None:
                     "so grace periods reflect real elapsed time",
                     n_missed, engine.last_timestamp, n_missed,
                 )
+                # Re-persist state.json with bumped tick_counter and updated
+                # last_timestamp so repeated restarts don't double-bump.
+                data["tick_counter"] = engine.tick_counter
+                now_iso = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+                data["last_timestamp"] = now_iso
+                engine.last_timestamp = now_iso
+                import tempfile as _tmpfile
+                fd, tmp = _tmpfile.mkstemp(dir=state_dir, suffix=".tmp")
+                os.close(fd)
+                with open(tmp, "w") as f:
+                    json.dump(data, f, indent=2)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.rename(tmp, state_path)
         except (ValueError, TypeError):
             pass
 
