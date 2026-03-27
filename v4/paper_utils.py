@@ -198,9 +198,9 @@ def restore_state(engine: PaperPortfolioEngine, config) -> None:
                         pass
     engine._flushed_position_ids = flushed_ids
 
-    # Log gap for missed bars (C3 fix: do NOT increment tick_counter
-    # without processing data — let the next real tick naturally pick up
-    # the latest data from the parquet cache)
+    # Advance tick_counter by missed hours so that time-based exit logic
+    # (no_stop_bars grace period, trail tightening, max_hold) reflects
+    # real elapsed time, not just ticks processed.
     if engine.last_timestamp:
         import datetime
         try:
@@ -214,9 +214,11 @@ def restore_state(engine: PaperPortfolioEngine, config) -> None:
             gap_hours = (now - last_ts_dt).total_seconds() / 3600.0
             if 1.5 < gap_hours < 720:  # Between 1.5 hours and 30 days
                 n_missed = int(gap_hours)
+                engine.tick_counter += n_missed
                 logger.info(
-                    "Detected %d missed bars since %s — next tick will fetch latest data",
-                    n_missed, engine.last_timestamp,
+                    "Detected %d missed bars since %s — tick_counter advanced by %d "
+                    "so grace periods reflect real elapsed time",
+                    n_missed, engine.last_timestamp, n_missed,
                 )
         except (ValueError, TypeError):
             pass

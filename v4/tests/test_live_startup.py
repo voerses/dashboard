@@ -301,23 +301,12 @@ class TestCatchUp:
     """AC17: Catch-up runs for missed bars after gap."""
 
     def test_catch_up_after_gap(self, caplog):
-        """If last_timestamp is more than 1 hour old, restore_state detects the gap and logs it.
+        """If last_timestamp is more than 1 hour old, restore_state detects the gap,
+        advances tick_counter by the missed hours, and logs it.
 
-        Reviewer verdict (test dispute):
-          The original test expected tick_counter > 10 after restore_state(),
-          meaning restore_state would advance the counter during gap catch-up.
-          Bug C3 showed that advancing tick_counter WITHOUT full data processing
-          (no funding accrual, no stop checks, no signal recomputation) causes
-          bar_maps misalignment and skipped position management.
-
-          The engine's _catch_up() method exists for proper catch-up (calls
-          _tick_internal per bar), but it requires a fully-initialized engine
-          (fetcher, parquet cache, signal infrastructure) which restore_state()
-          cannot guarantee at startup time.
-
-          Correct behavior: restore_state() restores tick_counter to the stored
-          value, detects the gap, and logs it.  The caller (main loop) is
-          responsible for invoking _catch_up() after the engine is fully ready.
+        tick_counter must reflect real elapsed time so that time-based exit logic
+        (no_stop_bars grace period, trail tightening, max_hold) works correctly
+        even after runner downtime.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create a state.json with a timestamp 3 hours ago
@@ -336,15 +325,14 @@ class TestCatchUp:
             with caplog.at_level(logging.INFO):
                 restore_state(engine, config)
 
-            # tick_counter must equal the stored value — NOT advanced.
-            # Advancing without full data processing (C3 bug) causes bar_maps
-            # misalignment and skips stop-loss / funding / signal processing.
-            assert engine.tick_counter == 10, (
-                f"Expected tick_counter == 10 (stored value, no blind advancement), "
+            # tick_counter advanced by 3 missed hours (10 + 3 = 13)
+            # so bars_held reflects real elapsed time for grace periods
+            assert engine.tick_counter == 13, (
+                f"Expected tick_counter == 13 (10 stored + 3 missed hours), "
                 f"got {engine.tick_counter}"
             )
 
-            # The gap should be detected and logged so the caller can act on it.
+            # The gap should be detected and logged
             log_messages = [r.message for r in caplog.records]
             assert any("missed" in msg.lower() or "gap" in msg.lower()
                         for msg in log_messages), (
