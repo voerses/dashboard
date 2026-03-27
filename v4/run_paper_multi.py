@@ -206,13 +206,20 @@ class _PriceFanOut:
 
     def __init__(self, callbacks: list):
         self._callbacks = callbacks
+        self._error_counts: dict[int, int] = {}
 
     def __call__(self, token: str, price: float, timestamp_ms: int) -> None:
-        for cb in self._callbacks:
+        for i, cb in enumerate(self._callbacks):
             try:
                 cb(token, price, timestamp_ms)
+                self._error_counts[i] = 0
             except Exception:
-                logger.error("Fan-out callback failed", exc_info=True)
+                count = self._error_counts.get(i, 0) + 1
+                self._error_counts[i] = count
+                if count <= 3:
+                    logger.error("Fan-out callback %d failed", i, exc_info=True)
+                elif count == 4:
+                    logger.error("Suppressing repeated fan-out errors for callback %d", i)
 
 
 def _market_to_venue(config: PaperConfig) -> str:
@@ -300,7 +307,11 @@ def _update_shared_subscriptions(
     shared_monitors: dict[tuple[str, str], object],
     engine_groups: dict[tuple[str, str], list],
 ) -> None:
-    """Update shared monitor subscriptions with union of all engines' open tokens."""
+    """Update shared monitor subscriptions with union of all engines' open tokens.
+
+    Handles lazy connect: if the monitor was never started (no positions at boot),
+    calls connect() instead of update_subscriptions() when tokens first appear.
+    """
     for key, monitor in shared_monitors.items():
         engines = engine_groups.get(key, [])
         all_tokens = set()
@@ -308,6 +319,16 @@ def _update_shared_subscriptions(
             for st in engine._get_all_states():
                 for pos in st.position_manager.open_positions:
                     all_tokens.add(pos.token)
+        # Lazy connect: if monitor was never started (no positions at boot),
+        # start it now before updating subscriptions.
+        ws_thread = getattr(monitor, '_ws_thread', None)
+        if all_tokens and (ws_thread is None or not ws_thread.is_alive()):
+            try:
+                monitor.connect(list(all_tokens))
+                logger.info("[shared:%s:%s] PriceMonitor lazy-connected (%d tokens)",
+                            key[0], key[1], len(all_tokens))
+            except Exception:
+                logger.warning("[shared:%s:%s] PriceMonitor lazy-connect failed", key[0], key[1])
         monitor.update_subscriptions(all_tokens)
 
 
@@ -325,9 +346,15 @@ def _build_engine_groups(
     configs: list[PaperConfig],
     shared_monitors: dict[tuple[str, str], object],
 ) -> dict[tuple[str, str], list]:
-    """Build mapping of (exchange, venue) -> engines sharing that monitor."""
+    """Build mapping of (exchange, venue) -> engines sharing that monitor.
+
+    Only includes engines with a CandleAggregator (sub-hourly). Hourly-only
+    engines have no need for WebSocket data and are excluded.
+    """
     groups: dict[tuple[str, str], list] = {}
     for engine, cfg in zip(engines, configs):
+        if engine._candle_aggregator is None:
+            continue  # hourly-only, no benefit from WebSocket data
         venue = _market_to_venue(cfg)
         key = (cfg.exchange, venue)
         if key in shared_monitors and not cfg.dedicated_ws:
@@ -555,6 +582,9 @@ def main(argv: list[str] | None = None) -> None:
                 write_dashboard_state(engines, configs, include_sentinel=True)
             except Exception:
                 logger.exception("Live dashboard state write failed (non-fatal)")
+        _disconnect_shared_monitors(shared_monitors)
+        for engine in engines:
+            engine.cleanup()
         lock_file.close()
         return
 

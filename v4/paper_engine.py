@@ -103,9 +103,15 @@ class PaperPortfolioEngine:
             else:
                 # Create own PriceMonitor (backward compat / dedicated mode)
                 from v4.price_monitor import PriceMonitor
+                # Derive venue from strategy market types
+                markets = {s.market for s in config.strategies}
+                if "spot" in markets and "perp" not in markets and "combined" not in markets:
+                    venue = "spot"
+                else:
+                    venue = "perp"
                 self._price_monitor = PriceMonitor(
                     callback=self._candle_aggregator.on_price,
-                    venue="perp",
+                    venue=venue,
                 )
                 self._owns_price_monitor = True
         # Cache for sub-hourly exit checks (populated after each hourly tick)
