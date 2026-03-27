@@ -153,6 +153,41 @@ python v3/validation.py --strategy sNN --workers 4
 | B | s20, s22, s12, s15, s14, s10 | 20-50% |
 | C | s07, s08, s16, s19 | <20% (archived) |
 
+## Multi-Portfolio Paper Runner (`run_paper_multi.py`)
+
+Runs N independent portfolios in a single process. Config: `configs/multi_v4_paper.json`.
+
+```bash
+python -m v4.run_paper_multi --config configs/multi_v4_paper.json
+python -m v4.run_paper_multi --config configs/multi_v4_paper.json --once   # single tick
+python -m v4.run_paper_multi --config configs/multi_v4_paper.json --status # show status
+```
+
+### Shared WebSocket Architecture
+
+One `PriceMonitor` per unique `(exchange, venue)` pair serves all sub-hourly engines:
+
+- **`_PriceFanOut`** routes each price update from the shared monitor to N `CandleAggregator` callbacks with per-callback exception isolation
+- **Venue mapping**: `"perp"` and `"combined"` strategies → venue `"perp"`, `"spot"` strategies → venue `"spot"`
+- **Engine grouping**: Only engines with `exit_resolution` (sub-hourly exits) join shared WebSocket groups. Hourly-only engines skip WebSocket entirely.
+- **Lazy connect**: Shared monitors connect when first tokens appear (handles cold start with no positions)
+- **Per-pool opt-out**: Set `"dedicated_ws": true` on a portfolio for its own isolated PriceMonitor
+
+### State Restoration on Startup (`paper_utils.py`)
+
+`restore_state()` runs on every startup:
+1. Restores tick_counter, positions, equity, last_timestamp from `state.json`
+2. **Recovery truncation**: Removes trades.jsonl / equity.csv entries after restored tick
+3. **Grace period adjustment**: If downtime > 1.5 hours, bumps `tick_counter` by missed hours so `bars_held` (used by `no_stop_bars`, trail tightening, `max_hold`) reflects real elapsed time. The bumped state is persisted immediately to prevent double-bumping on repeated crash-restarts.
+4. Seeds `_flushed_position_ids` from trades.jsonl to prevent duplicate writes
+5. **PID lock**: `acquire_pid_lock()` prevents duplicate instances via `fcntl.flock`
+
+### Operational Notes
+
+- **Memory**: ~850-900MB RSS for 8 portfolios with ~325 tokens
+- **Tick duration**: ~55-65s total across 8 portfolios (data fetch shared, ticks sequential)
+- **Known symbol warnings**: BONK, FLOKI, RATS, PEPE, SHIB perpetual symbols not available on Binance — these are expected warnings, not errors
+
 ## Real-Time Exit Sentinel
 
 The Exit Sentinel is a standalone process that monitors real-time prices via Binance WebSocket and detects stop-loss breaches between hourly ticks. It runs alongside the paper trading engine.

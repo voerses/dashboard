@@ -68,7 +68,7 @@ Each bar processes in order:
 **Slippage model**: `compute_slippage_bps(notional, adv, base_spread_bps, impact_coeff, max_slip_bps)`
 - Base spread + square-root market impact + cap
 
-### Paper Trading (`paper_engine.py`, `run_paper.py`)
+### Paper Trading (`paper_engine.py`, `run_paper.py`, `run_paper_multi.py`)
 
 Same simulator code, but:
 - **Per-tick execution**: `PaperPortfolioEngine.tick()` runs one bar per hour
@@ -76,6 +76,26 @@ Same simulator code, but:
 - **State persistence**: JSON state file with open positions, equity, tick counter
 - **Per-bar RNG**: `RandomState(seed + tick_counter)` for deterministic restartability
 - **Live dashboard**: Writes `/srv/data/state.json` every 1s with live WebSocket prices. Dashboard at `/srv/dashboard/current/` polls via fetch. Loads full trade history from `trades.jsonl` and equity from `equity.csv`.
+
+#### Multi-Portfolio Runner (`run_paper_multi.py`)
+
+Runs N independent portfolios in a single process with shared infrastructure:
+
+- **Shared WebSocket**: One `PriceMonitor` per unique `(exchange, venue)` pair, with `_PriceFanOut` routing price updates to all engines' `CandleAggregator` callbacks. Reduces N WebSocket connections to 1 per venue.
+- **Per-pool opt-out**: Set `"dedicated_ws": true` in a portfolio's config to give it its own `PriceMonitor` (useful for isolation/debugging).
+- **Engine grouping**: Only engines with sub-hourly `exit_resolution` are grouped for shared WebSocket. Hourly-only engines skip WebSocket entirely.
+- **Lazy connect**: Shared monitors connect on first subscription update when tokens exist, not at boot (handles cold start with no positions).
+
+#### State Restoration (`paper_utils.py`)
+
+On startup, `restore_state()` restores engine state from `state.json`:
+
+- **tick_counter, positions, equity, last_timestamp** all restored
+- **Recovery truncation**: trades.jsonl and equity.csv entries after the restored tick are removed
+- **Flushed position IDs**: Seeded from existing trades.jsonl to prevent duplicate writes
+- **Grace period adjustment**: If `last_timestamp` indicates a gap > 1.5 hours, `tick_counter` is advanced by the number of missed hours so that time-based exit logic (`no_stop_bars`, trail tightening, `max_hold`) reflects real elapsed wall-clock time. The bumped tick_counter and updated last_timestamp are persisted to state.json immediately to prevent double-bumping on repeated restarts.
+- **PID lock**: `acquire_pid_lock()` prevents duplicate instances via `fcntl.flock`
+- **Strategy reconciliation** (independent mode): Orphaned strategies are force-closed, new strategies initialized, equity redistributed
 
 ---
 
