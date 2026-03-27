@@ -64,7 +64,7 @@ class PaperPortfolioEngine:
 
     BACKOFF = [30, 60, 120]  # Retry backoff delays in seconds (AC10d)
 
-    def __init__(self, config: PaperConfig):
+    def __init__(self, config: PaperConfig, *, price_monitor=None):
         self.config = config
         self.tick_counter: int = 0
         self._last_known_prices: dict[str, float] = {}
@@ -84,6 +84,7 @@ class PaperPortfolioEngine:
         # Falls back to portfolio-level config.exit_resolution for backward compat.
         self._candle_aggregator = None
         self._price_monitor = None
+        self._owns_price_monitor = False
         strategy_resolutions = [s.exit_resolution for s in config.strategies if s.exit_resolution > 0]
         effective_resolution = min(strategy_resolutions) if strategy_resolutions else getattr(config, 'exit_resolution', 0)
         self._effective_exit_resolution = effective_resolution
@@ -93,12 +94,20 @@ class PaperPortfolioEngine:
         }
         if effective_resolution > 0:
             from v4.candle_aggregator import CandleAggregator
-            from v4.price_monitor import PriceMonitor
+            # Always create own CandleAggregator (resolution is per-engine)
             self._candle_aggregator = CandleAggregator(effective_resolution)
-            self._price_monitor = PriceMonitor(
-                callback=self._candle_aggregator.on_price,
-                venue="perp",
-            )
+            if price_monitor is not None:
+                # Use shared PriceMonitor from runner — don't create our own
+                self._price_monitor = price_monitor
+                self._owns_price_monitor = False
+            else:
+                # Create own PriceMonitor (backward compat / dedicated mode)
+                from v4.price_monitor import PriceMonitor
+                self._price_monitor = PriceMonitor(
+                    callback=self._candle_aggregator.on_price,
+                    venue="perp",
+                )
+                self._owns_price_monitor = True
         # Cache for sub-hourly exit checks (populated after each hourly tick)
         # Keyed by (strategy_id, token) so each strategy gets its own ATR values
         self._cached_bar_data: dict[tuple[str, str], dict] = {}
@@ -112,6 +121,14 @@ class PaperPortfolioEngine:
             for spec in config.strategies:
                 self.state._slippage_models[spec.strategy_id] = get_slippage_model(spec.slippage_model)
             self.strategy_states = {}
+
+    def cleanup(self) -> None:
+        """Release resources. Disconnects PriceMonitor only if this engine owns it."""
+        if self._price_monitor is not None and self._owns_price_monitor:
+            try:
+                self._price_monitor.disconnect()
+            except Exception:
+                pass
 
     def _init_independent_mode(self) -> None:
         """Initialize separate SimulationState for each strategy (AC6b)."""
@@ -605,8 +622,12 @@ class PaperPortfolioEngine:
                 }
 
     def _update_ws_subscriptions(self) -> None:
-        """Update WebSocket subscriptions to match current open positions."""
-        if self._price_monitor is None:
+        """Update WebSocket subscriptions to match current open positions.
+
+        No-op when engine does not own its PriceMonitor — the runner manages
+        subscriptions centrally to prevent clobbering other engines' tokens.
+        """
+        if self._price_monitor is None or not self._owns_price_monitor:
             return
         open_tokens = set()
         for st in self._get_all_states():

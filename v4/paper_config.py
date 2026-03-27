@@ -39,6 +39,7 @@ class PaperConfig(PortfolioConfig):
     confirmation_tiers: dict = field(default_factory=lambda: {"btc_eth": 30, "top10": 60, "other": 90})  # deprecated
     carry_strategies: list = field(default_factory=list)  # strategy_ids excluded from sentinel monitoring
     exit_resolution: int = 0                       # 0=hourly only, 1/5/15/30=sub-hourly WebSocket candles
+    dedicated_ws: bool = False                       # True = own WebSocket, skip shared monitor
 
 
 def load_paper_config(path: str) -> PaperConfig:

@@ -110,6 +110,7 @@ def load_multi_config(path: str) -> list[PaperConfig]:
             confirmation_tiers=merged.get("confirmation_tiers", {"btc_eth": 30, "top10": 60, "other": 90}),
             carry_strategies=merged.get("carry_strategies", []),
             exit_resolution=merged.get("exit_resolution", 0),
+            dedicated_ws=merged.get("dedicated_ws", False),
         )
         config.config_path = path
         configs.append(config)
@@ -192,6 +193,149 @@ def fetch_all_data(fetcher, all_configs: list[PaperConfig]) -> tuple[int, int, i
 
 
 # ---------------------------------------------------------------------------
+# Shared WebSocket PriceMonitor — fan-out and lifecycle helpers
+# ---------------------------------------------------------------------------
+
+class _PriceFanOut:
+    """Routes price updates from one PriceMonitor to multiple CandleAggregators.
+
+    Each callback is invoked with (token, price, timestamp_ms).
+    Exceptions in individual callbacks are caught and logged — one broken
+    engine does not block others from receiving price updates.
+    """
+
+    def __init__(self, callbacks: list):
+        self._callbacks = callbacks
+
+    def __call__(self, token: str, price: float, timestamp_ms: int) -> None:
+        for cb in self._callbacks:
+            try:
+                cb(token, price, timestamp_ms)
+            except Exception:
+                logger.error("Fan-out callback failed", exc_info=True)
+
+
+def _market_to_venue(config: PaperConfig) -> str:
+    """Derive WebSocket venue from a portfolio's strategy market types.
+
+    'perp' and 'combined' both use the perp WebSocket feed.
+    'spot' uses the spot WebSocket feed.
+    """
+    markets = {s.market for s in config.strategies}
+    if "spot" in markets and "perp" not in markets and "combined" not in markets:
+        return "spot"
+    return "perp"
+
+
+def _setup_shared_monitors(
+    configs: list[PaperConfig],
+) -> tuple[dict[tuple[str, str], object], list[PaperPortfolioEngine]]:
+    """Group engines by (exchange, venue) and create shared PriceMonitors.
+
+    Engines with dedicated_ws=True create their own monitors (not shared).
+    Returns (shared_monitors dict, list of engines in config order).
+    """
+    from v4.price_monitor import PriceMonitor
+
+    # Group non-dedicated configs by (exchange, venue)
+    groups: dict[tuple[str, str], list[int]] = {}  # key -> config indices
+    for i, cfg in enumerate(configs):
+        resolutions = [s.exit_resolution for s in cfg.strategies if s.exit_resolution > 0]
+        if not resolutions or cfg.dedicated_ws:
+            continue
+        venue = _market_to_venue(cfg)
+        key = (cfg.exchange, venue)
+        groups.setdefault(key, []).append(i)
+
+    # Create one shared PriceMonitor per (exchange, venue) group.
+    # callback_lists holds mutable lists that _PriceFanOut references directly —
+    # engine CandleAggregator callbacks are appended after engine creation below.
+    shared_monitors: dict[tuple[str, str], object] = {}
+    callback_lists: dict[tuple[str, str], list] = {}
+    for key in groups:
+        callback_lists[key] = []
+        fanout = _PriceFanOut(callback_lists[key])
+        _exchange, venue = key
+        shared_monitors[key] = PriceMonitor(callback=fanout, venue=venue)
+
+    # Create engines — shared get injected monitor, dedicated create their own
+    engines: list[PaperPortfolioEngine] = []
+    for i, cfg in enumerate(configs):
+        venue = _market_to_venue(cfg)
+        key = (cfg.exchange, venue)
+        if key in shared_monitors and not cfg.dedicated_ws:
+            engine = PaperPortfolioEngine(cfg, price_monitor=shared_monitors[key])
+            # Register this engine's CandleAggregator in the fan-out
+            if engine._candle_aggregator is not None:
+                callback_lists[key].append(engine._candle_aggregator.on_price)
+        else:
+            engine = PaperPortfolioEngine(cfg)
+        engines.append(engine)
+
+    return shared_monitors, engines
+
+
+def _connect_shared_monitors(
+    shared_monitors: dict[tuple[str, str], object],
+    engine_groups: dict[tuple[str, str], list],
+) -> None:
+    """Connect shared monitors at startup with all open tokens from their engines."""
+    for key, monitor in shared_monitors.items():
+        engines = engine_groups.get(key, [])
+        all_tokens = set()
+        for engine in engines:
+            for st in engine._get_all_states():
+                for pos in st.position_manager.open_positions:
+                    all_tokens.add(pos.token)
+        if all_tokens:
+            try:
+                monitor.connect(list(all_tokens))
+                logger.info("[shared:%s:%s] PriceMonitor started (%d tokens)",
+                            key[0], key[1], len(all_tokens))
+            except Exception:
+                logger.warning("[shared:%s:%s] PriceMonitor start failed", key[0], key[1])
+
+
+def _update_shared_subscriptions(
+    shared_monitors: dict[tuple[str, str], object],
+    engine_groups: dict[tuple[str, str], list],
+) -> None:
+    """Update shared monitor subscriptions with union of all engines' open tokens."""
+    for key, monitor in shared_monitors.items():
+        engines = engine_groups.get(key, [])
+        all_tokens = set()
+        for engine in engines:
+            for st in engine._get_all_states():
+                for pos in st.position_manager.open_positions:
+                    all_tokens.add(pos.token)
+        monitor.update_subscriptions(all_tokens)
+
+
+def _disconnect_shared_monitors(shared_monitors: dict[tuple[str, str], object]) -> None:
+    """Disconnect all shared monitors on shutdown."""
+    for key, monitor in shared_monitors.items():
+        try:
+            monitor.disconnect()
+        except Exception:
+            pass
+
+
+def _build_engine_groups(
+    engines: list[PaperPortfolioEngine],
+    configs: list[PaperConfig],
+    shared_monitors: dict[tuple[str, str], object],
+) -> dict[tuple[str, str], list]:
+    """Build mapping of (exchange, venue) -> engines sharing that monitor."""
+    groups: dict[tuple[str, str], list] = {}
+    for engine, cfg in zip(engines, configs):
+        venue = _market_to_venue(cfg)
+        key = (cfg.exchange, venue)
+        if key in shared_monitors and not cfg.dedicated_ws:
+            groups.setdefault(key, []).append(engine)
+    return groups
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -236,13 +380,11 @@ def main(argv: list[str] | None = None) -> None:
     exchange = exchange_cls(ccxt_config)
     shared_fetcher = LiveFetcher(exchange=exchange, data_dir="data")
 
-    # Create engines + restore state
-    engines: list[PaperPortfolioEngine] = []
-    for config in configs:
-        engine = PaperPortfolioEngine(config)
-        # Don't set fetcher — we handle fetch centrally
+    # Create engines with shared PriceMonitors (grouped by exchange+venue)
+    shared_monitors, engines = _setup_shared_monitors(configs)
+    for engine, config in zip(engines, configs):
         restore_state(engine, config)
-        engines.append(engine)
+    engine_groups = _build_engine_groups(engines, configs, shared_monitors)
 
     if args.status:
         for i, (engine, config) in enumerate(zip(engines, configs)):
@@ -364,25 +506,24 @@ def main(argv: list[str] | None = None) -> None:
         _startup_hb = threading.Thread(target=_startup_heartbeat, daemon=True)
         _startup_hb.start()
 
-    # Start PriceMonitor WebSocket early so dashboard shows live prices immediately.
-    # Collect open tokens from restored engine state (before first tick).
-    all_open_tokens = set()
-    for engine in engines:
-        for st in engine._get_all_states():
-            for pos in st.position_manager.open_positions:
-                all_open_tokens.add(pos.token)
-    if all_open_tokens:
-        for engine, config in zip(engines, configs):
-            if engine._price_monitor is None:
-                continue
-            try:
-                engine._price_monitor.connect(list(all_open_tokens))
-                logger.info(
-                    "[%s] PriceMonitor started early (%d tokens, %dm resolution)",
-                    config.pool_name, len(all_open_tokens), engine._effective_exit_resolution,
-                )
-            except Exception:
-                logger.warning("[%s] Early PriceMonitor start failed", config.pool_name)
+    # Start shared PriceMonitor WebSockets early for live dashboard prices.
+    _connect_shared_monitors(shared_monitors, engine_groups)
+    # Start dedicated engines' monitors (they own their own)
+    for engine, config in zip(engines, configs):
+        if engine._price_monitor is not None and engine._owns_price_monitor:
+            dedic_tokens = set()
+            for st in engine._get_all_states():
+                for pos in st.position_manager.open_positions:
+                    dedic_tokens.add(pos.token)
+            if dedic_tokens:
+                try:
+                    engine._price_monitor.connect(list(dedic_tokens))
+                    logger.info(
+                        "[%s] Dedicated PriceMonitor started (%d tokens, %dm resolution)",
+                        config.pool_name, len(dedic_tokens), engine._effective_exit_resolution,
+                    )
+                except Exception:
+                    logger.warning("[%s] Dedicated PriceMonitor start failed", config.pool_name)
 
     # Startup backfill: repair data gaps >24h from outages
     all_backfill_tokens: set[str] = set()
@@ -504,29 +645,13 @@ def main(argv: list[str] | None = None) -> None:
                 except Exception:
                     logger.exception("Live dashboard state write failed (non-fatal)")
 
-            # Step 4: Start/restart PriceMonitor for sub-hourly exits (after first tick)
-            # Collect ALL open tokens across ALL portfolios (shared WebSocket feed)
-            all_open_tokens = set()
+            # Step 4: Update PriceMonitor subscriptions for sub-hourly exits
+            # Shared monitors: update with union of all engines' tokens (AC11, AC13)
+            _update_shared_subscriptions(shared_monitors, engine_groups)
+            # Dedicated monitors: update individually (owns_price_monitor=True)
             for engine in engines:
-                for st in engine._get_all_states():
-                    for pos in st.position_manager.open_positions:
-                        all_open_tokens.add(pos.token)
-            for engine, config in zip(engines, configs):
-                if engine._price_monitor is None:
-                    continue
-                ws_thread = engine._price_monitor._ws_thread
-                ws_alive = ws_thread is not None and ws_thread.is_alive()
-                # Always reconnect after tick to pick up new tokens / drop closed ones
-                if all_open_tokens:
-                    if ws_alive:
-                        engine._price_monitor.disconnect()
-                    engine._price_monitor.connect(list(all_open_tokens))
-                    logger.info(
-                        "[%s] PriceMonitor started (%d tokens, %dm resolution)",
-                        config.pool_name, len(all_open_tokens), engine._effective_exit_resolution,
-                    )
-                elif ws_alive:
-                    engine._price_monitor.disconnect()
+                if engine._price_monitor is not None and engine._owns_price_monitor:
+                    engine._update_ws_subscriptions()
 
             # Reset consecutive error counters for sub-hourly checks
             _candle_errors: dict[int, int] = {}
@@ -593,13 +718,11 @@ def main(argv: list[str] | None = None) -> None:
                 break
 
     finally:
-        # Disconnect PriceMonitors on shutdown
+        # Disconnect shared PriceMonitors on shutdown (AC14)
+        _disconnect_shared_monitors(shared_monitors)
+        # Cleanup dedicated engines (disconnect their owned monitors)
         for engine in engines:
-            if engine._price_monitor is not None:
-                try:
-                    engine._price_monitor.disconnect()
-                except Exception:
-                    pass
+            engine.cleanup()
         lock_file.close()
         logger.info("Multi-portfolio paper trading stopped")
 
