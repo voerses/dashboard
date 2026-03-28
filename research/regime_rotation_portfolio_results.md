@@ -1,6 +1,6 @@
 # Regime-Rotating Multi-Strategy Portfolio: BTC $200K Simulation
 
-*Generated: 2026-03-26 14:28:32*
+*Generated: 2026-03-28 17:19:16*
 
 ## Architecture
 
@@ -23,36 +23,36 @@ Single $200K capital pool with regime-detected strategy rotation:
 
 | Metric | Regime Rotation Full | IS Period | OOS Period |
 |--------|---------------------|-----------|------------|
-| Annual Return | 26.26% | 33.96% | 0.88% |
-| Total Return | 261.66% | 255.12% | 1.04% |
-| Max Drawdown | -30.21% | -30.21% | -17.20% |
-| Sharpe Ratio | 1.04 | 1.19 | 0.13 |
-| Calmar Ratio | 0.87 | 1.12 | 0.05 |
-| Sortino Ratio | 1.27 | 1.49 | 0.14 |
-| Win Rate (daily) | 34.82% | 35.46% | 32.33% |
-| Final Equity | $723,320 | $710,242 | $723,320 |
+| Annual Return | 29.87% | 38.83% | 0.99% |
+| Total Return | 322.64% | 314.45% | 1.17% |
+| Max Drawdown | -29.13% | -29.13% | -17.19% |
+| Sharpe Ratio | 1.15 | 1.31 | 0.14 |
+| Calmar Ratio | 1.03 | 1.33 | 0.06 |
+| Sortino Ratio | 1.42 | 1.66 | 0.15 |
+| Win Rate (daily) | 35.22% | 35.97% | 32.33% |
+| Final Equity | $845,280 | $828,897 | $845,280 |
 | Duration (years) | 5.5 | 4.3 | 1.2 |
 
 ## Comparison: Regime Rotation vs V3 vs Buy-and-Hold
 
 | Metric | Regime Rotation | V3 Standalone | Buy-and-Hold |
 |--------|----------------|---------------|-------------|
-| Annual Return (Full) | 26.26% | 22.65% | 38.13% |
-| Max Drawdown (Full) | -30.21% | -38.15% | -76.63% |
-| Sharpe (Full) | 1.04 | 0.87 | 0.84 |
-| Calmar (Full) | 0.87 | 0.59 | 0.50 |
-| Sortino (Full) | 1.27 | 0.95 | 1.20 |
-| Final Equity (Full) | $723,320 | $616,562 | $1,215,169 |
+| Annual Return (Full) | 29.87% | 27.82% | 38.13% |
+| Max Drawdown (Full) | -29.13% | -37.48% | -76.63% |
+| Sharpe (Full) | 1.15 | 1.01 | 0.84 |
+| Calmar (Full) | 1.03 | 0.74 | 0.50 |
+| Sortino (Full) | 1.42 | 1.11 | 1.20 |
+| Final Equity (Full) | $845,280 | $774,004 | $1,215,169 |
 
 ### OOS Period Only
 
 | Metric | Regime Rotation | V3 Standalone | Buy-and-Hold |
 |--------|----------------|---------------|-------------|
-| Annual Return | 0.88% | -4.77% | -21.79% |
-| Max Drawdown | -17.20% | -21.49% | -49.53% |
-| Sharpe | 0.13 | -0.22 | -0.31 |
-| Sortino | 0.14 | -0.23 | -0.43 |
-| Final Equity | $723,320 | $616,562 | $1,215,169 |
+| Annual Return | 0.99% | -4.52% | -21.79% |
+| Max Drawdown | -17.19% | -21.46% | -49.53% |
+| Sharpe | 0.14 | -0.21 | -0.31 |
+| Sortino | 0.15 | -0.21 | -0.43 |
+| Final Equity | $845,280 | $774,004 | $1,215,169 |
 
 ## Regime Distribution
 
@@ -68,19 +68,19 @@ Single $200K capital pool with regime-detected strategy rotation:
 
 | Regime | Days | % Time | Ann Return | Sharpe | Cum Return |
 |--------|------|--------|-----------|--------|-----------|
-| QUIET | 249 | 12.4% | -11.20% | -1.46 | -7.64% |
-| UPTREND | 790 | 39.2% | 85.24% | 2.25 | 184.36% |
-| RANGE | 359 | 17.8% | 10.00% | 0.74 | 9.82% |
-| DOWNTREND | 612 | 30.4% | -26.83% | -2.12 | -44.96% |
+| QUIET | 249 | 12.4% | -11.87% | -1.45 | -8.09% |
+| UPTREND | 790 | 39.2% | 92.67% | 2.45 | 200.43% |
+| RANGE | 359 | 17.8% | 11.69% | 0.86 | 11.49% |
+| DOWNTREND | 612 | 30.4% | -26.81% | -2.11 | -44.92% |
 
 ### OOS Regime Performance
 
 | Regime | Days | % Time | Ann Return | Sharpe | Cum Return |
 |--------|------|--------|-----------|--------|-----------|
-| QUIET | 60 | 13.9% | -7.08% | -1.36 | -1.16% |
-| UPTREND | 104 | 24.1% | 45.12% | 1.88 | 12.85% |
-| RANGE | 115 | 26.7% | -3.12% | -0.37 | -0.98% |
-| DOWNTREND | 148 | 34.3% | -21.46% | -2.45 | -8.69% |
+| QUIET | 60 | 13.9% | -7.10% | -1.36 | -1.17% |
+| UPTREND | 104 | 24.1% | 45.50% | 1.90 | 12.95% |
+| RANGE | 115 | 26.7% | -3.02% | -0.36 | -0.95% |
+| DOWNTREND | 148 | 34.3% | -21.49% | -2.45 | -8.71% |
 
 ## Strategy Activity Breakdown
 
@@ -96,64 +96,64 @@ Single $200K capital pool with regime-detected strategy rotation:
 | QUIET_CONTRA_SHORT | 25 | 1.2% |
 | RANGE_SHORT | 14 | 0.7% |
 | DOWNTREND_STRONG_SHORT | 8 | 0.4% |
-| CARRY_SHORT | 1 | 0.0% |
+| RANGE_NOSIG | 1 | 0.0% |
 
 ## Monthly Returns
 
 | Year | Jan | Feb | Mar | Apr | May | Jun | Jul | Aug | Sep | Oct | Nov | Dec |
 |------|------|------|------|------|------|------|------|------|------|------|------|------|
-| 2020 | -- | -- | -- | -- | -- | -- | -- | -- | -- | 10.8% | 27.2% | 25.6% |
-| 2021 | 18.7% | 18.1% | 9.8% | -6.8% | -2.8% | -2.2% | -3.4% | 11.3% | -11.1% | 15.5% | -1.8% | 1.7% |
-| 2022 | 0.0% | -3.6% | 5.0% | -6.6% | 3.0% | -6.5% | 1.1% | -3.8% | -0.5% | 1.1% | -12.3% | 0.9% |
-| 2023 | 6.1% | 0.8% | 15.3% | 0.9% | -0.1% | 0.6% | -2.3% | -1.6% | 1.1% | 11.1% | 5.3% | 7.7% |
-| 2024 | -1.8% | 21.9% | 8.5% | -7.7% | -5.4% | -3.2% | -1.4% | -12.8% | 0.8% | -0.9% | 16.4% | -2.7% |
-| 2025 | 5.2% | -2.1% | -1.2% | 1.5% | 9.1% | 5.4% | 2.5% | -2.0% | -1.6% | -7.4% | 0.4% | -0.9% |
+| 2020 | -- | -- | -- | -- | -- | -- | -- | -- | -- | 11.0% | 28.6% | 26.9% |
+| 2021 | 22.2% | 22.5% | 11.4% | -5.3% | -2.6% | -2.1% | -3.3% | 11.9% | -10.8% | 16.7% | -1.1% | 1.7% |
+| 2022 | 0.0% | -3.6% | 5.1% | -6.5% | 2.9% | -6.5% | 1.1% | -3.7% | -0.5% | 1.1% | -12.3% | 0.9% |
+| 2023 | 6.4% | 1.2% | 15.5% | 1.2% | -0.4% | 0.7% | -2.2% | -1.6% | 1.1% | 11.1% | 5.4% | 7.9% |
+| 2024 | -1.6% | 22.0% | 8.8% | -7.6% | -5.3% | -3.2% | -1.4% | -12.8% | 0.8% | -0.8% | 16.6% | -2.5% |
+| 2025 | 5.2% | -2.0% | -1.2% | 1.5% | 9.1% | 5.4% | 2.5% | -2.0% | -1.6% | -7.4% | 0.4% | -0.9% |
 | 2026 | -5.6% | -0.2% | 0.0% | -- | -- | -- | -- | -- | -- | -- | -- | -- |
 
 ## Worst Drawdowns
 
 | Rank | Start | Trough | End | Depth | Duration (d) |
 |------|-------|--------|-----|-------|-------------|
-| 1 | 2021-02-22 | 2023-01-15 | 2023-11-09 | -30.21% | 990 |
-| 2 | 2024-04-09 | 2024-10-10 | 2025-07-13 | -29.30% | 460 |
-| 3 | 2025-08-08 | 2026-02-19 | 2026-03-14 | -17.20% | 218 |
-| 4 | 2021-01-15 | 2021-01-27 | 2021-02-02 | -9.70% | 18 |
-| 5 | 2024-01-11 | 2024-01-22 | 2024-02-14 | -9.15% | 34 |
-| 6 | 2024-03-14 | 2024-03-19 | 2024-03-25 | -8.84% | 11 |
-| 7 | 2021-01-09 | 2021-01-12 | 2021-01-14 | -7.47% | 5 |
+| 1 | 2024-04-09 | 2024-10-10 | 2025-07-10 | -29.13% | 457 |
+| 2 | 2022-03-30 | 2023-01-15 | 2023-10-23 | -25.58% | 572 |
+| 3 | 2021-02-22 | 2021-08-03 | 2022-03-29 | -22.62% | 400 |
+| 4 | 2025-08-08 | 2026-02-19 | 2026-03-14 | -17.19% | 218 |
+| 5 | 2024-01-11 | 2024-01-22 | 2024-02-14 | -9.12% | 34 |
+| 6 | 2021-01-15 | 2021-01-27 | 2021-02-02 | -9.03% | 18 |
+| 7 | 2024-03-14 | 2024-03-19 | 2024-03-25 | -8.81% | 11 |
 
 ## Cost Analysis
 
 | Component | Total | Annual |
 |-----------|-------|--------|
-| Trading Costs | $78,929 | $14,314 |
-| Funding P&L | $-109,733 | $-19,901 |
-| Net P&L | $523,320 | $94,907 |
-| Cost as % of P&L | 15.1% | -- |
+| Trading Costs | $91,779 | $16,645 |
+| Funding P&L | $-21,485 | $-3,896 |
+| Net P&L | $645,280 | $117,025 |
+| Cost as % of P&L | 14.2% | -- |
 
 ## Key Question: 100%+ Annual Return with MaxDD < 40%?
 
 **Full Period (2020-09-01 to latest):**
-- Annual Return: 26.26%
-- Max Drawdown: -30.21%
+- Annual Return: 29.87%
+- Max Drawdown: -29.13%
 - Target met: NO
 
 **OOS Period (2025-01-01 to latest):**
-- Annual Return: 0.88%
-- Max Drawdown: -17.20%
+- Annual Return: 0.99%
+- Max Drawdown: -17.19%
 - Target met: NO
 
 ### Best-Case vs Worst-Case Estimates
 
 **Best-case scenario** (strong trend environment like 2020-2021):
-- Expected annual return: 33.96% (based on IS performance)
-- Expected Sharpe: 1.19
-- Expected MaxDD: -30.21%
+- Expected annual return: 38.83% (based on IS performance)
+- Expected Sharpe: 1.31
+- Expected MaxDD: -29.13%
 - Probability estimate: ~25% of years look like this
 
 **Realistic-case scenario** (mix of regimes, moderate trends):
-- Expected annual return: 18.64%
-- Expected MaxDD: -30.21%
+- Expected annual return: 21.21%
+- Expected MaxDD: -29.13%
 - Probability estimate: ~50% of years
 
 **Worst-case scenario** (choppy markets, whipsaw regimes):
@@ -164,9 +164,9 @@ Single $200K capital pool with regime-detected strategy rotation:
 
 ## Conclusions
 
-1. **Alpha vs V3 standalone**: 3.60% annual (outperforms)
-2. **Alpha vs buy-and-hold**: -11.88% annual (underperforms)
-3. **Drawdown improvement**: regime rotation MaxDD -30.21% vs V3 -38.15% vs B&H -76.63%
+1. **Alpha vs V3 standalone**: 2.06% annual (outperforms)
+2. **Alpha vs buy-and-hold**: -8.26% annual (underperforms)
+3. **Drawdown improvement**: regime rotation MaxDD -29.13% vs V3 -37.48% vs B&H -76.63%
 4. **Capital efficiency**: capital is active in 68% of days (vs V3's ~56%)
 
 ### Architecture Assessment
@@ -189,30 +189,30 @@ Testing whether leverage can push returns above 100% while maintaining MaxDD < 4
 
 | Metric | 1x (Base) | 1.5x | 2x |
 |--------|----------|------|-----|
-| Annual Return (Full) | 26.26% | 36.12% | 42.48% |
-| Max Drawdown (Full) | -30.21% | -55.66% | -70.06% |
-| Sharpe (Full) | 1.04 | 0.89 | 0.87 |
-| Calmar (Full) | 0.87 | 0.65 | 0.61 |
-| Sortino (Full) | 1.27 | 1.08 | 1.06 |
-| Final Equity | $723,320 | $1,095,344 | $1,408,839 |
+| Annual Return (Full) | 29.87% | 44.02% | 52.74% |
+| Max Drawdown (Full) | -29.13% | -52.15% | -65.62% |
+| Sharpe (Full) | 1.15 | 1.00 | 0.98 |
+| Calmar (Full) | 1.03 | 0.84 | 0.80 |
+| Sortino (Full) | 1.42 | 1.23 | 1.20 |
+| Final Equity | $845,280 | $1,494,559 | $2,067,401 |
 
 ### OOS Leveraged Performance
 
 | Metric | 1x (Base) | 1.5x | 2x |
 |--------|----------|------|-----|
-| Annual Return | 0.88% | -5.03% | -9.09% |
-| Max Drawdown | -17.20% | -30.87% | -39.79% |
-| Sharpe | 0.13 | -0.05 | -0.08 |
-| Final Equity | $723,320 | $1,095,344 | $1,408,839 |
+| Annual Return | 0.99% | -5.11% | -9.55% |
+| Max Drawdown | -17.19% | -31.01% | -40.12% |
+| Sharpe | 0.14 | -0.06 | -0.09 |
+| Final Equity | $845,280 | $1,494,559 | $2,067,401 |
 
 ### Can Leverage Reach 100%+ Annual?
 
-- **1x Full**: Ann=26.26%, MaxDD=-30.21% -> Target NOT met
-- **1x OOS**: Ann=0.88%, MaxDD=-17.20% -> Target NOT met
-- **1.5x Full**: Ann=36.12%, MaxDD=-55.66% -> Target NOT met
-- **1.5x OOS**: Ann=-5.03%, MaxDD=-30.87% -> Target NOT met
-- **2x Full**: Ann=42.48%, MaxDD=-70.06% -> Target NOT met
-- **2x OOS**: Ann=-9.09%, MaxDD=-39.79% -> Target NOT met
+- **1x Full**: Ann=29.87%, MaxDD=-29.13% -> Target NOT met
+- **1x OOS**: Ann=0.99%, MaxDD=-17.19% -> Target NOT met
+- **1.5x Full**: Ann=44.02%, MaxDD=-52.15% -> Target NOT met
+- **1.5x OOS**: Ann=-5.11%, MaxDD=-31.01% -> Target NOT met
+- **2x Full**: Ann=52.74%, MaxDD=-65.62% -> Target NOT met
+- **2x OOS**: Ann=-9.55%, MaxDD=-40.12% -> Target NOT met
 
 ## Definitive Analysis: Why 100%+ Annual / MaxDD < 40% Is Not Achievable
 
@@ -234,25 +234,25 @@ the WRONG position (long into a falling market), generating the bulk of drawdown
 
 | Source | Contribution | Reliability |
 |--------|-------------|-------------|
-| QUIET (12% of time) | -11.20% ann, Sharpe -1.46 | NEGATIVE |
-| UPTREND (39% of time) | 85.24% ann, Sharpe 2.25 | HIGH |
-| RANGE (18% of time) | 10.00% ann, Sharpe 0.74 | MODERATE |
-| DOWNTREND (30% of time) | -26.83% ann, Sharpe -2.12 | NEGATIVE |
+| QUIET (12% of time) | -11.87% ann, Sharpe -1.45 | NEGATIVE |
+| UPTREND (39% of time) | 92.67% ann, Sharpe 2.45 | HIGH |
+| RANGE (18% of time) | 11.69% ann, Sharpe 0.86 | MODERATE |
+| DOWNTREND (30% of time) | -26.81% ann, Sharpe -2.11 | NEGATIVE |
 
-The UPTREND strategy alone generates 184.36% 
-cumulative return but is offset by -44.96% 
-cumulative loss during DOWNTREND transitions. The net is +261.66% over 
-5.5 years = 26.26% annualized.
+The UPTREND strategy alone generates 200.43% 
+cumulative return but is offset by -44.92% 
+cumulative loss during DOWNTREND transitions. The net is +322.64% over 
+5.5 years = 29.87% annualized.
 
 ### Why Leverage Cannot Fix This
 
 Leverage amplifies both returns AND drawdowns proportionally. At 2x:
-- UPTREND return doubles: ~170.47% annualized
+- UPTREND return doubles: ~185.34% annualized
 - But DOWNTREND transition losses also double
-- MaxDD goes from -30.21% to -70.06%, 
+- MaxDD goes from -29.13% to -65.62%, 
 blowing through the 40% limit
 
-The Sharpe-optimal leverage (Kelly fraction) for Sharpe 1.04 with daily returns is approximately:
+The Sharpe-optimal leverage (Kelly fraction) for Sharpe 1.15 with daily returns is approximately:
 - f* = mu / sigma^2 ~ 1.5x
 - Practical Kelly fraction (half-Kelly) ~ 0.75x
 - At 0.75x Kelly, the portfolio is already near-optimally sized at 1x. There is no free leverage to exploit.
@@ -285,9 +285,9 @@ comes from reducing losses in non-trend regimes. Realistic max leverage for 40% 
 ### Bottom Line
 
 The regime-rotation architecture is sound and meaningfully improves on V3 standalone
-(+3.60% annual return, 
-7.94% MaxDD reduction, 
-+0.17 Sharpe).
+(+2.06% annual return, 
+8.36% MaxDD reduction, 
++0.14 Sharpe).
 It correctly identifies that different market conditions require different strategies.
 However, **100%+ annual returns with < 40% MaxDD is not achievable** with daily regime
 detection on a single asset. The binding constraint is regime transition lag, which creates

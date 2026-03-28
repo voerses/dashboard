@@ -351,6 +351,37 @@ class MeanTargetHandler:
         return _NO_EXIT
 
 
+class SMATrailExitHandler:
+    """Exit when price crosses below (longs) or above (shorts) precomputed SMA level.
+
+    The strategy precomputes SMA values (e.g., SMA(15) of close) and passes them
+    via StrategyResult.sma_trail_vals.  This handler checks each bar after the
+    no_stop_bars protection window.
+    """
+
+    def __init__(self, sig: TokenSignals):
+        self._sig = sig
+
+    def update_state(self, pos: Position, bar: BarContext) -> None:
+        pass  # no state mutation
+
+    def check_exit(self, pos: Position, bar: BarContext) -> ExitCheck:
+        if self._sig.sma_trail_vals is None:
+            return _NO_EXIT
+        if bar.bars_held < pos.no_stop_bars:
+            return _NO_EXIT
+        if bar.local_bar >= len(self._sig.sma_trail_vals):
+            return _NO_EXIT
+        sma_val = float(self._sig.sma_trail_vals[bar.local_bar])
+        if np.isnan(sma_val) or sma_val <= 0.0:
+            return _NO_EXIT
+        if pos.direction == 1 and bar.close < sma_val:
+            return ExitCheck(should_exit=True, reason="sma_trail")
+        elif pos.direction == -1 and bar.close > sma_val:
+            return ExitCheck(should_exit=True, reason="sma_trail")
+        return _NO_EXIT
+
+
 class MaxHoldHandler:
     """Max hold exit, regime-conditional (shorter hold in DOWNTREND)."""
 
@@ -438,6 +469,9 @@ def build_exit_chain(
 
     if pos.convex_exit and sig.mean_target_vals is not None:
         handlers.append(MeanTargetHandler(sig))
+
+    if sig.sma_trail_vals is not None:
+        handlers.append(SMATrailExitHandler(sig))
 
     handlers.append(MaxHoldHandler(sig))
 

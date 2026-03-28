@@ -290,17 +290,14 @@ def merge_ohlcv(token, verbose=False, market='perp'):
                       f'{df.index[0].strftime("%Y-%m-%d")} → '
                       f'{df.index[-1].strftime("%Y-%m-%d")}')
     else:
-        # Perp: multi-exchange merge
-        for name, reader in [('binance', read_binance_ohlcv),
-                              ('kraken', read_kraken_ohlcv),
-                              ('hyperliquid', read_hyperliquid_ohlcv)]:
-            df = reader(token)
-            if df is not None and len(df) > 0:
-                sources[name] = df
-                if verbose:
-                    print(f'    [{name}] {len(df)} bars: '
-                          f'{df.index[0].strftime("%Y-%m-%d")} → '
-                          f'{df.index[-1].strftime("%Y-%m-%d")}')
+        # Perp: Binance only (strategies should define their exchange)
+        df = read_binance_ohlcv(token)
+        if df is not None and len(df) > 0:
+            sources['binance'] = df
+            if verbose:
+                print(f'    [binance] {len(df)} bars: '
+                      f'{df.index[0].strftime("%Y-%m-%d")} → '
+                      f'{df.index[-1].strftime("%Y-%m-%d")}')
 
     if not sources:
         return None, {}
@@ -379,39 +376,18 @@ def _normalize_funding_to_hourly(df):
 
 
 def merge_funding(token):
-    """Load funding rates from all exchanges, normalize to per-hour, then merge.
+    """Load Binance funding rates, normalize to per-hour.
 
-    Each exchange's raw rates are divided by their settlement interval BEFORE
-    merging, so Binance 8h rates and Hyperliquid 1h rates are in the same unit.
+    Only Binance is used for backtesting — strategies should define their
+    exchange.  Hyperliquid/Kraken readers remain available but are not mixed
+    into the backtest cache to avoid cross-exchange rate contamination.
     """
-    sources = {}
-    for name, reader in [('binance', read_binance_funding),
-                          ('kraken', read_kraken_funding),
-                          ('hyperliquid', read_hyperliquid_funding)]:
-        df = reader(token)
-        if df is not None and len(df) > 0:
-            # Normalize to per-hour rates before merging
-            df = _normalize_funding_to_hourly(df)
-            sources[name] = df
-
-    if not sources:
+    df = read_binance_funding(token)
+    if df is None or len(df) == 0:
         return None
 
-    # Use the source with the longest history as primary
-    primary_name = max(sources, key=lambda n: len(sources[n]))
-    primary = sources[primary_name].copy()
-    primary = primary[~primary.index.duplicated(keep='last')]
-
-    # Fill gaps from other sources
-    for name, df in sources.items():
-        if name == primary_name:
-            continue
-        df = df[~df.index.duplicated(keep='last')]
-        missing = df.index.difference(primary.index)
-        if len(missing) > 0:
-            primary = pd.concat([primary, df.loc[missing]]).sort_index()
-
-    return primary
+    df = _normalize_funding_to_hourly(df)
+    return df[~df.index.duplicated(keep='last')]
 
 
 # ============================================================

@@ -229,6 +229,7 @@ def _sr_to_token_signals(
 
     # Schedules and optional arrays
     mean_target = _copy_f32(sr.mean_target_vals, n_safe) if sr.mean_target_vals is not None else None
+    sma_trail = _copy_f32(sr.sma_trail_vals, n_safe) if getattr(sr, 'sma_trail_vals', None) is not None else None
     trail_sched = np.asarray(sr.trail_schedule, dtype=np.float32) if sr.trail_schedule is not None else None
     time_trail_sched = np.asarray(sr.time_trail_schedule, dtype=np.float32) if getattr(sr, 'time_trail_schedule', None) is not None else None
     max_trail = np.asarray(sr.max_trail_mult, dtype=np.float32)[:n_safe].copy() if sr.max_trail_mult is not None else None
@@ -301,6 +302,8 @@ def _sr_to_token_signals(
             sr_conviction = sr_conviction[s:]
         if mean_target is not None:
             mean_target = mean_target[s:]
+        if sma_trail is not None:
+            sma_trail = sma_trail[s:]
         if max_trail is not None:
             max_trail = max_trail[s:]
         if sec_entry is not None:
@@ -381,6 +384,7 @@ def _sr_to_token_signals(
         rsi=p_rsi,
         rsi_exit_level=sr_rsi_exit_level,
         mean_target_vals=mean_target,
+        sma_trail_vals=sma_trail,
         is_combined=is_combined,
         secondary_entry_mask=sec_entry,
         secondary_direction=sec_dir,

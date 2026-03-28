@@ -449,6 +449,12 @@ class StrategyResult:
     # 0 = disabled (use standard trail from pos.highest). Typical values: 10-24 bars.
     chandelier_lookback: int = 0
 
+    # SMA trailing stop: per-bar precomputed SMA values.
+    # Exit when close crosses below SMA (longs) or above SMA (shorts).
+    # Strategy computes SMA in its function and passes the array here.
+    # None = disabled (use standard ATR-based trail).
+    sma_trail_vals: Optional[np.ndarray] = None
+
     # Regime-conditional target: tighter TP in DOWNTREND regime.
     bear_target_mult: float = 0.0
     # Regime-conditional max hold: shorter hold in DOWNTREND (0 = use max_hold)
