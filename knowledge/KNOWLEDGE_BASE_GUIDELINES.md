@@ -46,6 +46,34 @@ context engineering best practices.
 - One-off debug sessions (use git commit messages instead)
 - Information available via `--help` or docstrings
 
+## Knowledge Update Rules
+
+### When to Update
+Both `/strategy` and `/dev` have mandatory end-of-session knowledge capture steps.
+See each skill's SKILL.md for the specific file-by-file checklist.
+
+### Promote-on-Validation Lifecycle
+1. **Session findings** → `findings/strategy-findings.jsonl` (raw, append-only)
+2. **Validated findings** → specific knowledge file section (confirmed by multiple analyses or review)
+3. **Domain knowledge** → generalized insight in a knowledge file (extracted from multiple validated findings)
+
+Never promote raw session findings directly to knowledge files. Require confirmation first.
+
+### Staleness Markers
+When updating any knowledge file, add or update in the file header:
+```
+> Last updated: YYYY-MM-DD
+```
+Files not updated in 90 days should be reviewed for accuracy during Gate 0 Step 0.5 (findings curation).
+
+### Append-Only for State Files
+`RESEARCH_STATUS.md`, `PROJECT_STATUS.md` — add new entries, don't rewrite history.
+When these files exceed 100K, archive older sections to `memory/archive/`.
+
+### Size Discipline
+If a knowledge file exceeds its target size (see table above), split or archive older
+content rather than letting it grow unbounded. Check with `wc -l knowledge/*.md`.
+
 ## Maintenance
 
 - After consolidation: delete or archive superseded files

@@ -15,37 +15,100 @@ Gate-based workflow for building and validating trading strategies.
 
 ## Instructions
 
-1. Write `strategy` to the process mode file:
+### Step 1: Set mode files
 
 ```bash
 echo "strategy" > "$CLAUDE_PROJECT_DIR/.process-mode"
-```
-
-2. Initialize the gate state file for tracking:
-
-```bash
 echo "gate0" > "$CLAUDE_PROJECT_DIR/.strategy-gate"
 ```
 
-3. Confirm to the user:
+### Step 2: Load state
 
-> **Switched to strategy mode.** Strategy gate enforcement active.
->
-> | Gate | Name | Time | Kill Rate | Key Kill Criterion |
-> |------|------|------|-----------|-------------------|
-> | 0 | Idea Screen | 5 min | ~50% | No mechanism / already failed |
-> | 1 | Signal Lab | 30 min | ~90% | IC < 0.02, t-stat < 3.4 (Harvey-Liu) |
-> | 2 | Knowledge + Dedup | 15 min | ~30% | >80% overlap with existing |
-> | 3/3P/3O/V4-3 | Prototype | 15-30 min | ~10% | >1ms/call, can't vectorize |
-> | 4 | Quick Validate (BTC) | 5 min | ~50% | BTC fails dual gate x3 |
-> | V4-4 | V4 OOS (Jan-Mar) | 10 min | ~50% | OOS negative, March < -5% |
-> | 5/5P/5O/V4-5 | Full Validate + Supremacy | 10 min | ~50% | Rate <20% / no mode passes |
-> | 5.75 | Adversarial Quant Review | 10 min | ~20% | Bias found / structural risk |
-> | 6 | Paper Trade | 1-4 wks | ~50% | Sharpe < 0.4x backtest |
-> | 6.5 | Knowledge Update | 10 min | 0% | Checklist ensures all knowledge files current |
-> | 7 | Production + Decay | ongoing | ~30%/yr | BOCPD + threshold decay |
->
-> **~99.8% of ideas never reach production. This is normal.**
+Read these files and extract key information for the briefing:
+
+```
+READ: memory/RESEARCH_COORDINATOR.md — your role identity, operating model, anti-patterns
+READ: memory/RESEARCH_STATUS.md — recent experiments, signal scoreboard, next actions
+READ: memory/PROJECT_STATUS.md — capability inventory, strategy tiers, open items
+READ: .claude/.strategy-mission — active mission (if file exists and status: active)
+```
+
+Skim `findings/strategy-findings.jsonl` (last 10 entries) for recent insights.
+
+### Step 3: Present startup briefing
+
+Output a briefing in this format (fill in from loaded state):
+
+```
+**Research Coordinator online.** I coordinate parallel signal research,
+decide kill/pass/double-down based on data, and iterate autonomously.
+I never ask "what next?" — I decide based on data and keep moving.
+
+## Current State
+- **Strategies:** [N Tier A, N Tier B, N in graveyard]
+- **Signals tested:** [N total — N GOLD, N PASS, N KILLED]
+- **Active mission:** [mission summary or "none"]
+- **Last session:** [1-2 line summary from RESEARCH_STATUS.md]
+- **Key finding:** [most recent actionable finding]
+
+## What's Next
+[2-3 bullet points of highest-priority research items from RESEARCH_STATUS.md]
+
+## Gate Pipeline (reference)
+| Gate | Name | Kill Rate |
+|------|------|-----------|
+| 0 | Idea Screen | ~50% |
+| 1 | Signal Lab | ~90% |
+| 2 | Knowledge + Dedup | ~30% |
+| 3/3P/3O/V4-3 | Prototype | ~10% |
+| 4/V4-4 | Quick Validate | ~50% |
+| 5/5P/5O/V4-5 | Full Validate | ~50% |
+| 5.75 | Adversarial Review | ~20% |
+| 6 | Paper Trade | ~50% |
+| 7 | Production + Decay | ~30%/yr |
+
+~99.8% of ideas never reach production. This is normal.
+
+Starting research now.
+```
+
+### Step 4: Begin autonomous research
+
+After presenting the briefing:
+- If RESEARCH_STATUS.md has prioritized next actions → begin executing them immediately
+  (launch background agents, start Gate 0 screening, etc.) without waiting for user input.
+- If an active mission exists → use mission goals and promising directions to choose research.
+- If no clear next action exists → present 2-3 candidate research directions and ask
+  which to pursue.
+
+**Do NOT wait for the user to propose an idea.** You are the coordinator — you decide
+what to research based on the state you loaded. The user can redirect you at any time.
+
+### Step 5: Session wrap-up (before session ends)
+
+**Trigger:** Before context window expires, when user says "stop"/"done"/"wrap up", or
+when shifting to a different mode. This is NON-NEGOTIABLE — losing state wastes time and money.
+
+**Update these files (only what changed this session):**
+
+| File | When to Update | What to Write |
+|------|---------------|---------------|
+| `memory/RESEARCH_STATUS.md` | **Always** | New signal verdicts (GOLD/PASS/KILLED), updated scoreboard, next actions list |
+| `findings/strategy-findings.jsonl` | **Always** | Append one finding per gate outcome or significant discovery |
+| `memory/PROJECT_STATUS.md` | If tiers changed or new capabilities added | Strategy tier moves, new tools, deployment changes |
+| `memory/INDEX.md` | If new files created or files significantly changed | Add/update file entries with current sizes and summaries |
+| `knowledge/QUANT_METHODOLOGY.md` | If new statistical insights discovered | New thresholds, methodology corrections, crypto-specific learnings |
+| `knowledge/STRATEGY_QUICK_REFERENCE.md` | If dedup tables or capability lists changed | New strategies in tables, updated baselines |
+
+**Rules:**
+- **Append, don't rewrite.** Add new entries to state files; don't restructure existing content.
+- **Promote on validation.** Raw findings → `findings/strategy-findings.jsonl`. Only promote to
+  knowledge files after confirmation (multiple analyses or explicit review).
+- **Size discipline.** If a file exceeds its target size (see KNOWLEDGE_BASE_GUIDELINES.md),
+  archive older sections rather than letting it grow unbounded.
+- **Staleness marker.** When updating a knowledge file, add/update `Last updated: YYYY-MM-DD`
+  in the file header.
+- **No bloat.** Don't add raw agent outputs, intermediate calculations, or tool dumps.
 
 ## Knowledge Loading Strategy
 
@@ -194,13 +257,15 @@ or to resurrect candidates.
 ### Step 0: Load Project State
 
 ```
-READ: .claude/.strategy-mission — FIRST. Check if file exists and has `status: active`.
+READ: memory/INDEX.md — FIRST. Lightweight index of all knowledge/memory files. Use to decide what else to load.
+READ: .claude/.strategy-mission — Check if file exists and has `status: active`.
       If active: load search goals, baselines, kill criteria, previous attempts, promising directions.
       If file doesn't exist or status is closed: proceed without mission context.
 READ: memory/PROJECT_STATUS.md — open tasks, capability inventory, strategy tiers, key findings
 READ: knowledge/STRATEGY_QUICK_REFERENCE.md — "Available Capabilities" + "Gate 0" sections
 READ: memory/RESEARCH_COORDINATOR.md — research coordination role, auto-research tools, anti-patterns
 READ: memory/RESEARCH_STATUS.md — signal scoreboard (skim Signal Scoreboard table for GOLD/PASS/KILLED verdicts)
+READ: knowledge/QUANT_METHODOLOGY.md — statistical foundations, thresholds, decision trees (on first strategy session)
 ```
 
 This tells you what's been built, what's broken, what you're searching for, what tools you have,

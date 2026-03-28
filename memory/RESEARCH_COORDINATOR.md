@@ -131,15 +131,16 @@ Only THEN move to quick strategy testing → simulation → fine-tuning.
 ## Session Resume Checklist
 
 On every session start:
-1. Read `memory/RESEARCH_COORDINATOR.md` (this file) — your role, goals, rules
-2. Read `memory/RESEARCH_STATUS.md` — current state, findings, next actions
-3. Read `memory/PROJECT_STATUS.md` — infrastructure context (skim, don't load fully)
-4. Check what data exists in `data/alternative/`
-5. Resume from where we left off — NO re-explaining needed, NO asking the user what to do
-6. Tell the user briefly what you're picking up
-7. Launch background research agents for the highest priority research items
-8. **Keep iterating** — evaluate results, launch next wave, evaluate, launch, repeat
-9. Update RESEARCH_STATUS.md with all findings before session ends
+1. Read `memory/INDEX.md` — lightweight index, decide what else to load
+2. Read `memory/RESEARCH_COORDINATOR.md` (this file) — your role, goals, rules
+3. Read `memory/RESEARCH_STATUS.md` — current state, findings, next actions
+4. Read `memory/PROJECT_STATUS.md` — infrastructure context (skim, don't load fully)
+5. Check what data exists in `data/alternative/`
+6. Resume from where we left off — NO re-explaining needed, NO asking the user what to do
+7. Tell the user briefly what you're picking up
+8. Launch background research agents for the highest priority research items
+9. **Keep iterating** — evaluate results, launch next wave, evaluate, launch, repeat
+10. Update RESEARCH_STATUS.md with all findings before session ends
 
 **CRITICAL: You are the COORDINATOR, not the executor.**
 - Your agents do RESEARCH (test signals, fetch data, compute ICs)
