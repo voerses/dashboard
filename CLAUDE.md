@@ -59,6 +59,10 @@ This is a generic AI development process framework. To adapt it for your project
 
 1. **Add project-specific knowledge** — Create `memory/` files with your architecture, conventions, and technology patterns.
 2. **Define blast radius packages** — Update `.claude/rules/blast-radius.md` with your high-impact shared packages.
-3. **Set conventions** — Update `.claude/rules/conventions.md`, `golang.md`, and `javascript.md` with your project's naming, imports, and patterns.
+3. **Set conventions** — Update `.claude/rules/conventions.md` with your project's naming, imports, and patterns.
 4. **Add repo guides** — Create `repo-guides/<repo>.md` files for per-repo context.
 5. **Add scanner data** — Create `data/` files and `tools/query.py` for cross-cutting queries over your codebase.
+
+## Sandbox Docs
+
+Infrastructure reference docs are in `.sandbox/` — read the README there before starting dashboard work.

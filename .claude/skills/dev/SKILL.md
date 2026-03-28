@@ -14,15 +14,22 @@ When invoked, you receive the user's feature request as `$ARGUMENTS`. Your first
 
 ## Step 0: Unfinished Work Check
 
-Before starting any new feature, check for existing in-progress work:
+Before starting any new feature, check for existing in-progress work. **Scan ALL repos in the workspace** (not just the project directory) for `.specs/active/` and `.specs/done/` directories (AIPIP-0017).
 
-1. **Check `.specs/active/` for active specs.** If any feature directory exists (not just `.gitkeep`):
+1. **Check `.specs/active/` across all workspace repos for active specs.** For each repo directory under the workspace root, check if `.specs/active/` contains any feature directories (not just `.gitkeep`):
    - Read the `PHASE` file to determine current phase
-   - If phase is `implement` or earlier: "You have unfinished work on `{feature}` (phase: `{phase}`). Resume this feature, or archive it first?"
-   - If phase is `complete`: "Feature `{feature}` has a draft PR awaiting review. Check the PR for feedback before starting new work."
+   - If phase is `implement` or earlier: "You have unfinished work on `{feature}` in `{repo}` (phase: `{phase}`). Resume this feature, or archive it first?"
+   - If phase is `complete`: "Feature `{feature}` in `{repo}` has a draft PR awaiting review. Check the PR for feedback before starting new work."
    - Do NOT proceed to a new feature until the user explicitly says to archive or continue.
 
-2. **Check for open draft PRs with pending feedback.** Run `gh pr list --draft --author @me` in the target repo. If any draft PRs exist for previous features:
+2. **Check `.specs/done/` across all workspace repos for orphaned specs (AIPIP-0016).** For each spec directory in any repo's `done/`:
+   - Read the `PHASE` file. If PHASE is NOT `done`, the spec was moved prematurely.
+   - Flag it: "Feature `{slug}` in `{repo}` is in done/ but PHASE is `{phase}` (not `done`). This looks like unfinished work — it may have been moved here by a session that lost context. Resume it, or mark it as truly done?"
+   - If the user wants to resume: move the spec back to `.specs/active/{slug}/` and continue from the recorded phase.
+   - If the user confirms it's done: update PHASE to `done`.
+   - Do NOT proceed to a new feature until orphaned specs are resolved.
+
+3. **Check for open draft PRs with pending feedback.** Run `gh pr list --draft --author @me` in the target repo. If any draft PRs exist for previous features:
    - "Draft PR #{number} (`{title}`) has unresolved review comments. Address the feedback first, or proceed with a new feature?"
 
 3. **Check `memory/PROJECT_STATUS.md` for known open items.** If the file exists, read the "Open / Outstanding" and "Blocked" sections. Present any open items to the user:
@@ -425,12 +432,40 @@ When the human reports feedback (either in chat or by saying "check the PR comme
 - Use **fixup commits** per round for traceability
 - **Squash-and-merge** at the end for clean history
 
-8. **After approval + merge:** Move spec from `.specs/active/{feature-slug}/` to `.specs/done/{feature-slug}/`. Update PHASE to `done`. Reset process mode:
+8. **After approval + merge:** Move spec to done. This requires explicit user confirmation:
+   - Ask the user: "Feature `{slug}` has been approved and merged. Confirm I should mark it as done?"
+   - Only after user confirms: update PHASE to `done`, THEN move spec from `.specs/active/{slug}/` to `.specs/done/{slug}/`.
+   - **NEVER set PHASE to `done` or move specs to `done/` without explicit user sign-off.** This prevents sessions from auto-promoting specs during compaction or cleanup.
+   - Reset process mode:
    ```bash
    echo "freeflow" > "$CLAUDE_PROJECT_DIR/.process-mode"
    ```
 
-## Step 7: Retro Check
+## Step 7: Knowledge Capture (after merge)
+
+After the PR is approved and merged, capture cross-cutting learnings before resetting.
+
+**Update these files (only what changed during this feature):**
+
+| File | When to Update | What to Write |
+|------|---------------|---------------|
+| `memory/PROJECT_STATUS.md` | **Always** | New capabilities, architecture changes, deployment state |
+| `memory/INDEX.md` | If new knowledge files created or existing files significantly changed | Add/update entries |
+| `aidev/.claude/rules/blast-radius.md` | If new shared modules created or import counts changed | New entries or count updates |
+| `aidev/.claude/rules/conventions.md` | If new patterns established during implementation | New conventions discovered |
+| `knowledge/ARCHITECTURE.md` | If directory structure or system design changed | Updated layout, new components |
+| `knowledge/QUANT_METHODOLOGY.md` | If backtest/validation methodology improved | New thresholds, methodology corrections |
+
+**Rules:**
+- **Only capture cross-cutting learnings** — things that affect future development. Don't document the feature itself (that's in the PR).
+- **Append, don't rewrite.** Add new entries; don't restructure existing content.
+- **Promote on validation.** Only add to knowledge files what was confirmed during implementation, not hypotheses.
+- **Staleness marker.** When updating a knowledge file, add/update `Last updated: YYYY-MM-DD` in the file header.
+- **No bloat.** Don't add implementation details (that's in the code), raw outputs, or one-off debug findings.
+
+**Skip this step if:** The feature was a trivial fix (<3 files changed) with no architectural impact.
+
+## Step 8: Retro Check
 
 Count completed features in `.specs/done/`. If the count is a multiple of 5:
 
