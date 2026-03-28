@@ -70,6 +70,32 @@ from engine import (StrategyContext, StrategyResult, MarketType,
                     rolling_median, rolling_zscore, rolling_skew, rolling_corr)
 
 
+# ── Sizing overrides (read by portfolio_backtest.py) ─────────────
+# Uncomment and fill in if your strategy needs non-default Kelly params.
+# Run `python tools/verify_sizing.py sNN` after setting these.
+# SIZING_OVERRIDES = {
+#     "kelly_mult_override": 0.50,
+#     "target_vol": 0.02,
+#     "cap_pct_override": 0.15,
+# }
+
+# ── Research target sizes (verification target, not used by engine) ──
+# What your research/notebook intended. verify_sizing.py checks these.
+# RESEARCH_TARGET_SIZES = {
+#     "per_position_pct": 0.20,        # target fraction of equity per position
+#     "max_concurrent": 5,              # max simultaneous positions
+#     "max_gross_exposure": 1.0,        # max total exposure as fraction of equity
+#     "hold_duration_hours": 168,       # avg or expected hold time
+# }
+
+# ── Engine feature overrides ────────────────────────────────────────
+# DD scaling disabled by default. Enable with strategy-specific thresholds
+# only after baseline validation confirms the strategy's natural drawdown profile.
+# Example (aggressive):
+#   DD_SCALING = [(0.10, 0.75), (0.20, 0.50), (0.30, 0.25), (0.40, 0.0)]
+DD_SCALING = []
+
+
 def strategy(ctx: StrategyContext) -> StrategyResult:
     """
     Your strategy logic here.

@@ -45,6 +45,15 @@ SIZING_OVERRIDES = {
     "cap_pct_override": 0.27,
 }
 
+# ── Research target sizes (verification target, not used by engine) ──
+# What the standalone research (R162/R168) actually intended.
+RESEARCH_TARGET_SIZES = {
+    "per_position_pct": 0.267,       # 80%/3 longs = 26.7% each
+    "max_concurrent": 6,              # 3 long + 3 short at rebalance
+    "max_gross_exposure": 1.0,        # 100% of equity
+    "hold_duration_hours": 168,       # 7-day rebalance cycle
+}
+
 # ── Engine feature overrides (read by portfolio_backtest.py) ──────
 # DD scaling disabled — too aggressive for weekly-rebalance cross-sectional
 # strategy. Early losers trigger scaling that suppresses all subsequent entries.

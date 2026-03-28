@@ -47,6 +47,15 @@ SIZING_OVERRIDES = {
     "cap_pct_override": 0.15,      # Cap per position at 15%
 }
 
+# ── Research target sizes (verification target, not used by engine) ──
+# What the standalone research (R160/R167/R168) actually intended.
+RESEARCH_TARGET_SIZES = {
+    "per_position_pct": 0.20,        # Fixed 20% per position
+    "max_concurrent": 5,              # Max 5 concurrent positions
+    "max_gross_exposure": 1.0,        # 100% of equity
+    "hold_duration_hours": 38,        # ~38h avg hold (SMA trail exit)
+}
+
 # ── Engine feature overrides (read by portfolio_backtest.py) ──────
 MAX_CONCURRENT_PER_TOKEN = 3       # Allow multiple breakout re-entries per token
 DD_SCALING = [

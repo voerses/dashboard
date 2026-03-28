@@ -339,6 +339,13 @@ echo "gate3o" > "$CLAUDE_PROJECT_DIR/.strategy-gate"
    "
    ```
 5. Kill if: >1ms/call, for-loops, missing regime/exit
+6. **Sizing verification (if SIZING_OVERRIDES declared):**
+   ```bash
+   python tools/verify_sizing.py sNN --save .specs/active/sNN/sizing_verification.json
+   ```
+   - FAIL = block (fix params before proceeding)
+   - WARN = review (funding drag or target deviation >30%)
+   - Declare `RESEARCH_TARGET_SIZES` in strategy file (see TEMPLATE.py)
 
 **Deep dive if needed:** `knowledge/SIGNAL_DEVELOPMENT.md`,
 `knowledge/PERFORMANCE_PATTERNS.md`
@@ -371,6 +378,14 @@ echo "gate4" > "$CLAUDE_PROJECT_DIR/.strategy-gate"
 | Universe coverage | >=20 tokens eligible | <20 = insufficient breadth |
 | Turnover | <50% per rebalance | >50% = fee drag kills edge |
 | Vectorized? | Yes | For-loops over bars = kill |
+
+5. **Sizing verification (if SIZING_OVERRIDES declared):**
+   ```bash
+   python tools/verify_sizing.py sNN --save .specs/active/sNN/sizing_verification.json
+   ```
+   - FAIL = block (fix params before proceeding)
+   - WARN = review (funding drag or target deviation >30%)
+   - Declare `RESEARCH_TARGET_SIZES` in strategy file (see TEMPLATE.py)
 
 ```bash
 echo "gate5p" > "$CLAUDE_PROJECT_DIR/.strategy-gate"

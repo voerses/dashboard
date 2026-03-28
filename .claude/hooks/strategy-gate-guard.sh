@@ -90,8 +90,24 @@ case "$GATE" in
     echo "See: knowledge/process/STRATEGY_PIPELINE_GATES.md for gate details." >&2
     exit 2
     ;;
-  gate3|gate4|gate5|gate6|gate7)
-    # Allowed — proceed
+  gate3|gate3p|gate3o)
+    # Gate 3 (Prototype) — strategy files allowed
+    exit 0
+    ;;
+  gate4|gate5|gate5p|gate5o|gate6|gate7)
+    # Gate 4+ — strategy files allowed, warn if no sizing verification
+    # Extract strategy ID from filename (e.g., s400 from strategies/s400_foo.py)
+    STRAT_ID=$(echo "$FILE_PATH" | grep -oP 's\d+' | head -1)
+    if [ -n "$STRAT_ID" ]; then
+      # Check if strategy has SIZING_OVERRIDES (grep the file being written)
+      STRAT_FILE=$(find "$(dirname "$PROJECT_DIR")/strategies" -name "${STRAT_ID}_*.py" 2>/dev/null | head -1)
+      if [ -n "$STRAT_FILE" ] && grep -q "SIZING_OVERRIDES" "$STRAT_FILE" 2>/dev/null; then
+        VERIFY_FILE="$PROJECT_DIR/../.specs/active/${STRAT_ID}/sizing_verification.json"
+        if [ ! -f "$VERIFY_FILE" ]; then
+          echo "{\"additionalContext\": \"WARNING: Strategy $STRAT_ID has SIZING_OVERRIDES but no sizing_verification.json. Run: python tools/verify_sizing.py $STRAT_ID --save .specs/active/$STRAT_ID/sizing_verification.json\"}"
+        fi
+      fi
+    fi
     exit 0
     ;;
   *)

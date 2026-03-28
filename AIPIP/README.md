@@ -92,3 +92,15 @@ Numbers are assigned sequentially and never reused.
 | AIPIP-0015 | Strategy Process v3 — Portfolio-Aware Gates + Continuous Feedback Loop | accepted |
 | AIPIP-0016 | V4 Portfolio Gates + Signal Lab Upgrades (Research-Backed) | accepted |
 | AIPIP-0017 | Deep Training Window + Strategy Mission Briefs | accepted |
+| AIPIP-0019 | Mission Loading at Gate 0 | accepted |
+| AIPIP-0020 | Autonomous Mission Gate Traversal | accepted |
+| AIPIP-0021 | Strategy Process v5 Improvements | accepted |
+| AIPIP-0022 | Gate 6 Deployment Instructions | accepted |
+| AIPIP-0023 | Mandatory Knowledge Update After Deployment | accepted |
+| AIPIP-0024 | Single Deployment Path | accepted |
+| AIPIP-0025 | Session Git Identity | accepted |
+| AIPIP-0026 | Research Coordinator in Strategy Mode | accepted |
+| AIPIP-0027 | Strategy Startup as Research Coordinator | accepted |
+| AIPIP-0028 | Cleanup Stale Aidev Templates | accepted |
+| AIPIP-0029 | Mandatory End-of-Session Knowledge Capture | accepted |
+| AIPIP-0030 | Mandatory Sizing Verification Gate for Research-to-Engine Strategy Ports | accepted |
