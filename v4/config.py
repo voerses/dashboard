@@ -48,7 +48,7 @@ SAFETY_RAILS: dict[str, tuple[float, float]] = {
     "spot_max_equity_pct": (0.10, 1.0),
     "kelly_mult_override": (0.05, 0.50),
     "kelly_mult_scale":    (0.5, 2.0),
-    "cap_pct_override":    (0.01, 0.15),
+    "cap_pct_override":    (0.01, 0.30),
     "cap_pct_scale":       (0.5, 2.0),
     "min_adv_usd":         (100_000, 10_000_000),
     "adv_lookback_days":   (7, 90),

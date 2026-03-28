@@ -35,21 +35,21 @@ LEVERAGE = 2.5              # Matching R172 standalone
 
 # ── Sizing overrides (read by portfolio_backtest.py) ─────────────
 # Aggressive Kelly params so size_multiplier-based weights are not diluted.
-# edge=1.0 in StrategyResult + kelly_mult=0.50 + target_vol=0.05 makes
+# edge=1.0 in StrategyResult + kelly_mult=0.50 + target_vol=0.02 makes
 # the Kelly formula produce positions close to (size_multiplier × equity).
+# target_vol=0.02 keeps worst-case vol_adj = 0.02/0.005 = 4x (was 10x at 0.05).
+# cap_pct=0.27 matches research allocation: 80%/3 longs = 26.7% per position.
 SIZING_OVERRIDES = {
     "kelly_mult_override": 0.50,
-    "target_vol": 0.05,
-    "cap_pct_override": 0.15,
+    "target_vol": 0.02,
+    "cap_pct_override": 0.27,
 }
 
 # ── Engine feature overrides (read by portfolio_backtest.py) ──────
-DD_SCALING = [
-    (0.05, 0.75),   # 5% DD → 75% sizing
-    (0.10, 0.50),   # 10% DD → 50% sizing
-    (0.15, 0.25),   # 15% DD → 25% sizing
-    (0.20, 0.0),    # 20% DD → stop trading
-]
+# DD scaling disabled — too aggressive for weekly-rebalance cross-sectional
+# strategy. Early losers trigger scaling that suppresses all subsequent entries.
+# Re-enable with tuned thresholds after baseline validation.
+DD_SCALING = []
 
 
 def _ema(arr, span):
@@ -250,7 +250,7 @@ def strategy(contexts):
             min_hold=1,
             max_hold=REBALANCE_BARS,
             # Sizing: edge=1.0 so kelly_frac = 0.50 × 1.0 × sm ≈ sm/2.
-            # Combined with target_vol=0.05 and cap_multiplier=5.0,
+            # Combined with target_vol=0.02 and cap_pct=0.27,
             # the Kelly formula produces positions close to sm × equity.
             edge=1.0,
             exit_regimes=set(),

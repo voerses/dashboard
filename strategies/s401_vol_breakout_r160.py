@@ -39,10 +39,12 @@ LEVERAGE = 2.5              # Matching R172 standalone
 # ── Sizing overrides (read by portfolio_backtest.py) ─────────────
 # Aggressive Kelly params so max_trade_pct becomes the binding cap.
 # This ensures each position gets ~20% of equity as intended.
+# target_vol=0.02 keeps worst-case vol_adj = 0.02/0.005 = 4x (was 10x at 0.05).
+# At 0.05, calm markets hit vol_floor → vol_adj=10x → liquidation cascades.
 SIZING_OVERRIDES = {
     "kelly_mult_override": 0.50,   # Max allowed, fixed (skip ADV curve)
-    "target_vol": 0.05,            # Higher target_vol = larger positions
-    "cap_pct_override": 0.15,      # Lift capital cap so it doesn't bind
+    "target_vol": 0.02,            # Worst-case vol_adj = 4x (safe)
+    "cap_pct_override": 0.15,      # Cap per position at 15%
 }
 
 # ── Engine feature overrides (read by portfolio_backtest.py) ──────
