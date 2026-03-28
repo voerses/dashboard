@@ -76,6 +76,8 @@ Set per-portfolio run. NOT strategy-overridable.
 | `adv_sizing_floor` | 0.20 | `sizing.py:81` | Minimum ADV sizing multiplier |
 | `exit_resolution` | 0 | `signals.py:149` | Sub-hourly exit granularity (0=hourly) |
 | `sizing_overrides` | {} | `config.py:70-109` | Dict of SizingDefaults overrides (validated) |
+| `max_concurrent_per_token` | 1 | `simulator.py:565` | Max concurrent positions per token+strategy (1=no re-entry) |
+| `dd_scaling` | [] | `simulator.py:529-551` | Drawdown scaling: list of (threshold, fraction) tuples |
 
 ### Layer 4: Strategy Result (StrategyResult) -- returned per strategy call
 

@@ -14,6 +14,7 @@ See `knowledge/V4_EXPERIMENTATION_GUIDE.md` §4 for custom sizing model implemen
 ## How Position Size is Computed
 
 ```
+strategy_equity = sizing_eq × weight × dd_mult   [dd_mult from dd_scaling overlay]
 pos_usd = min(raw_kelly, capital_cap, adv_cap)
          → then min(max_trade_pct cap)
          → then min(adv_sizing reduction)      [if enabled]
@@ -21,6 +22,27 @@ pos_usd = min(raw_kelly, capital_cap, adv_cap)
          → then reject if < min_position_usd ($200)
          → then scale down for concentration/capital
 ```
+
+### Drawdown Scaling Overlay
+
+When `dd_scaling` is configured on StrategySpec, a multiplier is applied to `strategy_equity`
+before the sizing model runs. The multiplier is computed from the portfolio's drawdown
+relative to its MTM equity high-water mark:
+
+```python
+dd = 1.0 - (portfolio_equity + unrealized) / max_equity_watermark
+# Walk dd_scaling list: for each (threshold, fraction), if dd >= threshold, mult = fraction
+# Last matching threshold wins (list should be sorted ascending by threshold)
+```
+
+Example: `DD_SCALING = [(0.05, 0.75), (0.10, 0.50), (0.15, 0.25), (0.20, 0.0)]`
+- At 5% DD: size × 0.75 (reduce 25%)
+- At 10% DD: size × 0.50 (half size)
+- At 15% DD: size × 0.25 (quarter size)
+- At 20% DD: size × 0.0 (stop trading)
+
+The watermark uses MTM equity (realized + unrealized), updated at bar-close.
+Applies in both raw and normal modes. Empty list = disabled (default).
 
 ### Formula Detail
 

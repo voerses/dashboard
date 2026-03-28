@@ -62,6 +62,10 @@ def _load_strategy_module_attrs(strategy_id: str) -> dict:
                 result['sizing_overrides'] = mod.SIZING_OVERRIDES
             if hasattr(mod, 'REGIME_PARAMS'):
                 result['regime_params'] = mod.REGIME_PARAMS
+            if hasattr(mod, 'MAX_CONCURRENT_PER_TOKEN'):
+                result['max_concurrent_per_token'] = mod.MAX_CONCURRENT_PER_TOKEN
+            if hasattr(mod, 'DD_SCALING'):
+                result['dd_scaling'] = mod.DD_SCALING
             break
     return result
 
@@ -128,6 +132,8 @@ def run_backtest(
             strategy_type=stype,
             sizing_overrides=mod_attrs.get('sizing_overrides', {}),
             regime_params=mod_attrs.get('regime_params', None),
+            max_concurrent_per_token=mod_attrs.get('max_concurrent_per_token', 1),
+            dd_scaling=mod_attrs.get('dd_scaling', []),
         )
         # Use the per-strategy max_positions from config if only 1 strategy
         if len(strategy_ids) == 1:
@@ -213,6 +219,8 @@ def main():
             strategy_type=stype,
             sizing_overrides=mod_attrs.get('sizing_overrides', {}),
             regime_params=mod_attrs.get('regime_params', None),
+            max_concurrent_per_token=mod_attrs.get('max_concurrent_per_token', 1),
+            dd_scaling=mod_attrs.get('dd_scaling', []),
         )
         if stype == "portfolio":
             print(f"  {sid}: detected as portfolio (Class B) strategy")

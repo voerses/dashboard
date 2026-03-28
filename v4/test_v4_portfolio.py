@@ -716,6 +716,7 @@ class TestRejectionStats:
         assert "adv_cap" in d
         assert "concentration" in d
         assert "capital" in d
+        assert "dd_scaling" in d
         assert "total" in d
         assert d["total"] == 3
         assert d["portfolio_limit"] == 1
@@ -1588,3 +1589,307 @@ class TestPerBarVenueRouting:
         # Should be perp (is_perp_primary=True)
         assert trades[0].is_perp is True
         assert state.total_funding > 0.0
+
+
+# ===================================================================
+# Concurrent Positions Per Token (max_concurrent_per_token)
+# ===================================================================
+
+class TestMaxConcurrentPerToken:
+    """Tests for configurable concurrent positions per token+strategy."""
+
+    def test_max_concurrent_per_token_allows_multiple(self):
+        """With max_concurrent_per_token=3, two entries on same token should both open."""
+        n = 300
+        # Entry signals at bar 10 and bar 20
+        mask = np.zeros(n, dtype=bool)
+        mask[10] = True
+        mask[20] = True
+        sig = _make_token_signals(
+            n_bars=n, entry_mask_array=mask,
+            max_hold=200, close_price=100.0, edge=0.35,
+        )
+        config = _default_config()
+        spec = StrategySpec(
+            strategy_id="s30", weight=1.0, max_positions=15,
+            max_concurrent_per_token=3,
+        )
+        state = simulate_portfolio({"s30": {"BTC": sig}}, {"s30": spec}, config)
+        trades = state.position_manager.closed_trades
+        btc_trades = [t for t in trades if t.token == "BTC" and t.strategy_id == "s30"]
+        # Both entries should have opened (max_concurrent=3 allows up to 3)
+        assert len(btc_trades) == 2
+
+    def test_default_still_blocks_reentry(self):
+        """Default max_concurrent_per_token=1 still blocks re-entry (backward compat)."""
+        n = 300
+        mask = np.zeros(n, dtype=bool)
+        mask[10] = True
+        mask[20] = True
+        sig = _make_token_signals(
+            n_bars=n, entry_mask_array=mask,
+            max_hold=200, close_price=100.0, edge=0.35,
+        )
+        config = _default_config()
+        # Default max_concurrent_per_token=1
+        spec = StrategySpec(strategy_id="s30", weight=1.0, max_positions=15)
+        state = simulate_portfolio({"s30": {"BTC": sig}}, {"s30": spec}, config)
+        trades = state.position_manager.closed_trades
+        btc_trades = [t for t in trades if t.token == "BTC" and t.strategy_id == "s30"]
+        assert len(btc_trades) == 1
+
+
+# ===================================================================
+# Drawdown Scaling (dd_scaling)
+# ===================================================================
+
+class TestDDScaling:
+    """Tests for drawdown-based position sizing overlay."""
+
+    def test_dd_scaling_empty_is_noop(self):
+        """Empty dd_scaling list produces same results as no dd_scaling (backward compat)."""
+        n = 300
+        sig = _make_token_signals(
+            n_bars=n, entry_bar=10,
+            max_hold=200, close_price=100.0, edge=0.35,
+        )
+        config = _default_config()
+        spec_no_dd = StrategySpec(strategy_id="s30", weight=1.0, max_positions=15)
+        spec_empty = StrategySpec(strategy_id="s30", weight=1.0, max_positions=15, dd_scaling=[])
+        state1 = simulate_portfolio({"s30": {"BTC": sig}}, {"s30": spec_no_dd}, config)
+        state2 = simulate_portfolio({"s30": {"BTC": sig}}, {"s30": spec_empty}, config)
+        trades1 = state1.position_manager.closed_trades
+        trades2 = state2.position_manager.closed_trades
+        assert len(trades1) == len(trades2)
+
+    def test_dd_scaling_zero_blocks_entry(self):
+        """DD beyond threshold with fraction=0.0 blocks all subsequent entries."""
+        n = 500
+        # Price drops from 100 to 50 causing big loss on first trade
+        close = np.full(n, 100.0, dtype=np.float64)
+        close[50:] = 50.0  # sharp drop
+        high = close + 2.0
+        low = close - 2.0
+
+        mask = np.zeros(n, dtype=bool)
+        mask[10] = True    # first entry at price ~100
+        mask[200] = True   # second entry attempt after loss
+        sig = _make_token_signals(
+            n_bars=n, entry_mask_array=mask,
+            close_array=close, high_array=high, low_array=low,
+            max_hold=60, edge=0.35,
+        )
+        config = _default_config()
+        # Block all entries when DD >= 1%
+        spec = StrategySpec(
+            strategy_id="s30", weight=1.0, max_positions=15,
+            dd_scaling=[(0.01, 0.0)],
+        )
+        state = simulate_portfolio({"s30": {"BTC": sig}}, {"s30": spec}, config)
+        trades = state.position_manager.closed_trades
+        btc_trades = [t for t in trades if t.token == "BTC" and t.strategy_id == "s30"]
+        # First trade opens (no DD yet), second should be blocked by DD scaling
+        assert len(btc_trades) == 1
+
+    def test_dd_scaling_reduces_position_size(self):
+        """DD scaling reduces position size when in drawdown."""
+        n = 500
+        # Price drops from 100 to 60 causing loss, then recovers to 100
+        close = np.full(n, 100.0, dtype=np.float64)
+        close[50:150] = 60.0  # drop zone
+        close[150:] = 100.0   # recovery
+        high = close + 2.0
+        low = close - 2.0
+
+        mask = np.zeros(n, dtype=bool)
+        mask[10] = True    # first entry at ~100, exits in drop zone with loss
+        mask[200] = True   # second entry after loss realized
+        sig = _make_token_signals(
+            n_bars=n, entry_mask_array=mask,
+            close_array=close, high_array=high, low_array=low,
+            max_hold=60, edge=0.35,
+        )
+        config = _default_config()
+
+        # Run without DD scaling
+        spec_no_dd = StrategySpec(strategy_id="s30", weight=1.0, max_positions=15)
+        state_no_dd = simulate_portfolio({"s30": {"BTC": sig}}, {"s30": spec_no_dd}, config)
+
+        # Run with DD scaling that halves size at 1% DD
+        spec_dd = StrategySpec(
+            strategy_id="s30", weight=1.0, max_positions=15,
+            dd_scaling=[(0.01, 0.50)],
+        )
+        state_dd = simulate_portfolio({"s30": {"BTC": sig}}, {"s30": spec_dd}, config)
+
+        trades_no_dd = state_no_dd.position_manager.closed_trades
+        trades_dd = state_dd.position_manager.closed_trades
+
+        # Both should have 2 trades (entry not blocked, just reduced)
+        no_dd_second = [t for t in trades_no_dd if t.token == "BTC"]
+        dd_second = [t for t in trades_dd if t.token == "BTC"]
+        assert len(no_dd_second) >= 2, f"Expected >=2 trades without DD, got {len(no_dd_second)}"
+        assert len(dd_second) >= 2, f"Expected >=2 trades with DD, got {len(dd_second)}"
+
+        # The second trade with DD scaling should have smaller margin (position size)
+        no_dd_margin = no_dd_second[1].margin_usd
+        dd_margin = dd_second[1].margin_usd
+        assert dd_margin < no_dd_margin, (
+            f"DD-scaled trade margin ({dd_margin:.0f}) should be smaller than "
+            f"non-DD trade margin ({no_dd_margin:.0f})"
+        )
+
+    def test_dd_scaling_watermark_updates(self):
+        """Verify max_equity_watermark tracks peak MTM equity."""
+        n = 300
+        # Price goes up from 100 to 150, then drops back to 100
+        close = np.full(n, 100.0, dtype=np.float64)
+        close[50:150] = 150.0  # profit zone
+        close[150:] = 100.0    # back to entry
+        high = close + 2.0
+        low = close - 2.0
+
+        sig = _make_token_signals(
+            n_bars=n, entry_bar=10,
+            close_array=close, high_array=high, low_array=low,
+            max_hold=250, edge=0.35,
+        )
+        config = _default_config()
+        spec = StrategySpec(strategy_id="s30", weight=1.0, max_positions=15)
+        state = simulate_portfolio({"s30": {"BTC": sig}}, {"s30": spec}, config)
+
+        # Watermark should be strictly above initial capital (position gained during price=150 zone)
+        assert state.max_equity_watermark > config.capital, (
+            f"Watermark {state.max_equity_watermark:.0f} should be > "
+            f"initial capital {config.capital:.0f}"
+        )
+
+    def test_dd_scaling_watermark_monotonic(self):
+        """Verify watermark never decreases across equity snapshots."""
+        n = 300
+        close = np.full(n, 100.0, dtype=np.float64)
+        close[50:150] = 150.0
+        close[150:] = 80.0
+        high = close + 2.0
+        low = close - 2.0
+
+        sig = _make_token_signals(
+            n_bars=n, entry_bar=10,
+            close_array=close, high_array=high, low_array=low,
+            max_hold=250, edge=0.35,
+        )
+        config = _default_config()
+        spec = StrategySpec(strategy_id="s30", weight=1.0, max_positions=15)
+        state = simulate_portfolio({"s30": {"BTC": sig}}, {"s30": spec}, config)
+
+        # Extract MTM equity from snapshots and verify watermark could only go up
+        peak = config.capital
+        for _ts, eq in state.equity_snapshots:
+            peak = max(peak, eq)
+        assert state.max_equity_watermark == peak, (
+            f"Watermark {state.max_equity_watermark:.2f} != computed peak {peak:.2f}"
+        )
+
+    def test_dd_scaling_unsorted_input_is_sorted(self):
+        """dd_scaling provided in wrong order is auto-sorted by threshold."""
+        # Descending order input — should be sorted ascending internally
+        spec = StrategySpec(
+            strategy_id="s30", weight=1.0, max_positions=15,
+            dd_scaling=[(0.20, 0.0), (0.05, 0.75), (0.10, 0.50)],
+        )
+        # Verify sorted ascending by threshold
+        thresholds = [t for t, _f in spec.dd_scaling]
+        assert thresholds == sorted(thresholds), (
+            f"dd_scaling thresholds should be sorted ascending, got {thresholds}"
+        )
+
+    def test_dd_scaling_invalid_tuple_raises(self):
+        """dd_scaling with wrong tuple length raises ValueError."""
+        with pytest.raises(ValueError, match="dd_scaling"):
+            StrategySpec.from_dict({
+                "strategy_id": "s30",
+                "market": "perp",
+                "dd_scaling": [[0.05]],  # missing fraction
+            })
+
+    def test_dd_scaling_raw_mode(self):
+        """DD scaling applies in raw mode too."""
+        n = 500
+        close = np.full(n, 100.0, dtype=np.float64)
+        close[50:] = 50.0
+        high = close + 2.0
+        low = close - 2.0
+
+        mask = np.zeros(n, dtype=bool)
+        mask[10] = True
+        mask[200] = True
+        sig = _make_token_signals(
+            n_bars=n, entry_mask_array=mask,
+            close_array=close, high_array=high, low_array=low,
+            max_hold=60, edge=0.35,
+        )
+        config = _default_config(raw_mode=True)
+        spec = StrategySpec(
+            strategy_id="s30", weight=1.0, max_positions=15,
+            dd_scaling=[(0.01, 0.0)],
+        )
+        state = simulate_portfolio({"s30": {"BTC": sig}}, {"s30": spec}, config)
+        trades = state.position_manager.closed_trades
+        btc_trades = [t for t in trades if t.token == "BTC"]
+        # First trade opens, second blocked by DD scaling even in raw mode
+        assert len(btc_trades) == 1
+
+
+class TestMaxConcurrentPerTokenLimit:
+    """Test that concurrent position limit is actually enforced at the boundary."""
+
+    def test_third_entry_blocked_at_limit_2(self):
+        """With max_concurrent=2, third entry on same token should be blocked."""
+        n = 500
+        mask = np.zeros(n, dtype=bool)
+        mask[10] = True
+        mask[20] = True
+        mask[30] = True   # third entry should be blocked
+        sig = _make_token_signals(
+            n_bars=n, entry_mask_array=mask,
+            max_hold=400, close_price=100.0, edge=0.35,
+        )
+        config = _default_config()
+        spec = StrategySpec(
+            strategy_id="s30", weight=1.0, max_positions=15,
+            max_concurrent_per_token=2,
+        )
+        state = simulate_portfolio({"s30": {"BTC": sig}}, {"s30": spec}, config)
+        trades = state.position_manager.closed_trades
+        btc_trades = [t for t in trades if t.token == "BTC" and t.strategy_id == "s30"]
+        # Exactly 2 — third blocked by limit
+        assert len(btc_trades) == 2
+
+    def test_zero_max_concurrent_raises(self):
+        """max_concurrent_per_token=0 is invalid and should raise ValueError."""
+        with pytest.raises(ValueError, match="max_concurrent_per_token"):
+            StrategySpec(strategy_id="s30", weight=1.0, max_concurrent_per_token=0)
+
+    def test_negative_max_concurrent_raises(self):
+        """Negative max_concurrent_per_token should raise ValueError."""
+        with pytest.raises(ValueError, match="max_concurrent_per_token"):
+            StrategySpec(strategy_id="s30", weight=1.0, max_concurrent_per_token=-1)
+
+    def test_bool_max_concurrent_raises(self):
+        """Bool max_concurrent_per_token should raise ValueError."""
+        with pytest.raises(ValueError, match="max_concurrent_per_token"):
+            StrategySpec(strategy_id="s30", weight=1.0, max_concurrent_per_token=True)
+
+    def test_float_max_concurrent_coerced_to_int(self):
+        """Float max_concurrent_per_token should be coerced to int."""
+        spec = StrategySpec(strategy_id="s30", weight=1.0, max_concurrent_per_token=3.0)
+        assert spec.max_concurrent_per_token == 3
+        assert isinstance(spec.max_concurrent_per_token, int)
+
+    def test_dd_scaling_duplicate_thresholds_raises(self):
+        """Duplicate thresholds in dd_scaling should raise ValueError."""
+        with pytest.raises(ValueError, match="duplicate"):
+            StrategySpec(
+                strategy_id="s30", weight=1.0,
+                dd_scaling=[(0.05, 0.75), (0.05, 0.50)],
+            )

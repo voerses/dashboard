@@ -37,6 +37,7 @@ class RejectionStats:
     pump_range: int = 0   # blocked by range anomaly filter
     pump_funding: int = 0 # blocked by funding z-score filter
     direction_zero: int = 0  # entries with direction=0 (defaulted to long)
+    dd_scaling: int = 0       # blocked by drawdown scaling (fraction=0.0)
     raw_combined_skip: int = 0  # combined strategies skipped in raw mode (not supported)
 
     def total(self) -> int:
@@ -44,7 +45,7 @@ class RejectionStats:
         return (self.portfolio_limit + self.strategy_limit + self.min_size +
                 self.direction_zero +
                 self.adv_cap + self.concentration + self.capital + self.conviction +
-                self.pump_range + self.pump_funding)
+                self.pump_range + self.pump_funding + self.dd_scaling)
 
     def to_dict(self) -> dict:
         return {
@@ -58,6 +59,7 @@ class RejectionStats:
             "pump_range": self.pump_range,
             "pump_funding": self.pump_funding,
             "direction_zero": self.direction_zero,
+            "dd_scaling": self.dd_scaling,
             "raw_combined_skip": self.raw_combined_skip,
             "total": self.total(),
         }
@@ -98,6 +100,7 @@ class SimulationState:
     _entry_fees_by_pos: dict = field(default_factory=dict)  # position_id -> entry fee
     last_known_atrs: dict = field(default_factory=dict)    # token -> last ATR value
     _slippage_models: dict = field(default_factory=dict)   # strategy_id -> SlippageModel
+    max_equity_watermark: float = 0.0                      # peak MTM equity for DD scaling
 
     @property
     def portfolio_equity(self) -> float:
@@ -525,6 +528,34 @@ def _compute_total_unrealized(
     return total
 
 
+def _dd_size_mult(state: SimulationState, dd_scaling: tuple, total_unrealized: float) -> float:
+    """Compute sizing multiplier based on current drawdown from peak equity.
+
+    Args:
+        state: Current simulation state (has max_equity_watermark and portfolio_equity)
+        dd_scaling: Tuple of (dd_threshold, size_fraction) pairs, sorted ascending
+        total_unrealized: Current total unrealized P&L for MTM comparison
+
+    Returns:
+        Multiplier in [0.0, 1.0]. 1.0 = full sizing, 0.0 = block entry.
+    """
+    if not dd_scaling:
+        return 1.0
+    if state.max_equity_watermark <= 0:
+        return 1.0
+    current_eq = state.portfolio_equity + total_unrealized
+    if not np.isfinite(current_eq):
+        return 0.0
+    dd = 1.0 - current_eq / state.max_equity_watermark
+    if dd <= 0:
+        return 1.0
+    mult = 1.0
+    for threshold, fraction in dd_scaling:
+        if dd >= threshold:
+            mult = fraction
+    return mult
+
+
 def _process_entries(
     state: SimulationState,
     all_signals: dict[str, dict[str, TokenSignals]],
@@ -559,8 +590,12 @@ def _process_entries(
                 if sig.secondary_entry_mask is None or not sig.secondary_entry_mask[local_bar]:
                     continue
 
-            # No re-entry while position open for same token+strategy
-            if state.position_manager.find_open_for_token_strategy(token, strategy_id):
+            # Limit concurrent positions per token+strategy (default 1 = no re-entry)
+            # Note: for combined strategies, each entry creates 2 legs (primary+secondary),
+            # so the count reflects individual Position objects, not logical entries.
+            spec_for_check = strategy_specs.get(strategy_id)
+            max_conc = spec_for_check.max_concurrent_per_token if spec_for_check else 1
+            if len(state.position_manager.find_open_for_token_strategy(token, strategy_id)) >= max_conc:
                 continue
 
             candidates.append((strategy_id, token, sig))
@@ -679,6 +714,13 @@ def _process_entries(
 
             # Fixed equity: config.capital * weight (no PnL adjustment)
             strategy_equity = config.capital * spec.weight
+
+            # DD scaling overlay (portfolio-level risk control, applies even in raw mode)
+            dd_mult = _dd_size_mult(state, spec.dd_scaling, total_unrealized)
+            if dd_mult <= 0:
+                state.rejections.dd_scaling += 1
+                continue
+            strategy_equity *= dd_mult
 
             pos_usd = sizing_model.compute_size(
                 strategy_equity=strategy_equity,
@@ -840,6 +882,13 @@ def _process_entries(
         if config.max_sizing_equity is not None:
             sizing_eq = min(sizing_eq, config.max_sizing_equity)
         strategy_equity = sizing_eq * spec.weight
+
+        # DD scaling overlay (portfolio-level risk control)
+        dd_mult = _dd_size_mult(state, spec.dd_scaling, total_unrealized)
+        if dd_mult <= 0:
+            state.rejections.dd_scaling += 1
+            continue
+        strategy_equity *= dd_mult
 
         close_val = sig.close[local_bar]
         atr_val = sig.atr[local_bar]
@@ -1386,7 +1435,9 @@ def _record_equity_snapshot(
 
     mtm_unrealized = _compute_total_unrealized(state, all_signals, bar_maps, global_bar)
 
-    state.equity_snapshots.append((timestamp, state.portfolio_equity + mtm_unrealized))
+    mtm_equity = state.portfolio_equity + mtm_unrealized
+    state.max_equity_watermark = max(state.max_equity_watermark, mtm_equity)
+    state.equity_snapshots.append((timestamp, mtm_equity))
 
 
 def simulate_portfolio(
@@ -1408,6 +1459,7 @@ def simulate_portfolio(
     n_bars = len(unified_ts)
 
     state = SimulationState(initial_capital=config.capital)
+    state.max_equity_watermark = config.capital
     # Pre-resolve slippage models per strategy (cached on state for exit paths)
     for sid, spec in strategy_specs.items():
         state._slippage_models[sid] = get_slippage_model(spec.slippage_model)

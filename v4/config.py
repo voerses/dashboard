@@ -142,6 +142,39 @@ def _validate_composite(resolved: SizingDefaults) -> None:
         )
 
 
+def _validate_dd_scaling(dd_scaling) -> tuple:
+    """Validate and sort dd_scaling entries. Ensures ascending threshold order.
+
+    Returns tuple of tuples for immutability.
+    Raises ValueError for malformed entries (wrong length, out-of-range values).
+    """
+    if not dd_scaling:
+        return ()
+    for i, entry in enumerate(dd_scaling):
+        if len(entry) != 2:
+            raise ValueError(
+                f"dd_scaling[{i}] must be a (threshold, fraction) pair, got {entry}"
+            )
+        threshold, fraction = entry
+        if not (0 < threshold <= 1.0):
+            raise ValueError(
+                f"dd_scaling[{i}] threshold must be in (0, 1], got {threshold}"
+            )
+        if not (0 <= fraction <= 1.0):
+            raise ValueError(
+                f"dd_scaling[{i}] fraction must be in [0, 1], got {fraction}"
+            )
+    # Check for duplicate thresholds
+    thresholds = [t for t, _ in dd_scaling]
+    if len(thresholds) != len(set(thresholds)):
+        raise ValueError(
+            f"dd_scaling has duplicate thresholds: {sorted(thresholds)}"
+        )
+    # Sort by threshold ascending so last-match-wins gives the correct (deepest DD) multiplier
+    # Return tuple of tuples for full immutability
+    return tuple(tuple(entry) for entry in sorted(dd_scaling, key=lambda x: x[0]))
+
+
 # ---------------------------------------------------------------------------
 # StrategySpec
 # ---------------------------------------------------------------------------
@@ -172,6 +205,25 @@ class StrategySpec:
     sizing_model: str = "kelly"
     # Slippage model selection ("sqrt" = default, extensible via slippage registry)
     slippage_model: str = "sqrt"
+    # Max concurrent positions per token+strategy (1 = no re-entry, >1 = allow N concurrent)
+    max_concurrent_per_token: int = 1
+    # Drawdown scaling: tuple of (dd_threshold, size_fraction) pairs, sorted by threshold ascending.
+    # Example: ((0.05, 0.75), (0.10, 0.50), (0.15, 0.25), (0.20, 0.0))
+    # Empty tuple = disabled (default, no behavior change).
+    dd_scaling: tuple = ()
+
+    def __post_init__(self):
+        if isinstance(self.max_concurrent_per_token, bool):
+            raise ValueError(
+                f"max_concurrent_per_token must be an integer, got bool"
+            )
+        self.max_concurrent_per_token = int(self.max_concurrent_per_token)
+        if self.max_concurrent_per_token < 1:
+            raise ValueError(
+                f"max_concurrent_per_token must be >= 1, got {self.max_concurrent_per_token}"
+            )
+        # Always normalize dd_scaling to tuple of tuples (validates if non-empty)
+        self.dd_scaling = _validate_dd_scaling(self.dd_scaling)
 
     @classmethod
     def from_dict(cls, d: dict) -> StrategySpec:
@@ -198,6 +250,8 @@ class StrategySpec:
             regime_params=d.get("regime_params", None),
             sizing_model=d.get("sizing_model", "kelly"),
             slippage_model=d.get("slippage_model", "sqrt"),
+            max_concurrent_per_token=d.get("max_concurrent_per_token", 1),
+            dd_scaling=[tuple(x) for x in d.get("dd_scaling", [])],
         )
 
 

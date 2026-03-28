@@ -64,6 +64,8 @@ parameters (stop, trail, target, max hold, edge), sizing hints (`size_multiplier
 - **Sizing model:** `sizing_model` field (default `"kelly"`) — selects from the sizing model registry
 - **Slippage model:** `slippage_model` field (default `"sqrt"`) — selects from the slippage model registry
 - **Sizing curve shape:** `kelly_mult_floor`, `kelly_mult_range`, `cap_pct_floor`, `cap_pct_range`, `adv_scaling_divisor` are now overridable via `sizing_overrides` (bounded by SAFETY_RAILS)
+- **Concurrent positions:** `max_concurrent_per_token` (default 1) — allows multiple open positions per token+strategy. Set via `MAX_CONCURRENT_PER_TOKEN` module constant in strategy file.
+- **Drawdown control:** `dd_scaling` — list of `(dd_threshold, size_fraction)` tuples that reduce position sizing during drawdowns. Set via `DD_SCALING` module constant in strategy file. Uses portfolio-level MTM watermark. Applies in both raw and normal modes.
 
 **Key implication:** To experiment with different sizing or exit behavior, you modify
 *StrategyResult fields* or *StrategySpec config* — never the simulator itself.

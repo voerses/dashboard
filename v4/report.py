@@ -154,7 +154,7 @@ def print_report(
     if rej["total"] > 0 or pf > 0:
         print()
         print("  Entry Rejections:")
-        for reason in ["portfolio_limit", "strategy_limit", "min_size", "adv_cap", "concentration", "capital", "conviction", "pump_range", "pump_funding", "direction_zero"]:
+        for reason in ["portfolio_limit", "strategy_limit", "min_size", "adv_cap", "concentration", "capital", "conviction", "pump_range", "pump_funding", "direction_zero", "dd_scaling"]:
             if rej[reason] > 0:
                 print(f"    {reason:20s} {rej[reason]:>6d}")
         print(f"    {'total':20s} {rej['total']:>6d}")
