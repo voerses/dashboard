@@ -230,6 +230,7 @@ def _sr_to_token_signals(
     # Schedules and optional arrays
     mean_target = _copy_f32(sr.mean_target_vals, n_safe) if sr.mean_target_vals is not None else None
     sma_trail = _copy_f32(sr.sma_trail_vals, n_safe) if getattr(sr, 'sma_trail_vals', None) is not None else None
+    entry_limit = _copy_f32(sr.entry_limit_price, n_safe) if getattr(sr, 'entry_limit_price', None) is not None else None
     trail_sched = np.asarray(sr.trail_schedule, dtype=np.float32) if sr.trail_schedule is not None else None
     time_trail_sched = np.asarray(sr.time_trail_schedule, dtype=np.float32) if getattr(sr, 'time_trail_schedule', None) is not None else None
     max_trail = np.asarray(sr.max_trail_mult, dtype=np.float32)[:n_safe].copy() if sr.max_trail_mult is not None else None
@@ -300,6 +301,8 @@ def _sr_to_token_signals(
         sr_leverage = sr_leverage[s:]
         if sr_conviction is not None:
             sr_conviction = sr_conviction[s:]
+        if entry_limit is not None:
+            entry_limit = entry_limit[s:]
         if mean_target is not None:
             mean_target = mean_target[s:]
         if sma_trail is not None:
@@ -385,6 +388,7 @@ def _sr_to_token_signals(
         rsi_exit_level=sr_rsi_exit_level,
         mean_target_vals=mean_target,
         sma_trail_vals=sma_trail,
+        entry_limit_price=entry_limit,
         is_combined=is_combined,
         secondary_entry_mask=sec_entry,
         secondary_direction=sec_dir,
@@ -418,12 +422,86 @@ def _sr_to_token_signals(
     )
 
 
+def _resolve_minute_entries(
+    strategy_results: dict,
+    contexts: dict,
+    strategy_spec: StrategySpec,
+    live_bar: int = -1,
+) -> None:
+    """Resolve entry_limit_price to 1m-level cross prices in-place.
+
+    For each entry bar where entry_limit_price is set (the BB threshold),
+    loads 1m data and finds the first 1m close that crosses the threshold.
+    Replaces entry_limit_price with the actual 1m cross price.
+    Clears entry_mask for bars where no 1m cross is found.
+
+    Args:
+        live_bar: If >= 0, bars at this index or later are preserved when
+                  1m data is missing (paper trading: WebSocket handles live
+                  bars). For backtest, leave as -1 to clear all unresolvable.
+    """
+    from v4.minute_exits import MinuteExitCache
+    cache = MinuteExitCache(resolution=1, max_tokens=20)
+    resolved = 0
+    skipped = 0
+    no_1m_data = 0
+
+    for token, sr in strategy_results.items():
+        if sr.entry_limit_price is None:
+            continue
+
+        ctx = contexts.get(token)
+        if ctx is None:
+            continue
+        if isinstance(ctx, tuple):
+            ctx = ctx[1] if ctx[1] is not None else ctx[0]
+
+        ts_1h = ctx.idx_1h  # DatetimeIndex
+        entry_bars = np.where(sr.entry_mask)[0]
+
+        for bar in entry_bars:
+            lp = sr.entry_limit_price[bar]
+            if np.isnan(lp):
+                continue
+
+            direction = int(sr.direction[bar])
+            hour_ts = np.datetime64(ts_1h[bar], 'ms')
+
+            minute_data = cache.get_minute_bars(token, hour_ts)
+            if minute_data is None:
+                if live_bar >= 0 and bar >= live_bar:
+                    # Paper mode: preserve entry_mask for WebSocket resolution
+                    continue
+                sr.entry_mask[bar] = False  # No 1m data → skip entry
+                no_1m_data += 1
+                continue
+
+            _, _, closes_1m = minute_data
+
+            # Find first 1m close crossing the BB level
+            if direction == 1:
+                cross_mask = closes_1m > lp
+            else:
+                cross_mask = closes_1m < lp
+
+            cross_idx = np.where(cross_mask)[0]
+            if len(cross_idx) > 0:
+                sr.entry_limit_price[bar] = float(closes_1m[cross_idx[0]])
+                resolved += 1
+            else:
+                sr.entry_mask[bar] = False  # No cross → skip entry
+                skipped += 1
+
+    print(f"  1m entry resolution: {resolved} resolved, {skipped} skipped (no cross), {no_1m_data} skipped (no 1m data)")
+
+
 def precompute_portfolio_signals(
     strategy_spec: StrategySpec,
     tokens: list[str],
     config: PortfolioConfig,
     months: int,
     end_date: Optional[pd.Timestamp] = None,
+    live_bar: int = -1,
 ) -> dict[str, TokenSignals]:
     """Precompute signals for a portfolio (Class B) strategy.
 
@@ -448,6 +526,10 @@ def precompute_portfolio_signals(
     print(f"  Calling portfolio strategy {strategy_spec.strategy_id}...")
     strategy_results = strategy_fn(contexts)
     print(f"  Strategy returned signals for {len(strategy_results)} tokens")
+
+    # Resolve 1m entry prices if entry_resolution > 0
+    if strategy_spec.entry_resolution > 0:
+        _resolve_minute_entries(strategy_results, contexts, strategy_spec, live_bar=live_bar)
 
     # Convert each StrategyResult → TokenSignals
     results: dict[str, TokenSignals] = {}

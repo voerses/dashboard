@@ -197,6 +197,8 @@ class StrategySpec:
     adv_sizing_floor: float = 0.20
     # Sub-hourly exit resolution (0=hourly only, 1/5/15/30=sub-hourly WebSocket candles)
     exit_resolution: int = 0
+    # Sub-hourly entry resolution (0=hourly, 1=1m cross detection via MinuteExitCache)
+    entry_resolution: int = 0
     # Sizing parameter overrides (validated by resolve_sizing)
     sizing_overrides: dict = field(default_factory=dict)
     # Custom regime detection parameters (None = use engine defaults)
@@ -246,6 +248,7 @@ class StrategySpec:
             adv_sizing_base=d.get("adv_sizing_base", 100_000_000),
             adv_sizing_floor=d.get("adv_sizing_floor", 0.20),
             exit_resolution=d.get("exit_resolution", 0),
+            entry_resolution=d.get("entry_resolution", 0),
             sizing_overrides=d.get("sizing_overrides", {}),
             regime_params=d.get("regime_params", None),
             sizing_model=d.get("sizing_model", "kelly"),

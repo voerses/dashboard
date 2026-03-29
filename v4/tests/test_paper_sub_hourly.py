@@ -445,13 +445,11 @@ class TestProcessSubHourlyExits:
         engine.process_sub_hourly_exits(candles)
 
         trade = engine.state.position_manager.closed_trades[0]
-        # quantity = 10000/100 = 100
-        # raw_pnl = 100 * (90 - 100) = -1000
-        # exit_fee = 100 * 90 * 0.0005 = 4.5
-        assert trade.exit_price == 90.0
+        # Long stop: exit_price = 90 - slippage (slippage reduces exit for longs)
+        assert trade.exit_price < 90.0  # Slippage applied
         assert trade.exit_reason == "stop"
-        # realized_pnl should have increased by raw_pnl (no fees)
-        assert engine.state.realized_pnl == pytest.approx(-1000.0, rel=1e-6)
+        # realized_pnl should be worse than -1000 (slippage widens loss)
+        assert engine.state.realized_pnl < -1000.0
 
     def test_pnl_accounting_short(self):
         """PnL accounting for short position exit should be correct."""
@@ -466,10 +464,10 @@ class TestProcessSubHourlyExits:
         engine.process_sub_hourly_exits(candles)
 
         trade = engine.state.position_manager.closed_trades[0]
-        # quantity = -100 (direction=-1)
-        # raw_pnl = abs(-100) * (100 - 110.5) = 100 * (-10.5) = -1050
-        assert trade.exit_price == 110.5
-        assert engine.state.realized_pnl == pytest.approx(-1050.0, rel=1e-6)
+        # Short stop: exit_price = 110.5 + slippage (slippage raises exit for shorts)
+        assert trade.exit_price > 110.5  # Slippage applied
+        # realized_pnl should be worse than -1050 (slippage widens loss)
+        assert engine.state.realized_pnl < -1050.0
 
     def test_exit_resolution_zero_no_sub_hourly(self):
         """exit_resolution=0 should not have aggregator — hourly only mode."""
@@ -483,6 +481,260 @@ class TestProcessSubHourlyExits:
         config = _make_test_config(exit_resolution=0)
         engine = PaperPortfolioEngine(config)
         engine._update_ws_subscriptions()  # Should not raise
+
+    def test_partial_tp_triggers_sub_hourly(self):
+        """Sub-hourly partial TP should close 50% and tighten trail."""
+        pos = _make_position(
+            entry_price=100.0, stop_price=0.0, direction=1,
+            trail_mult=3.0, target_mult=999.0, entry_bar=5,
+            no_stop_bars=0,
+        )
+        pos.partial_tp_atr = 1.5     # Take partial at 1.5 ATR
+        pos.partial_tp_pct = 0.5     # Close 50%
+        pos.partial_tp_trail = 2.0   # Tighten trail from 3.0 to 2.0 ATR
+        original_qty = pos.quantity
+
+        engine = self._make_engine_with_position(pos)
+        # ATR = 5.0 from cached bar data, so 1.5 ATR = 7.5
+        # Entry = 100, need high >= 107.5
+
+        candles = {"BTC": (108.0, 99.0, 105.0)}  # High 108 > 107.5 threshold
+        closed = engine.process_sub_hourly_exits(candles)
+
+        # Position should still be open (partial, not full close)
+        assert len(engine.state.position_manager.open_positions) == 1
+        # But quantity should be halved
+        remaining_pos = engine.state.position_manager.open_positions[0]
+        assert abs(remaining_pos.quantity - original_qty * 0.5) < 0.01
+        assert remaining_pos.partial_closed is True
+        # Trail should be tightened from 3.0 to 2.0 by _partial_close_position
+        assert remaining_pos.trail_mult == 2.0
+        assert remaining_pos.trail_schedule is None
+        # Should have one partial trade recorded
+        assert len(engine.state.position_manager.closed_trades) == 1
+        assert engine.state.position_manager.closed_trades[0].exit_reason == "partial_tp"
+        assert closed == 0  # No full exits
+
+    def test_partial_tp_does_not_retrigger(self):
+        """Partial TP should only fire once — no re-trigger after partial_closed=True."""
+        pos = _make_position(
+            entry_price=100.0, stop_price=0.0, direction=1,
+            trail_mult=999.0, target_mult=999.0, entry_bar=5,
+        )
+        pos.partial_tp_atr = 1.5
+        pos.partial_tp_pct = 0.5
+        pos.partial_tp_trail = 2.0
+        pos.partial_closed = True  # Already partially closed
+        original_qty = pos.quantity
+
+        engine = self._make_engine_with_position(pos)
+
+        candles = {"BTC": (120.0, 115.0, 118.0)}  # Above threshold, wide trail=999 won't fire
+        engine.process_sub_hourly_exits(candles)
+
+        # Quantity should not change — partial already happened
+        remaining_pos = engine.state.position_manager.open_positions[0]
+        assert remaining_pos.quantity == original_qty
+        assert len(engine.state.position_manager.closed_trades) == 0
+
+    def test_partial_tp_short_direction(self):
+        """Sub-hourly partial TP should work for short positions too."""
+        pos = _make_position(
+            entry_price=100.0, stop_price=999.0, direction=-1,
+            trail_mult=2.0, target_mult=999.0, entry_bar=5,
+            highest=100.0, lowest=100.0,
+        )
+        pos.partial_tp_atr = 1.5
+        pos.partial_tp_pct = 0.5
+        pos.partial_tp_trail = 2.0
+        original_qty = pos.quantity
+
+        engine = self._make_engine_with_position(pos)
+        # ATR = 5.0, so 1.5 ATR = 7.5. Short needs low <= 92.5
+
+        candles = {"BTC": (101.0, 92.0, 95.0)}  # Low 92 < 92.5 threshold
+        engine.process_sub_hourly_exits(candles)
+
+        remaining_pos = engine.state.position_manager.open_positions[0]
+        assert abs(remaining_pos.quantity - original_qty * 0.5) < 0.01
+        assert remaining_pos.partial_closed is True
+        assert engine.state.position_manager.closed_trades[0].exit_reason == "partial_tp"
+
+    def test_partial_tp_below_threshold_no_trigger(self):
+        """Partial TP should NOT trigger when profit is below threshold."""
+        pos = _make_position(
+            entry_price=100.0, stop_price=0.0, direction=1,
+            trail_mult=2.0, target_mult=999.0, entry_bar=5,
+        )
+        pos.partial_tp_atr = 1.5
+        pos.partial_tp_pct = 0.5
+        pos.partial_tp_trail = 2.0
+        original_qty = pos.quantity
+
+        engine = self._make_engine_with_position(pos)
+        # ATR = 5.0, so 1.5 ATR = 7.5. Need high >= 107.5
+
+        candles = {"BTC": (106.0, 99.0, 103.0)}  # High 106 < 107.5
+        engine.process_sub_hourly_exits(candles)
+
+        remaining_pos = engine.state.position_manager.open_positions[0]
+        assert remaining_pos.quantity == original_qty
+        assert remaining_pos.partial_closed is False
+        assert len(engine.state.position_manager.closed_trades) == 0
+
+    def test_partial_tp_then_trail_stop_same_candle(self):
+        """Partial TP fires, tightens trail, then trail stop closes remainder on same candle.
+
+        This mirrors the backtest's per-minute iteration: partial TP on one minute,
+        tightened trail triggers on a later minute within the same aggregated candle.
+        """
+        pos = _make_position(
+            entry_price=100.0, stop_price=0.0, direction=1,
+            trail_mult=10.0, target_mult=999.0, entry_bar=5,
+            no_stop_bars=0, highest=100.0,
+        )
+        pos.partial_tp_atr = 1.5     # 1.5 * 5.0 ATR = 7.5 → need high >= 107.5
+        pos.partial_tp_pct = 0.5
+        pos.partial_tp_trail = 2.0   # After partial: trail = 2.0 ATR
+        original_qty = pos.quantity
+
+        engine = self._make_engine_with_position(pos)
+        # ATR = 5.0 from cached bar data
+        # Candle: high=110 triggers partial TP (profit=10 > 7.5 ATR threshold)
+        # After partial TP: trail_mult=2.0, highest updates to 110
+        # Trail stop = 110 - 2.0*5.0 = 100.  Low=99 breaches 100 → full exit
+        candles = {"BTC": (110.0, 99.0, 101.0)}
+        closed = engine.process_sub_hourly_exits(candles)
+
+        # Should have 2 trades: partial_tp + stop (or trail)
+        trades = engine.state.position_manager.closed_trades
+        assert len(trades) == 2
+        assert trades[0].exit_reason == "partial_tp"
+        assert trades[1].exit_reason == "stop"
+        # Position fully closed
+        assert len(engine.state.position_manager.open_positions) == 0
+        assert closed == 1  # Full exits count
+
+    def test_partial_tp_prorates_entry_fees(self):
+        """Partial TP should pro-rate entry fees from _entry_fees_by_pos."""
+        pos = _make_position(
+            entry_price=100.0, stop_price=0.0, direction=1,
+            trail_mult=999.0, target_mult=999.0, entry_bar=5,
+            no_stop_bars=0,
+        )
+        pos.partial_tp_atr = 1.5
+        pos.partial_tp_pct = 0.5
+        pos.partial_tp_trail = 2.0
+
+        engine = self._make_engine_with_position(pos)
+        st = engine.state
+
+        # Populate entry fees (normally set during _process_entries_for_tick)
+        st._entry_fees_by_pos[pos.position_id] = 10.0  # $10 entry fee
+
+        candles = {"BTC": (108.0, 99.0, 105.0)}  # High 108 > 107.5
+        engine.process_sub_hourly_exits(candles)
+
+        # Partial TP trade should have pro-rated entry fee
+        trade = st.position_manager.closed_trades[0]
+        assert trade.exit_reason == "partial_tp"
+        assert abs(trade.entry_fee - 5.0) < 0.01  # 50% of $10
+        # Remaining entry fee should be reduced
+        assert abs(st._entry_fees_by_pos.get(pos.position_id, 0.0) - 5.0) < 0.01
+
+    def test_independent_mode_partial_tp(self):
+        """Partial TP should work in independent mode (per-strategy states)."""
+        config = _make_test_config(
+            exit_resolution=5,
+            mode="independent",
+            strategies=[
+                StrategySpec(strategy_id="s56", weight=0.5, market="perp",
+                             max_positions=10, exit_resolution=5),
+                StrategySpec(strategy_id="s99", weight=0.5, market="perp",
+                             max_positions=10, exit_resolution=5),
+            ],
+        )
+        engine = PaperPortfolioEngine(config)
+        engine.tick_counter = 10
+
+        # Add position only for s56
+        pos = _make_position(
+            token="BTC", strategy_id="s56", entry_price=100.0,
+            stop_price=0.0, direction=1, trail_mult=3.0, target_mult=999.0,
+            entry_bar=5, no_stop_bars=0,
+        )
+        pos.partial_tp_atr = 1.5
+        pos.partial_tp_pct = 0.5
+        pos.partial_tp_trail = 2.0
+        original_qty = pos.quantity
+
+        # In independent mode, strategy_states is keyed by strategy_id
+        s56_state = engine.strategy_states["s56"]
+        s56_state.position_manager.open_position(pos)
+
+        engine._cached_bar_data[("s56", "BTC")] = {
+            "atr": 5.0, "adv": 1e6, "regime": 0, "bear_target_mult": 0.0,
+        }
+
+        candles = {"BTC": (108.0, 99.0, 105.0)}
+        engine.process_sub_hourly_exits(candles)
+
+        remaining_pos = s56_state.position_manager.open_positions[0]
+        assert abs(remaining_pos.quantity - original_qty * 0.5) < 0.01
+        assert remaining_pos.partial_closed is True
+        assert len(s56_state.position_manager.closed_trades) == 1
+        assert s56_state.position_manager.closed_trades[0].exit_reason == "partial_tp"
+
+    def test_zero_atr_uses_fallback(self):
+        """Zero ATR in cached bar data should fall back to entry_price * 0.02."""
+        pos = _make_position(
+            entry_price=100.0, stop_price=90.0, direction=1,
+            trail_mult=3.0, target_mult=999.0, entry_bar=5,
+        )
+        engine = self._make_engine_with_position(pos)
+        # Override ATR to 0.0 — fallback should be 100 * 0.02 = 2.0
+        engine._cached_bar_data[("s56", "BTC")] = {
+            "atr": 0.0, "adv": 1e6, "regime": 0, "bear_target_mult": 0.0,
+        }
+        # Trail stop with fallback ATR=2.0: highest(101) - 3.0*2.0 = 95
+        # Low=94 breaches 95 → stop fires
+        candles = {"BTC": (101.0, 94.0, 96.0)}
+        closed = engine.process_sub_hourly_exits(candles)
+
+        assert closed == 1
+        assert engine.state.position_manager.closed_trades[0].exit_reason == "stop"
+
+    def test_bear_regime_tightens_target(self):
+        """Bear regime (regime=4) should use bear_target_mult for earlier exit."""
+        pos = _make_position(
+            entry_price=100.0, stop_price=80.0, direction=1,
+            trail_mult=999.0, target_mult=10.0, entry_bar=5,
+        )
+        engine = self._make_engine_with_position(pos)
+        # Set bear regime with tighter target
+        engine._cached_bar_data[("s56", "BTC")] = {
+            "atr": 5.0, "adv": 1e6, "regime": 4, "bear_target_mult": 2.0,
+        }
+        # Normal target = 100 + 10*5 = 150 (wouldn't fire at 112)
+        # Bear target = 100 + 2.0*5 = 110 (fires at 112)
+        candles = {"BTC": (112.0, 99.0, 111.0)}
+        closed = engine.process_sub_hourly_exits(candles)
+
+        assert closed == 1
+        assert engine.state.position_manager.closed_trades[0].exit_reason == "target"
+
+    def test_inf_candle_values_skipped(self):
+        """Inf candle values from corrupted WS feeds should be skipped."""
+        pos = _make_position(
+            entry_price=100.0, stop_price=90.0, direction=1, entry_bar=5,
+        )
+        engine = self._make_engine_with_position(pos)
+
+        candles = {"BTC": (float("inf"), 89.0, 90.0)}
+        closed = engine.process_sub_hourly_exits(candles)
+
+        assert closed == 0
+        assert len(engine.state.position_manager.open_positions) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -542,8 +794,11 @@ class TestCacheBarData:
         all_signals = {"s56": {"BTC": sig_s56}, "s99": {"BTC": sig_s99}}
         bar_maps = {"BTC": np.array([5])}
 
+        sig_s56.per_bar_is_perp = None
+        sig_s99.per_bar_is_perp = None
+
         call_count = [0]
-        def _mock_get_bar_data(sig, local_bar, flag):
+        def _mock_get_bar_data(sig, local_bar, flag, use_perp=None):
             call_count[0] += 1
             if call_count[0] == 1:
                 return (100.0, 105.0, 95.0, 5.0, 1e6, 0.0)  # s56: ATR=5
@@ -603,8 +858,8 @@ class TestLinkedExitPrice:
         assert len(trades) == 2
 
         linked_trade = [t for t in trades if t.exit_reason == "linked_exit"][0]
-        # Linked short has stop=110, h=101 (no breach) → fallback to candle close
-        assert linked_trade.exit_price == 95.0
+        # Linked short: exit_price = candle_close + slippage (short buys back higher)
+        assert linked_trade.exit_price > 95.0  # Slippage applied to linked exit
 
     def test_linked_exit_cross_token_uses_own_candle(self):
         """Linked leg on different token should use its own candle data."""
@@ -646,8 +901,8 @@ class TestLinkedExitPrice:
         assert closed == 2
         trades = engine.state.position_manager.closed_trades
         linked_trade = [t for t in trades if t.exit_reason == "linked_exit"][0]
-        # Should use ETH candle close, not BTC close
-        assert linked_trade.exit_price == 3050.0
+        # Should use ETH candle close + slippage (short buys back higher)
+        assert linked_trade.exit_price > 3050.0  # ETH price with slippage, not BTC
 
     def test_linked_exit_no_candle_for_linked_token(self):
         """When linked token has no candle data, exit at primary's candle close."""
@@ -683,8 +938,8 @@ class TestLinkedExitPrice:
         assert closed == 2
         trades = engine.state.position_manager.closed_trades
         linked_trade = [t for t in trades if t.exit_reason == "linked_exit"][0]
-        # Falls back to primary's candle close since no ETH candle or bar data
-        assert linked_trade.exit_price == 95.0
+        # Falls back to primary's candle close + slippage (short buys back higher)
+        assert linked_trade.exit_price > 95.0  # Slippage applied
 
 
 # ---------------------------------------------------------------------------

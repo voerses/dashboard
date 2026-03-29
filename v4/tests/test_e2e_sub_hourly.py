@@ -194,7 +194,7 @@ class TestE2EFullPipeline:
             # --- Verify trade ---
             trade = engine.state.position_manager.closed_trades[0]
             assert trade.exit_reason == "stop"
-            assert trade.exit_price == c  # Exit price is candle close
+            assert trade.exit_price < c  # Long exit: slippage reduces exit price
             assert trade.token == "BTC"
 
             # --- Verify persistence ---
@@ -249,7 +249,7 @@ class TestE2EFullPipeline:
             assert closed == 1
             trade = engine.state.position_manager.closed_trades[0]
             assert trade.exit_reason == "target"
-            assert trade.exit_price == c  # Always candle close
+            assert trade.exit_price < c  # Long exit: slippage reduces exit price
 
     def test_no_exit_price_within_range_15m(self):
         """15-minute candle: position stays open when price stays safe."""
@@ -540,7 +540,7 @@ class TestE2EStateContinuity:
             assert closed == 1
             trade = engine.state.position_manager.closed_trades[0]
             assert trade.exit_reason == "stop"
-            assert trade.exit_price == 103.0  # Candle close
+            assert trade.exit_price < 103.0  # Long exit: slippage reduces exit price
 
     def test_breakeven_ratchet_then_stop(self):
         """Breakeven ratchet moves stop to entry, then price drops to hit it.
@@ -590,7 +590,7 @@ class TestE2EStateContinuity:
             assert closed == 1
             trade = engine.state.position_manager.closed_trades[0]
             assert trade.exit_reason == "stop"
-            assert trade.exit_price == 99.0  # Candle close
+            assert trade.exit_price < 99.0  # Long exit: slippage reduces exit price
 
 
 # ---------------------------------------------------------------------------
@@ -621,7 +621,7 @@ class TestE2EPersistence:
                 trade = json.loads(f.readline())
             assert trade["token"] == "BTC"
             assert trade["exit_reason"] == "stop"
-            assert trade["exit_price"] == 89.0  # candle close
+            assert trade["exit_price"] < 89.0  # Long exit: slippage reduces exit price
             assert trade["direction"] == 1
             assert "exit_timestamp" in trade
 
@@ -779,7 +779,7 @@ class TestE2EShortPositions:
             assert closed == 1
             trade = engine.state.position_manager.closed_trades[0]
             assert trade.exit_reason == "stop"
-            assert trade.exit_price == 112.0  # candle close
+            assert trade.exit_price > 112.0  # Short exit: slippage raises exit price
             assert engine.state.realized_pnl < 0
 
     def test_short_target_hit(self):
@@ -812,5 +812,5 @@ class TestE2EShortPositions:
             assert closed == 1
             trade = engine.state.position_manager.closed_trades[0]
             assert trade.exit_reason == "target"
-            assert trade.exit_price == 83.0  # candle close
+            assert trade.exit_price > 83.0  # Short exit: slippage raises exit price
             assert engine.state.realized_pnl > 0

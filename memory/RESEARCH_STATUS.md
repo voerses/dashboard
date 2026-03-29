@@ -1,9 +1,9 @@
 # Research Status — Active Signal Discovery
 
-> **Last updated:** 2026-03-28T19:30Z (session 19 — **ALL THREE TARGETS MET.** R172 validated portfolio: R162(20%) + R167-optimized R160(80%) @ 2.5x with 15d DD control = **+446.9% OOS, MaxDD -18.0%, Calmar 24.68, Sharpe 2.79.** 4 configs hit 300%+ AND <20% DD. Key: upgraded R160 trail_sma=15/max_pos=5/mom_days=7, fixed position sizing bugs in all prior implementations, added IS/OOS validation + trade counts.)
+> **Last updated:** 2026-03-29T21:00Z (session 24 — **s501 exit parameter sweep + sub-hourly partial TP + sub-hourly 1m entry resolution deployed.** Ran Phase 1 (110 combos) and Phase 2 (120 combos) exit sweeps on correct s501 config (50 pos, ranked, 1m entries, 95 tokens, 100k capital). Best: trail=2.0 ATR + partial_tp=1.5 ATR → Calmar 129.48, Ann +736%, DD -5.7% (vs baseline 91.83/+626%/-6.8%). Updated strategy file. Added sub-hourly partial TP to paper engine `process_sub_hourly_exits()` — mirrors backtest `process_minute_exits()`. Added sub-hourly 1m entry resolution to paper engine — `_cache_entry_candidates()` + `process_sub_hourly_entries()` watch WebSocket 1m candles for BB cross entries between hourly ticks. 45 tests pass. Adversarial review: 2 rounds, 0 bugs found. Archived old strategy configs, fresh s501-only deployment config.)
 
 ## TIMESTAMP
-2026-03-28T19:30Z
+2026-03-29T13:30Z
 
 ---
 
@@ -338,6 +338,13 @@
 87. **V3+carry portfolio structure is correct but carry is dormant** — corr=0.011 (excellent decorrelation). Carry active 89% (2021) → 0% (2025-26). Dynamic allocation is the right approach. Monitor funding — if 30d mean > 0.01%, deploy.
 88. **Research has reached diminishing returns** — 8 agents in session 8, only 1 marginal pass. All obvious approaches tested: leverage, alts (trend+MR), cross-sectional, pairs/arb, seasonal, ETF flow, carry portfolio. V3 BTC spot (+17.52%, Sharpe 0.56) is the only viable new strategy. Next alpha requires new data sources or fundamentally different approaches.
 
+132. **R160 BB breakout is THE most robust per-token signal found** — 56 tokens all profitable, 27/27 param combos PASS, Sharpe 4.03, PF 8.48, win rate 71.3%, fee drag only 2.8%. Native 4H bars critical (1H variants killed by 66% fee drag). Works across bull, bear, recovery, post-ETF regimes (8/8 walk-forward).
+133. **R172 portfolio retains 88% of research alpha after realistic costs** — Research +446.9%, raw backtest +394.7% (Gate 1), +206.4% (Gate 3P on default universe). Costs: fees 7.2%, funding -$1.5M, slippage $718K. R160 breakout (80%) is the profit engine.
+134. **Top Trader L/S standalone is DEAD** — GOLD IC (-0.166) but best Sharpe only 1.50 across 11 configs. Signal too slow/infrequent for standalone trading. Value only as overlay/regime filter.
+135. **R172 alpha is NOT leverage-dependent** — 1x leverage still achieves Sharpe 4.12, +418.6% L12M, MaxDD -12.9%. Better risk-adjusted than 2.5x (where Sharpe drops to 2.85 due to DD amplification).
+136. **PIPPIN concentration risk in R172** — single token disproportionately contributes to returns across all runs. ADV cap violations (1,200-1,500) indicate position sizing exceeds available liquidity as equity compounds.
+137. **Raw backtest harness (AIPIP-0031) catches what IC/signal metrics miss** — Top Trader L/S had GOLD IC but KILLED at P&L level. R160 1H variants looked similar in signal quality but KILLED by fee drag. P&L is the ultimate test.
+
 ---
 
 ## Data Inventory
@@ -361,7 +368,48 @@
 
 ---
 
-## Current Research Phase: PHASE 3B — Sizing Optimization + Leverage Testing
+## Current Research Phase: PHASE 5 — Gate Pipeline Validation (Raw Backtest Harness)
+
+### Session 21-22: R160 + R172 Gate Pipeline (2026-03-29)
+
+**Process improvements this session:**
+- AIPIP-0031: Mandatory raw backtest at every gate (tools/raw_backtest.py)
+- AIPIP-0032: Autonomous gate progression (fix stuck-at-gate-0 bug)
+- AIPIP-0033: Coordinator discipline (delegate to background subagents)
+- AIPIP-0034: Slim SKILL.md (795→251 lines)
+
+**R160 BB Volatility Breakout — Per-Token Signal (Gate Path: 0→1→2→3→4→5→6)**
+| Gate | Outcome | Key Result |
+|------|---------|------------|
+| 0 (Idea) | PASS | Hypothesis: BB breakout + volume + momentum on 4H bars |
+| 1 (Signal Lab) | PASS | BTC: Sharpe 4.08, Calmar 22.26, MaxDD -1.0%. 4H native bars critical. |
+| 2 (Dedup) | PASS | No overlap with existing Tier A/B |
+| 3 (Prototype) | PASS | 6/10 tokens pass, 26/27 param combos pass |
+| 4 (Quick Validate) | PASS | 8/8 walk-forward start dates, Sharpe 4.04-4.09 |
+| 5 (Full Validate) | PASS | 56 tokens, 27/27 params, Sharpe 4.03, PF 8.48, 71.3% WR |
+| **6 (Paper Trade)** | **PENDING** | Needs v4 engine adapter |
+
+**R172 Combined Portfolio (s500) — Portfolio Strategy (Gate Path: 0→2→3P→5P→6)**
+| Gate | Outcome | Key Result |
+|------|---------|------------|
+| 0 (Idea) | PASS | 80% R160 breakout + 20% R162 momentum rotation |
+| 1 (Raw Backtest) | PASS | L12M +394.7%, Sharpe 3.16, MaxDD -18.4% |
+| 2 (Dedup) | PASS | Portfolio class, no overlap with existing |
+| 3P (Prototype) | PASS | 4/4 weight variants, 15/15 param sensitivity, worst -21.5% |
+| 5P (Full Validate) | PASS | 4/4 walk-forward, max corr 0.33, 1x Sharpe 4.12 |
+| **6 (Paper Trade)** | **PENDING** | Needs v4 engine adapter |
+
+**Top Trader L/S Standalone — KILLED at Gate 1**
+- GOLD IC (-0.166) but best Sharpe only 1.50 across 11 configs. Too slow/infrequent. Overlay value only.
+
+### Next Actions (Priority Order)
+1. **Adapt s500 to v4 engine** — refactor s500_r172_portfolio.py into v4 StrategyContext/StrategyResult protocol for paper trading deployment
+2. **Deploy R172 paper trading** — Gate 6 requires 50+ trades on live data (1-4 weeks)
+3. **Monitor paper performance** — Kill if returns <60% backtest, slippage >50% edge, MaxDD >1.5x
+
+---
+
+## PHASE 4 — Close the Execution Gap (V4 Porting) [HISTORICAL]
 
 ### Phase 2 Edge Validation COMPLETE (session 5/6)
 
@@ -614,45 +662,76 @@ Parameters: 0 KILL flags across all tests
 - **When funding recovers**: use Dynamic allocation (100% V3 when dormant, 60/40 when carry active)
 - Scripts: `research/v3_carry_portfolio_test.py`, `research/v3_carry_portfolio_results.md`
 
-### Next Actions (Priority Order) — Updated Session 15
+### Next Actions (Priority Order) — Updated Session 20
 
-**Signal discovery: 54 signals tested across 14 sessions.** What's been tried and what remains open is documented below.
+**CRITICAL CONTEXT: We have validated alpha that produces 300%+ in standalone research (R172: +446.9%, Sharpe 2.79, 4 configs hit 300%+ AND <20% DD). Every v4 port has failed due to IMPLEMENTATION BUGS, not dead signals:**
+- s320: 1.5x leverage bug → then 86% entry rejection from min_size floor
+- s400/s401: target_vol=0.05 created 10x vol_adj blowup → 23k margin calls (FIXED session 20)
+- s400: DD scaling killed 137/140 entries (FIXED session 20 — disabled DD scaling)
+- s400 raw-mode: Sharpe 0.55, $57k funding drag unmodeled in research
 
-**P0 — Fix s320 sizing: COMPLETE.**
-1. ~~**Fix s320 leverage bug:**~~ **DONE** — MAX_POSITION 1.5→1.0, cap_multiplier=8.0, max_trade_pct=0.95, sizing_overrides added.
-2. ~~**Fix s320 config for BTC-only:**~~ **DONE** — cap_multiplier=8.0, concentration_limit=1.0, max_trade_pct=0.95 applied.
-3. ~~**Run corrected backtest:**~~ **DONE** — s320 corrected: +2.9% ann over 60mo (NOT 387%), +0.2% last 12mo. Leverage bug was root cause of inflated V3 returns.
-4. **All 108 min_size rejections** traced to size_multiplier=0 at entry bars (overlay architecture issue, not sizing bug).
-5. **Knowledge file created:** `knowledge/V4_SIZING_PIPELINE.md`.
-6. **s320 fidelity audit COMPLETE** — Implementation matches research spec exactly (overlay thresholds, base signal, RSI timing). Signals are GOLD-validated. Problem is ARCHITECTURAL: overlays as continuous size_multiplier scalers hit V4's min_size floor, causing 86% entry rejection. NEEDS REWORK — not dead.
+**We don't have a signal problem. We have a PORTING problem. Fix the port, returns follow.**
 
-**P0.5 — Rework s320 overlay architecture: COMPLETE.**
-- [x] **Option A: Binary gates** — `s320a_binary_gates.py`. Best risk-adjusted: PF=1.42, DD=-5.65%, 91 trades, 0 rejections. Avg PnL $206/trade.
-- [x] **Option B: Floor at 0.3** — `s320b_floored_mult.py`. Best total return: +9.8%, PF=1.39, 123 trades. Same DD as original.
-- [x] **Option C: Lower min_pos** — NO EFFECT. Rejections are from sm=0.0 bars (overlay=0 within entry window), not from min_size floor.
-- [x] All three backtested. Strategy VALIDATED: WF=PASS, CPCV=PASS, PBO=13%.
-- **WINNER: s320a (binary gates)** — cleanest architecture, best risk metrics. Promote to paper trading.
-- **Knowledge files created:** `knowledge/V4_SIZING_PIPELINE.md`, `knowledge/RESEARCHER_BEST_PRACTICES.md` (427 lines, 9-layer parameter catalog + 12 ground rules)
+**Session 20 completed:** AIPIP-0030 (mandatory sizing verification gate), s400/s401 sizing fixes, `tools/verify_sizing.py`. Always run verify_sizing before backtesting.
 
-**P0.7 — ACTIVE: Test s320 with newly-unlocked sizing overrides (Session 15)**
-- Tier 1 fixes (2026-03-26) made `kelly_mult_floor/range`, `cap_pct_floor/range`, `adv_scaling_divisor` per-strategy overridable
-- This directly addresses finding #131: s320 was capped at 12% capital utilization → 88% idle
-- **R133 in flight:** s320 sizing sweep with cap_pct up to 30% and concentration_limit=1.0
-- **R135 in flight:** V3+overlay on BTC perps with VRP-scaled dynamic leverage (1.0-1.5x)
-- **R134 in flight:** Multi-strategy portfolio (s62+s65) with aggressive per-strategy sizing
+---
 
-**P1 — V4 architecture improvements:**
-4. ~~**Allow strategy-level overrides for kelly_range, cap_pct_range, target_vol**~~ — **DONE (Tier 1 fixes, 2026-03-26):** 5 params moved from NON_OVERRIDABLE to SAFETY_RAILS.
-5. **Add sizing diagnostics logging** — when a position is clipped, log WHICH constraint bound and by how much. Currently silent.
-6. **Promote remaining hardcoded params to config** — `vol_adj` target (0.02), unrealized PnL clamp (0.85). (vol_floor, unrealized_pnl_floor, funding_buffer_pct remain non-overridable.)
-7. ~~**Document all 60+ parameters**~~ — Covered in `knowledge/V4_SIZING_PIPELINE.md` and `knowledge/RESEARCHER_BEST_PRACTICES.md`.
+**P0 — IMMEDIATE: Faithfully reproduce R172's +446% through V4**
 
-**P2 — Monitoring & conditional triggers:**
-8. ~~Implement V3+RSI Timing~~ **DONE** — Integrated into s320 as Layer 5.
-9. ~~Re-run R115 on-chain with extended data~~ **DONE (R118) — on-chain is reflexive, not predictive.**
-10. **Monitor funding rates** — if 30d mean > 0.01%, deploy V3+carry dynamic portfolio. Currently -0.000009/hr (wrong direction).
-11. **Monitor paper pools** — R136 in flight: audit current 7 pools for operational status.
-12. **Optional (paid data):** Tardis.dev LOB/liquidation data ($199/mo) could unlock microstructure signals.
+R172 validated portfolio: R162 (xsec momentum, 20%) + R167-optimized R160 (vol breakout, 80%) at 2.5x with 15d DD control. Four configs hit 300%+ AND <20% DD.
+
+1. **Read R172 standalone** (`research/R172_validated_portfolio.py`) line by line
+2. **Map every sizing assumption** to v4 params using `tools/verify_sizing.py`
+3. **Identify every friction point:** funding, slippage, walk-forward masking, ADV gating, DD scaling
+4. **Build v4 portfolio config** that faithfully reproduces R172's conditions
+5. **Run raw-mode FIRST** to isolate signal quality vs engine friction
+6. **Add constraints one at a time** to find which ones break it — don't accept "it doesn't work," diagnose WHY
+
+The gap between +446% standalone and -0.2% v4 is NOT the signal dying. It's unfaithful reproduction.
+
+**P0.5 — Fix s320 (V3 BTC Spot) entry rejection**
+
+s320a (binary gates) won the architecture test: PF=1.42, DD=-5.65%, 91 trades, 0 rejections. But overall returns still low.
+
+1. **Check R133/R135/R134 results** from session 15 (were in-flight at session end)
+2. **Test s320a with aggressive sizing overrides** (cap_pct up to 30%, now allowed after AIPIP-0030 rail raise)
+3. **Add RSI timing** (finding #102: 53%→337%, 13/18 WF windows improved) — validated but never applied to s320a
+4. Run `tools/verify_sizing.py` on final config
+
+**P1 — Test GOLD signals NOT yet ported to V4**
+
+These have GOLD/PASS verdicts but have NEVER been run as v4 strategies:
+- **Top Trader L/S** (IC=-0.166, GOLD) — range specialist, uncorrelated with macro
+- **L/S Divergence** (IC=-0.204, GOLD) — strongest single IC, strengthens OOS
+- **US10Y+DXY composite** (IC=0.305, GOLD) — best 2-signal combo
+- **Taker dispersion** (IC=-0.138, PASS) — strongest standalone cross-token
+- **OI divergence** (IC=-0.059, PASS) — leverage vulnerability indicator
+
+Finding #85 says overlay IC ≠ standalone IC. Some may work as portfolio components or with different execution parameters than previously tested.
+
+**P2 — Explore untested execution approaches**
+
+- **Spot longs + perp shorts** (combined market) — eliminates funding drag on long leg. s400 had $57k funding on $200k. Longs don't NEED perps.
+- **Event-triggered rebalancing** — finding #44 says daily kills positioning signals, weekly is minimum. What about rebalancing ONLY when signal crosses threshold?
+- **Multi-strategy stacking with correct sizing** — R110 showed 3-strategy Sharpe 0.88 (+29%). Individual strategies later killed but those kills were on STANDALONE, not as stacked components.
+
+**P3 — V4 architecture improvements (carried forward):**
+- **Add sizing diagnostics logging** — when a position is clipped, log WHICH constraint bound and by how much. Currently silent.
+- **Promote remaining hardcoded params to config** — `vol_adj` target (0.02), unrealized PnL clamp (0.85).
+
+**P4 — Monitoring (carried forward):**
+- **Monitor funding rates** — if 30d mean > 0.01%, deploy V3+carry dynamic portfolio.
+- **Monitor paper pools** — R136 in flight: audit current 7 pools for operational status.
+
+### Previous P0 items (COMPLETED)
+
+- [x] Fix s320 leverage bug (session 13)
+- [x] Fix s320 config for BTC-only (session 13)
+- [x] Rework s320 overlay architecture — s320a binary gates WINNER (session 14)
+- [x] Fix s400/s401 vol_adj blowup — target_vol 0.05→0.02 (session 20)
+- [x] Disable s400 DD scaling — was killing 137/140 entries (session 20)
+- [x] AIPIP-0030: sizing verification gate + tools/verify_sizing.py (session 20)
+- [x] Raise cap_pct_override rail 0.15→0.30 (session 20)
 
 ### What Has Been Tried (Signal Families)
 

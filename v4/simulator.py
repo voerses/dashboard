@@ -767,7 +767,18 @@ def _process_entries(
             else:
                 slip_bps = compute_slippage_bps(notional_usd, adv_val, config.base_spread_bps, config.impact_coeff, config.max_slip_bps)
             slip = close_val * slip_bps / 10000.0
-            entry_price = close_val + slip * direction
+
+            # Limit entry price: if strategy provides a limit, check if it fills
+            base_price = close_val
+            if sig.entry_limit_price is not None and 0 <= local_bar < len(sig.entry_limit_price):
+                lp = float(sig.entry_limit_price[local_bar])
+                if not np.isnan(lp):
+                    if direction == 1 and low_val <= lp:
+                        base_price = lp      # Long limit filled
+                    elif direction == -1 and high_val >= lp:
+                        base_price = lp      # Short limit filled
+                    # else: limit didn't fill, fall through to close_val
+            entry_price = base_price + slip * direction
 
             quantity = notional_usd / max(entry_price, 1e-10) * direction
 
@@ -1296,7 +1307,19 @@ def _process_entries(
             else:
                 slip_bps = compute_slippage_bps(notional_usd, adv_val, config.base_spread_bps, config.impact_coeff, config.max_slip_bps)
             slip = close_val * slip_bps / 10000.0
-            entry_price = close_val + slip * direction
+
+            # Limit entry price: check if limit fills on this bar
+            base_price = close_val
+            low_val_entry = sig.low[local_bar]
+            high_val_entry = sig.high[local_bar]
+            if sig.entry_limit_price is not None and 0 <= local_bar < len(sig.entry_limit_price):
+                lp = float(sig.entry_limit_price[local_bar])
+                if not np.isnan(lp):
+                    if direction == 1 and low_val_entry <= lp:
+                        base_price = lp      # Long limit filled
+                    elif direction == -1 and high_val_entry >= lp:
+                        base_price = lp      # Short limit filled
+            entry_price = base_price + slip * direction
 
             quantity = notional_usd / max(entry_price, 1e-10) * direction
 

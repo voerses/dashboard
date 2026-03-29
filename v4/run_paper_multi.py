@@ -294,6 +294,9 @@ def _connect_shared_monitors(
             for st in engine._get_all_states():
                 for pos in st.position_manager.open_positions:
                     all_tokens.add(pos.token)
+            # Include tokens with pending entry candidates
+            for (sid, token) in engine._pending_entry_candidates:
+                all_tokens.add(token)
         if all_tokens:
             try:
                 monitor.connect(list(all_tokens))
@@ -319,6 +322,9 @@ def _update_shared_subscriptions(
             for st in engine._get_all_states():
                 for pos in st.position_manager.open_positions:
                     all_tokens.add(pos.token)
+            # Include tokens with pending entry candidates
+            for (sid, token) in engine._pending_entry_candidates:
+                all_tokens.add(token)
         # Lazy connect: if monitor was never started (no positions at boot),
         # start it now before updating subscriptions.
         ws_thread = getattr(monitor, '_ws_thread', None)
@@ -715,20 +721,21 @@ def main(argv: list[str] | None = None) -> None:
                             logger.exception("Live dashboard state write failed (non-fatal)")
                     logger.info("Price refresh complete (%.1fs total)", time.time() - t0)
 
-                # Sub-hourly exit check: flush completed candles and process exits
+                # Sub-hourly exit + entry check: flush completed candles and process
                 for engine, config in zip(engines, configs):
                     if engine._candle_aggregator is not None:
                         try:
                             candles = engine._candle_aggregator.flush_completed()
                             if candles:
                                 engine.process_sub_hourly_exits(candles)
+                                engine.process_sub_hourly_entries(candles)
                                 _candle_errors[id(engine)] = 0
                         except Exception:
                             err_key = id(engine)
                             _candle_errors[err_key] = _candle_errors.get(err_key, 0) + 1
                             if _candle_errors[err_key] <= 3:
                                 logger.exception(
-                                    "[%s] Sub-hourly exit check failed (%d consecutive)",
+                                    "[%s] Sub-hourly check failed (%d consecutive)",
                                     config.pool_name, _candle_errors[err_key],
                                 )
                             elif _candle_errors[err_key] == 4:

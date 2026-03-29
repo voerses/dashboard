@@ -4,6 +4,7 @@
 # and that the gate state file exists when in strategy mode.
 #
 # AIPIP-0014: Gate-based strategy validation pipeline enforcement.
+# AIPIP-0031: Mandatory raw backtest check before gate transitions past Gate 1.
 #
 # Exit codes:
 #   0 = allow
@@ -61,6 +62,20 @@ if echo "$FILE_PATH" | grep -qE '\.specs/'; then
   IS_SPEC=1
 fi
 
+# AIPIP-0031: When writing the gate state file, check for raw backtest before advancing past gate1
+if [ $IS_GATE_FILE -eq 1 ] && echo "$FILE_PATH" | grep -q '\.strategy-gate$'; then
+  # Read the new gate value being written (from tool input)
+  NEW_GATE=$(echo "$INPUT" | jq -r '.tool_input.content // .tool_input.new_string // empty' | tr -d '[:space:]')
+  # If advancing to gate2+ from gate1, check for raw backtest output
+  if echo "$NEW_GATE" | grep -qE '^gate[2-7]'; then
+    BACKTEST_DIR="$(dirname "$PROJECT_DIR")/results/raw_backtest"
+    if [ ! -d "$BACKTEST_DIR" ] || [ -z "$(ls "$BACKTEST_DIR" 2>/dev/null)" ]; then
+      echo "{\"additionalContext\": \"WARNING (AIPIP-0031): Advancing to $NEW_GATE but no raw backtest results found in results/raw_backtest/. Every signal must pass raw backtest before advancing past Gate 1.\"}"
+    fi
+  fi
+  exit 0
+fi
+
 # Non-strategy files are always allowed
 if [ $IS_STRATEGY -eq 0 ]; then
   exit 0
@@ -92,6 +107,18 @@ case "$GATE" in
     ;;
   gate3|gate3p|gate3o)
     # Gate 3 (Prototype) — strategy files allowed
+    # AIPIP-0031: Check for raw backtest output before allowing strategy writes at Gate 3+
+    STRAT_ID=$(echo "$FILE_PATH" | grep -oP 's\d+' | head -1)
+    if [ -n "$STRAT_ID" ]; then
+      BACKTEST_DIR="$(dirname "$PROJECT_DIR")/results/raw_backtest"
+      if [ -d "$BACKTEST_DIR" ]; then
+        BACKTEST_FILE=$(find "$BACKTEST_DIR" -name "${STRAT_ID}_*" -o -name "*${STRAT_ID}*" 2>/dev/null | head -1)
+        # At Gate 3 we're writing the prototype — backtest comes after, so just warn
+        if [ -z "$BACKTEST_FILE" ]; then
+          echo "{\"additionalContext\": \"REMINDER (AIPIP-0031): Run raw backtest via tools/raw_backtest.py before advancing past Gate 3. No gate transition without a PASS verdict.\"}"
+        fi
+      fi
+    fi
     exit 0
     ;;
   gate4|gate5|gate5p|gate5o|gate6|gate7)

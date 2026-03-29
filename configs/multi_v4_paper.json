@@ -1,4 +1,26 @@
 {
+  "_meta": {
+    "description": "s501 R172 BB Breakout portfolio — optimized deployment config",
+    "strategy_file": "strategies/s501_r172_v4_portfolio.py",
+    "validation_script": "research/s501_v4_validation.py",
+    "validation_results": "results/s501_v4_validation.json",
+    "backtest_12mo_baseline": "+620% return, Sharpe 5.20, MaxDD -8.4%, 6911 trades (100k, no exits)",
+    "backtest_12mo_with_exits": "+736% return, Sharpe 4.78, MaxDD -5.7%, Calmar 129.48, 11155 trades (100k, trail+partial_tp)",
+    "exit_sweep_results": "results/v4/sweep_s501_exits_phase2.json",
+    "exit_sweep_finding": "trail=2.0 ATR + partial_tp=1.5 ATR: Calmar 129.48 vs 91.83 baseline (+41%), DD -5.7% vs -6.8%",
+    "key_settings": {
+      "max_positions": "50 — validated at 3/5/8/15/20/30/50, 50 optimal for trade throughput",
+      "conviction_mode": "ranked — prioritizes high-conviction BB breakouts over random",
+      "entry_resolution": "1 — 1m BB cross entries add +51pp total return vs hourly entries",
+      "exit_resolution": "5 — sub-hourly trail stop monitoring via WebSocket candles",
+      "trail_mult": "2.0 ATR (in strategy file) — sweep-optimized trailing stop",
+      "partial_tp": "1.5 ATR at 50% (in strategy file) — close half at 1.5 ATR profit, trail remainder",
+      "leverage": "1.25x (in strategy file) — conservative vs R172 research 2.5x",
+      "max_hold": "4h (in strategy file) — peak Calmar window from hold sweep"
+    },
+    "archived_from": "configs/multi_v4_paper_pre_s501_archive.json (2026-03-29)",
+    "created": "2026-03-29"
+  },
   "shared": {
     "exchange": "binance",
     "concentration_limit": 1.0,
@@ -16,155 +38,23 @@
   },
   "portfolios": [
     {
-      "pool_name": "s58+s65",
-      "initial_capital": 200000.0,
+      "pool_name": "s501",
+      "initial_capital": 150000.0,
       "mode": "pool",
+      "conviction_mode": "ranked",
       "strategies": [
         {
-          "strategy_id": "s56",
+          "strategy_id": "s501",
           "weight": 1.0,
           "market": "perp",
-          "max_positions": 15,
+          "max_positions": 50,
           "pump_filter_funding_zscore": 3.0,
+          "entry_resolution": 1,
           "exit_resolution": 5
-        },
-        {
-          "strategy_id": "s57",
-          "weight": 1.0,
-          "market": "combined",
-          "max_positions": 15,
-          "pump_filter_funding_zscore": 3.0
-        },
-        {
-          "strategy_id": "s65",
-          "weight": 1.0,
-          "market": "perp",
-          "max_positions": 15,
-          "pump_filter_funding_zscore": 3.0
         }
       ],
       "max_portfolio_positions": 50,
-      "state_dir": "state/v4_paper_s65/"
-    },
-    {
-      "pool_name": "s72",
-      "initial_capital": 200000.0,
-      "mode": "pool",
-      "strategies": [
-        {
-          "strategy_id": "s72",
-          "weight": 1.0,
-          "market": "perp",
-          "max_positions": 15,
-          "pump_filter_funding_zscore": 3.0
-        }
-      ],
-      "max_portfolio_positions": 15,
-      "state_dir": "state/v4_paper_s72/"
-    },
-    {
-      "pool_name": "s65",
-      "initial_capital": 200000.0,
-      "mode": "pool",
-      "strategies": [
-        {
-          "strategy_id": "s65",
-          "weight": 1.0,
-          "market": "perp",
-          "max_positions": 15,
-          "pump_filter_funding_zscore": 3.0
-        }
-      ],
-      "max_portfolio_positions": 15,
-      "state_dir": "state/v4_paper_s65_solo/"
-    },
-    {
-      "pool_name": "s62",
-      "initial_capital": 200000.0,
-      "mode": "pool",
-      "strategies": [
-        {
-          "strategy_id": "s62",
-          "weight": 1.0,
-          "market": "perp",
-          "max_positions": 15
-        }
-      ],
-      "max_portfolio_positions": 15,
-      "state_dir": "state/v4_paper_s62_solo/"
-    },
-    {
-      "pool_name": "s98",
-      "initial_capital": 200000.0,
-      "mode": "pool",
-      "strategies": [
-        {
-          "strategy_id": "s98",
-          "weight": 1.0,
-          "market": "perp",
-          "max_positions": 15,
-          "pump_filter_funding_zscore": 3.0,
-          "exit_resolution": 30
-        }
-      ],
-      "max_portfolio_positions": 15,
-      "concentration_limit": 0.2,
-      "state_dir": "state/v4_paper_s98/"
-    },
-    {
-      "pool_name": "s106",
-      "initial_capital": 200000.0,
-      "mode": "pool",
-      "strategies": [
-        {
-          "strategy_id": "s106",
-          "weight": 1.0,
-          "market": "perp",
-          "max_positions": 15,
-          "pump_filter_funding_zscore": 3.0,
-          "exit_resolution": 5
-        }
-      ],
-      "max_portfolio_positions": 15,
-      "concentration_limit": 0.2,
-      "state_dir": "state/v4_paper_s106/"
-    },
-    {
-      "pool_name": "s107",
-      "initial_capital": 200000.0,
-      "mode": "pool",
-      "strategies": [
-        {
-          "strategy_id": "s107",
-          "weight": 1.0,
-          "market": "perp",
-          "max_positions": 15,
-          "pump_filter_funding_zscore": 3.0,
-          "exit_resolution": 5
-        }
-      ],
-      "max_portfolio_positions": 15,
-      "concentration_limit": 0.2,
-      "state_dir": "state/v4_paper_s107/"
-    },
-    {
-      "pool_name": "s320",
-      "initial_capital": 200000.0,
-      "mode": "pool",
-      "strategies": [
-        {
-          "strategy_id": "s320",
-          "weight": 1.0,
-          "market": "spot",
-          "max_positions": 1,
-          "sizing_overrides": {
-            "kelly_mult_override": 0.50,
-            "spot_max_equity_pct": 0.95
-          }
-        }
-      ],
-      "max_portfolio_positions": 1,
-      "state_dir": "state/v4_paper_s320/"
+      "state_dir": "state/v4_paper_s501/"
     }
   ]
 }

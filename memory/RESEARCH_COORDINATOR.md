@@ -95,11 +95,35 @@ Only THEN move to quick strategy testing → simulation → fine-tuning.
 - Walk-forward validation on the combined strategy
 - Document the full specification for /dev implementation
 
+## Raw Backtest Mandate (AIPIP-0031)
+
+**Every P&L computation MUST go through `tools/raw_backtest.py`.** No exceptions.
+
+```python
+from tools.raw_backtest import Backtest
+bt = Backtest(capital=100_000, fee_bps=7, market='perp',
+              leverage_max=1.0, start='2024-01-01', end='2026-03-17')
+```
+
+**Rules:**
+- Every signal that passes Gate 1 IC screen gets an immediate raw backtest
+- No signal advances past Gate 1 without positive L12M net return
+- BANNED: standalone research scripts with manual equity curves that skip fees/ADV/slippage
+- All decisions based on OOS windows (L12M/L6M/L3M) only — IS is diagnostic noise
+- Verdict thresholds: Sharpe >2.0, Calmar >3.0, MaxDD >-25%, positive return, 30+ trades
+- Present results as: verdict → metrics table → cost breakdown → diagnosis
+
+**When presenting results to the user, always show:**
+1. VERDICT (PASS/KILL) at top
+2. L12M/L6M/L3M metrics table (all net of costs)
+3. Why it passed or failed (human-readable)
+
 ## Anti-Patterns (Do NOT)
 
 - Do NOT randomly generate strategy variants (s200-s319 graveyard taught us this)
 - Do NOT trust in-sample results without strict temporal OOS
-- Do NOT use uncapped equity compounding for decision-making
+- Do NOT make decisions based on IS performance — OOS only, always
+- Do NOT write standalone P&L scripts — use `tools/raw_backtest.py` (AIPIP-0031)
 - Do NOT let agents run unbounded (OOM risk)
 - Do NOT repeat work — check findings before launching new research
 - Do NOT write strategy files — you are the researcher, not the builder

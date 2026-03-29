@@ -1,0 +1,170 @@
+{
+  "shared": {
+    "exchange": "binance",
+    "concentration_limit": 1.0,
+    "adv_cap_pct": 0.05,
+    "min_position_usd": 200.0,
+    "seed": 42,
+    "base_spread_bps": 3.0,
+    "impact_coeff": 0.03,
+    "lookback_months": 12,
+    "enable_purge_windows": false,
+    "drawdown_alert_pct": 5.0,
+    "shadow_rebalance_threshold": 100.0,
+    "dashboard_push": true,
+    "sentinel_mode": "live"
+  },
+  "portfolios": [
+    {
+      "pool_name": "s58+s65",
+      "initial_capital": 200000.0,
+      "mode": "pool",
+      "strategies": [
+        {
+          "strategy_id": "s56",
+          "weight": 1.0,
+          "market": "perp",
+          "max_positions": 15,
+          "pump_filter_funding_zscore": 3.0,
+          "exit_resolution": 5
+        },
+        {
+          "strategy_id": "s57",
+          "weight": 1.0,
+          "market": "combined",
+          "max_positions": 15,
+          "pump_filter_funding_zscore": 3.0
+        },
+        {
+          "strategy_id": "s65",
+          "weight": 1.0,
+          "market": "perp",
+          "max_positions": 15,
+          "pump_filter_funding_zscore": 3.0
+        }
+      ],
+      "max_portfolio_positions": 50,
+      "state_dir": "state/v4_paper_s65/"
+    },
+    {
+      "pool_name": "s72",
+      "initial_capital": 200000.0,
+      "mode": "pool",
+      "strategies": [
+        {
+          "strategy_id": "s72",
+          "weight": 1.0,
+          "market": "perp",
+          "max_positions": 15,
+          "pump_filter_funding_zscore": 3.0
+        }
+      ],
+      "max_portfolio_positions": 15,
+      "state_dir": "state/v4_paper_s72/"
+    },
+    {
+      "pool_name": "s65",
+      "initial_capital": 200000.0,
+      "mode": "pool",
+      "strategies": [
+        {
+          "strategy_id": "s65",
+          "weight": 1.0,
+          "market": "perp",
+          "max_positions": 15,
+          "pump_filter_funding_zscore": 3.0
+        }
+      ],
+      "max_portfolio_positions": 15,
+      "state_dir": "state/v4_paper_s65_solo/"
+    },
+    {
+      "pool_name": "s62",
+      "initial_capital": 200000.0,
+      "mode": "pool",
+      "strategies": [
+        {
+          "strategy_id": "s62",
+          "weight": 1.0,
+          "market": "perp",
+          "max_positions": 15
+        }
+      ],
+      "max_portfolio_positions": 15,
+      "state_dir": "state/v4_paper_s62_solo/"
+    },
+    {
+      "pool_name": "s98",
+      "initial_capital": 200000.0,
+      "mode": "pool",
+      "strategies": [
+        {
+          "strategy_id": "s98",
+          "weight": 1.0,
+          "market": "perp",
+          "max_positions": 15,
+          "pump_filter_funding_zscore": 3.0,
+          "exit_resolution": 30
+        }
+      ],
+      "max_portfolio_positions": 15,
+      "concentration_limit": 0.2,
+      "state_dir": "state/v4_paper_s98/"
+    },
+    {
+      "pool_name": "s106",
+      "initial_capital": 200000.0,
+      "mode": "pool",
+      "strategies": [
+        {
+          "strategy_id": "s106",
+          "weight": 1.0,
+          "market": "perp",
+          "max_positions": 15,
+          "pump_filter_funding_zscore": 3.0,
+          "exit_resolution": 5
+        }
+      ],
+      "max_portfolio_positions": 15,
+      "concentration_limit": 0.2,
+      "state_dir": "state/v4_paper_s106/"
+    },
+    {
+      "pool_name": "s107",
+      "initial_capital": 200000.0,
+      "mode": "pool",
+      "strategies": [
+        {
+          "strategy_id": "s107",
+          "weight": 1.0,
+          "market": "perp",
+          "max_positions": 15,
+          "pump_filter_funding_zscore": 3.0,
+          "exit_resolution": 5
+        }
+      ],
+      "max_portfolio_positions": 15,
+      "concentration_limit": 0.2,
+      "state_dir": "state/v4_paper_s107/"
+    },
+    {
+      "pool_name": "s320",
+      "initial_capital": 200000.0,
+      "mode": "pool",
+      "strategies": [
+        {
+          "strategy_id": "s320",
+          "weight": 1.0,
+          "market": "spot",
+          "max_positions": 1,
+          "sizing_overrides": {
+            "kelly_mult_override": 0.50,
+            "spot_max_equity_pct": 0.95
+          }
+        }
+      ],
+      "max_portfolio_positions": 1,
+      "state_dir": "state/v4_paper_s320/"
+    }
+  ]
+}

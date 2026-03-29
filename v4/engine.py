@@ -455,6 +455,12 @@ class StrategyResult:
     # None = disabled (use standard ATR-based trail).
     sma_trail_vals: Optional[np.ndarray] = None
 
+    # Limit entry price: per-bar limit price for entries.
+    # When set, simulator checks if the bar's low (long) or high (short)
+    # would fill the limit. If fills: entry at limit_price. If not: entry at close.
+    # None = disabled (always enter at close).
+    entry_limit_price: Optional[np.ndarray] = None
+
     # Regime-conditional target: tighter TP in DOWNTREND regime.
     bear_target_mult: float = 0.0
     # Regime-conditional max hold: shorter hold in DOWNTREND (0 = use max_hold)

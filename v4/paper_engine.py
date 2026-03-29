@@ -92,6 +92,20 @@ class PaperPortfolioEngine:
         self._strategy_exit_resolution: dict[str, int] = {
             s.strategy_id: s.exit_resolution for s in config.strategies
         }
+        # Sub-hourly entry resolution (1m BB cross detection for live trading)
+        self._strategy_entry_resolution: dict[str, int] = {
+            s.strategy_id: s.entry_resolution for s in config.strategies
+        }
+        entry_resolutions = [s.entry_resolution for s in config.strategies if s.entry_resolution > 0]
+        self._effective_entry_resolution = min(entry_resolutions) if entry_resolutions else 0
+        # Pending entry candidates for sub-hourly resolution (keyed by (strategy_id, token))
+        self._pending_entry_candidates: dict[tuple[str, str], dict] = {}
+        # Unify: create WS infra if EITHER exit or entry needs sub-hourly data
+        all_resolutions = [s.exit_resolution for s in config.strategies if s.exit_resolution > 0]
+        all_resolutions += [s.entry_resolution for s in config.strategies if s.entry_resolution > 0]
+        effective_ws_resolution = min(all_resolutions) if all_resolutions else effective_resolution
+        if effective_ws_resolution > 0 and effective_resolution == 0:
+            effective_resolution = effective_ws_resolution
         if effective_resolution > 0:
             from v4.candle_aggregator import CandleAggregator
             # Always create own CandleAggregator (resolution is per-engine)
@@ -368,9 +382,7 @@ class PaperPortfolioEngine:
         """Process price-based exits from completed sub-hourly candles.
 
         Returns number of positions closed.
-        Note: partial profit-taking is not supported in sub-hourly exits
-        (requires ADV-based slippage from hourly signals). Partial TP
-        positions will only be partially closed at the hourly resolution.
+        Handles partial profit-taking and trail/stop/target exits.
         """
         if not candles or getattr(self, '_effective_exit_resolution', 0) == 0:
             return 0
@@ -379,8 +391,10 @@ class PaperPortfolioEngine:
         logger = logging.getLogger(__name__)
 
         from v4.minute_exits import check_candle_exits
+        from v4.simulator import _partial_close_position
 
         closed_count = 0
+        partial_count = 0
         positions_to_close: list[tuple] = []  # (state, pos, exit_price, exit_reason)
         strategy_specs = {s.strategy_id: s for s in self.config.strategies}
 
@@ -397,6 +411,10 @@ class PaperPortfolioEngine:
 
                 h, l, c = candles[pos.token]
 
+                # Guard against inf/NaN candle values (corrupted WS feed)
+                if not (np.isfinite(h) and np.isfinite(l) and np.isfinite(c)):
+                    continue
+
                 # Get cached bar data from last hourly tick (per-strategy)
                 bar_data = self._cached_bar_data.get((pos.strategy_id, pos.token))
                 if bar_data is None:
@@ -408,6 +426,20 @@ class PaperPortfolioEngine:
                     cur_atr = abs(pos.entry_price) * 0.02
 
                 bars_held = self.tick_counter - pos.entry_bar
+
+                # Partial profit-taking (mirrors backtest process_minute_exits)
+                if (pos.partial_tp_atr > 0.0
+                        and not pos.partial_closed
+                        and bars_held >= pos.no_stop_bars):
+                    d = pos.direction
+                    if d == 1:
+                        profit_atr = (h - pos.entry_price) / max(cur_atr, 1e-10)
+                    else:
+                        profit_atr = (pos.entry_price - l) / max(cur_atr, 1e-10)
+                    if profit_atr >= pos.partial_tp_atr:
+                        adv_val = bar_data.get("adv", 1e6)
+                        _partial_close_position(st, pos, self.tick_counter, c, adv_val, self.config)
+                        partial_count += 1
 
                 # Get circuit breaker params
                 spec = strategy_specs.get(pos.strategy_id)
@@ -465,12 +497,34 @@ class PaperPortfolioEngine:
                             positions_to_close.append((st, linked, exit_price_linked, "linked_exit"))
 
         # Execute closures
+        from v4.sizing import compute_slippage_bps
+
         timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         for st, pos, exit_price, reason in positions_to_close:
             if pos not in st.position_manager.open_positions:
                 continue  # Already closed (e.g., linked leg)
 
             pm = st.position_manager
+
+            # Apply exit slippage (matching backtest _close_position)
+            if reason != "liquidation":
+                notional = abs(pos.quantity * exit_price)
+                bar_data = self._cached_bar_data.get((pos.strategy_id, pos.token))
+                exit_adv = bar_data.get("adv", 1e6) if bar_data else 1e6
+                effective_adv = exit_adv
+                if reason in ("stop", "margin_call"):
+                    effective_adv = exit_adv * self.config.stress_adv_multiplier
+                _slip_model = st._slippage_models.get(pos.strategy_id)
+                if _slip_model is not None:
+                    slip_bps = _slip_model.compute_slippage(notional, effective_adv, self.config.base_spread_bps, self.config.impact_coeff, self.config.max_slip_bps)
+                else:
+                    slip_bps = compute_slippage_bps(notional, effective_adv, self.config.base_spread_bps, self.config.impact_coeff, self.config.max_slip_bps)
+                slip = exit_price * slip_bps / 10000.0
+                if pos.direction == 1:
+                    exit_price -= slip  # Long exit: sell lower
+                else:
+                    exit_price += slip  # Short exit: buy higher
+
             entry_fee = getattr(st, '_entry_fees_by_pos', {}).pop(pos.position_id, 0.0) if isinstance(getattr(st, '_entry_fees_by_pos', {}), dict) else 0.0
             exit_fee = abs(pos.quantity) * exit_price * pos.fee_rate
 
@@ -498,18 +552,336 @@ class PaperPortfolioEngine:
 
         # Always update last known prices from candle closes for fresh MTM
         for token, (_, _, c_price) in candles.items():
-            self._last_known_prices[token] = c_price
+            if np.isfinite(c_price):
+                self._last_known_prices[token] = c_price
 
-        # Persist state if any exits occurred
-        if closed_count > 0:
+        # Persist state if any exits or partial closes occurred
+        if closed_count > 0 or partial_count > 0:
             self._persist_sub_hourly_state(timestamp)
-            self._update_ws_subscriptions()
-            logger.info("Sub-hourly exits: %d positions closed", closed_count)
+            if closed_count > 0:
+                self._update_ws_subscriptions()
+            if closed_count > 0:
+                logger.info("Sub-hourly exits: %d positions closed", closed_count)
+            if partial_count > 0:
+                logger.info("Sub-hourly partial TP: %d positions partially closed", partial_count)
 
         return closed_count
 
+    def process_sub_hourly_entries(
+        self, candles: dict[str, tuple[float, float, float]],
+    ) -> int:
+        """Process pending entry candidates against completed sub-hourly candles.
+
+        Mirrors process_sub_hourly_exits(): for each pending candidate, checks
+        if the 1m candle close crosses the limit price. On cross, executes entry
+        with slippage applied to the cross close price.
+
+        Constraint checks match the backtest's _process_entries() for parity:
+        portfolio limit, strategy limit, max_concurrent, pump filters,
+        unrealized PnL sizing adjustment, DD scaling, concentration limit,
+        and free capital with scale-down + funding buffer.
+
+        Returns number of entries executed.
+        """
+        if not candles or self._effective_entry_resolution == 0:
+            return 0
+        if not self._pending_entry_candidates:
+            return 0
+
+        import logging
+        logger = logging.getLogger(__name__)
+
+        from v4.sizing import compute_slippage_bps, get_sizing_model
+        from v4.config import resolve_sizing
+        from v4.universe import get_fee_rate
+        from v4.simulator import _dd_size_mult
+
+        entry_count = 0
+        strategy_specs = {s.strategy_id: s for s in self.config.strategies}
+        executed_keys: list[tuple[str, str]] = []
+
+        for (sid, token), cand in list(self._pending_entry_candidates.items()):
+            if token not in candles:
+                continue
+
+            h, l, c = candles[token]
+            if not np.isfinite(c):
+                continue  # NaN/inf candle — skip to avoid corrupting state
+
+            lp = cand["limit_price"]
+            direction = cand["direction"]
+
+            # Check if 1m close crosses the limit price
+            if direction == 1 and c <= lp:
+                continue  # Long: need close > limit
+            if direction == -1 and c >= lp:
+                continue  # Short: need close < limit
+
+            # Cross detected — execute entry
+            spec = strategy_specs.get(sid)
+            if spec is None:
+                continue
+
+            # Get the state to open position in
+            if self.config.mode == "independent":
+                st = self.strategy_states.get(sid)
+                if st is None:
+                    continue
+            else:
+                st = self.state
+
+            # --- Pump filter Layer 1: range anomaly ---
+            if spec.pump_filter_range_threshold > 0:
+                pump_range = cand.get("pump_range", 0.0)
+                if pump_range > spec.pump_filter_range_threshold:
+                    continue
+
+            # --- Pump filter Layer 3: funding z-score (longs only) ---
+            if spec.pump_filter_funding_zscore > 0 and direction >= 1:
+                f_zscore = cand.get("funding_zscore", float('nan'))
+                if not np.isnan(f_zscore) and f_zscore > spec.pump_filter_funding_zscore:
+                    continue
+
+            # Portfolio constraints
+            if st.position_manager.total_open() >= self.config.max_portfolio_positions:
+                continue
+            if st.position_manager.count_for_strategy(sid) >= spec.max_positions:
+                continue
+            max_conc = spec.max_concurrent_per_token
+            if len(st.position_manager.find_open_for_token_strategy(token, sid)) >= max_conc:
+                continue
+
+            # Compute sizing (matching backtest normal-mode path)
+            resolved = resolve_sizing(self.config.sizing_defaults, spec.sizing_overrides)
+            sizing_model = get_sizing_model(spec.sizing_model)
+            slippage_model = st._slippage_models.get(sid)
+
+            close_val = cand["close_val"]
+            atr_val = cand["atr_val"]
+            adv_val = cand["adv_val"]
+            lev_val = cand["leverage"]
+            sm_val = cand["size_multiplier"]
+            cap_mult = cand["cap_multiplier"]
+            is_perp = cand["is_perp"]
+
+            volatility = atr_val / max(close_val, 1e-10)
+
+            # Unrealized PnL adjustment (constrain-only: losses reduce, gains don't inflate)
+            total_unrealized = self._compute_sub_hourly_unrealized(st)
+
+            if self.config.raw_mode:
+                strategy_equity = self.config.capital * spec.weight
+            else:
+                portfolio_eq = st.portfolio_equity
+                sizing_eq = max(min(portfolio_eq + total_unrealized, portfolio_eq),
+                                portfolio_eq * self.config.sizing_defaults.unrealized_pnl_floor)
+                sizing_eq = max(sizing_eq, 0.0)
+                if self.config.max_sizing_equity is not None:
+                    sizing_eq = min(sizing_eq, self.config.max_sizing_equity)
+                strategy_equity = sizing_eq * spec.weight
+
+            # DD scaling overlay
+            dd_mult = _dd_size_mult(st, spec.dd_scaling, total_unrealized)
+            if dd_mult <= 0:
+                continue
+            strategy_equity *= dd_mult
+
+            pos_usd = sizing_model.compute_size(
+                strategy_equity=strategy_equity,
+                rolling_adv=adv_val,
+                volatility=volatility,
+                edge=cand["edge"],
+                size_multiplier=sm_val,
+                cap_multiplier=cap_mult,
+                max_trade_pct=cand["max_trade_pct"],
+                adv_cap_pct=self.config.adv_cap_pct,
+                adv_sizing_enabled=spec.adv_sizing_enabled,
+                adv_sizing_base=spec.adv_sizing_base,
+                adv_sizing_floor=spec.adv_sizing_floor,
+                edge_minimum=resolved.edge_minimum,
+                target_vol=resolved.target_vol,
+                vol_floor=resolved.vol_floor,
+                spot_max_equity_pct=resolved.spot_max_equity_pct,
+                leverage=lev_val,
+                kelly_mult_override=resolved.kelly_mult_override,
+                kelly_mult_scale=resolved.kelly_mult_scale,
+                cap_pct_override=resolved.cap_pct_override,
+                cap_pct_scale=resolved.cap_pct_scale,
+                kelly_mult_floor=resolved.kelly_mult_floor,
+                kelly_mult_range=resolved.kelly_mult_range,
+                cap_pct_floor=resolved.cap_pct_floor,
+                cap_pct_range=resolved.cap_pct_range,
+                adv_scaling_divisor=resolved.adv_scaling_divisor,
+            )
+
+            if pos_usd <= 0 or pos_usd < self.config.min_position_usd:
+                continue
+
+            # Leverage
+            margin_usd = pos_usd
+            if is_perp and lev_val > 1.0:
+                notional_usd = pos_usd * lev_val
+            else:
+                notional_usd = pos_usd
+
+            # ADV cap check
+            if pos_usd > adv_val * self.config.adv_cap_pct:
+                continue
+
+            # Concentration limit (scale down or reject)
+            if not self.config.raw_mode:
+                portfolio_eq = st.portfolio_equity
+                existing_margin = st.position_manager.total_margin_for_token(token)
+                max_for_token = self.config.concentration_limit * portfolio_eq - existing_margin
+                if margin_usd > max_for_token:
+                    if max_for_token < self.config.min_position_usd:
+                        continue
+                    pos_usd = max_for_token
+                    margin_usd = pos_usd
+                    if is_perp and lev_val > 1.0:
+                        notional_usd = pos_usd * lev_val
+                    else:
+                        notional_usd = pos_usd
+
+            # Fee
+            if is_perp:
+                fee_rate = get_fee_rate(self.config.exchange, "perp", "taker")
+            else:
+                fee_rate = get_fee_rate(self.config.exchange, "spot", "taker")
+            entry_fee = notional_usd * fee_rate
+
+            # Free capital check (scale down with funding buffer, matching backtest)
+            if not self.config.raw_mode and st.free_capital < margin_usd + entry_fee:
+                funding_buffer = max(st.portfolio_equity * self.config.sizing_defaults.funding_buffer_pct, 1.0)
+                usable = st.free_capital - funding_buffer
+                if usable <= 0:
+                    continue
+                if is_perp and lev_val > 1.0:
+                    affordable = usable / (1.0 + lev_val * fee_rate)
+                else:
+                    affordable = usable / (1.0 + fee_rate)
+                if affordable < self.config.min_position_usd:
+                    continue
+                pos_usd = affordable
+                margin_usd = pos_usd
+                if is_perp and lev_val > 1.0:
+                    notional_usd = pos_usd * lev_val
+                else:
+                    notional_usd = pos_usd
+                entry_fee = notional_usd * fee_rate
+
+            # Slippage: apply to the 1m cross close price
+            if slippage_model is not None:
+                slip_bps = slippage_model.compute_slippage(
+                    notional_usd, adv_val, self.config.base_spread_bps,
+                    self.config.impact_coeff, self.config.max_slip_bps,
+                )
+            else:
+                slip_bps = compute_slippage_bps(
+                    notional_usd, adv_val, self.config.base_spread_bps,
+                    self.config.impact_coeff, self.config.max_slip_bps,
+                )
+            slip = c * slip_bps / 10000.0
+            entry_price = c + slip * direction
+
+            quantity = notional_usd / max(entry_price, 1e-10) * direction
+
+            stop_mult = cand["stop_mult"]
+            initial_risk = stop_mult * atr_val
+            if direction == 1:
+                stop_price = entry_price - initial_risk
+            else:
+                stop_price = entry_price + initial_risk
+
+            timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+            cached_tick = cand["tick_counter"]
+            pos = Position(
+                position_id=f"{token}:{sid}:{cached_tick}:sub",
+                token=token,
+                strategy_id=sid,
+                leg="primary",
+                entry_bar=cached_tick,
+                entry_price=entry_price,
+                direction=direction,
+                quantity=quantity,
+                margin_usd=margin_usd,
+                leverage=lev_val,
+                is_perp=is_perp,
+                fee_rate=fee_rate,
+                stop_mult=stop_mult,
+                trail_mult=cand["trail_mult"],
+                target_mult=cand["target_mult"],
+                no_stop_bars=cand["no_stop_bars"],
+                min_hold=cand["min_hold"],
+                max_hold=cand["max_hold"],
+                exit_regimes=cand["exit_regimes"],
+                convex_exit=cand["convex_exit"],
+                rsi_exit_level=cand.get("rsi_exit_level", 999.0),
+                regime_exit_min_bars=cand.get("regime_exit_min_bars", 6),
+                convex_bar_thresholds=cand.get("convex_bar_thresholds", (48, 12)),
+                convex_multipliers=cand.get("convex_multipliers", (2.0, 1.5, 0.3)),
+                trail_schedule=cand.get("trail_schedule"),
+                time_trail_schedule=cand.get("time_trail_schedule"),
+                max_trail_mult_arr=cand.get("max_trail_mult"),
+                funding_exit_threshold=cand.get("funding_exit_threshold", 0.0),
+                partial_tp_atr=cand.get("partial_tp_atr", 0.0),
+                partial_tp_pct=cand.get("partial_tp_pct", 0.5),
+                partial_tp_trail=cand.get("partial_tp_trail", 1.5),
+                breakeven_atr=cand.get("breakeven_atr", 0.0),
+                chandelier_lookback=cand.get("chandelier_lookback", 0),
+                stop_price=stop_price,
+                highest=cand["high_val"],
+                lowest=cand["low_val"],
+                initial_risk=initial_risk,
+            )
+            pos.entry_timestamp = timestamp
+
+            # Build exit handler chain immediately (backtest parity: simulator.py:839)
+            sig_ref = cand.get("sig_ref")
+            if sig_ref is not None:
+                from v4.exit_handlers import build_exit_chain
+                spec = strategy_specs.get(sid)
+                pos.exit_handlers = build_exit_chain(pos, sig_ref, spec, state=st, config=self.config)
+
+            # Update state
+            st.total_fees += entry_fee
+            st._entry_fees_by_pos[pos.position_id] = entry_fee
+            st.position_manager.open_position(pos)
+            self._last_known_prices[token] = c  # fresh price for unrealized PnL
+            entry_count += 1
+            executed_keys.append((sid, token))
+
+        # Remove executed candidates
+        for key in executed_keys:
+            self._pending_entry_candidates.pop(key, None)
+
+        # Persist state if any entries occurred
+        if entry_count > 0:
+            ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            self._persist_sub_hourly_state(ts)
+            self._update_ws_subscriptions()
+            logger.info("Sub-hourly entries: %d positions opened", entry_count)
+
+        return entry_count
+
+    def _compute_sub_hourly_unrealized(self, st: "SimulationState") -> float:
+        """Compute total unrealized P&L for sub-hourly entry sizing.
+
+        Uses last known prices (updated from hourly tick + sub-hourly candles).
+        Mirrors simulator's _compute_total_unrealized but uses cached prices
+        instead of signal arrays (which aren't available between ticks).
+        """
+        total = 0.0
+        for pos in st.position_manager.open_positions:
+            price = self._last_known_prices.get(pos.token)
+            if price is None:
+                continue
+            total += pos.quantity * (price - pos.entry_price)
+        return total
+
     def _persist_sub_hourly_state(self, timestamp: str) -> None:
-        """Persist state after sub-hourly exits (trades + state.json only).
+        """Persist state after sub-hourly exits or entries (trades + state.json only).
 
         Does NOT recompute signals or process entries (that's hourly only).
         """
@@ -627,8 +999,151 @@ class PaperPortfolioEngine:
                     "bear_target_mult": sig.bear_target_mult if hasattr(sig, 'bear_target_mult') else 0.0,
                 }
 
+    def _cache_entry_candidates(
+        self,
+        all_signals: dict[str, dict],
+        strategy_specs: dict[str, "StrategySpec"],
+        bar_maps: dict[str, np.ndarray],
+    ) -> None:
+        """Cache unfilled entry candidates for sub-hourly 1m resolution.
+
+        After each hourly tick, extracts pending entry candidates — tokens where
+        entry_limit_price is set but the hourly bar didn't fill the limit.
+        These are monitored via WebSocket 1m candles between hourly ticks.
+        Candidates are discarded at the next hourly tick (fresh cache each tick).
+        """
+        self._pending_entry_candidates.clear()
+
+        for sid, token_sigs in all_signals.items():
+            if self._strategy_entry_resolution.get(sid, 0) == 0:
+                continue
+            spec = strategy_specs.get(sid)
+            if spec is None:
+                continue
+            # Skip combined strategies (require atomic two-leg entry)
+            if spec.market == "combined":
+                continue
+
+            for token, sig in token_sigs.items():
+                bm = bar_maps.get(token)
+                if bm is None:
+                    continue
+                local_bar = int(bm[self.tick_counter]) if self.tick_counter < len(bm) else -1
+                if local_bar == -1 or local_bar >= sig.n_bars:
+                    continue
+
+                # Must have entry signal AND entry_limit_price set (BB threshold)
+                if not sig.entry_mask[local_bar]:
+                    continue
+                if sig.entry_limit_price is None:
+                    continue
+                if local_bar >= len(sig.entry_limit_price):
+                    continue
+                lp = float(sig.entry_limit_price[local_bar])
+                if np.isnan(lp):
+                    continue
+
+                direction = int(sig.direction[local_bar])
+                if direction == 0:
+                    continue
+
+                # Check if the hourly bar already filled the limit
+                h_val = float(sig.high[local_bar])
+                l_val = float(sig.low[local_bar])
+                if direction == 1 and l_val <= lp:
+                    continue  # Long limit already filled on hourly bar
+                if direction == -1 and h_val >= lp:
+                    continue  # Short limit already filled on hourly bar
+
+                # Check if position already exists for this token+strategy
+                # Also skip if the hourly path already entered this tick (prevent double-entry)
+                skip = False
+                for st in self._get_all_states():
+                    open_for_ts = st.position_manager.find_open_for_token_strategy(token, sid)
+                    max_conc = spec.max_concurrent_per_token
+                    if len(open_for_ts) >= max_conc:
+                        skip = True
+                        break
+                    # Check if any were just opened this tick (hourly already entered)
+                    if any(p.entry_bar == self.tick_counter for p in open_for_ts):
+                        skip = True
+                        break
+                if not skip:
+                    # No state had a blocking position — cache candidate
+                    # Pre-extract signal data for entry execution
+                    close_val = float(sig.close[local_bar])
+                    atr_val = float(sig.atr[local_bar])
+                    if np.isnan(atr_val):
+                        atr_val = close_val * 0.02
+                    # Spot ATR for pump filter (backtest runs pump check before venue routing)
+                    spot_atr_val = atr_val
+                    adv_val = float(sig.rolling_adv[local_bar])
+                    lev_val = float(sig.leverage[local_bar])
+                    sm_val = float(sig.size_multiplier[local_bar])
+                    cap_mult = float(sig.cap_multiplier[local_bar])
+                    is_perp = sig.is_perp_primary
+                    if sig.per_bar_is_perp is not None:
+                        is_perp = bool(sig.per_bar_is_perp[local_bar])
+                        if is_perp and sig.perp_close is not None:
+                            close_val = float(sig.perp_close[local_bar])
+                            atr_val = float(sig.perp_atr[local_bar])
+                            if np.isnan(atr_val):
+                                atr_val = close_val * 0.02
+                            adv_val = float(sig.perp_rolling_adv[local_bar])
+
+                    self._pending_entry_candidates[(sid, token)] = {
+                        "limit_price": lp,
+                        "direction": direction,
+                        "tick_counter": self.tick_counter,
+                        "close_val": close_val,
+                        "atr_val": atr_val,
+                        "adv_val": adv_val,
+                        "leverage": lev_val,
+                        "size_multiplier": sm_val,
+                        "cap_multiplier": cap_mult,
+                        "is_perp": is_perp,
+                        "sig_ref": sig,  # For build_exit_chain at sub-hourly entry
+                        "stop_mult": float(sig.stop_mult[local_bar]),
+                        "trail_mult": float(sig.trail_mult[local_bar]),
+                        "target_mult": sig.target_mult,
+                        "no_stop_bars": sig.no_stop_bars,
+                        "min_hold": sig.min_hold,
+                        "max_hold": sig.max_hold,
+                        "exit_regimes": sig.exit_regimes,
+                        "convex_exit": sig.convex_exit,
+                        "edge": sig.edge,
+                        "max_trade_pct": sig.max_trade_pct,
+                        "high_val": h_val,
+                        "low_val": l_val,
+                        # Exit handler parameters (backtest parity)
+                        "rsi_exit_level": sig.rsi_exit_level,
+                        "regime_exit_min_bars": sig.regime_exit_min_bars,
+                        "convex_bar_thresholds": sig.convex_bar_thresholds,
+                        "convex_multipliers": sig.convex_multipliers,
+                        "trail_schedule": sig.trail_schedule,
+                        "time_trail_schedule": sig.time_trail_schedule,
+                        "max_trail_mult": sig.max_trail_mult,
+                        "funding_exit_threshold": sig.funding_exit_threshold,
+                        "partial_tp_atr": sig.partial_tp_atr,
+                        "partial_tp_pct": sig.partial_tp_pct,
+                        "partial_tp_trail": sig.partial_tp_trail,
+                        "breakeven_atr": sig.breakeven_atr,
+                        "chandelier_lookback": sig.chandelier_lookback,
+                        # Pump filter data (cached for constraint checks)
+                        # Use spot ATR to match backtest (pump filter runs before venue routing)
+                        "pump_range": (h_val - l_val) / max(spot_atr_val, 1e-10),
+                        "funding_zscore": (
+                            float(sig.funding_zscore[local_bar])
+                            if sig.funding_zscore is not None and local_bar < len(sig.funding_zscore)
+                            else float('nan')
+                        ),
+                    }
+
     def _update_ws_subscriptions(self) -> None:
         """Update WebSocket subscriptions to match current open positions.
+
+        Also includes tokens with pending entry candidates for sub-hourly
+        entry resolution.
 
         No-op when engine does not own its PriceMonitor — the runner manages
         subscriptions centrally to prevent clobbering other engines' tokens.
@@ -639,6 +1154,9 @@ class PaperPortfolioEngine:
         for st in self._get_all_states():
             for pos in st.position_manager.open_positions:
                 open_tokens.add(pos.token)
+        # Include tokens with pending entry candidates
+        for (sid, token) in self._pending_entry_candidates:
+            open_tokens.add(token)
         self._price_monitor.update_subscriptions(open_tokens)
         if self._candle_aggregator:
             self._candle_aggregator.update_tokens(open_tokens)
@@ -923,6 +1441,15 @@ class PaperPortfolioEngine:
         bar_maps: dict,
     ) -> None:
         """Delegate exit processing to v4 simulator."""
+        # Clear exit_handlers so they rebuild with fresh sig each tick.
+        # In the backtest, sig is a single long-lived object (arrays cover all bars).
+        # In paper mode, precompute_strategy_signals() creates NEW TokenSignals each
+        # tick with +1 bar. Handlers holding old sig refs would IndexError on
+        # RSIExitHandler, MeanTargetHandler, or chandelier lookback.
+        for st in self._get_all_states():
+            for pos in st.position_manager.open_positions:
+                pos.exit_handlers = []
+
         strategy_specs = {s.strategy_id: s for s in self.config.strategies}
         if self.config.mode == "independent":
             for sid, sstate in self.strategy_states.items():
@@ -995,6 +1522,13 @@ class PaperPortfolioEngine:
         # Cache bar data for sub-hourly exit checks between hourly ticks
         if getattr(self, '_effective_exit_resolution', 0) > 0:
             self._cache_bar_data(all_signals, bar_maps)
+
+        # Cache entry candidates for sub-hourly entry resolution
+        if getattr(self, '_effective_entry_resolution', 0) > 0:
+            self._cache_entry_candidates(all_signals, strategy_specs, bar_maps)
+
+        # Update WS subscriptions (covers both exit positions and entry candidates)
+        if getattr(self, '_effective_exit_resolution', 0) > 0 or getattr(self, '_effective_entry_resolution', 0) > 0:
             self._update_ws_subscriptions()
 
     def _tick_internal(self, bar_timestamp=None) -> None:
@@ -1069,7 +1603,8 @@ class PaperPortfolioEngine:
             tokens = discover_tokens(spec.market)
             if tokens:
                 any_tokens_found = True
-            sigs = precompute_strategy_signals(spec, tokens, self.config, self.config.lookback_months)
+            live_bar = self.tick_counter if self._strategy_entry_resolution.get(spec.strategy_id, 0) > 0 else -1
+            sigs = precompute_strategy_signals(spec, tokens, self.config, self.config.lookback_months, live_bar=live_bar)
             all_signals[spec.strategy_id] = sigs
 
         if not any_tokens_found:
@@ -1736,7 +2271,7 @@ class PaperPortfolioEngine:
                 "trade_count": len(all_closed_trades),
                 "open_positions": self._aggregate_open_positions(),
                 "strategies": [s.strategy_id for s in config.strategies],
-                "exit_resolution": _exit_res_label(self._effective_exit_resolution),
+                "exit_resolution": _exit_res_label(getattr(self, '_effective_exit_resolution', 0)),
             }]
         else:
             strategies = [{

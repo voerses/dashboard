@@ -87,6 +87,8 @@ class TokenSignals:
     mean_target_vals: Optional[np.ndarray] = None
     # SMA trailing stop: per-bar SMA values (None = disabled)
     sma_trail_vals: Optional[np.ndarray] = None
+    # Limit entry price: per-bar limit price (None = market at close)
+    entry_limit_price: Optional[np.ndarray] = None
     # Combined strategy (spot+perp)
     is_combined: bool = False
     secondary_entry_mask: Optional[np.ndarray] = None
@@ -208,6 +210,7 @@ def precompute_strategy_signals(
     config: PortfolioConfig,
     months: int,
     end_date: Optional[pd.Timestamp] = None,
+    live_bar: int = -1,
 ) -> dict[str, TokenSignals]:
     """Precompute signal arrays for one strategy across all tokens.
 
@@ -215,6 +218,8 @@ def precompute_strategy_signals(
         end_date: Explicit end date for the data window. If None, uses
                   pd.Timestamp.now() (appropriate for live trading only).
                   For backtesting, pass infer_data_end_date() for reproducibility.
+        live_bar: If >= 0, bars at this index or later are preserved during
+                  1m entry resolution when 1m data is missing (paper mode).
 
     Follows backtest_funds.py pattern:
       _build_context() -> strategy_fn() -> extract arrays -> walk-forward mask
@@ -222,7 +227,7 @@ def precompute_strategy_signals(
     # Dispatch to portfolio adapter for Class B strategies
     if strategy_spec.strategy_type == "portfolio":
         from .portfolio_signals import precompute_portfolio_signals
-        return precompute_portfolio_signals(strategy_spec, tokens, config, months, end_date)
+        return precompute_portfolio_signals(strategy_spec, tokens, config, months, end_date, live_bar=live_bar)
 
     strategy_fn = _load_strategy_fn(strategy_spec.strategy_id)
     is_single_ctx = len(inspect.signature(strategy_fn).parameters) == 1
