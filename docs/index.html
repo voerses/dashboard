@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-generated-at="2026-03-29T21:44:05Z" data-source="runner" data-pools="1">
+<html lang="en" data-generated-at="2026-03-29T21:49:01Z" data-source="runner" data-pools="1">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -89,7 +89,7 @@ tr.trade-row { cursor:pointer; }
             <div class="view-btn" id="vb-sentinel" onclick="switchView('sentinel')">Sentinel</div>
         </div>
     </div>
-    <div class="meta" id="hdr-time">Updated: 2026-03-29T21:44:05Z</div>
+    <div class="meta" id="hdr-time">Updated: 2026-03-29T21:49:01Z</div>
 </div>
 <div class="stale-banner" id="stale-banner">
     Data is stale — last update was more than 2 hours ago. Check paper trading engine.
@@ -98,7 +98,7 @@ tr.trade-row { cursor:pointer; }
 <div id="app"></div>
 
 <script>
-const SIMS = [{"id":"paper_trading","name":"paper_trading","capital":150000.0,"strategies":[{"id":"paper_trading","name":"paper_trading","weight":0,"final_equity":150000.0,"trade_count":0,"open_positions":0,"strategies":[],"exit_resolution":"hourly","strategy_resolutions":{}}],"all_trades":[],"equity_history":[{"timestamp":"2026-03-29T21:43:59Z","mark_to_market_equity":150000.0}],"shadow_pools":{"spot_funds":0.0,"perp_funds":0.0,"spot_deployed":0.0,"perp_deployed":0.0,"imbalance_pct":0.0,"blocked_entries_count":0},"rebalance_history":[],"last_updated":"2026-03-29T21:43:59Z","is_stale":false,"tick_counter":1,"portfolio_equity":150000.0,"open_positions":0,"realized_pnl":0.0,"total_fees":0.0,"total_funding":0.0,"sentinel_events":[],"sentinel_heartbeat":{},"sentinel_metrics":{},"sentinel_summary":{"total_breaches":0,"wick_filters":0,"true_positives":0,"false_triggers":0},"sentinel_strategy_breakdown":{},"sentinel_reconciliation":{"records":[],"total_savings":0.0,"avg_savings":0.0,"sentinel_better_count":0,"matched_count":0}}];
+const SIMS = [{"id":"paper_trading","name":"paper_trading","capital":150000.0,"strategies":[{"id":"paper_trading","name":"paper_trading","weight":0,"final_equity":150000.0,"trade_count":0,"open_positions":0,"strategies":[],"exit_resolution":"hourly","strategy_resolutions":{}}],"all_trades":[],"equity_history":[{"timestamp":"2026-03-29T21:43:59Z","mark_to_market_equity":150000.0},{"timestamp":"2026-03-29T21:48:34Z","mark_to_market_equity":150000.0}],"shadow_pools":{"spot_funds":0.0,"perp_funds":0.0,"spot_deployed":0.0,"perp_deployed":0.0,"imbalance_pct":0.0,"blocked_entries_count":0},"rebalance_history":[],"last_updated":"2026-03-29T21:48:34Z","is_stale":false,"tick_counter":2,"portfolio_equity":150000.0,"open_positions":0,"realized_pnl":0.0,"total_fees":0.0,"total_funding":0.0,"sentinel_events":[],"sentinel_heartbeat":{},"sentinel_metrics":{},"sentinel_summary":{"total_breaches":0,"wick_filters":0,"true_positives":0,"false_triggers":0},"sentinel_strategy_breakdown":{},"sentinel_reconciliation":{"records":[],"total_savings":0.0,"avg_savings":0.0,"sentinel_better_count":0,"matched_count":0}}];
 let activeSim = (() => {const h=decodeURIComponent(location.hash.slice(1)); if(!h) return 0; const i=SIMS.findIndex(s=>s.name===h); return i>=0?i:0;})();
 /* Convert header time to user locale */
 {const el=document.getElementById('hdr-time');if(el){const m=el.textContent.match(/Updated:\s*(.+)/);if(m){const d=new Date(m[1]);if(!isNaN(d))el.textContent='Updated: '+d.toLocaleString();}}}
