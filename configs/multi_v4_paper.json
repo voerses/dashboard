@@ -45,6 +45,7 @@
       "strategies": [
         {
           "strategy_id": "s501",
+          "strategy_type": "portfolio",
           "weight": 1.0,
           "market": "perp",
           "max_positions": 50,
