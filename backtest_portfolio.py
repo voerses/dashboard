@@ -117,6 +117,13 @@ def run_backtest(strategy_id, months=12, capital=200_000, strategy_type='portfol
 
 
 if __name__ == "__main__":
+    import warnings
+    print(
+        "\n  DEPRECATED: backtest_portfolio.py is deprecated. "
+        "Use v4/portfolio_backtest.py instead.\n"
+        "  Example: python v4/portfolio_backtest.py --strategy s56 --market perp --months 12\n",
+        file=sys.stderr,
+    )
     parser = argparse.ArgumentParser()
     parser.add_argument("strategy", type=str)
     parser.add_argument("--months", type=int, default=12)

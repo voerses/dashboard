@@ -25,8 +25,12 @@ from v4.paper_engine import PaperPortfolioEngine
 from v4.signals import discover_tokens
 from v4.paper_utils import restore_state, acquire_pid_lock, compute_sleep_until_next_hour
 from v4.dashboard_state import write_dashboard_state
+from v4.data_maintenance import ensure_data_fresh
 
 logger = logging.getLogger(__name__)
+
+# AC10: Promote live→historical every 4 hours
+PROMOTE_INTERVAL_S = 14400
 
 
 # ---------------------------------------------------------------------------
@@ -111,6 +115,7 @@ def load_multi_config(path: str) -> list[PaperConfig]:
             carry_strategies=merged.get("carry_strategies", []),
             exit_resolution=merged.get("exit_resolution", 0),
             dedicated_ws=merged.get("dedicated_ws", False),
+            skip_walk_forward=merged.get("skip_walk_forward", False),
         )
         config.config_path = path
         configs.append(config)
@@ -139,6 +144,39 @@ def write_portfolio_configs(configs: list[PaperConfig]) -> None:
         cfg_path = os.path.join(config.state_dir, "config.json")
         with open(cfg_path, "w") as f:
             json.dump(cfg_data, f, indent=2)
+
+
+# ---------------------------------------------------------------------------
+# AC11: 1m fetch for tokens with open positions
+# ---------------------------------------------------------------------------
+
+def fetch_1m_for_open_positions(fetcher, engines: list) -> None:
+    """Fetch 1m data for tokens with open positions across all engines.
+
+    Called after each hourly fetch. Only tokens with open positions get
+    1m data — others are skipped to save API budget.
+    """
+    tokens_to_fetch = set()
+    for engine in engines:
+        try:
+            for state in engine._get_all_states():
+                for pos in state.position_manager.open_positions:
+                    tokens_to_fetch.add(pos.token)
+        except Exception as e:
+            logger.warning("Error collecting open positions: %s", e)
+
+    if not tokens_to_fetch:
+        return
+
+    for token in sorted(tokens_to_fetch):
+        try:
+            bars = fetcher.fetch_ohlcv(token, market="perp", timeframe="1m", limit=48)
+            closed = fetcher.filter_closed_bars_1m(bars)
+            if closed:
+                fetcher.append_to_1m_parquet(token, closed)
+                logger.debug("1m fetch: %s — %d bars", token, len(closed))
+        except Exception as e:
+            logger.warning("1m fetch failed for %s: %s", token, e)
 
 
 # ---------------------------------------------------------------------------
@@ -558,19 +596,21 @@ def main(argv: list[str] | None = None) -> None:
                 except Exception:
                     logger.warning("[%s] Dedicated PriceMonitor start failed", config.pool_name)
 
-    # Startup backfill: repair data gaps >24h from outages
-    all_backfill_tokens: set[str] = set()
-    for config in configs:
-        for spec in config.strategies:
-            try:
-                all_backfill_tokens.update(discover_tokens(spec.market))
-            except Exception:
-                pass
-    if all_backfill_tokens:
-        backfill_results = shared_fetcher.backfill_gaps(all_backfill_tokens)
-        if backfill_results:
-            logger.info("Startup backfill complete: %s",
-                        ", ".join(f"{k}={v} bars" for k, v in backfill_results.items()))
+    # AC9: Startup data maintenance — backfill gaps, promote, fetch 1m
+    try:
+        maint_summary = ensure_data_fresh(
+            exchange=exchange,
+            data_dir="data",
+            caller="runner_startup",
+        )
+        logger.info(
+            "Data maintenance: %d gaps filled, %d bars fetched, %d tokens promoted",
+            maint_summary.get("gaps_filled", 0),
+            maint_summary.get("bars_fetched", 0),
+            maint_summary.get("tokens_promoted", 0),
+        )
+    except Exception as e:
+        logger.warning("Startup data maintenance failed: %s — continuing with existing data", e)
 
     if args.once:
         # Single tick

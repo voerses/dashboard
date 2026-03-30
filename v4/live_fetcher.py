@@ -16,6 +16,7 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 _HOUR_MS = 3_600_000
+_MINUTE_MS = 60_000
 
 
 class LiveFetcher:
@@ -250,6 +251,17 @@ class LiveFetcher:
             now_ms = int(time.time() * 1000)
         return [b for b in bars if b["timestamp"] + _HOUR_MS <= now_ms]
 
+    def filter_closed_bars_1m(
+        self, bars: list[dict], now_ms: Optional[int] = None,
+    ) -> list[dict]:
+        """Exclude incomplete (still-forming) 1-minute bars.
+
+        A bar is closed if timestamp + 60_000 <= now_ms.
+        """
+        if now_ms is None:
+            now_ms = int(time.time() * 1000)
+        return [b for b in bars if b["timestamp"] + _MINUTE_MS <= now_ms]
+
     # ------------------------------------------------------------------
     # AC4: Parquet append
     # ------------------------------------------------------------------
@@ -292,6 +304,65 @@ class LiveFetcher:
         if os.path.exists(path):
             existing_df = pd.read_parquet(path)
             # Ensure index types match: convert integer index to DatetimeIndex
+            if not isinstance(existing_df.index, pd.DatetimeIndex):
+                existing_df.index = pd.to_datetime(existing_df.index, unit="ms")
+            combined = pd.concat([existing_df, new_df])
+        else:
+            combined = new_df
+
+        # Deduplicate: keep last occurrence (new data wins)
+        combined = combined[~combined.index.duplicated(keep="last")]
+        combined = combined.sort_index()
+
+        # Atomic write: temp file + rename
+        fd, tmp_path = tempfile.mkstemp(dir=cache_dir, suffix=".tmp")
+        os.close(fd)
+        try:
+            combined.to_parquet(tmp_path)
+            os.rename(tmp_path, path)
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
+
+    # ------------------------------------------------------------------
+    # 1m parquet support
+    # ------------------------------------------------------------------
+
+    def _1m_parquet_path(self, token: str) -> str:
+        """Return the 1m cache parquet path for a perp token.
+
+        1m data writes directly to data/perp/1m_cache/{TOKEN}_1m.parquet
+        (no live buffer — consistent with tools/fetch_today_data.py).
+        """
+        return os.path.join(
+            self.data_dir, "perp", "1m_cache", f"{token}_1m.parquet",
+        )
+
+    def append_to_1m_parquet(self, token: str, bars: list[dict]) -> None:
+        """Append 1m bars to the perp 1m cache parquet file.
+
+        - Creates file and directories if they don't exist.
+        - Deduplicates on timestamp (keeps last occurrence).
+        - Writes atomically via temp file + rename.
+        """
+        if not bars:
+            return
+
+        path = self._1m_parquet_path(token)
+        cache_dir = os.path.dirname(path)
+        os.makedirs(cache_dir, exist_ok=True)
+
+        # Build new DataFrame from bars
+        new_df = pd.DataFrame(bars)
+        new_df["timestamp"] = pd.to_datetime(new_df["timestamp"], unit="ms", utc=True).dt.tz_localize(None)
+        new_df = new_df.set_index("timestamp")
+
+        # Read existing data if present
+        if os.path.exists(path):
+            existing_df = pd.read_parquet(path)
             if not isinstance(existing_df.index, pd.DatetimeIndex):
                 existing_df.index = pd.to_datetime(existing_df.index, unit="ms")
             combined = pd.concat([existing_df, new_df])
