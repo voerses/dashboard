@@ -70,7 +70,7 @@ from v4.report import compute_portfolio_metrics
 class WalkForwardConfig:
     train_days: int = 365
     recalibrate_every: int = 90
-    purge_days: int = 5
+    purge_days: int = 7
 
 
 @dataclass
@@ -230,7 +230,8 @@ def _run_cpcv_v4(strategy_id: str, ticker: str,
                  data_dir: str = 'data',
                  market: str = 'spot',
                  capital: float = 200_000,
-                 exchange: str = 'binance') -> Tuple[float, float, int, int, float]:
+                 exchange: str = 'binance',
+                 anchor: Optional[str] = None) -> Tuple[float, float, int, int, float]:
     """
     CPCV validation for a single token using v4 simulator.
 
@@ -250,6 +251,9 @@ def _run_cpcv_v4(strategy_id: str, ticker: str,
         return 1.0, 0.0, 0, 0, 0.0
 
     df_1h = pd.read_parquet(h1_path)
+    if anchor is not None:
+        anchor_ts = pd.Timestamp(anchor)
+        df_1h = df_1h[df_1h.index <= anchor_ts]
     n = len(df_1h)
     if n < 2000:
         return 1.0, 0.0, 0, 0, 0.0
@@ -261,6 +265,8 @@ def _run_cpcv_v4(strategy_id: str, ticker: str,
         if not os.path.exists(perp_path):
             return 1.0, 0.0, 0, 0, 0.0
         df_1h_perp = pd.read_parquet(perp_path)
+        if anchor is not None:
+            df_1h_perp = df_1h_perp[df_1h_perp.index <= anchor_ts]
         n = min(n, len(df_1h_perp))
         if n < 2000:
             return 1.0, 0.0, 0, 0, 0.0
@@ -435,7 +441,8 @@ def _validate_token(ticker: str, strategy_id: str, config_dict: dict,
             pbo, avg_ret, folds_prof, total_folds, ds = _run_cpcv_v4(
                 strategy_id, ticker, config.cpcv,
                 data_dir=config.data_dir, market=config.market,
-                capital=config.capital)
+                capital=config.capital,
+                anchor=config_dict.get('anchor'))
             result.cpcv_pbo = pbo
             result.cpcv_avg_return = avg_ret
             result.cpcv_folds_profitable = folds_prof
@@ -477,7 +484,8 @@ def _validate_token(ticker: str, strategy_id: str, config_dict: dict,
 def validate_strategy(strategy_id: str, tokens: Optional[List[str]] = None,
                       config: Optional[ValidationConfig] = None,
                       run_wf: bool = True, run_cpcv: bool = True,
-                      verbose: bool = True) -> Dict:
+                      verbose: bool = True,
+                      end_date: Optional[str] = None) -> Dict:
     """
     Run V4 validation on a strategy across tokens.
 
@@ -523,6 +531,7 @@ def validate_strategy(strategy_id: str, tokens: Optional[List[str]] = None,
         'pbo_threshold': config.pbo_threshold,
         'data_dir': config.data_dir,
         'market': config.market,
+        'anchor': end_date,
     }
 
     # Header
@@ -739,7 +748,7 @@ def main():
                         help='Walk-forward training window (days)')
     parser.add_argument('--recal-days', type=int, default=90,
                         help='Walk-forward recalibration interval (days)')
-    parser.add_argument('--purge-days', type=int, default=5,
+    parser.add_argument('--purge-days', type=int, default=7,
                         help='Walk-forward purge window (days)')
     parser.add_argument('--cpcv-groups', type=int, default=6,
                         help='CPCV number of groups')

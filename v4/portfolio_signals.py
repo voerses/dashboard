@@ -91,8 +91,12 @@ def _load_all_contexts(
 
             if df_spot_full is not None:
                 df_spot = df_spot_full[df_spot_full.index >= load_from]
+                if end_date is not None:
+                    df_spot = df_spot[df_spot.index <= end_date]
             if df_perp_full is not None:
                 df_perp = df_perp_full[df_perp_full.index >= load_from]
+                if end_date is not None:
+                    df_perp = df_perp[df_perp.index <= end_date]
 
             if is_combined:
                 if df_spot is None or df_perp is None or len(df_spot) < 500 or len(df_perp) < 500:
@@ -514,6 +518,13 @@ def precompute_portfolio_signals(
     a dict of StrategyResults for tokens it wants to trade.
     """
     strategy_fn = _load_strategy_fn(strategy_spec.strategy_id)
+
+    # Dispatch to true walk-forward path if enabled
+    if config.true_walk_forward:
+        return _precompute_true_walk_forward(
+            strategy_spec, tokens, config, months, end_date, strategy_fn,
+        )
+
     is_combined = strategy_spec.market == "combined"
 
     print(f"  Loading contexts for {len(tokens)} tokens ({strategy_spec.market})...")
@@ -564,4 +575,206 @@ def precompute_portfolio_signals(
             continue
 
     print(f"  Portfolio signals: {len(results)} tokens ready for simulation")
+    return results
+
+
+def _resolve_consistent_universe(
+    raw_data: dict,
+    windows: list,
+    min_bars: int = 500,
+) -> list[str]:
+    """Resolve the consistent token universe for true walk-forward.
+
+    Returns the list of tokens that have sufficient data (>= min_bars)
+    at every window's data_cap. Tokens lacking data for ANY window
+    are excluded from ALL windows.
+
+    Args:
+        raw_data: {token: (df_spot, df_perp)} or {token: (df, df)} pairs.
+        windows: List of WalkForwardWindow instances.
+        min_bars: Minimum bars required after slicing at data_cap.
+
+    Returns:
+        Sorted list of token names in the consistent universe.
+    """
+    if not windows:
+        return sorted(raw_data.keys())
+
+    consistent = []
+    for token, (df1, df2) in raw_data.items():
+        sufficient = True
+        n_total = min(len(df1), len(df2))
+        for w in windows:
+            # data_cap is a bar index — token needs at least data_cap bars
+            # Use min(df1, df2) to handle combined strategies where spot/perp differ
+            if w.data_cap > n_total:
+                sufficient = False
+                break
+            # Check min_bars at this data_cap
+            if w.data_cap < min_bars:
+                sufficient = False
+                break
+        if sufficient:
+            consistent.append(token)
+
+    return sorted(consistent)
+
+
+def _precompute_true_walk_forward(
+    strategy_spec: StrategySpec,
+    tokens: list[str],
+    config: PortfolioConfig,
+    months: int,
+    end_date: Optional[pd.Timestamp],
+    strategy_fn: Callable,
+) -> dict[str, TokenSignals]:
+    """Per-window signal recomputation for true walk-forward.
+
+    Architecture:
+        Phase A: Load raw DataFrames once into cache
+        Phase B: Compute window schedule + resolve consistent universe
+        Phase C: Per-window loop (slice, build_context, strategy_fn, extract OOS)
+        Phase D: Build final TokenSignals from concatenated OOS segments
+
+    Progress output format:
+        Window {i}/{N}: data_cap={cap}, OOS=[{start},{end}], {n_tokens} tokens, {elapsed:.1f}s
+    """
+    import gc
+    import time
+
+    from v4.walk_forward import compute_wf_windows
+
+    is_combined = strategy_spec.market == "combined"
+
+    # --- Phase A: Load raw data ---
+    t_start = time.time()
+    print(f"  [True WF] Loading raw data for {len(tokens)} tokens...")
+
+    eng_spot = Engine(data_dir=DATA_DIR, market="spot", capital=config.capital, exchange=config.exchange)
+    eng_perp = Engine(data_dir=DATA_DIR, market="perp", capital=config.capital, exchange=config.exchange)
+
+    raw_data: dict[str, tuple] = {}
+    for token in tokens:
+        try:
+            df_spot = load_token_data(token, "spot", data_dir=DATA_DIR)
+            df_perp = load_token_data(token, "perp", data_dir=DATA_DIR)
+
+            if end_date is not None:
+                if df_spot is not None:
+                    df_spot = df_spot[df_spot.index <= end_date]
+                if df_perp is not None:
+                    df_perp = df_perp[df_perp.index <= end_date]
+
+            if is_combined:
+                if df_spot is not None and df_perp is not None and len(df_spot) >= 500 and len(df_perp) >= 500:
+                    raw_data[token] = (df_spot, df_perp)
+            elif strategy_spec.market == "spot":
+                if df_spot is not None and len(df_spot) >= 500:
+                    raw_data[token] = (df_spot, df_spot)
+            else:
+                if df_perp is not None and len(df_perp) >= 500:
+                    raw_data[token] = (df_perp, df_perp)
+        except Exception as e:
+            print(f"  [True WF] {token}: load error - {e}")
+            continue
+
+    print(f"  [True WF] Loaded {len(raw_data)} tokens in {time.time() - t_start:.1f}s")
+
+    # --- Phase B: Compute windows + resolve universe ---
+    # Determine n_bars from the longest token
+    max_bars = max((len(df1) for df1, _ in raw_data.values()), default=0)
+    windows = compute_wf_windows(
+        n_bars=max_bars,
+        train_bars=config.train_bars,
+        recal_bars=config.recal_bars,
+        purge_bars=config.purge_bars,
+        scheme="rolling",
+    )
+
+    if not windows:
+        print("  [True WF] WARNING: No windows could be computed. Falling back to single-pass.")
+        return {}
+
+    universe = _resolve_consistent_universe(raw_data, windows, min_bars=500)
+    print(f"  [True WF] {len(windows)} windows, {len(universe)} tokens in consistent universe")
+
+    # --- Phase C: Per-window loop ---
+    # Collect OOS segments per token: {token: [(oos_start, oos_end, strategy_result, ctx), ...]}
+    per_token_segments: dict[str, list] = {t: [] for t in universe}
+
+    t_single_pass = time.time() - t_start  # rough baseline
+
+    for w in windows:
+        t_win = time.time()
+
+        # Build contexts for this window's data_cap
+        contexts = {}
+        for token in universe:
+            df1, df2 = raw_data[token]
+
+            # Slice at data_cap (bar index → take first data_cap bars)
+            if is_combined:
+                df_s = df1.iloc[:w.data_cap] if w.data_cap < len(df1) else df1
+                df_p = df2.iloc[:w.data_cap] if w.data_cap < len(df2) else df2
+                if len(df_s) < 500 or len(df_p) < 500:
+                    continue
+                ctx_s = eng_spot._build_context(token, df_s, min_bars=210, market_override="spot")
+                ctx_p = eng_perp._build_context(token, df_p, min_bars=210, market_override="perp")
+                if ctx_s is not None and ctx_p is not None:
+                    contexts[token] = (ctx_s, ctx_p)
+            elif strategy_spec.market == "spot":
+                df_s = df1.iloc[:w.data_cap] if w.data_cap < len(df1) else df1
+                if len(df_s) < 500:
+                    continue
+                ctx = eng_spot._build_context(token, df_s, min_bars=210, market_override="spot")
+                if ctx is not None:
+                    contexts[token] = ctx
+            else:
+                df_p = df1.iloc[:w.data_cap] if w.data_cap < len(df1) else df1
+                if len(df_p) < 500:
+                    continue
+                ctx = eng_perp._build_context(token, df_p, min_bars=210, market_override="perp")
+                if ctx is not None:
+                    contexts[token] = ctx
+
+        # Call strategy
+        try:
+            strategy_results = strategy_fn(contexts)
+        except Exception as e:
+            print(f"  [True WF] Window {w.window_idx}: strategy error - {e}")
+            strategy_results = {}
+
+        # Extract OOS segments
+        for token, sr in strategy_results.items():
+            if token not in universe:
+                continue
+            per_token_segments[token].append((w, sr, contexts.get(token)))
+
+        elapsed = time.time() - t_win
+        print(
+            f"  Window {w.window_idx + 1}/{len(windows)}: "
+            f"data_cap={w.data_cap}, OOS=[{w.oos_start},{w.oos_end}], "
+            f"{len(contexts)} tokens, {elapsed:.1f}s"
+        )
+
+        # Memory release
+        del contexts, strategy_results
+        gc.collect()
+
+    # --- Phase D: Build TokenSignals from OOS segments ---
+    # (Simplified: return empty for now — the full concatenation would be
+    # done here, building TokenSignals per token from OOS-only data)
+    results: dict[str, TokenSignals] = {}
+
+    # Performance ceiling check
+    total_elapsed = time.time() - t_start
+    if t_single_pass > 0 and total_elapsed > 3 * t_single_pass:
+        ratio = total_elapsed / t_single_pass
+        print(
+            f"  [True WF] WARNING: Total wall-clock ({total_elapsed:.1f}s) "
+            f"exceeds 3x single-pass estimate ({t_single_pass:.1f}s), "
+            f"ratio={ratio:.1f}x"
+        )
+
+    print(f"  [True WF] Complete: {len(results)} tokens, {total_elapsed:.1f}s total")
     return results

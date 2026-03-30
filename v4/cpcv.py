@@ -55,15 +55,28 @@ def generate_cpcv_splits(n_samples: int, n_groups: int = 6, n_test_groups: int =
 
 
 def deflated_sharpe(returns: list) -> float:
-    """Deflated Sharpe ratio (Bailey & de Prado, 2014)."""
+    """Deflated Sharpe ratio — DEPRECATED.
+
+    This implementation is incorrect (uses len(returns) as n_trials,
+    omits skewness term). Use v4.metrics.deflated_sharpe_ratio() instead.
+
+    Kept for backward compatibility. Issues a DeprecationWarning and
+    delegates to the correct implementation.
+    """
+    import warnings
+    warnings.warn(
+        "deflated_sharpe() is deprecated and incorrect. "
+        "Use v4.metrics.deflated_sharpe_ratio(sharpe, n_obs, skewness, kurtosis, n_trials) instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     if len(returns) < 3:
         return 0.0
-    sr = np.mean(returns) / max(np.std(returns), 1e-10)
-    n = len(returns)
-    kurt = float(pd.Series(returns).kurtosis())
-    try:
-        e_max_sr = sqrt(2 * log(n)) * (1 - log(log(n)) / (2 * log(n)))
-        psr = 0.5 * erfc(-(sr - e_max_sr * 0.5) / sqrt(max(1 + 0.5 * kurt, 0.01)) * sqrt(max(n - 1, 1)))
-    except (ValueError, ZeroDivisionError):
-        psr = 0.0
-    return psr
+    from v4.metrics import deflated_sharpe_ratio
+    arr = np.array(returns)
+    sr = float(np.mean(arr) / max(np.std(arr), 1e-10))
+    n_obs = len(arr)
+    skewness = float(pd.Series(arr).skew())
+    kurtosis = float(pd.Series(arr).kurtosis() + 3)  # pandas kurtosis is excess; formula needs raw
+    # Legacy behavior: use n_obs as n_trials (the original bug — preserved for compat)
+    return deflated_sharpe_ratio(sr, n_obs, skewness, kurtosis, n_trials=n_obs)
