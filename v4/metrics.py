@@ -277,13 +277,15 @@ def deflated_sharpe_ratio(
     var_sr = (1 - skewness * sharpe + (kurtosis - 1) / 4 * sharpe ** 2) / max(n_obs - 1, 1)
 
     # Expected maximum Sharpe ratio under n_trials independent tests
-    # E[max(SR)] ≈ sqrt(2 * ln(N)) * (1 - ln(ln(N)) / (2 * ln(N))) + euler_gamma / sqrt(2 * ln(N))
-    # Simplified form (Bailey & LdP):
+    # E[max(SR)] ≈ sqrt(2 * ln(N)) * (1 - ln(ln(N)) / (2 * ln(N))) + γ / sqrt(2 * ln(N))
+    # where γ ≈ 0.5772 is the Euler-Mascheroni constant (Bailey & LdP, 2014)
     if n_trials <= 1:
         e_max_sr = 0.0
     else:
+        euler_gamma = 0.5772156649015329
         ln_n = math.log(n_trials)
-        e_max_sr = math.sqrt(2 * ln_n) * (1 - math.log(ln_n) / (2 * ln_n))
+        sqrt_2ln = math.sqrt(2 * ln_n)
+        e_max_sr = sqrt_2ln * (1 - math.log(ln_n) / (2 * ln_n)) + euler_gamma / sqrt_2ln
 
     # z-score: how far the observed SR is from the expected max
     std_sr = math.sqrt(max(var_sr, 1e-20))

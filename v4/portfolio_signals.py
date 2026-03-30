@@ -603,9 +603,10 @@ def _resolve_consistent_universe(
     consistent = []
     for token, (df1, df2) in raw_data.items():
         sufficient = True
-        n_total = len(df1)
+        n_total = min(len(df1), len(df2))
         for w in windows:
             # data_cap is a bar index — token needs at least data_cap bars
+            # Use min(df1, df2) to handle combined strategies where spot/perp differ
             if w.data_cap > n_total:
                 sufficient = False
                 break
