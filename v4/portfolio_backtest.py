@@ -287,12 +287,16 @@ def main():
             os.makedirs(args.output, exist_ok=True)
             label = f"{'_'.join(strategy_ids)}_{args.months}mo_oos_monthly"
             out_path = os.path.join(args.output, f"{label}.json")
-            # Strip non-serializable metrics objects for JSON output
+            # Serialize metrics dataclass and extra_info for JSON output
             serializable = []
             for r in results:
-                entry = {k: v for k, v in r.items() if k != "metrics"}
-                entry["extra_info"] = {k: v for k, v in r.get("extra_info", {}).items()
-                                       if isinstance(v, (int, float, str, bool, type(None)))}
+                entry = {k: v for k, v in r.items() if k not in ("metrics", "extra_info")}
+                m = r.get("metrics")
+                if m is not None and dataclasses.is_dataclass(m):
+                    entry["metrics"] = dataclasses.asdict(m)
+                elif isinstance(m, dict):
+                    entry["metrics"] = m
+                entry["extra_info"] = r.get("extra_info", {})
                 serializable.append(entry)
             with open(out_path, "w") as f:
                 json.dump(serializable, f, indent=2, default=str)

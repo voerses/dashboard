@@ -626,25 +626,27 @@ def main(argv: list[str] | None = None) -> None:
         logger.warning("Startup data maintenance failed: %s — continuing with existing data", e)
 
     if args.once:
-        # Single tick
-        fetch_all_data(shared_fetcher, configs)
-        for engine, config in zip(engines, configs):
-            result = engine.tick()
-            logger.info(
-                "[%s] Tick %d — entries=%d exits=%d open=%d equity=$%.0f mtm=$%.0f",
-                config.pool_name, result.tick_counter, result.entries, result.exits,
-                result.open_positions, result.portfolio_equity, result.mark_to_market_equity,
-            )
-        _startup_heartbeat_stop.set()
-        if live_dashboard:
-            try:
-                write_dashboard_state(engines, configs, include_sentinel=True)
-            except Exception:
-                logger.exception("Live dashboard state write failed (non-fatal)")
-        _disconnect_shared_monitors(shared_monitors)
-        for engine in engines:
-            engine.cleanup()
-        lock_file.close()
+        # Single tick — wrap in try/finally to ensure cleanup on failure
+        try:
+            fetch_all_data(shared_fetcher, configs)
+            for engine, config in zip(engines, configs):
+                result = engine.tick()
+                logger.info(
+                    "[%s] Tick %d — entries=%d exits=%d open=%d equity=$%.0f mtm=$%.0f",
+                    config.pool_name, result.tick_counter, result.entries, result.exits,
+                    result.open_positions, result.portfolio_equity, result.mark_to_market_equity,
+                )
+        finally:
+            _startup_heartbeat_stop.set()
+            if live_dashboard:
+                try:
+                    write_dashboard_state(engines, configs, include_sentinel=True)
+                except Exception:
+                    logger.exception("Live dashboard state write failed (non-fatal)")
+            _disconnect_shared_monitors(shared_monitors)
+            for engine in engines:
+                engine.cleanup()
+            lock_file.close()
         return
 
     # Stop startup heartbeat — main loop has its own
@@ -737,7 +739,7 @@ def main(argv: list[str] | None = None) -> None:
                 except Exception:
                     logger.exception("Live dashboard state write failed (non-fatal)")
 
-            # AC10: Promote live→historical every 4h
+            # AC10: Promote live→historical every 4h (bounded to 30s max)
             if time.time() - last_promote_time >= PROMOTE_INTERVAL_S:
                 try:
                     promote_summary = ensure_data_fresh(
@@ -745,6 +747,7 @@ def main(argv: list[str] | None = None) -> None:
                         data_dir="data",
                         caller="runner_4h",
                         promote_only=True,
+                        max_duration_s=30,
                     )
                     last_promote_time = time.time()
                     logger.info(
@@ -753,6 +756,7 @@ def main(argv: list[str] | None = None) -> None:
                     )
                 except Exception as e:
                     logger.warning("4h promotion failed: %s", e)
+                    last_promote_time = time.time()  # Prevent retry spam on persistent failure
 
             # AC11: Fetch 1m data for tokens with open positions after hourly fetch
             try:
