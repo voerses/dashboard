@@ -151,34 +151,35 @@ def write_portfolio_configs(configs: list[PaperConfig]) -> None:
 # ---------------------------------------------------------------------------
 
 def fetch_1m_for_open_positions(fetcher, engines: list) -> None:
-    """Fetch 1m data for tokens with open positions across all engines.
+    """Fetch 1m data for perp tokens with open positions across all engines.
 
-    Called after each hourly fetch. Only tokens with open positions get
-    1m data — others are skipped to save API budget.
+    Called after each hourly fetch. Only perp tokens with open positions get
+    1m data — spot positions are skipped (1m is for perp sub-hourly exits only).
 
     Acquires the maintenance lock to prevent data loss from concurrent
     parquet writes (e.g., if standalone data_maintenance runs in parallel).
     """
-    from v4.data_maintenance import _acquire_lock, _release_lock
+    from v4.data_maintenance import _maintenance_lock
 
     tokens_to_fetch = set()
     for engine in engines:
         try:
             for state in engine._get_all_states():
                 for pos in state.position_manager.open_positions:
-                    tokens_to_fetch.add(pos.token)
+                    # Only fetch 1m for perp positions (1m data is perp-only)
+                    if getattr(pos, "is_perp", True):
+                        tokens_to_fetch.add(pos.token)
         except Exception as e:
             logger.warning("Error collecting open positions: %s", e)
 
     if not tokens_to_fetch:
         return
 
-    lock_file, acquired = _acquire_lock("data", timeout_s=5.0)
-    if not acquired:
-        logger.warning("1m fetch skipped — could not acquire maintenance lock")
-        return
+    with _maintenance_lock("data", timeout_s=5.0) as acquired:
+        if not acquired:
+            logger.warning("1m fetch skipped — could not acquire maintenance lock")
+            return
 
-    try:
         for token in sorted(tokens_to_fetch):
             try:
                 bars = fetcher.fetch_ohlcv(token, market="perp", timeframe="1m", limit=48)
@@ -188,8 +189,6 @@ def fetch_1m_for_open_positions(fetcher, engines: list) -> None:
                     logger.debug("1m fetch: %s — %d bars", token, len(closed))
             except Exception as e:
                 logger.warning("1m fetch failed for %s: %s", token, e)
-    finally:
-        _release_lock(lock_file)
 
 
 # ---------------------------------------------------------------------------

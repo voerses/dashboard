@@ -43,30 +43,34 @@ _STALE_THRESHOLD_HOURS = 6
 
 
 def _discover_perp_1m_tokens(data_dir: str) -> list[str]:
-    """Find perp tokens that have 1m cache files."""
+    """Find perp tokens that have non-empty 1m cache files."""
     cache_dir = Path(data_dir) / "perp" / "1m_cache"
     if not cache_dir.is_dir():
         return []
     tokens = []
     for f in os.listdir(cache_dir):
         if f.endswith("_1m.parquet") and not f.startswith(".") and ".tmp" not in f:
-            tokens.append(f.replace("_1m.parquet", ""))
+            fpath = cache_dir / f
+            if fpath.stat().st_size > 0:
+                tokens.append(f.replace("_1m.parquet", ""))
     return sorted(tokens)
 
 
 def _discover_tokens_for_market(data_dir: str, market: str) -> set[str]:
-    """Find tokens with data in historical or live directories for a market."""
+    """Find tokens with non-empty data in historical or live directories for a market."""
     tokens = set()
     hist_dir = Path(data_dir) / market / "1h_cache"
     if hist_dir.is_dir():
         for f in os.listdir(hist_dir):
             if f.endswith("_1h.parquet") and not f.startswith(".") and ".tmp" not in f:
-                tokens.add(f.replace("_1h.parquet", ""))
+                if (hist_dir / f).stat().st_size > 0:
+                    tokens.add(f.replace("_1h.parquet", ""))
     live_dir = Path(data_dir) / market / "live"
     if live_dir.is_dir():
         for f in os.listdir(live_dir):
             if f.endswith(".parquet") and not f.startswith(".") and ".tmp" not in f:
-                tokens.add(f.replace(".parquet", ""))
+                if (live_dir / f).stat().st_size > 0:
+                    tokens.add(f.replace(".parquet", ""))
     return tokens
 
 
@@ -81,15 +85,19 @@ def _acquire_lock(data_dir: str, timeout_s: float = 10.0):
     lock_file = open(lock_path, "w")
 
     deadline = time.monotonic() + timeout_s
-    while True:
-        try:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            return lock_file, True
-        except (IOError, OSError):
-            if time.monotonic() >= deadline:
-                lock_file.close()
-                return None, False
-            time.sleep(0.2)
+    try:
+        while True:
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return lock_file, True
+            except (IOError, OSError):
+                if time.monotonic() >= deadline:
+                    lock_file.close()
+                    return None, False
+                time.sleep(0.2)
+    except Exception:
+        lock_file.close()
+        raise
 
 
 def _release_lock(lock_file):
@@ -100,6 +108,25 @@ def _release_lock(lock_file):
             lock_file.close()
         except (IOError, OSError):
             pass
+
+
+from contextlib import contextmanager
+
+@contextmanager
+def _maintenance_lock(data_dir: str, timeout_s: float = 10.0):
+    """Context manager for the maintenance file lock.
+
+    Usage:
+        with _maintenance_lock("data") as acquired:
+            if not acquired:
+                return  # lock busy
+            # ... do work ...
+    """
+    lock_file, acquired = _acquire_lock(data_dir, timeout_s)
+    try:
+        yield acquired
+    finally:
+        _release_lock(lock_file)
 
 
 def _latest_timestamp_in_dir(dir_path: Path, suffix: str) -> pd.Timestamp | None:
@@ -161,22 +188,21 @@ def ensure_data_fresh(
         "perp_1m": {"tokens_updated": 0, "bars_appended": 0},
     }
 
-    # AC4: Acquire exclusive file lock
-    lock_file, acquired = _acquire_lock(data_dir, timeout_s=10.0)
-    if not acquired:
-        logger.warning(
-            "Data maintenance lock not acquired within 10s — skipping. "
-            "Another maintenance process may be running."
-        )
-        _log_maintenance(data_dir, {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "operation": "skipped_lock",
-            "caller": caller,
-            "duration_s": round(time.monotonic() - start_time, 2),
-        })
-        return summary
+    # AC4: Acquire exclusive file lock via context manager
+    with _maintenance_lock(data_dir, timeout_s=10.0) as acquired:
+        if not acquired:
+            logger.warning(
+                "Data maintenance lock not acquired within 10s — skipping. "
+                "Another maintenance process may be running."
+            )
+            _log_maintenance(data_dir, {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "operation": "skipped_lock",
+                "caller": caller,
+                "duration_s": round(time.monotonic() - start_time, 2),
+            })
+            return summary
 
-    try:
         operation = "promote_only" if promote_only else "full"
 
         if not promote_only:
@@ -272,9 +298,6 @@ def ensure_data_fresh(
             )
 
         return summary
-
-    finally:
-        _release_lock(lock_file)
 
 
 def check_data_staleness(data_dir: str = "data") -> dict:

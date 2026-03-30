@@ -121,9 +121,11 @@ if __name__ == "__main__":
     print(
         "\n  DEPRECATED: backtest_portfolio.py is deprecated. "
         "Use v4/portfolio_backtest.py instead.\n"
-        "  Example: python v4/portfolio_backtest.py --strategy s56 --market perp --months 12\n",
+        "  Example: python v4/portfolio_backtest.py --strategy s56 --market perp --months 12\n"
+        "  Continuing in 3 seconds...\n",
         file=sys.stderr,
     )
+    time.sleep(3)
     parser = argparse.ArgumentParser()
     parser.add_argument("strategy", type=str)
     parser.add_argument("--months", type=int, default=12)

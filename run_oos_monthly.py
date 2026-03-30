@@ -189,9 +189,11 @@ if __name__ == "__main__":
     print(
         "\n  DEPRECATED: run_oos_monthly.py is deprecated. "
         "Use the --oos-monthly flag in v4/portfolio_backtest.py instead.\n"
-        "  Example: python v4/portfolio_backtest.py --strategy s501 --market perp --oos-monthly --months 6\n",
+        "  Example: python v4/portfolio_backtest.py --strategy s501 --market perp --oos-monthly --months 6\n"
+        "  Continuing in 3 seconds...\n",
         file=sys.stderr,
     )
     if "--help" in sys.argv or "-h" in sys.argv:
         sys.exit(0)
+    time.sleep(3)
     main()

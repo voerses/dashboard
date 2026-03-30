@@ -193,11 +193,16 @@ def run_oos_monthly(
         # Compute end_date for this month (counting backwards from data_end)
         month_offset = oos_months - 1 - i
         end_date = data_end - pd.DateOffset(months=month_offset)
-        # Snap to month end, but never exceed actual data boundary
+        # Snap to month end, but never exceed actual data boundary.
+        # Note: if data_end is mid-month, the final month is shorter and may
+        # overlap with the previous month's lookback window. This is expected —
+        # each month's signal computation is independent with its own end_date cap.
         end_date = end_date + pd.offsets.MonthEnd(0)
+        clamped = end_date > data_end
         end_date = min(end_date, data_end)
 
-        print(f"\n  OOS Month {i+1}/{oos_months}: end_date={end_date.strftime('%Y-%m-%d')}")
+        label_suffix = " (partial)" if clamped else ""
+        print(f"\n  OOS Month {i+1}/{oos_months}: end_date={end_date.strftime('%Y-%m-%d')}{label_suffix}")
 
         metrics, extra_info, trades, signals, eq_daily = run_backtest(
             strategy_ids=strategy_ids,
