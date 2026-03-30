@@ -2,7 +2,7 @@
 
 > **TL;DR** V4 is a portfolio-level simulator that runs multiple strategies in a shared capital pool with realistic constraints (concentration limits, ADV caps, partial fills, slippage). It replaces V3's per-token validation with end-to-end portfolio simulation. Paper trading uses the same simulator code with live data fetching.
 
-**Last updated:** 2026-03-10
+**Last updated:** 2026-03-30
 
 ---
 
@@ -12,7 +12,10 @@
 v4/
 ├── config.py                # PortfolioConfig, StrategySpec dataclasses
 ├── signals.py               # precompute_strategy_signals(), discover_tokens()
+├── portfolio_signals.py     # precompute_portfolio_signals(), Class B dispatch
+├── walk_forward.py          # WalkForwardWindow, compute_wf_windows(), BacktestManifest
 ├── simulator.py             # simulate_portfolio(), build_unified_index()
+├── metrics.py               # PerformanceMetrics, deflated_sharpe_ratio(), walk_forward_efficiency()
 ├── paper_engine.py          # PaperPortfolioEngine (live tick-by-tick)
 ├── live_fetcher.py          # LiveFetcher (ccxt → parquet append)
 ├── run_paper.py             # Continuous hourly loop with dashboard push
@@ -44,11 +47,56 @@ compute_portfolio_metrics()      # Sharpe, Sortino, Calmar, drawdown, etc.
 `precompute_strategy_signals(spec, tokens, config, months, end_date)`:
 
 1. **Data loading**: Reads parquet, trims to `[load_from, end_date]` with 180-day warmup
-2. **Alignment** (combined strategies): `index.intersection()` for bar-for-bar spot/perp alignment
-3. **Context building**: `Engine._build_context()` computes indicators (EMA, RSI, ADX, ATR, etc.)
-4. **Strategy call**: 1-arg (single market) or 2-arg (spot+perp combined)
-5. **Walk-forward mask**: `entry_mask[0:train_bars] = False` — training data cannot generate entries
-6. **Array extraction**: Close, high, low, ATR, entry_mask, direction, stop/trail params → `TokenSignals`
+2. **Hard data cap** (OOS integrity): `df = df[df.index <= end_date]` applied BEFORE `_build_context()` — prevents any future data from leaking into indicator computation
+3. **Alignment** (combined strategies): `index.intersection()` for bar-for-bar spot/perp alignment
+4. **Context building**: `Engine._build_context()` computes indicators (EMA, RSI, ADX, ATR, etc.)
+5. **Strategy call**: 1-arg (single market) or 2-arg (spot+perp combined)
+6. **Walk-forward mask**: `entry_mask[0:train_bars] = False` — training data cannot generate entries
+7. **Array extraction**: Close, high, low, ATR, entry_mask, direction, stop/trail params → `TokenSignals`
+
+The hard data cap is applied in both `_load_all_contexts()` (portfolio path) and `precompute_strategy_signals()` (per-token path). This is the primary defense against OOS data bleed-forward.
+
+### True Walk-Forward (`portfolio_signals.py`, opt-in)
+
+When `PortfolioConfig.true_walk_forward=True`, signals are recomputed per OOS window instead of using a single-pass walk-forward mask. This is for non-causal strategies where indicators might leak future information.
+
+`_precompute_true_walk_forward(strategy_spec, tokens, config, months, end_date, strategy_fn)`:
+
+1. **Phase A**: Load raw DataFrames once per token (amortized I/O)
+2. **Phase B**: Compute window schedule via `compute_wf_windows()`, resolve consistent universe (tokens with sufficient data at every window's `data_cap`)
+3. **Phase C**: Per-window loop — slice data at `data_cap`, build context, call strategy, extract OOS segment
+4. **Phase D**: Concatenate OOS segments into `TokenSignals` per token
+
+Memory management: `gc.collect()` between windows. Performance ceiling: warns if total time exceeds 3x single-pass.
+
+### Walk-Forward Window Module (`walk_forward.py`)
+
+Pure functions for computing walk-forward schedules:
+
+```python
+from v4.walk_forward import compute_wf_windows, WalkForwardWindow
+
+windows = compute_wf_windows(
+    n_bars=17520,      # 2 years of hourly data
+    train_bars=8760,   # 1 year training
+    recal_bars=2160,   # 90 days OOS
+    purge_bars=168,    # 7-day purge gap
+    scheme="rolling",  # or "expanding"
+)
+# Returns: [WalkForwardWindow(window_idx, data_cap, oos_start, oos_end), ...]
+```
+
+Also provides `BacktestManifest` for reproducibility logging and `compute_config_hash()` for deterministic result verification.
+
+### True OOS Monthly Runner (`run_oos_monthly.py`)
+
+Runs a proper month-by-month OOS backtest with zero forward-looking bias:
+
+```bash
+python run_oos_monthly.py
+```
+
+For each month, signals are recomputed from scratch with data capped at that month's end. Each month's signal computation cannot see any data beyond its own end date. This is the gold standard for evaluating strategy performance without look-ahead bias.
 
 ### Simulator (`simulator.py`)
 
@@ -134,13 +182,28 @@ state = simulate_portfolio(all_signals, strategy_specs, config)
 metrics, extra_info, eq_daily = compute_portfolio_metrics(state, 200_000)
 ```
 
-### Out-of-Sample Test (train→Dec, trade Jan-Mar)
+### Out-of-Sample Test (hard data cap — recommended)
 ```python
-# Adjust train_bars to push the walk-forward mask to Jan 1
+# The end_date parameter caps ALL data before indicator computation.
+# No future data leaks into rolling indicators (EMA, RSI, ATR, etc.)
+data_end = pd.Timestamp('2026-01-01')  # cap at this date
+all_signals = precompute_strategy_signals(spec, tokens, config, months=12, end_date=data_end)
+```
+
+### True OOS Monthly Backtest (gold standard)
+```bash
+# Recomputes signals for each month with data capped at that month's end.
+# Each month sees ONLY data available up to its cap date. ~90s for 12 months.
+python run_oos_monthly.py
+```
+
+### Legacy OOS Test (train_bars manipulation — deprecated)
+```python
+# Old approach: adjust train_bars to push the walk-forward mask.
+# This does NOT prevent indicator leakage — use end_date cap instead.
 trade_start_raw = data_end - pd.DateOffset(months=3)
 extra = int((pd.Timestamp('2026-01-01') - trade_start_raw).total_seconds() / 3600)
 config.train_bars = 8760 + extra  # 365 days + gap to Jan 1
-# Then run with months=3
 ```
 
 ---
@@ -150,6 +213,8 @@ config.train_bars = 8760 + extra  # 365 days + gap to Jan 1
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `train_bars` | 8760 (365d) | Walk-forward training window (masked, no trades) |
+| `purge_bars` | 168 (7d) | Purge gap between training and OOS (prevents data leakage) |
+| `true_walk_forward` | False | Opt-in per-window signal recomputation (Class B only) |
 | `concentration_limit` | 0.10 | Max fraction of equity per token |
 | `adv_cap_pct` | 0.05 | Max 5% of rolling ADV per position |
 | `min_position_usd` | 200 | Minimum position size |

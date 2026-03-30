@@ -1,6 +1,6 @@
 # Strategy Pipeline Gates — Definitive Reference
 
-> Last updated: 2026-03-29 (AIPIP-0031, AIPIP-0032, AIPIP-0033)
+> Last updated: 2026-03-30 (AIPIP-0031, AIPIP-0032, AIPIP-0033, OOS integrity)
 >
 > **When to read:** The coordinator reads ONLY the section for the current gate.
 > Do NOT load this entire file at once — read the section you need.
@@ -325,6 +325,7 @@ echo "gate5" > "$CLAUDE_PROJECT_DIR/.strategy-gate"
 3. Confirm Gate 3 results hold at scale (no liquidity crowding)
 4. Parameter sensitivity: +/-20% → Calmar shouldn't degrade >30%
 5. Kill if: any window fails (Sharpe <2, Calmar <3, MaxDD >25%)
+6. **OOS integrity check**: Run `python run_oos_monthly.py` for true OOS month-by-month breakdown. Each month's signals recomputed with data capped at that month's end. Zero forward bias. All months should be consistent with the full-window backtest.
 
 **Deep dive if needed:** `knowledge/process/BACKTESTING_VALIDATION_BEST_PRACTICES.md`
 

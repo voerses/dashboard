@@ -34,7 +34,7 @@
 |------|------|----------|---------|
 | `STRATEGY_QUICK_REFERENCE.md` | 40K | /strategy | Gate thresholds, kill criteria, dedup tables, cost tables, bias checklist. **The strategy bible.** |
 | `RESEARCHER_BEST_PRACTICES.md` | 31K | both | Complete parameter catalog (9 layers), 13 ground rules, sizing pipeline. |
-| `QUANT_METHODOLOGY.md` | 9K | both | Statistical foundations: backtesting (WFE, PBO, CPCV), signal evaluation (IC, DSR, FDR), sizing (Kelly, vol-target), fees (3-layer model), regime detection, crypto-specific risks. |
+| `QUANT_METHODOLOGY.md` | 12K | both | Statistical foundations: backtesting (WFE, PBO, CPCV), OOS data cap methodology, signal evaluation (IC, DSR with Bailey & LdP formula, FDR), sizing (Kelly, vol-target), fees (3-layer model), regime detection, crypto-specific risks. |
 | `ARCHITECTURE.md` | 15K | /dev | Directory layout, strategy templates, V4 engine overview, exit sentinel. |
 
 ### Strategy Research
@@ -51,7 +51,7 @@
 
 | File | Size | Audience | Summary |
 |------|------|----------|---------|
-| `V4_ENGINE.md` | 9K | /dev | V4 portfolio engine: signal pipeline, simulator, paper trading, state restoration. |
+| `V4_ENGINE.md` | 14K | /dev | V4 portfolio engine: signal pipeline, hard data cap, true walk-forward, OOS monthly runner, simulator, paper trading, state restoration. |
 | `V4_EXPERIMENTATION_GUIDE.md` | 50K | both | Exit handlers, sizing models, regime customization, 20+ experimentation recipes. Deep dive only. |
 | `V4_SIZING_PIPELINE.md` | 8K | /dev | Sizing formula, ADV curve, 3-layer config, validation. |
 | `PERFORMANCE_PATTERNS.md` | 13K | /dev | Vectorization rules (46,600x speedup), caching, anti-patterns. |

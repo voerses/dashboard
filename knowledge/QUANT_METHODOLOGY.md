@@ -13,7 +13,9 @@
 - Compute Probability of Backtest Overfitting (PBO) for every strategy. PBO >0.50 = more likely overfit than not.
 - CPCV (Combinatorial Purged Cross-Validation) produces a distribution of OOS results, not a single number.
 - Eliminate look-ahead bias with strict information-set discipline: never use data unavailable at decision time.
+- **Hard data cap**: DataFrames MUST be filtered with `df[df.index <= end_date]` BEFORE `_build_context()` (where indicators are computed). This prevents future data from leaking into rolling indicators (EMA, RSI, ATR, etc.) even for "causal" strategies.
 - Guard against survivorship bias — test on delisted/dead coins, not just current survivors.
+- **True OOS monthly backtest** (`run_oos_monthly.py`): For the definitive performance assessment, recompute signals for each month separately with data capped at that month's end. This is slower (12 full runs) but eliminates ALL forward-looking bias.
 
 ### Thresholds
 
@@ -43,7 +45,24 @@
 | Profit Factor | Win dollars / loss dollars | >1.3 | 1.5-2.0 | >4.0 |
 | Hit Rate | Win percentage | context-dependent | — | >80% with low PF |
 | Sharpe Ratio | Risk-adjusted return | >0.5 | 1.0-2.0 | >3.0 (likely overfit) |
-| Deflated Sharpe (DSR) | Sharpe corrected for trials | 95% confidence | — | — |
+| Deflated Sharpe (DSR) | Sharpe corrected for trials | >0.95 p-value | — | — |
+| Walk-Forward Efficiency | OOS return / IS return | >50% | >70% | >120% (possible data leak) |
+
+### Deflated Sharpe Ratio (DSR)
+- **Formula** (Bailey & Lopez de Prado, 2014): `DSR = Φ((SR - E[max SR]) / √Var(SR))`
+  - `Var(SR) = (1 - γ₃·SR + (γ₄-1)/4 · SR²) / (T-1)` where γ₃=skewness, γ₄=raw kurtosis (NOT excess)
+  - `E[max SR] = √(2·ln(N)) · (1 - ln(ln(N))/(2·ln(N))) + γ_EM/√(2·ln(N))` where γ_EM=0.5772 (Euler-Mascheroni), N=n_trials
+- **Implementation**: `v4.metrics.deflated_sharpe_ratio(sharpe, n_obs, skewness, kurtosis, n_trials)`
+- **kurtosis convention**: Pass RAW kurtosis (not excess). Pandas `.kurtosis()` returns excess; add 3 to convert.
+- **n_trials**: Must be tracked explicitly — the total number of strategy configurations tested. Using n_obs as n_trials (the old `v4.cpcv.deflated_sharpe()` bug) vastly over-penalizes.
+- **Deprecated**: `v4.cpcv.deflated_sharpe()` — issues DeprecationWarning, redirects to correct implementation.
+
+### Walk-Forward Efficiency (WFE)
+- `WFE = OOS_annualized_return / IS_annualized_return`
+- **Implementation**: `v4.metrics.walk_forward_efficiency(oos_return, is_return)`
+- Returns `None` if IS return ≤ 0 (undefined — strategy isn't profitable in-sample)
+- Warns if WFE < 50% (strategy may be overfit)
+- WFE > 100% is possible (market conditions favored OOS period) but > 120% warrants investigation
 
 ### Multiple Testing Correction
 - Use **Benjamini-Hochberg (FDR)** when screening many signals — controls false discovery proportion.
@@ -200,10 +219,13 @@ Sizing a position?
   → Concentration limit: 10% of equity per token
 
 Evaluating a backtest?
+  → Verify hard data cap: end_date passed to signal precomputation
   → Walk-forward + CPCV dual-gate
-  → PBO <0.50
+  → PBO <0.50, DSR >0.95 (with correct n_trials)
+  → WFE >50% (OOS/IS return ratio)
   → Parameter sensitivity +/-20%
   → Sharpe >3.0 = suspect, investigate before deploying
+  → Run true OOS monthly (run_oos_monthly.py) for final assessment
 
 Going to paper?
   → Need 200+ trades minimum
