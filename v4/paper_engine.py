@@ -1012,7 +1012,11 @@ class PaperPortfolioEngine:
         These are monitored via WebSocket 1m candles between hourly ticks.
         Candidates are discarded at the next hourly tick (fresh cache each tick).
         """
+        import logging
+        logger = logging.getLogger(__name__)
         self._pending_entry_candidates.clear()
+        _entry_signals_count = 0
+        _filled_on_hourly = 0
 
         for sid, token_sigs in all_signals.items():
             if self._strategy_entry_resolution.get(sid, 0) == 0:
@@ -1047,12 +1051,16 @@ class PaperPortfolioEngine:
                 if direction == 0:
                     continue
 
+                _entry_signals_count += 1
+
                 # Check if the hourly bar already filled the limit
                 h_val = float(sig.high[local_bar])
                 l_val = float(sig.low[local_bar])
                 if direction == 1 and l_val <= lp:
+                    _filled_on_hourly += 1
                     continue  # Long limit already filled on hourly bar
                 if direction == -1 and h_val >= lp:
+                    _filled_on_hourly += 1
                     continue  # Short limit already filled on hourly bar
 
                 # Check if position already exists for this token+strategy
@@ -1138,6 +1146,15 @@ class PaperPortfolioEngine:
                             else float('nan')
                         ),
                     }
+
+        n_cached = len(self._pending_entry_candidates)
+        if _entry_signals_count > 0 or n_cached > 0:
+            logger.info(
+                "Entry candidates: %d signals this bar, %d filled on hourly, "
+                "%d cached for WS 1m resolution (%s)",
+                _entry_signals_count, _filled_on_hourly, n_cached,
+                ", ".join(t for _, t in self._pending_entry_candidates) if n_cached else "none",
+            )
 
     def _update_ws_subscriptions(self) -> None:
         """Update WebSocket subscriptions to match current open positions.
