@@ -144,20 +144,26 @@ class LiveFetcher:
         gap_threshold_hours: int = 24,
         chunk_limit: int = 1000,
         max_errors: int = 5,
+        deadline_s: float | None = None,
     ) -> dict[str, int]:
         """Backfill data gaps >gap_threshold_hours for each token/market pair.
 
         Called once at startup to repair gaps from outages.
         Returns a dict of "TOKEN/market" -> bars_backfilled.
         Aborts early after max_errors consecutive fetch failures (network down).
+        If deadline_s is set, stops fetching when wall-clock time exceeds it.
         """
         now_ms = int(time.time() * 1000)
         threshold_ms = gap_threshold_hours * _HOUR_MS
         results: dict[str, int] = {}
         consecutive_errors = 0
+        _deadline = time.monotonic() + deadline_s if deadline_s is not None else None
 
         for token in sorted(tokens):
             for market in ("spot", "perp"):
+                if _deadline is not None and time.monotonic() >= _deadline:
+                    logger.info("Backfill deadline reached — stopping with %d tokens done", len(results))
+                    return results
                 if consecutive_errors >= max_errors:
                     logger.warning(
                         "Backfill aborted: %d consecutive errors (network down?)",
@@ -186,6 +192,9 @@ class LiveFetcher:
                 total_bars = 0
 
                 while since_ms < now_ms:
+                    if _deadline is not None and time.monotonic() >= _deadline:
+                        logger.info("Backfill deadline reached mid-token %s/%s", token, market)
+                        break
                     try:
                         bars = self.fetch_ohlcv_since(
                             token, market, since_ms=since_ms, limit=chunk_limit,

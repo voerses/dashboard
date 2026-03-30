@@ -155,7 +155,12 @@ def fetch_1m_for_open_positions(fetcher, engines: list) -> None:
 
     Called after each hourly fetch. Only tokens with open positions get
     1m data — others are skipped to save API budget.
+
+    Acquires the maintenance lock to prevent data loss from concurrent
+    parquet writes (e.g., if standalone data_maintenance runs in parallel).
     """
+    from v4.data_maintenance import _acquire_lock, _release_lock
+
     tokens_to_fetch = set()
     for engine in engines:
         try:
@@ -168,15 +173,23 @@ def fetch_1m_for_open_positions(fetcher, engines: list) -> None:
     if not tokens_to_fetch:
         return
 
-    for token in sorted(tokens_to_fetch):
-        try:
-            bars = fetcher.fetch_ohlcv(token, market="perp", timeframe="1m", limit=48)
-            closed = fetcher.filter_closed_bars_1m(bars)
-            if closed:
-                fetcher.append_to_1m_parquet(token, closed)
-                logger.debug("1m fetch: %s — %d bars", token, len(closed))
-        except Exception as e:
-            logger.warning("1m fetch failed for %s: %s", token, e)
+    lock_file, acquired = _acquire_lock("data", timeout_s=5.0)
+    if not acquired:
+        logger.warning("1m fetch skipped — could not acquire maintenance lock")
+        return
+
+    try:
+        for token in sorted(tokens_to_fetch):
+            try:
+                bars = fetcher.fetch_ohlcv(token, market="perp", timeframe="1m", limit=48)
+                closed = fetcher.filter_closed_bars_1m(bars)
+                if closed:
+                    fetcher.append_to_1m_parquet(token, closed)
+                    logger.debug("1m fetch: %s — %d bars", token, len(closed))
+            except Exception as e:
+                logger.warning("1m fetch failed for %s: %s", token, e)
+    finally:
+        _release_lock(lock_file)
 
 
 # ---------------------------------------------------------------------------
@@ -637,6 +650,9 @@ def main(argv: list[str] | None = None) -> None:
     # Stop startup heartbeat — main loop has its own
     _startup_heartbeat_stop.set()
 
+    # AC10: Track last promotion time for periodic 4h promote
+    last_promote_time = time.time()
+
     try:
         while not shutdown.is_set():
             # Step 1: Fetch data once for all portfolios.
@@ -720,6 +736,29 @@ def main(argv: list[str] | None = None) -> None:
                     write_dashboard_state(engines, configs, include_sentinel=True)
                 except Exception:
                     logger.exception("Live dashboard state write failed (non-fatal)")
+
+            # AC10: Promote live→historical every 4h
+            if time.time() - last_promote_time >= PROMOTE_INTERVAL_S:
+                try:
+                    promote_summary = ensure_data_fresh(
+                        exchange=exchange,
+                        data_dir="data",
+                        caller="runner_4h",
+                        promote_only=True,
+                    )
+                    last_promote_time = time.time()
+                    logger.info(
+                        "4h promotion: %d tokens promoted",
+                        promote_summary.get("tokens_promoted", 0),
+                    )
+                except Exception as e:
+                    logger.warning("4h promotion failed: %s", e)
+
+            # AC11: Fetch 1m data for tokens with open positions after hourly fetch
+            try:
+                fetch_1m_for_open_positions(shared_fetcher, engines)
+            except Exception as e:
+                logger.warning("1m fetch for open positions failed: %s", e)
 
             # Step 4: Update PriceMonitor subscriptions for sub-hourly exits
             # Shared monitors: update with union of all engines' tokens (AC11, AC13)

@@ -117,6 +117,9 @@ def _latest_timestamp_in_dir(dir_path: Path, suffix: str) -> pd.Timestamp | None
                 ts = idx.max()
                 if not isinstance(ts, pd.Timestamp):
                     ts = pd.Timestamp(ts, unit="ms")
+                # Normalize to tz-naive UTC for consistent comparison
+                if ts.tzinfo is not None:
+                    ts = ts.tz_convert("UTC").tz_localize(None)
                 if latest is None or ts > latest:
                     latest = ts
         except Exception:
@@ -188,9 +191,11 @@ def ensure_data_fresh(
                     for market in ("spot", "perp"):
                         all_tokens |= _discover_tokens_for_market(data_dir, market)
 
+                    remaining_s = max_duration_s - (time.monotonic() - start_time)
                     backfill_results = fetcher.backfill_gaps(
                         tokens=all_tokens,
                         gap_threshold_hours=gap_threshold_hours,
+                        deadline_s=max(remaining_s, 0),
                     )
                     total_bars = sum(backfill_results.values())
                     summary["gaps_filled"] = len(backfill_results)
@@ -254,8 +259,9 @@ def ensure_data_fresh(
             "duration_s": duration_s,
             "summary": summary,
         }
-        if promotion_records := summary.get("tokens_promoted", 0):
-            log_entry["tokens_promoted"] = promotion_records
+        promoted_count = summary.get("tokens_promoted", 0)
+        if promoted_count:
+            log_entry["tokens_promoted"] = promoted_count
         _log_maintenance(data_dir, log_entry)
 
         if verbose:
@@ -278,7 +284,7 @@ def check_data_staleness(data_dir: str = "data") -> dict:
     Exits with code 1 if any data is >6h stale (AC20).
     """
     data_path = Path(data_dir)
-    now = pd.Timestamp.now("UTC").tz_localize(None)
+    now = pd.Timestamp.now(tz="UTC").tz_convert("UTC").tz_localize(None)
 
     result = {}
 

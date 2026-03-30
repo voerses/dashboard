@@ -193,8 +193,9 @@ def run_oos_monthly(
         # Compute end_date for this month (counting backwards from data_end)
         month_offset = oos_months - 1 - i
         end_date = data_end - pd.DateOffset(months=month_offset)
-        # Snap to month end
+        # Snap to month end, but never exceed actual data boundary
         end_date = end_date + pd.offsets.MonthEnd(0)
+        end_date = min(end_date, data_end)
 
         print(f"\n  OOS Month {i+1}/{oos_months}: end_date={end_date.strftime('%Y-%m-%d')}")
 
@@ -257,12 +258,17 @@ def main():
     # AC12/AC15: --refresh calls ensure_data_fresh before backtest
     if args.refresh:
         try:
+            # Create a ccxt exchange for data fetching
+            import ccxt
+            refresh_exchange = ccxt.binance({"enableRateLimit": True})
             refresh_summary = ensure_data_fresh(
+                exchange=refresh_exchange,
                 data_dir="data",
                 caller="backtest_refresh",
             )
             print(f"  Data refresh: {refresh_summary.get('gaps_filled', 0)} gaps filled, "
-                  f"{refresh_summary.get('bars_fetched', 0)} bars fetched")
+                  f"{refresh_summary.get('bars_fetched', 0)} bars fetched, "
+                  f"{refresh_summary.get('tokens_promoted', 0)} tokens promoted")
         except Exception as e:
             print(f"  WARNING: Data refresh failed: {e}. Running backtest on existing data.")
 
@@ -275,6 +281,24 @@ def main():
             config=config,
             market=market,
         )
+        # Save OOS monthly results to JSON
+        try:
+            import json
+            os.makedirs(args.output, exist_ok=True)
+            label = f"{'_'.join(strategy_ids)}_{args.months}mo_oos_monthly"
+            out_path = os.path.join(args.output, f"{label}.json")
+            # Strip non-serializable metrics objects for JSON output
+            serializable = []
+            for r in results:
+                entry = {k: v for k, v in r.items() if k != "metrics"}
+                entry["extra_info"] = {k: v for k, v in r.get("extra_info", {}).items()
+                                       if isinstance(v, (int, float, str, bool, type(None)))}
+                serializable.append(entry)
+            with open(out_path, "w") as f:
+                json.dump(serializable, f, indent=2, default=str)
+            print(f"  Results saved to {out_path}")
+        except Exception as e:
+            print(f"  WARNING: Could not save OOS results: {e}")
         return
 
     print("=" * 70)
