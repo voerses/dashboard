@@ -43,7 +43,6 @@ class TestTrueWalkForwardDefault:
 
         spec = StrategySpec(
             strategy_id="s01",
-            module_path="strategies.s01_example",
             market="perp",
             strategy_type="portfolio",
         )
@@ -79,7 +78,6 @@ class TestTrueWalkForwardDispatch:
         config = PortfolioConfig(true_walk_forward=True)
         spec = StrategySpec(
             strategy_id="s01",
-            module_path="strategies.s01_example",
             market="perp",
             strategy_type="portfolio",
         )

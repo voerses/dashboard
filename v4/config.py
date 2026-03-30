@@ -277,7 +277,7 @@ class PortfolioConfig:
     seed: int = 42
     train_bars: int = 8760              # 365 days walk-forward
     recal_bars: int = 2160              # 90 days recalibration
-    purge_bars: int = 120               # 5 days purge
+    purge_bars: int = 168               # 7 days purge
     stress_adv_multiplier: float = 1.0  # ADV multiplier for stop/margin_call exits (1.0 = no stress)
     max_slip_bps: float = 300           # max slippage cap in basis points
     # Conviction-based entry ordering: "shuffle" (random, default), "ranked" (by conviction),
@@ -290,5 +290,15 @@ class PortfolioConfig:
     raw_mode: bool = False
     # Skip walk-forward masking (orthogonal to raw_mode)
     skip_walk_forward: bool = False
+    # Opt-in true walk-forward: per-window signal recomputation
+    true_walk_forward: bool = False
     # Safety cap for concurrent positions in raw mode
     raw_max_positions: int = 500
+
+    def __post_init__(self):
+        if self.true_walk_forward and self.skip_walk_forward:
+            raise ValueError(
+                "Cannot set both true_walk_forward=True and skip_walk_forward=True. "
+                "true_walk_forward re-computes signals per OOS window; "
+                "skip_walk_forward disables walk-forward entirely."
+            )

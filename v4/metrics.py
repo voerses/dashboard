@@ -8,10 +8,12 @@ Sharpe, Sortino, Calmar, Beta, Alpha, drawdown, trade quality, distribution stat
 Quant metrics: Sharpe, Sortino, Calmar, profit factor, etc.
 """
 
+import math
+
 import numpy as np
 import pandas as pd
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 
@@ -54,6 +56,9 @@ class PerformanceMetrics:
     total_funding_cost: float = 0.0
     avg_funding_per_trade: float = 0.0
     funding_drag_pct: float = 0.0  # funding cost as % of gross PnL (positive = net cost, negative = net earned)
+
+    # Walk-forward efficiency (OOS return / IS return)
+    walk_forward_efficiency: Optional[float] = None
 
 
 def build_equity_curve(trades: list, n_bars: int, capital: float,
@@ -236,3 +241,90 @@ def load_benchmark_returns(data_dir: str = 'data', market: str = 'perp') -> Opti
     returns = daily['close'].pct_change().dropna()
     returns = returns.replace([np.inf, -np.inf], 0.0)
     return returns
+
+
+def deflated_sharpe_ratio(
+    sharpe: float,
+    n_obs: int,
+    skewness: float,
+    kurtosis: float,
+    n_trials: int,
+) -> float:
+    """Deflated Sharpe Ratio per Bailey & Lopez de Prado (2014).
+
+    Computes the probability that the observed Sharpe ratio exceeds the
+    expected maximum Sharpe under multiple testing, accounting for
+    non-normal return distributions.
+
+    Args:
+        sharpe: Observed annualized Sharpe ratio.
+        n_obs: Number of return observations (e.g., 252 daily).
+        skewness: Sample skewness of returns (gamma_3).
+        kurtosis: Sample kurtosis of returns (gamma_4, NOT excess).
+        n_trials: Number of independent strategy trials tested.
+
+    Returns:
+        Probability in [0, 1] that the Sharpe ratio is significant
+        after correcting for multiple testing.
+    """
+    from scipy.stats import norm
+
+    if n_trials < 1:
+        n_trials = 1
+
+    # Variance of the Sharpe ratio (Lo, 2002 / Bailey & LdP, 2014)
+    # Var(SR) = (1 - skew * SR + (kurt - 1)/4 * SR^2) / (T - 1)
+    var_sr = (1 - skewness * sharpe + (kurtosis - 1) / 4 * sharpe ** 2) / max(n_obs - 1, 1)
+
+    # Expected maximum Sharpe ratio under n_trials independent tests
+    # E[max(SR)] ≈ sqrt(2 * ln(N)) * (1 - ln(ln(N)) / (2 * ln(N))) + euler_gamma / sqrt(2 * ln(N))
+    # Simplified form (Bailey & LdP):
+    if n_trials <= 1:
+        e_max_sr = 0.0
+    else:
+        ln_n = math.log(n_trials)
+        e_max_sr = math.sqrt(2 * ln_n) * (1 - math.log(ln_n) / (2 * ln_n))
+
+    # z-score: how far the observed SR is from the expected max
+    std_sr = math.sqrt(max(var_sr, 1e-20))
+    z = (sharpe - e_max_sr) / std_sr
+
+    # DSR = Phi(z) — probability that observed SR exceeds expected max
+    return float(norm.cdf(z))
+
+
+def walk_forward_efficiency(
+    oos_annualized_return: float,
+    is_annualized_return: float,
+) -> Optional[float]:
+    """Compute Walk-Forward Efficiency (WFE).
+
+    WFE = oos_annualized_return / is_annualized_return
+
+    Args:
+        oos_annualized_return: Out-of-sample annualized return.
+        is_annualized_return: In-sample annualized return.
+
+    Returns:
+        WFE as a float, or None if IS return <= 0.
+    """
+    import warnings
+
+    if is_annualized_return <= 0:
+        warnings.warn(
+            "IS not profitable — WFE undefined",
+            UserWarning,
+            stacklevel=2,
+        )
+        return None
+
+    wfe = oos_annualized_return / is_annualized_return
+
+    if wfe < 0.50:
+        warnings.warn(
+            f"WFE={wfe:.1%} is below 50% — strategy may be overfit",
+            UserWarning,
+            stacklevel=2,
+        )
+
+    return wfe

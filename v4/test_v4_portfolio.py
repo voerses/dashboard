@@ -257,7 +257,7 @@ class TestConfigDefaults:
 
     def test_portfolio_config_purge_bars_default(self):
         cfg = PortfolioConfig()
-        assert cfg.purge_bars == 120
+        assert cfg.purge_bars == 168
 
     def test_portfolio_config_spread_bps_default(self):
         cfg = PortfolioConfig()

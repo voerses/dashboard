@@ -67,7 +67,6 @@ class TestDataCapAfterAnchor:
         config = PortfolioConfig()
         spec = StrategySpec(
             strategy_id="s01",
-            module_path="strategies.s01_example",
             market="perp",
         )
 
@@ -118,7 +117,6 @@ class TestDataCapAfterAnchor:
         config = PortfolioConfig()
         spec = StrategySpec(
             strategy_id="s01",
-            module_path="strategies.s01_example",
             market="perp",
         )
 
@@ -172,7 +170,6 @@ class TestDataCapBackwardCompat:
         config = PortfolioConfig()
         spec = StrategySpec(
             strategy_id="s01",
-            module_path="strategies.s01_example",
             market="perp",
         )
 
@@ -204,7 +201,7 @@ class TestDataCapBackwardCompat:
 
         df = _make_df(JAN_2026_MS, N_BARS_JAN_APR)
         original_max = df.index.max()
-        future_date = pd.Timestamp("2030-01-01")
+        future_date = pd.Timestamp("2026-06-01")
 
         contexts_received = []
 
@@ -219,7 +216,6 @@ class TestDataCapBackwardCompat:
         config = PortfolioConfig()
         spec = StrategySpec(
             strategy_id="s01",
-            module_path="strategies.s01_example",
             market="perp",
         )
 
@@ -275,7 +271,6 @@ class TestDataCapEquityAndSignals:
         config = PortfolioConfig()
         spec = StrategySpec(
             strategy_id="s01",
-            module_path="strategies.s01_example",
             market="perp",
         )
 

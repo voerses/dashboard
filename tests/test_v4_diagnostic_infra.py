@@ -281,9 +281,9 @@ class TestWalkForwardSkip:
         config_skip = _make_config(skip_wf=True)
         config_normal = _make_config(skip_wf=False)
         n_safe = 5000
-        # Normal mode threshold: train_bars + purge_bars + 100 = 8760 + 120 + 100 = 8980
+        # Normal mode threshold: train_bars + purge_bars + 100 = 8760 + 168 + 100 = 9028
         normal_threshold = config_normal.train_bars + config_normal.purge_bars + 100
-        assert normal_threshold == 8980
+        assert normal_threshold == 9028
         assert n_safe < normal_threshold  # would be skipped in normal mode
         # Skip-WF threshold: 200 (hardcoded in signals.py)
         skip_threshold = 200

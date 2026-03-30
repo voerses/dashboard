@@ -280,8 +280,12 @@ def precompute_strategy_signals(
 
             if df_spot_full is not None:
                 df_spot = df_spot_full[df_spot_full.index >= load_from]
+                if end_date is not None:
+                    df_spot = df_spot[df_spot.index <= end_date]
             if df_perp_full is not None:
                 df_perp = df_perp_full[df_perp_full.index >= load_from]
+                if end_date is not None:
+                    df_perp = df_perp[df_perp.index <= end_date]
 
             if is_combined:
                 if df_spot is None or df_perp is None or len(df_spot) < 500 or len(df_perp) < 500:
