@@ -105,7 +105,7 @@ def discover_symbols_from_cache(cache_dir):
 # We need to try both the plain name and the 1000-prefixed name.
 _1000_TOKENS = {
     "PEPE", "SHIB", "FLOKI", "BONK", "LUNC", "SATS", "RATS", "CAT",
-    "CHEEMS", "MOGUSDT", "WHY", "X", "APU", "NEIRO",
+    "CHEEMS", "WHY", "X", "XEC",
 }
 
 

@@ -689,4 +689,11 @@ def precompute_strategy_signals(
             print(f"  {token}: signal error - {e}")
             continue
 
+    # Explicitly clear Engine context caches to prevent memory leak in live runner.
+    # Each Engine accumulates _context_cache entries (aggregated DataFrames per token)
+    # that persist until GC collects the Engine objects.
+    eng_spot._context_cache.clear()
+    eng_perp._context_cache.clear()
+    del eng_spot, eng_perp
+
     return results

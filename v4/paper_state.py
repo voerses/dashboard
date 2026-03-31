@@ -79,6 +79,10 @@ def _serialize_position(pos: Position) -> dict:
         "cumulative_funding": float(pos.cumulative_funding),
         "linked_position_id": pos.linked_position_id,
         "entry_timestamp": pos.entry_timestamp,
+        "limit_price": float(pos.limit_price),
+        "limit_placed_at": pos.limit_placed_at,
+        "stop_limit_price": float(pos.stop_limit_price),
+        "fill_source": pos.fill_source,
     }
     return d
 
@@ -137,6 +141,10 @@ def _deserialize_position(d: dict) -> Position:
         cumulative_funding=d.get("cumulative_funding", 0.0),
         linked_position_id=d.get("linked_position_id"),
         entry_timestamp=d.get("entry_timestamp", ""),
+        limit_price=d.get("limit_price", 0.0),
+        limit_placed_at=d.get("limit_placed_at", ""),
+        stop_limit_price=d.get("stop_limit_price", 0.0),
+        fill_source=d.get("fill_source", ""),
     )
 
 
@@ -295,6 +303,10 @@ def _closed_trade_to_dict(trade: ClosedTrade, tick: Optional[int] = None) -> dic
         "is_perp": bool(trade.is_perp),
         "entry_timestamp": trade.entry_timestamp,
         "exit_timestamp": trade.exit_timestamp,
+        "limit_price": float(trade.limit_price),
+        "limit_placed_at": trade.limit_placed_at,
+        "stop_limit_price": float(trade.stop_limit_price),
+        "fill_source": trade.fill_source,
     }
     if tick is not None:
         d["tick"] = tick

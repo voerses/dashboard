@@ -170,11 +170,11 @@ Check before proposing new signals to avoid repeating killed research.
 
 | Capability | Details |
 |-----------|---------|
-| Spot trading | Long only, Binance 116 tokens |
-| Perpetual futures | Long AND short, leverage, funding rates |
-| Combined spot+perp | Dual-leg strategies: simultaneous, conditional, alternating. 111 tokens with both spot+perp data |
+| Spot trading | Long only, Binance 135 tokens (LIT/XMR delisted, deleted 2026-03-30) |
+| Perpetual futures | Long AND short, leverage, funding rates. 199 tokens. |
+| Combined spot+perp | Dual-leg strategies: simultaneous, conditional, alternating. ~130 tokens with both spot+perp data |
 | Exchanges | Binance, Kraken, Hyperliquid (different fee tiers) |
-| Data | 1H candles, 2020-2026. Spot: `data/spot/1h_cache/`. Perp: `data/perp/1h_cache/` |
+| Data | 1H candles, 2020-2026, fully backfilled (no gaps except Binance 2020-2021 maintenance windows). Spot: `data/spot/1h_cache/`. Perp: `data/perp/1h_cache/` |
 
 ### Signal Discovery Engine
 

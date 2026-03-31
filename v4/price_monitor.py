@@ -1,13 +1,17 @@
 """Real-Time Price Monitor for the Exit Sentinel.
 
-Subscribes to Binance Futures @markPrice@1s or Binance Spot @miniTicker
+Subscribes to Binance Futures @kline_1m or Binance Spot @miniTicker
 WebSocket streams and dispatches price updates to a callback.  Falls back to
 REST polling when the WebSocket disconnects, with exponential backoff
 reconnection.
 
-The ``venue`` parameter selects between ``"perp"`` (Futures mark-price) and
-``"spot"`` (Spot last-price) endpoints.  All reconnection, REST fallback,
+The ``venue`` parameter selects between ``"perp"`` (Futures kline 1m streams)
+and ``"spot"`` (Spot last-price) endpoints.  All reconnection, REST fallback,
 subscription management, and thread-safety logic is shared.
+
+For perp venue, the kline close price is used as the real-time price (aligning
+with backtest trade-price klines).  An optional ``kline_callback`` fires on
+candle close (``k.x == true``) with the full OHLCV bar dict.
 
 Implementation uses websocket-client for the WebSocket connection and requests
 for REST fallback.
@@ -29,7 +33,7 @@ logger = logging.getLogger(__name__)
 # Binance Futures WebSocket and REST endpoints
 WS_BASE_URL = "wss://fstream.binance.com/stream"
 REST_BASE_URL = "https://fapi.binance.com"
-REST_PREMIUM_INDEX = "/fapi/v1/premiumIndex"
+REST_KLINES = "/fapi/v1/klines"
 
 # Binance Spot WebSocket and REST endpoints
 SPOT_WS_BASE_URL = "wss://stream.binance.com:9443/stream"
@@ -38,7 +42,10 @@ SPOT_REST_TICKER_PRICE = "/api/v3/ticker/price"
 
 # T5-1 fix: Tokens that use 1000-prefix on Binance Futures
 # e.g., SHIB trades as 1000SHIBUSDT, PEPE as 1000PEPEUSDT
-_1000_PREFIX_TOKENS = {"SHIB", "PEPE", "FLOKI", "BONK", "LUNC"}
+_1000_PREFIX_TOKENS = {
+    "SHIB", "PEPE", "FLOKI", "BONK", "LUNC", "SATS", "RATS", "CAT",
+    "CHEEMS", "WHY", "X", "XEC",
+}
 
 # T5-8 fix: Max reconnection attempts before alerting
 MAX_RECONNECT_ATTEMPTS = 20  # ~15+ minutes of reconnection at max backoff
@@ -94,8 +101,10 @@ class PriceMonitor:
         callback: Callable[[str, float, int], None],
         rest_poll_interval_s: int = 10,
         venue: str = "perp",
+        kline_callback: Optional[Callable[[str, dict], None]] = None,
     ) -> None:
         self.callback = callback
+        self.kline_callback = kline_callback
         self.rest_poll_interval_s = rest_poll_interval_s
         self._venue = venue
 
@@ -147,22 +156,29 @@ class PriceMonitor:
             self._handle_perp_message(msg)
 
     def _handle_perp_message(self, msg: dict) -> None:
-        """Process a single WebSocket markPrice message.
+        """Process a single WebSocket kline message (perp venue).
 
-        M-9 fix: Error handling on price parsing.
+        Kline message format:
+          {"e":"kline","E":<ts>,"s":"BTCUSDT","k":{"t":<open_ts>,"T":<close_ts>,
+           "s":"BTCUSDT","i":"1m","o":"65000.0","c":"65100.0","h":"65200.0",
+           "l":"64900.0","v":"100.0","n":50,"x":true/false,"q":"6500000.0"}}
+
+        Price callback fires on EVERY update (both x:false and x:true).
+        kline_callback fires ONLY on candle close (x:true) with full OHLCV bar.
         """
         event_type = msg.get("e", "")
-        if event_type != "markPriceUpdate":
+        if event_type != "kline":
             return
 
+        k = msg.get("k", {})
         symbol = msg.get("s", "")
         # T5-1 fix: Use proper symbol-to-token mapping (handles 1000-prefix)
         token = _symbol_to_token(symbol)
 
         try:
-            price = float(msg["p"])
+            price = float(k["c"])
         except (KeyError, ValueError, TypeError) as exc:
-            logger.warning("Bad price in WS message %s: %s", symbol, exc)
+            logger.warning("Bad price in kline WS message %s: %s", symbol, exc)
             return
 
         # R8-2 fix: `not (price > 0)` catches NaN, zero, and negative
@@ -173,6 +189,25 @@ class PriceMonitor:
         with self._price_lock:
             self._latest_prices[token] = price
         self.callback(token, price, timestamp)
+
+        # On candle close, dispatch kline_callback with full OHLCV bar
+        if k.get("x") and self.kline_callback is not None:
+            try:
+                bar = {
+                    "timestamp": int(k["t"]),
+                    "open": float(k["o"]),
+                    "high": float(k["h"]),
+                    "low": float(k["l"]),
+                    "close": float(k["c"]),
+                    "volume": float(k["v"]),
+                }
+            except (KeyError, ValueError, TypeError) as exc:
+                logger.warning("Bad OHLCV fields in kline close for %s: %s", symbol, exc)
+                return
+            try:
+                self.kline_callback(token, bar)
+            except Exception as exc:
+                logger.error("Error in kline_callback: %s", exc, exc_info=True)
 
     def _handle_spot_message(self, msg: dict) -> None:
         """Process a single WebSocket 24hrMiniTicker message (spot venue).
@@ -231,11 +266,11 @@ class PriceMonitor:
         return self._build_perp_stream_names(tokens)
 
     def _build_perp_stream_names(self, tokens: list[str]) -> list[str]:
-        """Build Binance Futures combined-stream names for markPrice@1s.
+        """Build Binance Futures combined-stream names for kline_1m.
 
         T5-1 fix: Uses proper symbol mapping for 1000-prefix tokens.
         """
-        return [f"{_token_to_symbol(t).lower()}@markPrice@1s" for t in tokens]
+        return [f"{_token_to_symbol(t).lower()}@kline_1m" for t in tokens]
 
     def _build_spot_stream_names(self, tokens: list[str]) -> list[str]:
         """Build Binance Spot combined-stream names for miniTicker."""
@@ -282,77 +317,45 @@ class PriceMonitor:
         return self._fetch_perp_rest_prices(tokens)
 
     def _fetch_perp_rest_prices(self, tokens: set[str]) -> list[dict]:
-        """Fetch mark prices via Binance Futures REST premiumIndex API.
+        """Fetch close prices via Binance Futures REST klines API.
 
-        T5-7 fix: Uses batch endpoint (no symbol param) when fetching multiple
-        tokens to avoid N individual requests. Falls back to per-token on failure.
+        Uses per-symbol /fapi/v1/klines endpoint (klines doesn't support
+        multi-symbol batch). Extracts close price from row[4].
 
-        Returns list of premiumIndex response dicts.
-        Each dict has: symbol, markPrice, indexPrice, time, etc.
+        Returns list of klines response rows.
         """
         if not tokens:
             return []
 
         session = self._get_rest_session()
-
-        # Build lookup: Binance symbol -> internal token name
-        wanted_symbols = {_token_to_symbol(t): t for t in tokens}
-
-        # Try batch fetch first (single request for all tokens)
-        if len(tokens) > 1:
-            try:
-                resp = session.get(
-                    f"{REST_BASE_URL}{REST_PREMIUM_INDEX}",
-                    timeout=10,
-                )
-                resp.raise_for_status()
-                all_data = resp.json()
-                if isinstance(all_data, list):
-                    results = []
-                    for item in all_data:
-                        sym = item.get("symbol", "")
-                        if sym in wanted_symbols:
-                            results.append(item)
-                            token = wanted_symbols[sym]
-                            try:
-                                price = float(item.get("markPrice", 0))
-                                ts = int(item.get("time", time.time() * 1000))
-                                if price > 0:
-                                    with self._price_lock:
-                                        self._latest_prices[token] = price
-                                    self.callback(token, price, ts)
-                            except (ValueError, TypeError):
-                                pass
-                    return results
-            except requests.RequestException as exc:
-                logger.warning("Batch REST premiumIndex failed, falling back to per-token: %s", exc)
-
-        # Per-token fallback (single token or batch failed)
         results = []
+
         for token in tokens:
             symbol = _token_to_symbol(token)
             try:
                 resp = session.get(
-                    f"{REST_BASE_URL}{REST_PREMIUM_INDEX}",
-                    params={"symbol": symbol},
+                    f"{REST_BASE_URL}{REST_KLINES}",
+                    params={"symbol": symbol, "interval": "1m", "limit": 1},
                     timeout=5,
                 )
                 resp.raise_for_status()
                 data = resp.json()
-                results.append(data)
-
-                try:
-                    price = float(data.get("markPrice", 0))
-                    ts = int(data.get("time", time.time() * 1000))
-                    if price > 0:
-                        with self._price_lock:
-                            self._latest_prices[token] = price
-                        self.callback(token, price, ts)
-                except (ValueError, TypeError):
-                    pass
-
-            except requests.RequestException as exc:
-                logger.warning("REST premiumIndex failed for %s: %s", symbol, exc)
+                if isinstance(data, list) and len(data) > 0:
+                    row = data[-1]
+                    results.append(row)
+                    try:
+                        price = float(row[4])  # close price at index 4
+                        ts = int(time.time() * 1000)  # wall clock, not bar open_time
+                        if price > 0:
+                            with self._price_lock:
+                                self._latest_prices[token] = price
+                            self.callback(token, price, ts)
+                    except (IndexError, ValueError, TypeError):
+                        pass
+                else:
+                    logger.debug("REST klines returned empty for %s", symbol)
+            except (requests.RequestException, json.JSONDecodeError) as exc:
+                logger.warning("REST klines failed for %s: %s", symbol, exc)
 
         return results
 
@@ -375,22 +378,23 @@ class PriceMonitor:
         return self._fetch_single_perp_rest_price(token)
 
     def _fetch_single_perp_rest_price(self, token: str) -> Optional[float]:
-        """Fetch a single token's mark price via Futures REST premiumIndex."""
+        """Fetch a single token's close price via Futures REST klines."""
         session = self._get_rest_session()
         symbol = _token_to_symbol(token)
         try:
             resp = session.get(
-                f"{REST_BASE_URL}{REST_PREMIUM_INDEX}",
-                params={"symbol": symbol},
+                f"{REST_BASE_URL}{REST_KLINES}",
+                params={"symbol": symbol, "interval": "1m", "limit": 1},
                 timeout=5,
             )
             resp.raise_for_status()
             data = resp.json()
-            # R4-3 fix: Return None if markPrice missing or zero (not 0.0 as "success")
-            price = float(data.get("markPrice", 0))
-            return price if price > 0 else None
-        except (requests.RequestException, ValueError, TypeError) as exc:
-            logger.warning("REST price fetch failed for %s: %s", symbol, exc)
+            if isinstance(data, list) and len(data) > 0:
+                price = float(data[-1][4])  # close price at index 4
+                return price if price > 0 else None
+            return None
+        except (requests.RequestException, ValueError, TypeError, IndexError) as exc:
+            logger.warning("REST klines price fetch failed for %s: %s", symbol, exc)
             return None
 
     def _fetch_single_spot_rest_price(self, token: str) -> Optional[float]:
@@ -449,7 +453,7 @@ class PriceMonitor:
                             except (ValueError, TypeError):
                                 pass
                     return results
-            except requests.RequestException as exc:
+            except (requests.RequestException, json.JSONDecodeError) as exc:
                 logger.warning("Batch spot REST ticker/price failed, falling back to per-token: %s", exc)
 
         # Per-token fallback
@@ -474,7 +478,7 @@ class PriceMonitor:
                         self.callback(token, price, ts)
                 except (ValueError, TypeError):
                     pass
-            except requests.RequestException as exc:
+            except (requests.RequestException, json.JSONDecodeError) as exc:
                 logger.warning("Spot REST ticker/price failed for %s: %s", symbol, exc)
 
         return results
@@ -510,7 +514,8 @@ class PriceMonitor:
             self.disconnect()
             self._ws_thread.join(timeout=5)
 
-        self._subscribed_tokens = set(tokens)
+        with self._sub_lock:
+            self._subscribed_tokens = set(tokens)
         self._shutdown = False
         self._shutdown_event.clear()
 
@@ -744,7 +749,8 @@ class PriceMonitor:
         If duration_s > 0, runs for that many seconds then returns.
         If duration_s == 0, runs until self._shutdown is set.
         """
-        self._subscribed_tokens = tokens
+        with self._sub_lock:
+            self._subscribed_tokens = tokens
         start = time.time()
 
         while not self._shutdown:

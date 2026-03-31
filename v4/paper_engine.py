@@ -834,6 +834,10 @@ class PaperPortfolioEngine:
                 highest=cand["high_val"],
                 lowest=cand["low_val"],
                 initial_risk=initial_risk,
+                limit_price=lp,
+                limit_placed_at=cand.get("limit_placed_at", ""),
+                stop_limit_price=stop_price,
+                fill_source="sub_hourly",
             )
             pos.entry_timestamp = timestamp
 
@@ -1103,6 +1107,7 @@ class PaperPortfolioEngine:
                         "limit_price": lp,
                         "direction": direction,
                         "tick_counter": self.tick_counter,
+                        "limit_placed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                         "close_val": close_val,
                         "atr_val": atr_val,
                         "adv_val": adv_val,

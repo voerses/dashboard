@@ -677,6 +677,18 @@ _pos_raw_loaded: bool = False               # True after first parquet read
 _pos_raw_df: Optional[pd.DataFrame] = None
 
 
+def clear_module_caches() -> None:
+    """Clear module-level caches to prevent unbounded memory growth in live runner.
+
+    Called after each tick in the paper trading loop.
+    """
+    global _pos_raw_loaded, _pos_raw_df
+    _pos_cache.clear()
+    _dvol_cache.clear()
+    _pos_raw_loaded = False
+    _pos_raw_df = None
+
+
 def _load_positioning_raw() -> pd.DataFrame:
     """Load raw positioning parquet once, cache at module level."""
     global _pos_raw_loaded, _pos_raw_df

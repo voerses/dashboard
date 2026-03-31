@@ -58,6 +58,11 @@ class Position:
     cumulative_funding: float = 0.0
     linked_position_id: Optional[str] = None
     entry_timestamp: str = ""           # wall-clock time when opened (paper trading)
+    # Limit order metadata (for analysis)
+    limit_price: float = 0.0             # Limit order price (BB band level)
+    limit_placed_at: str = ""            # When limit was determined
+    stop_limit_price: float = 0.0        # Initial stop price at entry
+    fill_source: str = ""                # "hourly" or "sub_hourly"
     # Exit handler chain (built at entry, not serialized to ClosedTrade)
     exit_handlers: list = field(default_factory=list)
 
@@ -84,6 +89,11 @@ class ClosedTrade:
     is_perp: bool = False
     entry_timestamp: str = ""   # wall-clock time when opened (paper trading)
     exit_timestamp: str = ""    # wall-clock time when closed (paper trading)
+    # Limit order metadata (for analysis)
+    limit_price: float = 0.0
+    limit_placed_at: str = ""
+    stop_limit_price: float = 0.0
+    fill_source: str = ""
 
 
 class PositionManager:
@@ -129,6 +139,10 @@ class PositionManager:
             is_perp=pos.is_perp,
             entry_timestamp=pos.entry_timestamp,
             exit_timestamp=exit_timestamp,
+            limit_price=pos.limit_price,
+            limit_placed_at=pos.limit_placed_at,
+            stop_limit_price=pos.stop_limit_price,
+            fill_source=pos.fill_source,
         )
         self.closed_trades.append(trade)
         return trade

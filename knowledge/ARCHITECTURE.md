@@ -26,12 +26,12 @@ crypto_backtest/
 ├── tools/                        # STANDALONE TOOLS
 │   └── signal_lab.py             # Signal IC evaluation — 37 signals
 │
-├── data/                         # RAW DATA — NEVER MODIFY
-│   ├── 1h_cache/                 # 49 tokens × 18K bars each (PRIMARY)
-│   ├── 4h_cache/                 # 49 tokens × 4.5K bars each
-│   ├── 1m_cache/                 # 49 tokens daily microstructure features
-│   ├── all_tokens_enriched.parquet  # 57 tokens × 20 features
-│   └── *_daily.csv               # 57 tokens raw daily OHLCV
+├── data/                         # RAW DATA — NEVER MODIFY (~500MB+, gitignored)
+│   ├── perp/1h_cache/            # 199 tokens perp 1H parquets (PRIMARY)
+│   ├── perp/1m_cache/            # 193 tokens perp 1M parquets (live entry resolution)
+│   ├── spot/1h_cache/            # 135 tokens spot 1H parquets
+│   ├── perp/live/, spot/live/    # Live buffer (merged at read time)
+│   └── perp/binance/, kraken/, hyperliquid/  # Raw CSVs per exchange
 │
 ├── results/                      # VALIDATION RESULTS — auto-generated JSON
 │   ├── sweep_summary_*.json      # Tier classifications (A/B/C)

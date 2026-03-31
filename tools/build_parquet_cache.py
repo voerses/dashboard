@@ -109,10 +109,9 @@ def read_binance_ohlcv(token):
     out = df[list(cols.keys())].rename(columns=cols).copy()
     out.index.name = 'datetime'
 
-    # If this is a 1000X token, divide prices by 1000
-    if name in BINANCE_SYMBOL_MAP:
-        for c in ['open', 'high', 'low', 'close']:
-            out[c] = out[c] / 1000.0
+    # 1000X tokens: store raw exchange prices (no division).
+    # Symbol resolution (1000PEPE → PEPE filename) is handled above;
+    # prices stay at exchange level for consistency with live trading.
 
     return out
 

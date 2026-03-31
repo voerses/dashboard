@@ -32,13 +32,29 @@ from v4.price_monitor import PriceMonitor
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_mark_price_message(token: str, price: float, timestamp: int = 1697380200000) -> dict:
-    """Build a mock Binance markPrice WebSocket message."""
+def _make_kline_message(
+    token: str, price: float, timestamp: int = 1697380200000, is_closed: bool = False,
+) -> dict:
+    """Build a mock Binance kline WebSocket message for perp venue."""
+    symbol = f"{token}USDT"
     return {
-        "e": "markPriceUpdate",
-        "s": f"{token}USDT",
-        "p": str(price),
+        "e": "kline",
         "E": timestamp,
+        "s": symbol,
+        "k": {
+            "t": timestamp,
+            "T": timestamp + 59999,
+            "s": symbol,
+            "i": "1m",
+            "o": str(price),
+            "c": str(price),
+            "h": str(price),
+            "l": str(price),
+            "v": "100.0",
+            "n": 50,
+            "x": is_closed,
+            "q": "6500000.0",
+        },
     }
 
 
@@ -66,7 +82,7 @@ class TestPriceCallback:
             received.append((token, price, timestamp))
 
         monitor = PriceMonitor(callback=on_price)
-        msg = _make_mark_price_message("BTC", 65_000.0, 1697380200000)
+        msg = _make_kline_message("BTC", 65_000.0, 1697380200000)
         monitor._handle_message(msg)
 
         assert len(received) == 1
@@ -82,9 +98,9 @@ class TestPriceCallback:
             received.append(token)
 
         monitor = PriceMonitor(callback=on_price)
-        monitor._handle_message(_make_mark_price_message("BTC", 65_000.0))
-        monitor._handle_message(_make_mark_price_message("ETH", 3_400.0))
-        monitor._handle_message(_make_mark_price_message("SOL", 155.0))
+        monitor._handle_message(_make_kline_message("BTC", 65_000.0))
+        monitor._handle_message(_make_kline_message("ETH", 3_400.0))
+        monitor._handle_message(_make_kline_message("SOL", 155.0))
 
         assert received == ["BTC", "ETH", "SOL"]
 
@@ -94,16 +110,16 @@ class TestPriceCallback:
 # ===================================================================
 
 class TestStreamSubscription:
-    """PriceMonitor subscribes to @markPrice@1s streams."""
+    """PriceMonitor subscribes to @kline_1m streams."""
 
     def test_subscribe_generates_correct_stream_names(self):
         """Subscribing to tokens generates the right stream names."""
         monitor = PriceMonitor(callback=lambda *a: None)
         streams = monitor._build_stream_names(["BTC", "ETH", "SOL"])
 
-        assert "btcusdt@markPrice@1s" in streams
-        assert "ethusdt@markPrice@1s" in streams
-        assert "solusdt@markPrice@1s" in streams
+        assert "btcusdt@kline_1m" in streams
+        assert "ethusdt@kline_1m" in streams
+        assert "solusdt@kline_1m" in streams
 
     def test_subscribe_empty_list(self):
         """No streams for empty token list."""
@@ -205,10 +221,10 @@ class TestVenueParameter:
         assert monitor._venue == "spot"
 
     def test_perp_venue_uses_perp_streams(self):
-        """Perp venue builds markPrice@1s stream names."""
+        """Perp venue builds kline_1m stream names."""
         monitor = PriceMonitor(callback=lambda *a: None, venue="perp")
         streams = monitor._build_stream_names(["BTC"])
-        assert "btcusdt@markPrice@1s" in streams
+        assert "btcusdt@kline_1m" in streams
 
     def test_spot_venue_uses_spot_streams(self):
         """Spot venue builds miniTicker stream names."""
@@ -217,10 +233,10 @@ class TestVenueParameter:
         assert "btcusdt@miniTicker" in streams
 
     def test_perp_monitor_handles_perp_messages(self):
-        """Perp venue processes markPriceUpdate messages."""
+        """Perp venue processes kline messages."""
         received = []
         monitor = PriceMonitor(callback=lambda t, p, ts: received.append((t, p)), venue="perp")
-        monitor._handle_message({"e": "markPriceUpdate", "s": "BTCUSDT", "p": "65000.0", "E": 1})
+        monitor._handle_message(_make_kline_message("BTC", 65_000.0))
         assert len(received) == 1
         assert received[0][0] == "BTC"
 
@@ -367,7 +383,7 @@ class TestSpotSymbolMapping:
         """Perp stream for SHIB uses 1000shibusdt (contrast test)."""
         monitor = PriceMonitor(callback=lambda *a: None, venue="perp")
         streams = monitor._build_stream_names(["SHIB"])
-        assert "1000shibusdt@markPrice@1s" in streams
+        assert "1000shibusdt@kline_1m" in streams
 
 
 # ===================================================================

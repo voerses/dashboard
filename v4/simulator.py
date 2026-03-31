@@ -832,6 +832,9 @@ def _process_entries(
                 highest=high_val,
                 lowest=low_val,
                 initial_risk=initial_risk,
+                limit_price=base_price if base_price != close_val else 0.0,
+                stop_limit_price=stop_price,
+                fill_source="hourly",
             )
 
             state.total_fees += entry_fee
@@ -1367,6 +1370,9 @@ def _process_entries(
                 highest=sig.high[local_bar],
                 lowest=sig.low[local_bar],
                 initial_risk=initial_risk,
+                limit_price=base_price if base_price != close_val else 0.0,
+                stop_limit_price=stop_price,
+                fill_source="hourly",
             )
 
             state.total_fees += entry_fee

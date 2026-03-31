@@ -91,7 +91,13 @@ def check_promoted_bars(df: pd.DataFrame, token: str) -> list[str]:
 
 
 def fix_promoted_bars(df: pd.DataFrame) -> pd.DataFrame:
-    """Apply minimal fixes to promoted bars: dedupe, sort, clamp OHLC."""
+    """Apply minimal fixes to promoted bars: dedupe, sort, drop NaN, clamp OHLC."""
+    # Drop rows with NaN prices (skeleton bars from failed fetches)
+    price_cols = ["open", "high", "low", "close"]
+    nan_mask = df[price_cols].isna().any(axis=1)
+    if nan_mask.any():
+        df = df[~nan_mask]
+
     # Remove duplicates
     if df.index.duplicated().any():
         df = df[~df.index.duplicated(keep="last")]
@@ -177,6 +183,16 @@ def promote_token(
                 print(f"  {token}/{market}: QC warning: {issue}")
         # Fix what we can
         new_bars = fix_promoted_bars(new_bars)
+
+    if len(new_bars) == 0:
+        if verbose:
+            print(f"  {token}/{market}: all bars dropped by QC fixes")
+        if not dry_run:
+            try:
+                os.remove(live_pq)
+            except FileNotFoundError:
+                pass
+        return None
 
     n_promote = len(new_bars)
     ts_start = new_bars.index[0]

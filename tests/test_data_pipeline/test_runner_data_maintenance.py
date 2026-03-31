@@ -148,79 +148,26 @@ class TestRunner4hPromote:
 # ===================================================================
 
 class TestRunner1mFetch:
-    """AC11: Runner fetches 1m data for tokens with open positions after hourly fetch."""
+    """AC11: Runner handles 1m data via kline streaming + background backfill.
 
-    def test_runner_has_1m_fetch_function(self):
-        """AC11: run_paper_multi has a function for fetching 1m data."""
-        has_1m_func = (
-            hasattr(run_paper_multi, "fetch_1m_for_open_positions") or
-            hasattr(run_paper_multi, "_fetch_1m_for_open_positions") or
-            hasattr(run_paper_multi, "fetch_1m_data")
-        )
-        assert has_1m_func, (
-            "run_paper_multi should have a function for fetching 1m data "
-            "for tokens with open positions"
+    NOTE: ws-kline-1m-streaming replaced the polling fetch_1m_for_open_positions
+    with create_kline_writer (streaming) + _backfill_1m_background (gap recovery).
+    """
+
+    def test_runner_has_kline_writer(self):
+        """AC11: run_paper_multi has create_kline_writer for 1m streaming."""
+        assert hasattr(run_paper_multi, "create_kline_writer"), (
+            "run_paper_multi should have create_kline_writer for 1m bar streaming"
         )
 
-    def test_runner_1m_fetch_uses_open_positions(self):
-        """AC11: 1m fetch function accepts engines/positions and fetches for open tokens only."""
-        # Find the 1m fetch function
-        func = getattr(
-            run_paper_multi, "fetch_1m_for_open_positions",
-            getattr(run_paper_multi, "_fetch_1m_for_open_positions",
-                    getattr(run_paper_multi, "fetch_1m_data", None)),
+    def test_runner_has_backfill_1m_background(self):
+        """AC11: run_paper_multi has _backfill_1m_background for gap recovery."""
+        assert hasattr(run_paper_multi, "_backfill_1m_background"), (
+            "run_paper_multi should have _backfill_1m_background for 1m gap recovery"
         )
-        assert func is not None, "1m fetch function not found"
 
-        # Create mock fetcher and engine with open positions
+    def test_kline_writer_enqueues_bars(self):
+        """AC11: create_kline_writer returns a callback that enqueues bars."""
         mock_fetcher = MagicMock()
-        mock_fetcher.fetch_ohlcv.return_value = []
-        mock_fetcher.filter_closed_bars_1m.return_value = []
-
-        mock_position = MagicMock()
-        mock_position.token = "BTC"
-        mock_state = MagicMock()
-        mock_state.position_manager.open_positions = [mock_position]
-
-        mock_engine = MagicMock()
-        mock_engine._get_all_states.return_value = [mock_state]
-
-        # Call the function
-        func(mock_fetcher, [mock_engine])
-
-        # Verify fetch_ohlcv was called with 1m timeframe for BTC
-        calls = mock_fetcher.fetch_ohlcv.call_args_list
-        assert len(calls) > 0, "fetch_ohlcv should be called for open position tokens"
-        # At least one call should have timeframe="1m" and token="BTC"
-        found_1m_btc = any(
-            c.args[0] == "BTC" and c.kwargs.get("timeframe") == "1m"
-            for c in calls
-        ) or any(
-            "BTC" in str(c) and "1m" in str(c) for c in calls
-        )
-        assert found_1m_btc, (
-            f"Should fetch 1m data for BTC (open position), calls: {calls}"
-        )
-
-    def test_runner_1m_fetch_skips_tokens_without_positions(self):
-        """AC11: Tokens without open positions should NOT get 1m fetch."""
-        func = getattr(
-            run_paper_multi, "fetch_1m_for_open_positions",
-            getattr(run_paper_multi, "_fetch_1m_for_open_positions",
-                    getattr(run_paper_multi, "fetch_1m_data", None)),
-        )
-        assert func is not None, "1m fetch function not found"
-
-        mock_fetcher = MagicMock()
-        mock_fetcher.fetch_ohlcv.return_value = []
-
-        # Engine with NO open positions
-        mock_state = MagicMock()
-        mock_state.position_manager.open_positions = []
-        mock_engine = MagicMock()
-        mock_engine._get_all_states.return_value = [mock_state]
-
-        func(mock_fetcher, [mock_engine])
-
-        # fetch_ohlcv should NOT be called (no open positions)
-        mock_fetcher.fetch_ohlcv.assert_not_called()
+        callback = run_paper_multi.create_kline_writer(mock_fetcher)
+        assert callable(callback), "create_kline_writer should return a callable"

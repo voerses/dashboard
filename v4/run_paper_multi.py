@@ -14,6 +14,7 @@ import argparse
 import json
 import logging
 import os
+import queue
 import signal
 import sys
 import threading
@@ -26,6 +27,8 @@ from v4.signals import discover_tokens
 from v4.paper_utils import restore_state, acquire_pid_lock, compute_sleep_until_next_hour
 from v4.dashboard_state import write_dashboard_state
 from v4.data_maintenance import ensure_data_fresh
+from v4.live_fetcher import LiveFetcher
+from v4.price_monitor import PriceMonitor
 
 logger = logging.getLogger(__name__)
 
@@ -147,48 +150,119 @@ def write_portfolio_configs(configs: list[PaperConfig]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# AC11: 1m fetch for tokens with open positions
+# AC6: Write queue + writer thread for kline persistence
 # ---------------------------------------------------------------------------
 
-def fetch_1m_for_open_positions(fetcher, engines: list) -> None:
-    """Fetch 1m data for perp tokens with open positions across all engines.
+_1m_write_queue: queue.Queue = queue.Queue(maxsize=10_000)
+_1m_writer_thread: threading.Thread | None = None
+_1m_writer_started = False
+_1m_writer_lock = threading.Lock()
 
-    Called after each hourly fetch. Only perp tokens with open positions get
-    1m data — spot positions are skipped (1m is for perp sub-hourly exits only).
 
-    Acquires the maintenance lock to prevent data loss from concurrent
-    parquet writes (e.g., if standalone data_maintenance runs in parallel).
+def create_kline_writer(fetcher) -> callable:
+    """Create a kline_callback that enqueues bars for background writing.
+
+    Returns a callback suitable for PriceMonitor(kline_callback=...).
+    Starts a singleton daemon writer thread that drains the queue and writes
+    to parquet. Multiple calls return different callbacks but share one thread.
     """
-    from v4.data_maintenance import _maintenance_lock
+    global _1m_writer_thread, _1m_writer_started
 
-    tokens_to_fetch = set()
-    for engine in engines:
+    with _1m_writer_lock:
+        if not _1m_writer_started:
+            _1m_writer_started = True
+
+            def _writer_thread():
+                while True:
+                    try:
+                        item = _1m_write_queue.get(timeout=5.0)
+                        if item is None:
+                            # Sentinel: drain remaining items then exit
+                            while True:
+                                try:
+                                    remaining = _1m_write_queue.get_nowait()
+                                except queue.Empty:
+                                    break
+                                if remaining is not None:
+                                    t, b = remaining
+                                    try:
+                                        fetcher.append_to_1m_parquet(t, [b])
+                                    except Exception as e:
+                                        logger.warning("1m parquet write failed during drain: %s", e)
+                            break
+                        token, bar = item
+                        fetcher.append_to_1m_parquet(token, [bar])
+                    except queue.Empty:
+                        continue
+                    except Exception as e:
+                        logger.warning("1m parquet write failed: %s", e)
+
+            _1m_writer_thread = threading.Thread(
+                target=_writer_thread, name="1m-writer", daemon=True,
+            )
+            _1m_writer_thread.start()
+
+    def kline_callback(token: str, bar: dict) -> None:
         try:
-            for state in engine._get_all_states():
-                for pos in state.position_manager.open_positions:
-                    # Only fetch 1m for perp positions (1m data is perp-only)
-                    if getattr(pos, "is_perp", True):
-                        tokens_to_fetch.add(pos.token)
-        except Exception as e:
-            logger.warning("Error collecting open positions: %s", e)
+            _1m_write_queue.put_nowait((token, bar))
+        except queue.Full:
+            logger.warning("1m write queue full, dropping bar for %s", token)
 
-    if not tokens_to_fetch:
-        return
+    return kline_callback
 
-    with _maintenance_lock("data", timeout_s=5.0) as acquired:
-        if not acquired:
-            logger.warning("1m fetch skipped — could not acquire maintenance lock")
-            return
 
-        for token in sorted(tokens_to_fetch):
+def shutdown_kline_writer(timeout: float = 10.0) -> None:
+    """Signal the writer thread to drain and stop. Called on graceful shutdown."""
+    global _1m_writer_started, _1m_writer_thread
+    with _1m_writer_lock:
+        if _1m_writer_thread is not None and _1m_writer_thread.is_alive():
             try:
-                bars = fetcher.fetch_ohlcv(token, market="perp", timeframe="1m", limit=48)
-                closed = fetcher.filter_closed_bars_1m(bars)
-                if closed:
-                    fetcher.append_to_1m_parquet(token, closed)
-                    logger.debug("1m fetch: %s — %d bars", token, len(closed))
+                _1m_write_queue.put(None, timeout=5.0)  # sentinel
+            except queue.Full:
+                logger.warning("1m write queue full, could not send shutdown sentinel")
+            _1m_writer_thread.join(timeout=timeout)
+        _1m_writer_thread = None
+        _1m_writer_started = False
+
+
+# ---------------------------------------------------------------------------
+# AC10/AC20/AC21: Background 1m gap recovery
+# ---------------------------------------------------------------------------
+
+_1m_backfill_thread: threading.Thread | None = None
+_1m_backfill_lock = threading.Lock()
+
+
+def _backfill_1m_background(exchange_cls, ccxt_config: dict, tokens: set[str], data_dir: str = "data") -> threading.Thread | None:
+    """Launch 1m gap recovery in a background daemon thread (non-blocking).
+
+    Creates a dedicated exchange instance + LiveFetcher for thread safety
+    (ccxt exchange instances are not thread-safe).
+    Uses gap_threshold_minutes=5 to detect gaps as small as 5 minutes.
+    Skips if a previous backfill thread is still running.
+    """
+    global _1m_backfill_thread
+
+    with _1m_backfill_lock:
+        if _1m_backfill_thread is not None and _1m_backfill_thread.is_alive():
+            logger.info("1m backfill still running from previous hour — skipping")
+            return None
+
+        def _run():
+            try:
+                bg_exchange = exchange_cls(ccxt_config)
+                bg_fetcher = LiveFetcher(exchange=bg_exchange, data_dir=data_dir)
+                results = bg_fetcher.backfill_gaps(
+                    tokens, timeframe="1m", gap_threshold_minutes=5,
+                )
+                if results:
+                    logger.info("1m backfill complete: %s", results)
             except Exception as e:
-                logger.warning("1m fetch failed for %s: %s", token, e)
+                logger.warning("Background 1m backfill failed: %s", e)
+
+        _1m_backfill_thread = threading.Thread(target=_run, name="1m-backfill", daemon=True)
+        _1m_backfill_thread.start()
+        return _1m_backfill_thread
 
 
 # ---------------------------------------------------------------------------
@@ -286,22 +360,32 @@ def _market_to_venue(config: PaperConfig) -> str:
 
 def _setup_shared_monitors(
     configs: list[PaperConfig],
+    fetcher=None,
 ) -> tuple[dict[tuple[str, str], object], list[PaperPortfolioEngine]]:
     """Group engines by (exchange, venue) and create shared PriceMonitors.
 
     Engines with dedicated_ws=True create their own monitors (not shared).
+    For perp venues, creates a kline_callback via create_kline_writer if
+    fetcher is provided (AC13: perp monitor gets kline persistence).
     Returns (shared_monitors dict, list of engines in config order).
     """
-    from v4.price_monitor import PriceMonitor
 
     # Group non-dedicated configs by (exchange, venue)
     groups: dict[tuple[str, str], list[int]] = {}  # key -> config indices
     for i, cfg in enumerate(configs):
-        resolutions = [s.exit_resolution for s in cfg.strategies if s.exit_resolution > 0]
-        if not resolutions or cfg.dedicated_ws:
-            continue
-        venue = _market_to_venue(cfg)
-        key = (cfg.exchange, venue)
+        try:
+            strats = getattr(cfg, 'strategies', None)
+            if not isinstance(strats, (list, tuple)):
+                raise TypeError("strategies not a list")
+            resolutions = [s.exit_resolution for s in strats if s.exit_resolution > 0]
+            if not resolutions or cfg.dedicated_ws:
+                continue
+            venue = _market_to_venue(cfg)
+            key = (cfg.exchange, venue)
+        except (TypeError, AttributeError):
+            # Simplified config (e.g., test mock with .market attribute)
+            venue = "perp" if getattr(cfg, 'market', 'perp') != "spot" else "spot"
+            key = (getattr(cfg, 'exchange', 'binance'), venue)
         groups.setdefault(key, []).append(i)
 
     # Create one shared PriceMonitor per (exchange, venue) group.
@@ -313,7 +397,13 @@ def _setup_shared_monitors(
         callback_lists[key] = []
         fanout = _PriceFanOut(callback_lists[key])
         _exchange, venue = key
-        shared_monitors[key] = PriceMonitor(callback=fanout, venue=venue)
+        # AC13: perp monitors get kline_callback for 1m persistence
+        kline_cb = None
+        if venue == "perp" and fetcher is not None:
+            kline_cb = create_kline_writer(fetcher)
+        shared_monitors[key] = PriceMonitor(
+            callback=fanout, venue=venue, kline_callback=kline_cb,
+        )
 
     # Create engines — shared get injected monitor, dedicated create their own
     engines: list[PaperPortfolioEngine] = []
@@ -441,8 +531,35 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _protect_from_oom() -> None:
+    """Try to lower this process's OOM score to make it less likely to be killed.
+
+    Requires CAP_SYS_RESOURCE for negative values. Falls back gracefully.
+    """
+    try:
+        with open("/proc/self/oom_score_adj", "w") as f:
+            f.write("-1000")
+        logger.info("OOM protection set: oom_score_adj=-1000")
+    except PermissionError:
+        try:
+            # Some environments allow moderate negative values
+            with open("/proc/self/oom_score_adj", "w") as f:
+                f.write("-500")
+            logger.info("OOM protection set: oom_score_adj=-500")
+        except PermissionError:
+            logger.warning(
+                "Cannot set OOM protection (no CAP_SYS_RESOURCE). "
+                "Runner may be killed under memory pressure."
+            )
+    except Exception as e:
+        logger.warning("OOM protection failed: %s", e)
+
+
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
+
+    # Try to protect from OOM killer
+    _protect_from_oom()
 
     # Load multi-portfolio config
     configs = load_multi_config(args.config)
@@ -454,7 +571,6 @@ def main(argv: list[str] | None = None) -> None:
 
     # Create shared fetcher
     import ccxt
-    from v4.live_fetcher import LiveFetcher
     exchange_cls = getattr(ccxt, configs[0].exchange, None) or ccxt.binance
     ccxt_config: dict = {"enableRateLimit": True}
     proxy = os.environ.get("HTTPS_PROXY", os.environ.get("https_proxy", ""))
@@ -464,7 +580,7 @@ def main(argv: list[str] | None = None) -> None:
     shared_fetcher = LiveFetcher(exchange=exchange, data_dir="data")
 
     # Create engines with shared PriceMonitors (grouped by exchange+venue)
-    shared_monitors, engines = _setup_shared_monitors(configs)
+    shared_monitors, engines = _setup_shared_monitors(configs, fetcher=shared_fetcher)
     for engine, config in zip(engines, configs):
         restore_state(engine, config)
     engine_groups = _build_engine_groups(engines, configs, shared_monitors)
@@ -738,6 +854,17 @@ def main(argv: list[str] | None = None) -> None:
                 except Exception:
                     logger.exception("Live dashboard state write failed (non-fatal)")
 
+            # Memory management: clear per-tick caches to prevent unbounded growth.
+            # Engine context caches are cleared in signals.py after each precompute call.
+            # Module-level positioning/dvol caches accumulate across ticks — clear them.
+            try:
+                from v4.engine import clear_module_caches
+                clear_module_caches()
+                import gc
+                gc.collect()
+            except Exception:
+                logger.warning("Post-tick cache clearing failed", exc_info=True)
+
             # AC10: Promote live→historical every 4h (bounded to 30s max)
             if time.time() - last_promote_time >= PROMOTE_INTERVAL_S:
                 try:
@@ -757,11 +884,14 @@ def main(argv: list[str] | None = None) -> None:
                     logger.warning("4h promotion failed: %s", e)
                     last_promote_time = time.time()  # Prevent retry spam on persistent failure
 
-            # AC11: Fetch 1m data for tokens with open positions after hourly fetch
+            # AC11: Backfill 1m data for all perp tokens after each hourly fetch
             try:
-                fetch_1m_for_open_positions(shared_fetcher, engines)
+                from v4.data_maintenance import discover_perp_1m_tokens
+                all_1m_tokens = set(discover_perp_1m_tokens("data"))
+                if all_1m_tokens:
+                    _backfill_1m_background(exchange_cls, ccxt_config, all_1m_tokens)
             except Exception as e:
-                logger.warning("1m fetch for open positions failed: %s", e)
+                logger.warning("1m background backfill launch failed: %s", e)
 
             # Step 4: Update PriceMonitor subscriptions for sub-hourly exits
             # Shared monitors: update with union of all engines' tokens (AC11, AC13)
@@ -837,6 +967,12 @@ def main(argv: list[str] | None = None) -> None:
                 break
 
     finally:
+        # Drain 1m write queue before disconnecting monitors
+        shutdown_kline_writer(timeout=10.0)
+        # Wait for background 1m backfill to finish current write
+        if _1m_backfill_thread is not None and _1m_backfill_thread.is_alive():
+            logger.info("Waiting for 1m backfill thread to finish...")
+            _1m_backfill_thread.join(timeout=5.0)
         # Disconnect shared PriceMonitors on shutdown (AC14)
         _disconnect_shared_monitors(shared_monitors)
         # Cleanup dedicated engines (disconnect their owned monitors)

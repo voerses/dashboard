@@ -62,8 +62,8 @@
 |------|------|----------|---------|
 | `PAPER_TRADING_PRO_FRAMEWORK.md` | 16K | /dev | Paper trading setup, slippage, dual-exchange mode, go/no-go checklist. |
 | `KRAKEN_FEES.md` | 7K | both | Fee tiers, maker rebates, withdrawal costs, Kraken vs Binance comparison. |
-| `DATA_PIPELINE.md` | 4K | /dev | Directory structure, merge strategy, funding data TODO. |
-| `DATA_MANIFEST.md` | 2K | /dev | 49-token 1H cache, coverage dates, enriched parquet stats. |
+| `DATA_PIPELINE.md` | 5K | /dev | Directory structure, RDB/HDB merge strategy, funding normalization, maintenance wiring. |
+| `DATA_MANIFEST.md` | 2K | /dev | 199 perp + 135 spot + 193 1m tokens, coverage dates, delisted tokens, integrity notes. Updated 2026-03-30 post-backfill. |
 | `DATA_ACQUISITION_PLAYBOOK.md` | 6K | /dev | Proxy config, rate limiting, exchange API quirks, Cloudflare bypass. |
 
 ### Meta
@@ -97,6 +97,6 @@ Superseded or historical files. Do not load unless specifically investigating pa
 
 ## Known Gaps
 
-- **Funding rate integration:** Downloaded but NOT in 1h parquets. Impact: missing holding costs.
+- ~~**Funding rate integration:** Downloaded but NOT in 1h parquets.~~ **RESOLVED 2026-03-26.** Funding rates now merged into all 1h parquets as `funding_rate` column (normalized to hourly). 8x overcharge bug fixed, all 195 perp parquets rebuilt.
 - **Regime tuning guide:** 5 regimes defined but no parameter tuning documentation.
 - **Market impact at scale:** sqrt(impact) model not validated against real orders.

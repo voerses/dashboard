@@ -63,6 +63,24 @@ def load_paper_config(path: str) -> PaperConfig:
             )
         strategy_list.append(StrategySpec.from_dict(s))
 
+    # --- Merge strategy-declared PORTFOLIO_CONFIG as defaults ---
+    # Strategy module's PORTFOLIO_CONFIG fills in missing config.json fields
+    merged_pconf = {}
+    for spec in strategy_list:
+        try:
+            from v4.portfolio_backtest import _load_strategy_module_attrs
+            mod_attrs = _load_strategy_module_attrs(spec.strategy_id)
+            pconf = mod_attrs.get('portfolio_config', {})
+            merged_pconf.update(pconf)
+            # Fill entry_resolution from strategy if config.json didn't set it
+            if 'entry_resolution' in pconf and spec.entry_resolution == 0:
+                spec.entry_resolution = pconf['entry_resolution']
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(
+                "Failed to load PORTFOLIO_CONFIG for %s: %s", spec.strategy_id, e
+            )
+
     # --- Parse sizing_defaults (optional) ---
     sd_raw = data.get("sizing_defaults", {})
     sd_fields = {f.name for f in SizingDefaults.__dataclass_fields__.values()}
@@ -76,7 +94,7 @@ def load_paper_config(path: str) -> PaperConfig:
         strategies=strategy_list,
         sizing_defaults=sizing_defaults,
         capital=data.get("initial_capital", 200_000.0),
-        max_portfolio_positions=data.get("max_portfolio_positions", 40),
+        max_portfolio_positions=data.get("max_portfolio_positions", merged_pconf.get("max_portfolio_positions", 40)),
         concentration_limit=data.get("concentration_limit", 0.10),
         adv_cap_pct=data.get("adv_cap_pct", 0.05),
         min_position_usd=data.get("min_position_usd", 200.0),
@@ -97,13 +115,14 @@ def load_paper_config(path: str) -> PaperConfig:
         dashboard_push=data.get("dashboard_push", False),
         dynamic_weights=data.get("dynamic_weights", False),
         dynamic_weights_smoothing=data.get("dynamic_weights_smoothing", 0.3),
-        conviction_mode=data.get("conviction_mode", "shuffle"),
+        conviction_mode=data.get("conviction_mode", merged_pconf.get("conviction_mode", "shuffle")),
         min_conviction_threshold=data.get("min_conviction_threshold", 0.0),
         max_sizing_equity=data.get("max_sizing_equity", None),
         sentinel_mode=data.get("sentinel_mode", "off"),
         confirmation_tiers=data.get("confirmation_tiers", {"btc_eth": 30, "top10": 60, "other": 90}),
         carry_strategies=data.get("carry_strategies", []),
         exit_resolution=data.get("exit_resolution", 0),
+        dedicated_ws=data.get("dedicated_ws", False),
         raw_mode=data.get("raw_mode", False),
         raw_max_positions=data.get("raw_max_positions", 500),
         skip_walk_forward=data.get("skip_walk_forward", False),

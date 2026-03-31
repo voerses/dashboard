@@ -67,6 +67,8 @@ def _load_strategy_module_attrs(strategy_id: str) -> dict:
                 result['max_concurrent_per_token'] = mod.MAX_CONCURRENT_PER_TOKEN
             if hasattr(mod, 'DD_SCALING'):
                 result['dd_scaling'] = mod.DD_SCALING
+            if hasattr(mod, 'PORTFOLIO_CONFIG'):
+                result['portfolio_config'] = mod.PORTFOLIO_CONFIG
             break
     return result
 
@@ -85,10 +87,13 @@ def parse_args() -> argparse.Namespace:
                         help="Per-token concentration limit (default: 0.10)")
     parser.add_argument("--adv-cap", type=float, default=0.05,
                         help="ADV hard cap (default: 0.05)")
-    parser.add_argument("--max-positions", type=int, default=15,
-                        help="Per-strategy max positions (default: 15)")
-    parser.add_argument("--max-portfolio-positions", type=int, default=40,
-                        help="Portfolio-wide max positions (default: 40)")
+    parser.add_argument("--max-positions", type=int, default=None,
+                        help="Per-strategy max positions (default: from strategy or 15)")
+    parser.add_argument("--max-portfolio-positions", type=int, default=None,
+                        help="Portfolio-wide max positions (default: from strategy or 40)")
+    parser.add_argument("--conviction-mode", type=str, default=None,
+                        choices=["shuffle", "ranked", "hybrid"],
+                        help="Entry conviction mode (default: from strategy or shuffle)")
     parser.add_argument("--seed", type=int, default=42,
                         help="Random seed (default: 42)")
     parser.add_argument("--output", type=str, default="results/v4",
@@ -115,34 +120,46 @@ def run_backtest(
     market: str,
     precomputed_signals: dict | None = None,
     end_date: pd.Timestamp | None = None,
+    per_strategy_max_positions: int | None = None,
 ) -> tuple:
     """Run a single backtest with given parameters.
 
     Args:
         market: Market type — "spot", "perp", or "combined". Required.
+        per_strategy_max_positions: Per-strategy position cap. If None, derived
+            from max_portfolio_positions split across strategies.
 
     Returns (metrics, extra_info, trades, precomputed_signals, eq_daily)
     """
     if market not in ("spot", "perp", "combined"):
         raise ValueError(f"Invalid market '{market}'. Must be 'spot', 'perp', or 'combined'.")
     strategy_specs = {}
+    n_strats = len(strategy_ids)
     for sid in strategy_ids:
         stype = _detect_strategy_type(sid)
         mod_attrs = _load_strategy_module_attrs(sid)
+        pconf = mod_attrs.get('portfolio_config', {})
+        # Per-strategy max_positions: explicit arg > PORTFOLIO_CONFIG > split from portfolio max
+        if per_strategy_max_positions is not None:
+            max_pos = per_strategy_max_positions
+        elif 'max_positions' in pconf:
+            max_pos = pconf['max_positions']
+        else:
+            max_pos = config.max_portfolio_positions // n_strats if n_strats > 1 else config.max_portfolio_positions
         spec = StrategySpec(
             strategy_id=sid,
-            weight=1.0 / len(strategy_ids),
-            max_positions=config.max_portfolio_positions // len(strategy_ids) if len(strategy_ids) > 1 else config.max_portfolio_positions,
+            weight=1.0 / n_strats,
+            max_positions=max_pos,
             market=market,
             strategy_type=stype,
             sizing_overrides=mod_attrs.get('sizing_overrides', {}),
             regime_params=mod_attrs.get('regime_params', None),
             max_concurrent_per_token=mod_attrs.get('max_concurrent_per_token', 1),
             dd_scaling=mod_attrs.get('dd_scaling', []),
+            entry_resolution=pconf.get('entry_resolution', 0),
         )
-        # Use the per-strategy max_positions from config if only 1 strategy
-        if len(strategy_ids) == 1:
-            spec.max_positions = min(spec.max_positions, config.max_portfolio_positions)
+        # Cap per-strategy positions at portfolio max
+        spec.max_positions = min(spec.max_positions, config.max_portfolio_positions)
         strategy_specs[sid] = spec
 
     # Precompute signals (or reuse)
@@ -177,17 +194,20 @@ def run_oos_monthly(
     capital: float,
     config: PortfolioConfig,
     market: str,
+    per_strategy_max_positions: int | None = None,
 ) -> list[dict]:
-    """Run month-by-month OOS backtest with hard data cap per month.
+    """Run month-by-month OOS backtest with compounding equity.
 
-    Each month is an independent simulation with the same initial capital
-    (no equity carry-over). Signals are recomputed each month with
-    end_date=month_end to prevent forward bias.
+    Each month is an independent simulation where:
+    - Signals are recomputed with end_date=month_end (no forward bias)
+    - Starting capital = previous month's ending equity (compounding)
+    - Positions start fresh each month (no carry-over)
 
     Returns a list of per-month result dicts.
     """
     data_end = infer_data_end_date(market)
     results = []
+    running_capital = capital
 
     for i in range(oos_months):
         # Compute end_date for this month (counting backwards from data_end)
@@ -202,41 +222,52 @@ def run_oos_monthly(
         end_date = min(end_date, data_end)
 
         label_suffix = " (partial)" if clamped else ""
-        print(f"\n  OOS Month {i+1}/{oos_months}: end_date={end_date.strftime('%Y-%m-%d')}{label_suffix}")
+        print(f"\n  OOS Month {i+1}/{oos_months}: capital=${running_capital:,.0f}, "
+              f"end_date={end_date.strftime('%Y-%m-%d')}{label_suffix}")
 
         metrics, extra_info, trades, signals, eq_daily = run_backtest(
             strategy_ids=strategy_ids,
             months=1,
-            capital=capital,
+            capital=running_capital,
             config=config,
             market=market,
             end_date=end_date,
+            per_strategy_max_positions=per_strategy_max_positions,
         )
 
         month_label = end_date.strftime("%Y-%m")
         total_return = metrics.get("total_return_pct", 0) if isinstance(metrics, dict) else getattr(metrics, "total_return_pct", 0)
         max_dd = metrics.get("max_drawdown_pct", 0) if isinstance(metrics, dict) else getattr(metrics, "max_drawdown_pct", 0)
+        final_equity = extra_info.get("final_equity", running_capital) if isinstance(extra_info, dict) else getattr(extra_info, "final_equity", running_capital)
 
         results.append({
             "month": month_label,
             "end_date": str(end_date),
             "metrics": metrics,
             "extra_info": extra_info,
+            "start_capital": running_capital,
+            "final_equity": final_equity,
             "total_return_pct": total_return,
             "max_drawdown_pct": max_dd,
         })
 
+        # Compound: next month starts with this month's ending equity
+        running_capital = final_equity
+
     # Print per-month table
-    print(f"\n{'=' * 60}")
-    print(f"  OOS MONTHLY RESULTS ({oos_months} months)")
-    print(f"{'=' * 60}")
-    print(f"  {'Month':>10s}  {'Return':>8s}  {'MaxDD':>8s}")
-    print(f"  {'-'*10}  {'-'*8}  {'-'*8}")
+    cumulative_return = (running_capital / capital - 1) * 100
+    print(f"\n{'=' * 70}")
+    print(f"  OOS MONTHLY RESULTS — COMPOUNDING ({oos_months} months)")
+    print(f"{'=' * 70}")
+    print(f"  {'Month':>10s}  {'Capital':>12s}  {'Return':>8s}  {'MaxDD':>8s}  {'Equity':>12s}")
+    print(f"  {'-'*10}  {'-'*12}  {'-'*8}  {'-'*8}  {'-'*12}")
     for r in results:
         ret = r["total_return_pct"]
         dd = r["max_drawdown_pct"]
-        print(f"  {r['month']:>10s}  {ret:>+7.1f}%  {dd:>7.1f}%")
-    print(f"{'=' * 60}")
+        print(f"  {r['month']:>10s}  ${r['start_capital']:>11,.0f}  {ret:>+7.1f}%  {dd:>7.1f}%  ${r['final_equity']:>11,.0f}")
+    print(f"  {'-'*10}  {'-'*12}  {'-'*8}  {'-'*8}  {'-'*12}")
+    print(f"  {'TOTAL':>10s}  ${capital:>11,.0f}  {cumulative_return:>+7.1f}%  {'':>8s}  ${running_capital:>11,.0f}")
+    print(f"{'=' * 70}")
 
     return results
 
@@ -248,17 +279,51 @@ def main():
     capital_levels = [float(c.strip()) for c in args.capital.split(",")]
     is_sweep = len(capital_levels) > 1
 
-    # Build config
+    # Build config — merge strategy-declared PORTFOLIO_CONFIG as defaults
     market = args.market
+
+    # Collect PORTFOLIO_CONFIG from all strategies (later strategies override earlier)
+    merged_portfolio = {}
+    for sid in strategy_ids:
+        mod_attrs = _load_strategy_module_attrs(sid)
+        pconf = mod_attrs.get('portfolio_config', {})
+        merged_portfolio.update(pconf)
+
+    # CLI args override strategy defaults; None means "not explicitly provided"
+    max_portfolio_pos = (
+        args.max_portfolio_positions
+        if args.max_portfolio_positions is not None
+        else merged_portfolio.get('max_portfolio_positions', 40)
+    )
+    conviction_mode = (
+        args.conviction_mode
+        if args.conviction_mode is not None
+        else merged_portfolio.get('conviction_mode', 'shuffle')
+    )
+    per_strategy_max = (
+        args.max_positions
+        if args.max_positions is not None
+        else None  # let run_backtest() resolve from PORTFOLIO_CONFIG or portfolio max
+    )
+
     config = PortfolioConfig(
         exchange=args.exchange,
         concentration_limit=args.concentration,
         adv_cap_pct=args.adv_cap,
-        max_portfolio_positions=args.max_portfolio_positions,
+        max_portfolio_positions=max_portfolio_pos,
+        conviction_mode=conviction_mode,
         seed=args.seed,
         raw_mode=args.raw,
         skip_walk_forward=args.skip_wf,
     )
+
+    # Print which config came from the strategy module
+    if merged_portfolio:
+        # Show all strategy-declared params (portfolio-level applied here, per-spec applied in run_backtest)
+        parts = [f"{k}={v}" for k, v in sorted(merged_portfolio.items())]
+        print(f"  Config from strategy: {', '.join(parts)}")
+        # Show effective values after CLI override
+        print(f"  Effective: max_portfolio_positions={max_portfolio_pos}, conviction_mode={conviction_mode}")
 
     # AC12/AC15: --refresh calls ensure_data_fresh before backtest
     if args.refresh:
@@ -285,6 +350,7 @@ def main():
             capital=capital_levels[0],
             config=config,
             market=market,
+            per_strategy_max_positions=per_strategy_max,
         )
         # Save OOS monthly results to JSON
         try:
@@ -343,6 +409,7 @@ def main():
             market=market,
             precomputed_signals=shared_signals,
             end_date=data_end,
+            per_strategy_max_positions=per_strategy_max,
         )
         all_results.append((capital, metrics, extra_info, trades, eq_daily))
 

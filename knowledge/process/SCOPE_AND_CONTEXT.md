@@ -50,11 +50,11 @@ When reading the research files in this directory, apply this filter:
 3. **Better risk management** — surviving drawdowns that kill others
 4. **Faster iteration** — testing more ideas per week than competitors
 5. **Crypto-native insights** — ETF flows, on-chain data, funding rates, liquidation cascades
-6. **Multi-token universe** — 49 tokens gives us breadth for statistical validation
+6. **Multi-token universe** — 199 perp + 135 spot tokens gives us breadth for statistical validation
 
 ## Current Infrastructure
-- Backtesting engine: custom Python v3 (vectorized)
-- Validation: walk-forward + CPCV dual gate across 49 tokens
-- Exchange: Kraken (maker/taker fees documented in KRAKEN_FEES.md)
-- Data: Binance spot OHLCV (see DATA_MANIFEST.md for coverage)
+- Backtesting engine: custom Python v4 (vectorized, portfolio-level simulation)
+- Validation: walk-forward + CPCV dual gate across full token universe
+- Exchange: Binance (primary), Kraken, Hyperliquid (fee docs in KRAKEN_FEES.md)
+- Data: Multi-exchange perp + spot OHLCV with funding rates (see DATA_MANIFEST.md for coverage)
 - Strategies: Python files following TEMPLATE.py pattern

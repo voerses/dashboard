@@ -31,6 +31,7 @@
     "impact_coeff": 0.03,
     "lookback_months": 12,
     "enable_purge_windows": false,
+    "skip_walk_forward": true,
     "drawdown_alert_pct": 5.0,
     "shadow_rebalance_threshold": 100.0,
     "dashboard_push": true,

@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import os
 import tempfile
+import threading
 import time
 from typing import Optional
 
@@ -25,16 +26,29 @@ class LiveFetcher:
     def __init__(self, exchange=None, data_dir: str = "data"):
         self.exchange = exchange
         self.data_dir = data_dir
+        # Per-token locks for 1m parquet writes — prevents lost-update race
+        # when writer thread and backfill thread write concurrently.
+        self._1m_write_locks: dict[str, threading.Lock] = {}
+        self._1m_write_locks_guard = threading.Lock()
 
     # ------------------------------------------------------------------
     # Symbol resolution
     # ------------------------------------------------------------------
 
+    # Tokens that Binance lists with a 1000x prefix on futures
+    _1000_PREFIX_TOKENS = {
+        "SHIB", "PEPE", "FLOKI", "BONK", "LUNC", "SATS", "RATS", "CAT",
+        "CHEEMS", "WHY", "X", "XEC",
+    }
+
     def _resolve_symbol(self, token: str, market: str) -> str:
         """Resolve ccxt symbol for the given token and market type."""
+        name = token
+        if market == "perp" and token in self._1000_PREFIX_TOKENS:
+            name = f"1000{token}"
         if market == "perp":
-            return f"{token}/USDT:USDT"
-        return f"{token}/USDT"
+            return f"{name}/USDT:USDT"
+        return f"{name}/USDT"
 
     # ------------------------------------------------------------------
     # AC1: OHLCV fetching
@@ -108,13 +122,27 @@ class LiveFetcher:
             return int((ts - pd.Timestamp("1970-01-01")).total_seconds() * 1000)
         return int(ts)
 
-    def _find_last_timestamp_ms(self, token: str, market: str) -> Optional[int]:
-        """Find the ms timestamp of the last bar in live buffer or historical cache.
+    def _find_last_timestamp_ms(
+        self, token: str, market: str, timeframe: str = "1h",
+    ) -> Optional[int]:
+        """Find the ms timestamp of the last bar in the appropriate cache.
 
-        Checks live buffer first (most recent data), then falls back to
-        historical 1h_cache. Returns None if no data exists for this token/market.
+        For timeframe="1h": checks live buffer first, then 1h_cache.
+        For timeframe="1m": checks 1m_cache only (no live buffer for 1m data).
+        Returns None if no data exists for this token/market/timeframe.
         """
-        # Check live buffer first
+        if timeframe == "1m":
+            path = self._1m_parquet_path(token)
+            if os.path.exists(path):
+                try:
+                    idx = pd.read_parquet(path, columns=[]).index
+                    if len(idx) > 0:
+                        return self._ts_to_ms(idx.max())
+                except Exception as e:
+                    logger.warning("Failed to read 1m parquet %s: %s", path, e)
+            return None
+
+        # 1h: Check live buffer first
         live_path = self._parquet_path(token, market)
         if os.path.exists(live_path):
             try:
@@ -141,26 +169,47 @@ class LiveFetcher:
     def backfill_gaps(
         self,
         tokens: set[str],
-        gap_threshold_hours: int = 24,
+        gap_threshold_hours: int = 1,
+        gap_threshold_minutes: int | None = None,
         chunk_limit: int = 1000,
         max_errors: int = 5,
         deadline_s: float | None = None,
+        timeframe: str = "1h",
     ) -> dict[str, int]:
-        """Backfill data gaps >gap_threshold_hours for each token/market pair.
+        """Backfill data gaps for each token/market pair.
 
-        Called once at startup to repair gaps from outages.
+        For timeframe="1h" (default): iterates spot+perp, uses gap_threshold_hours,
+        writes via append_to_parquet, uses _HOUR_MS pagination.
+
+        For timeframe="1m": iterates perp only, uses gap_threshold_minutes,
+        writes via append_to_1m_parquet, uses _MINUTE_MS pagination,
+        stops 2 minutes before now (temporal separation with live WS).
+
         Returns a dict of "TOKEN/market" -> bars_backfilled.
         Aborts early after max_errors consecutive fetch failures (network down).
         If deadline_s is set, stops fetching when wall-clock time exceeds it.
         """
         now_ms = int(time.time() * 1000)
-        threshold_ms = gap_threshold_hours * _HOUR_MS
+        is_1m = timeframe == "1m"
+        interval_ms = _MINUTE_MS if is_1m else _HOUR_MS
+        markets = ("perp",) if is_1m else ("spot", "perp")
+
+        # Temporal separation: for 1m, stop 2 minutes before now
+        stop_ms = now_ms - 2 * _MINUTE_MS if is_1m else now_ms
+
+        if is_1m:
+            # Default to 5 minutes if not specified for 1m timeframe
+            effective_minutes = gap_threshold_minutes if gap_threshold_minutes is not None else 5
+            threshold_ms = effective_minutes * _MINUTE_MS
+        else:
+            threshold_ms = gap_threshold_hours * _HOUR_MS
+
         results: dict[str, int] = {}
         consecutive_errors = 0
         _deadline = time.monotonic() + deadline_s if deadline_s is not None else None
 
         for token in sorted(tokens):
-            for market in ("spot", "perp"):
+            for market in markets:
                 if _deadline is not None and time.monotonic() >= _deadline:
                     logger.info("Backfill deadline reached — stopping with %d tokens done", len(results))
                     return results
@@ -171,7 +220,7 @@ class LiveFetcher:
                     )
                     return results
 
-                last_ms = self._find_last_timestamp_ms(token, market)
+                last_ms = self._find_last_timestamp_ms(token, market, timeframe=timeframe)
                 if last_ms is None:
                     continue
 
@@ -179,25 +228,34 @@ class LiveFetcher:
                 if gap_ms <= threshold_ms:
                     continue
 
-                gap_hours = gap_ms // _HOUR_MS
                 key = f"{token}/{market}"
-                logger.info(
-                    "Backfilling %s: %d missing hours (%s -> now)",
-                    key, gap_hours,
-                    pd.Timestamp(last_ms, unit="ms").strftime("%b %d %H:%M"),
-                )
+                if is_1m:
+                    gap_minutes = gap_ms // _MINUTE_MS
+                    logger.info(
+                        "Backfilling 1m %s: %d missing minutes (%s -> now)",
+                        key, gap_minutes,
+                        pd.Timestamp(last_ms, unit="ms").strftime("%b %d %H:%M"),
+                    )
+                else:
+                    gap_hours = gap_ms // _HOUR_MS
+                    logger.info(
+                        "Backfilling %s: %d missing hours (%s -> now)",
+                        key, gap_hours,
+                        pd.Timestamp(last_ms, unit="ms").strftime("%b %d %H:%M"),
+                    )
 
-                # Paginate from last known bar + 1 hour
-                since_ms = last_ms + _HOUR_MS
+                # Paginate from last known bar + one interval
+                since_ms = last_ms + interval_ms
                 total_bars = 0
 
-                while since_ms < now_ms:
+                while since_ms < stop_ms:
                     if _deadline is not None and time.monotonic() >= _deadline:
                         logger.info("Backfill deadline reached mid-token %s/%s", token, market)
                         break
                     try:
                         bars = self.fetch_ohlcv_since(
-                            token, market, since_ms=since_ms, limit=chunk_limit,
+                            token, market, timeframe=timeframe,
+                            since_ms=since_ms, limit=chunk_limit,
                         )
                         consecutive_errors = 0  # Reset on success
                     except Exception as e:
@@ -208,20 +266,24 @@ class LiveFetcher:
                     if not bars:
                         break
 
-                    closed = self.filter_closed_bars(bars, now_ms=now_ms)
+                    closed = self.filter_closed_bars(
+                        bars, now_ms=stop_ms, timeframe=timeframe,
+                    )
                     if closed:
-                        self.append_to_parquet(token, market, closed)
+                        if is_1m:
+                            self.append_to_1m_parquet(token, closed)
+                        else:
+                            self.append_to_parquet(token, market, closed)
                         total_bars += len(closed)
 
                     # Advance: next page starts after last fetched bar
-                    next_since = bars[-1]["timestamp"] + _HOUR_MS
+                    next_since = bars[-1]["timestamp"] + interval_ms
                     if next_since <= since_ms:
                         # Guard against infinite loop (exchange returning same data)
                         break
                     since_ms = next_since
 
                     # Rate-limit courtesy: small sleep between pagination pages
-                    # (ccxt enableRateLimit handles most throttling, this is extra safety)
                     time.sleep(0.1)
 
                 if total_bars > 0:
@@ -250,26 +312,20 @@ class LiveFetcher:
     # ------------------------------------------------------------------
 
     def filter_closed_bars(
-        self, bars: list[dict], now_ms: Optional[int] = None,
+        self,
+        bars: list[dict],
+        now_ms: Optional[int] = None,
+        timeframe: str = "1h",
     ) -> list[dict]:
-        """Exclude incomplete (still-forming) hourly bars.
+        """Exclude incomplete (still-forming) bars.
 
-        A bar is closed if timestamp + 3600000 <= now_ms.
+        For timeframe="1h": bar is closed if timestamp + 3_600_000 <= now_ms.
+        For timeframe="1m": bar is closed if timestamp + 60_000 <= now_ms.
         """
         if now_ms is None:
             now_ms = int(time.time() * 1000)
-        return [b for b in bars if b["timestamp"] + _HOUR_MS <= now_ms]
-
-    def filter_closed_bars_1m(
-        self, bars: list[dict], now_ms: Optional[int] = None,
-    ) -> list[dict]:
-        """Exclude incomplete (still-forming) 1-minute bars.
-
-        A bar is closed if timestamp + 60_000 <= now_ms.
-        """
-        if now_ms is None:
-            now_ms = int(time.time() * 1000)
-        return [b for b in bars if b["timestamp"] + _MINUTE_MS <= now_ms]
+        interval_ms = _MINUTE_MS if timeframe == "1m" else _HOUR_MS
+        return [b for b in bars if b["timestamp"] + interval_ms <= now_ms]
 
     # ------------------------------------------------------------------
     # AC4: Parquet append
@@ -309,13 +365,28 @@ class LiveFetcher:
         new_df["timestamp"] = pd.to_datetime(new_df["timestamp"], unit="ms", utc=True).dt.tz_localize(None)
         new_df = new_df.set_index("timestamp")
 
-        # Read existing data if present
+        # Drop rows with NaN prices (skeleton bars from failed fetches)
+        price_cols = ["open", "high", "low", "close"]
+        nan_mask = new_df[price_cols].isna().any(axis=1)
+        if nan_mask.any():
+            logger.warning("Dropping %d NaN bars for %s/%s", nan_mask.sum(), token, market)
+            new_df = new_df[~nan_mask]
+        if len(new_df) == 0:
+            return
+
+        # Read existing data if present; recover from corrupted files
         if os.path.exists(path):
-            existing_df = pd.read_parquet(path)
-            # Ensure index types match: convert integer index to DatetimeIndex
-            if not isinstance(existing_df.index, pd.DatetimeIndex):
-                existing_df.index = pd.to_datetime(existing_df.index, unit="ms")
-            combined = pd.concat([existing_df, new_df])
+            try:
+                existing_df = pd.read_parquet(path)
+                # Ensure index types match: convert integer index to DatetimeIndex
+                if not isinstance(existing_df.index, pd.DatetimeIndex):
+                    existing_df.index = pd.to_datetime(existing_df.index, unit="ms")
+                combined = pd.concat([existing_df, new_df])
+            except Exception as e:
+                logger.warning(
+                    "Corrupted parquet for %s/%s, starting fresh: %s", token, market, e,
+                )
+                combined = new_df
         else:
             combined = new_df
 
@@ -350,16 +421,30 @@ class LiveFetcher:
             self.data_dir, "perp", "1m_cache", f"{token}_1m.parquet",
         )
 
+    def _get_1m_lock(self, token: str) -> threading.Lock:
+        """Get or create a per-token lock for 1m parquet writes."""
+        with self._1m_write_locks_guard:
+            if token not in self._1m_write_locks:
+                self._1m_write_locks[token] = threading.Lock()
+            return self._1m_write_locks[token]
+
     def append_to_1m_parquet(self, token: str, bars: list[dict]) -> None:
         """Append 1m bars to the perp 1m cache parquet file.
 
         - Creates file and directories if they don't exist.
         - Deduplicates on timestamp (keeps last occurrence).
         - Writes atomically via temp file + rename.
+        - Thread-safe: per-token lock prevents lost-update race.
         """
         if not bars:
             return
 
+        lock = self._get_1m_lock(token)
+        with lock:
+            self._append_to_1m_parquet_locked(token, bars)
+
+    def _append_to_1m_parquet_locked(self, token: str, bars: list[dict]) -> None:
+        """Inner implementation of append_to_1m_parquet (must hold per-token lock)."""
         path = self._1m_parquet_path(token)
         cache_dir = os.path.dirname(path)
         os.makedirs(cache_dir, exist_ok=True)
@@ -369,18 +454,39 @@ class LiveFetcher:
         new_df["timestamp"] = pd.to_datetime(new_df["timestamp"], unit="ms", utc=True).dt.tz_localize(None)
         new_df = new_df.set_index("timestamp")
 
-        # Read existing data if present
+        # Drop rows with NaN prices (skeleton bars from failed fetches)
+        price_cols = ["open", "high", "low", "close"]
+        nan_mask = new_df[price_cols].isna().any(axis=1)
+        if nan_mask.any():
+            logger.warning("Dropping %d NaN 1m bars for %s", nan_mask.sum(), token)
+            new_df = new_df[~nan_mask]
+        if len(new_df) == 0:
+            return
+
+        # Read existing data if present; recover from corrupted files
         if os.path.exists(path):
-            existing_df = pd.read_parquet(path)
-            if not isinstance(existing_df.index, pd.DatetimeIndex):
-                existing_df.index = pd.to_datetime(existing_df.index, unit="ms")
-            combined = pd.concat([existing_df, new_df])
+            try:
+                existing_df = pd.read_parquet(path)
+                if not isinstance(existing_df.index, pd.DatetimeIndex):
+                    existing_df.index = pd.to_datetime(existing_df.index, unit="ms")
+                combined = pd.concat([existing_df, new_df])
+            except Exception as e:
+                logger.warning(
+                    "Corrupted 1m parquet for %s, starting fresh: %s", token, e,
+                )
+                combined = new_df
         else:
             combined = new_df
 
         # Deduplicate: keep last occurrence (new data wins)
         combined = combined[~combined.index.duplicated(keep="last")]
         combined = combined.sort_index()
+
+        # Scrub any pre-existing NaN rows from combined (1m cache is never promoted)
+        nan_combined = combined[["open", "high", "low", "close"]].isna().any(axis=1)
+        if nan_combined.any():
+            logger.warning("Scrubbing %d pre-existing NaN bars from 1m %s", nan_combined.sum(), token)
+            combined = combined[~nan_combined]
 
         # Atomic write: temp file + rename
         fd, tmp_path = tempfile.mkstemp(dir=cache_dir, suffix=".tmp")

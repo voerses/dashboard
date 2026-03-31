@@ -1,61 +1,63 @@
 # Data Manifest — DO NOT DELETE OR MODIFY DATA FILES
 
-Last verified: 2026-02-28
+Last verified: 2026-03-30 (full backfill completed)
 
 ## Critical Data Files
 
-### 1H Cache (49 tokens) — PRIMARY BACKTEST DATA
+### Perp 1H Cache (199 tokens) — PRIMARY BACKTEST DATA
 ```
-real_data/1h_cache/*.parquet
-Total: 49 files, 855,223 bars
-Period: Jan 2024 - Jan 2026
-Source: Binance Vision 1-minute data, aggregated to 1H
-Columns: open_time, open, high, low, close, volume, quote_volume, trades, taker_buy_base, taker_buy_quote
-```
-
-### 4H Cache (49 tokens) — DERIVED FROM 1H
-```
-real_data/4h_cache/*.parquet
-Total: 49 files
-Source: Aggregated from 1H data
+data/perp/1h_cache/*.parquet
+Total: 199 files
+Period: 2020-2026 (varies by token listing date)
+Source: Multi-exchange merge (Binance > Kraken > Hyperliquid) via build_parquet_cache.py
+Columns: open_time, open, high, low, close, volume, funding_rate
+Status: NO stale tokens, NO gaps (Mar 5-13 and Mar 14-17 gaps FILLED 2026-03-30)
+Only remaining gaps: historical Binance maintenance windows (2020-2021, ~3-6h each, unfillable)
 ```
 
-### 1M Cache (49 tokens) — DAILY MICROSTRUCTURE FEATURES
+### Spot 1H Cache (135 tokens)
 ```
-real_data/1m_cache/*.parquet
-Total: 49 files
-Source: Aggregated daily features from 1-minute data (VPIN, realized vol, etc.)
-```
-
-### Enriched Parquet — FULL FEATURE SET
-```
-real_data/all_tokens_enriched.parquet
-Shape: 88,785 rows × 20 columns
-Tokens: 57 (includes 8 without 1H data)
-Period: 2017-12-13 to 2026-02-28
-Features: vpin, realized_vol, taker_buy_ratio, amihud_1m, vwap_deviation,
-          intraday_skew, intraday_kurtosis, parkinson_vol, volume_herfindahl,
-          max_intraday_dd, trade_count, realized_var
+data/spot/1h_cache/*.parquet
+Total: 135 files
+Period: 2020-2026 (varies by token listing date)
+Source: Binance spot via build_parquet_cache.py + live promotion
+Status: Mar 5-13 gap FILLED. 42 tokens extended from ~309 bars to ~17,800 bars (2026-03-30).
+LIT and XMR DELETED (delisted from Binance 2026-03-30).
 ```
 
-### Daily CSVs (57 tokens) — RAW DAILY OHLCV
+### Perp 1M Cache (193 tokens) — LIVE ENTRY RESOLUTION
 ```
-real_data/*_daily.csv
-Total: 57 files
-Source: Binance Vision daily data
+data/perp/1m_cache/*.parquet
+Total: 193 files
+Source: Binance Futures 1-minute candles via live_fetcher.py + backfill scripts
+Status: CVC/PUMP/LIT gaps FILLED (2026-03-30). ICP and 2022 historical gaps being filled.
+Used for live BB cross detection between hourly ticks, not for backtests.
 ```
 
-## Token Coverage
+### Raw CSVs (multi-exchange)
+```
+data/perp/binance/1h_ohlcv/     — 223 tokens
+data/perp/binance/funding/       — 221 tokens (8h rates)
+data/perp/kraken/funding/         — 319 tokens (4h rates)
+data/perp/hyperliquid/ohlcv/     — 70 tokens
+data/perp/hyperliquid/funding/    — 35 tokens (8h rates)
+data/spot/binance/1h_ohlcv/      — 132 tokens
+```
 
-### Tokens WITH 1H data (49):
-AAVE, ADA, ALICE, APT, ARB, AVAX, BCH, BNB, BONK, BTC, CAKE, CHZ,
-DASH, DENT, DOGE, DOT, ENA, ETH, FET, FIL, FLOKI, HBAR, ICP, INJ,
-LINK, LTC, NEAR, OM, OP, PAXG, PENDLE, PENGU, PEPE, POL, SEI, SHIB,
-SOL, SUI, TAO, TON, TRUMP, TRX, UNI, WIF, WLD, XLM, XRP, ZEC, ZRO
+## Delisted Tokens
 
-### Tokens WITHOUT 1H data (8):
-KITE, ASTER, BARD, VIRTUAL, PUMP, ENSO, XPL, WLFI
-(Too new for Binance Vision historical data)
+| Token | Market | Delisted From | Action | Date |
+|-------|--------|---------------|--------|------|
+| LIT | Spot | Binance | Spot data deleted | 2026-03-30 |
+| XMR | Spot | Binance | Spot data deleted | 2026-03-30 |
+
+## Data Integrity Notes
+
+- **Gap threshold:** 1 hour (changed from 24h on 2026-03-30 in both `live_fetcher.py` and `data_maintenance.py`)
+- **Maintenance windows:** ~3-6h gaps from Binance scheduled maintenance in 2020-2021 cannot be filled (exchange was offline)
+- **4H/daily data:** Computed on-the-fly from 1H via `pandas.resample()` — not stored separately
+- **Funding rates:** Merged into 1H parquets as `funding_rate` column, normalized to hourly (Binance 8h÷8, Kraken 4h÷4, Hyperliquid 8h÷8)
+- **1000-prefix tokens:** Prices stored at raw exchange level (no /1000 division). 12 tokens: PEPE, SHIB, FLOKI, BONK, LUNC, SATS, RATS, CAT, CHEEMS, WHY, X, XEC
 
 ## Data Size
-Total: ~112MB in real_data/
+Total: ~500MB+ in data/ (gitignored, re-fetchable but takes 60+ minutes)

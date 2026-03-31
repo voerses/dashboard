@@ -118,7 +118,7 @@ Only Tier 0 changes (typo fixes, param tweaks) can skip. New strategy/indicator 
 
 BTC must pass dual gate (WF + CPCV). Max 3 tuning attempts on parameters -- if core logic fails, archive.
 
-### Phase 4: Full Validation (49 tokens)
+### Phase 4: Full Validation (full universe)
 
 ```bash
 /workspace/venv/bin/python v4/validation.py --strategy sNN --workers 4

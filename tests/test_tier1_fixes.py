@@ -65,6 +65,7 @@ class _StubSignals:
     bear_max_hold: int = 0
     rsi: Optional[np.ndarray] = None
     mean_target_vals: Optional[np.ndarray] = None
+    sma_trail_vals: Optional[np.ndarray] = None
     regime: np.ndarray = field(default_factory=lambda: np.full(200, 3, dtype=np.int8))
     high: np.ndarray = field(default_factory=lambda: np.full(200, 105.0, dtype=np.float32))
     low: np.ndarray = field(default_factory=lambda: np.full(200, 95.0, dtype=np.float32))

@@ -140,7 +140,7 @@ These are embedded in source code with no config pathway.
 | Funding z-score lookback | 168h (7d) | `simulator.py:757` | Pump filter funding window | Could add to StrategySpec |
 | Funding z-score min data | 24h (1d) | `simulator.py:760` | Min funding data for z-score | Hardcoded; unlikely to need change |
 | Composite check limit | 8.0x equity | `config.py:121` | Max worst-case position fraction | Hardcoded safety; should not be configurable |
-| NO_COMBINED exclusions | {LIT, XMR, PAXG} | `universe.py:230` | Tokens excluded from combined market | Static set; edit source to change |
+| NO_COMBINED exclusions | {PAXG} | `universe.py:230` | Tokens excluded from combined market | Static set; edit source to change. LIT and XMR removed (delisted from Binance, spot data deleted 2026-03-30). |
 
 ### Layer 6: Indicator Constants -- `v4/engine.py`
 
@@ -408,7 +408,7 @@ If ADV data is wrong, everything downstream is wrong:
 - [ ] Verify the token has > 90 days of history (burn-in)
 - [ ] Check that volume data is non-zero and not flat (data quality issue)
 - [ ] For combined strategies, confirm both spot AND perp data exist with sufficient overlap
-- [ ] Tokens in `NO_COMBINED` set (LIT, XMR, PAXG) are excluded from combined strategies due to data gaps
+- [ ] Tokens in `NO_COMBINED` set (PAXG) are excluded from combined strategies. LIT and XMR were delisted from Binance and their spot data deleted (2026-03-30).
 
 ### Rule 13: Recent Performance is the Only Metric That Matters
 

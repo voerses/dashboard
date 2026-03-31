@@ -41,7 +41,7 @@ KLINE_COLUMNS = [
 
 _1000_TOKENS = {
     "PEPE", "SHIB", "FLOKI", "BONK", "LUNC", "SATS", "RATS", "CAT",
-    "CHEEMS", "WHY", "X", "APU", "NEIRO", "XEC",
+    "CHEEMS", "WHY", "X", "XEC",
 }
 
 REQUEST_TIMEOUT = 60
@@ -121,14 +121,13 @@ def _parse_zip(zip_bytes, symbol, pair):
 
     ts = pd.to_datetime(df["open_time"], unit=unit, utc=True).dt.tz_localize(None)
 
-    is_1000 = pair.startswith("1000") and symbol in _1000_TOKENS
-    divisor = 1000.0 if is_1000 else 1.0
+    # 1000X tokens: store raw exchange prices (no division)
 
     out = pd.DataFrame({
-        "open": pd.to_numeric(df["open"], errors="coerce") / divisor,
-        "high": pd.to_numeric(df["high"], errors="coerce") / divisor,
-        "low": pd.to_numeric(df["low"], errors="coerce") / divisor,
-        "close": pd.to_numeric(df["close"], errors="coerce") / divisor,
+        "open": pd.to_numeric(df["open"], errors="coerce"),
+        "high": pd.to_numeric(df["high"], errors="coerce"),
+        "low": pd.to_numeric(df["low"], errors="coerce"),
+        "close": pd.to_numeric(df["close"], errors="coerce"),
         "volume": pd.to_numeric(df["volume"], errors="coerce"),
     }, index=ts)
     out.index.name = None

@@ -42,7 +42,7 @@ except ImportError:
 _STALE_THRESHOLD_HOURS = 6
 
 
-def _discover_perp_1m_tokens(data_dir: str) -> list[str]:
+def discover_perp_1m_tokens(data_dir: str) -> list[str]:
     """Find perp tokens that have non-empty 1m cache files."""
     cache_dir = Path(data_dir) / "perp" / "1m_cache"
     if not cache_dir.is_dir():
@@ -163,7 +163,7 @@ def _log_maintenance(data_dir: str, entry: dict) -> None:
 
 
 def ensure_data_fresh(
-    gap_threshold_hours: int = 24,
+    gap_threshold_hours: int = 1,
     max_duration_s: float = 300,
     caller: str = "standalone",
     exchange=None,
@@ -240,29 +240,23 @@ def ensure_data_fresh(
                     elapsed, summary["gaps_filled"],
                 )
 
-            # Fetch 1m data for perp tokens (if not timed out)
+            # AC11: Backfill 1m gaps for perp tokens via backfill_gaps
             if not summary["timed_out"]:
                 try:
-                    perp_1m_tokens = _discover_perp_1m_tokens(data_dir)
-                    for token in perp_1m_tokens:
-                        elapsed = time.monotonic() - start_time
-                        if elapsed >= max_duration_s:
-                            summary["timed_out"] = True
-                            break
-                        try:
-                            bars = fetcher.fetch_ohlcv(
-                                token, market="perp", timeframe="1m", limit=48,
-                            )
-                            closed = fetcher.filter_closed_bars_1m(bars)
-                            if closed:
-                                fetcher.append_to_1m_parquet(token, closed)
-                                summary["perp_1m"]["tokens_updated"] += 1
-                                summary["perp_1m"]["bars_appended"] += len(closed)
-                        except Exception as e:
-                            logger.warning("1m fetch failed for %s: %s", token, e)
-                            summary["tokens_failed"] += 1
+                    perp_1m_tokens = discover_perp_1m_tokens(data_dir)
+                    if perp_1m_tokens:
+                        remaining_s = max_duration_s - (time.monotonic() - start_time)
+                        results_1m = fetcher.backfill_gaps(
+                            tokens=set(perp_1m_tokens),
+                            timeframe="1m",
+                            gap_threshold_minutes=5,
+                            deadline_s=max(remaining_s, 0),
+                        )
+                        summary["perp_1m"]["tokens_updated"] = len(results_1m)
+                        summary["perp_1m"]["bars_appended"] = sum(results_1m.values())
                 except Exception as e:
-                    logger.warning("1m fetch phase failed: %s", e)
+                    logger.warning("1m backfill failed: %s", e)
+                    summary["tokens_failed"] += 1
 
         # AC3/AC21: Promote live → historical for both markets
         try:
@@ -368,7 +362,18 @@ def main():
             print("OK: All data is fresh")
             sys.exit(0)
 
+    # Create exchange for full mode (backfill requires API access)
+    exchange = None
+    if not args.promote_only:
+        import ccxt
+        ccxt_config: dict = {"enableRateLimit": True}
+        proxy = os.environ.get("HTTPS_PROXY", os.environ.get("https_proxy", ""))
+        if proxy:
+            ccxt_config["proxies"] = {"https": proxy, "http": proxy}
+        exchange = ccxt.binance(ccxt_config)
+
     summary = ensure_data_fresh(
+        exchange=exchange,
         data_dir=args.data_dir,
         promote_only=args.promote_only,
         verbose=args.verbose,

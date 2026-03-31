@@ -33,7 +33,7 @@ FUTURES_BASE = "https://fapi.binance.com"
 
 _1000_TOKENS = {
     "PEPE", "SHIB", "FLOKI", "BONK", "LUNC", "SATS", "RATS", "CAT",
-    "CHEEMS", "WHY", "X", "APU", "NEIRO", "XEC",
+    "CHEEMS", "WHY", "X", "XEC",
 }
 
 _session = None
@@ -113,11 +113,7 @@ def _parse_klines(data, symbol, pair):
     df = df.set_index("timestamp")
     df.index.name = None
 
-    # Handle 1000X tokens
-    is_1000 = pair.startswith("1000") and symbol in _1000_TOKENS
-    if is_1000:
-        for col in ["open", "high", "low", "close"]:
-            df[col] = df[col] / 1000.0
+    # 1000X tokens: store raw exchange prices (no division)
 
     return df
 

@@ -77,7 +77,7 @@ class TestFilterClosedBars1m:
         # Bar at ts=1000000, closes at ts + 60_000 = 1060000
         # now_ms=1059999 means bar is still forming -> exclude
         bars = [{"timestamp": 1_000_000, "open": 1, "high": 2, "low": 0.5, "close": 1.5, "volume": 10}]
-        result = fetcher.filter_closed_bars_1m(bars, now_ms=1_059_999)
+        result = fetcher.filter_closed_bars(bars, now_ms=1_059_999, timeframe="1m")
         assert len(result) == 0, "Incomplete 1m bar should be excluded"
 
     def test_filter_closed_bars_1m_includes_closed(self):
@@ -88,7 +88,7 @@ class TestFilterClosedBars1m:
         # Bar at ts=1000000, closes at ts + 60_000 = 1060000
         # now_ms=1060000 means bar is closed -> include
         bars = [{"timestamp": 1_000_000, "open": 1, "high": 2, "low": 0.5, "close": 1.5, "volume": 10}]
-        result = fetcher.filter_closed_bars_1m(bars, now_ms=1_060_000)
+        result = fetcher.filter_closed_bars(bars, now_ms=1_060_000, timeframe="1m")
         assert len(result) == 1, "Closed 1m bar should be included"
         assert result[0]["timestamp"] == 1_000_000
 
@@ -103,12 +103,9 @@ class TestFilterClosedBars1m:
         # Closed if ts + 60_000 <= 1200000 -> ts <= 1140000
         # Only bar at 1100000 is closed (1100000 + 60000 = 1160000 <= 1200000)
         # Bar at 1160000: 1160000 + 60000 = 1220000 > 1200000 -> excluded
-        result = fetcher.filter_closed_bars_1m(bars, now_ms=now_ms)
-        assert len(result) == 2  # bars at 1100000 and 1160000 have close times 1160000 and 1220000
-        # Actually: 1100000 + 60000 = 1160000 <= 1200000 -> included
-        #           1160000 + 60000 = 1220000 > 1200000 -> excluded
-        # So only 1 bar. Let's fix:
-        result = fetcher.filter_closed_bars_1m(bars, now_ms=1_220_000)
+        result = fetcher.filter_closed_bars(bars, now_ms=now_ms, timeframe="1m")
+        assert len(result) == 1  # only bar at 1100000: 1100000 + 60000 = 1160000 <= 1200000
+        result = fetcher.filter_closed_bars(bars, now_ms=1_220_000, timeframe="1m")
         # 1100000 + 60000 = 1160000 <= 1220000 -> included
         # 1160000 + 60000 = 1220000 <= 1220000 -> included
         # 1220000 + 60000 = 1280000 > 1220000 -> excluded
@@ -119,7 +116,7 @@ class TestFilterClosedBars1m:
         exchange = _mock_exchange()
         fetcher = LiveFetcher(exchange=exchange, data_dir="/tmp/unused")
 
-        result = fetcher.filter_closed_bars_1m([], now_ms=9_999_999)
+        result = fetcher.filter_closed_bars([], now_ms=9_999_999, timeframe="1m")
         assert result == []
 
 

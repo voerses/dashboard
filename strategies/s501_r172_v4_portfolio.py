@@ -31,6 +31,15 @@ from engine import (StrategyContext, StrategyResult, MarketType,
 # Module-level marker for V4 portfolio adapter dispatch
 STRATEGY_TYPE = "portfolio"
 
+# Optimized portfolio config (from mega sweep + validation)
+# These are read by portfolio_backtest.py and paper_config.py
+PORTFOLIO_CONFIG = {
+    "max_positions": 50,
+    "conviction_mode": "ranked",
+    "entry_resolution": 1,
+    "max_portfolio_positions": 50,
+}
+
 # ══════════════════════════════════════════════════════════════════════
 # CONFIGURATION
 # ══════════════════════════════════════════════════════════════════════

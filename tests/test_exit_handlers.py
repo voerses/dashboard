@@ -45,6 +45,7 @@ class _StubSignals:
     regime: np.ndarray = field(default_factory=lambda: np.full(200, 3, dtype=np.int8))
     high: np.ndarray = field(default_factory=lambda: np.full(200, 105.0, dtype=np.float32))
     low: np.ndarray = field(default_factory=lambda: np.full(200, 95.0, dtype=np.float32))
+    sma_trail_vals: Optional[np.ndarray] = None
     perp_high: Optional[np.ndarray] = None
     perp_low: Optional[np.ndarray] = None
     per_bar_is_perp: Optional[np.ndarray] = None
