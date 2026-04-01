@@ -10,12 +10,13 @@ Tick processing order (AC10b):
 """
 from __future__ import annotations
 
+import concurrent.futures
 import dataclasses
+import math
 import os
 import resource
 import sys
 import threading
-from concurrent.futures import ThreadPoolExecutor, Future
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -94,24 +95,19 @@ class PaperPortfolioEngine:
         self._strategy_exit_resolution: dict[str, int] = {
             s.strategy_id: s.exit_resolution for s in config.strategies
         }
-        # Sub-hourly entry resolution (1m BB cross detection for live trading)
-        self._strategy_entry_resolution: dict[str, int] = {
-            s.strategy_id: s.entry_resolution for s in config.strategies
-        }
-        entry_resolutions = [s.entry_resolution for s in config.strategies if s.entry_resolution > 0]
+        # Entry resolution tracking (AC27)
+        entry_resolutions = [getattr(s, 'entry_resolution', 0) for s in config.strategies if getattr(s, 'entry_resolution', 0) > 0]
         self._effective_entry_resolution = min(entry_resolutions) if entry_resolutions else 0
-        # Armed entry levels for real-time BB cross detection (keyed by (strategy_id, token))
-        self._armed_tokens: dict[tuple[str, str], dict] = {}
-        # Unify: create WS infra if EITHER exit or entry needs sub-hourly data
-        all_resolutions = [s.exit_resolution for s in config.strategies if s.exit_resolution > 0]
-        all_resolutions += [s.entry_resolution for s in config.strategies if s.entry_resolution > 0]
-        effective_ws_resolution = min(all_resolutions) if all_resolutions else effective_resolution
-        if effective_ws_resolution > 0 and effective_resolution == 0:
-            effective_resolution = effective_ws_resolution
-        if effective_resolution > 0:
+        self._strategy_entry_resolution: dict[str, int] = {
+            s.strategy_id: getattr(s, 'entry_resolution', 0) for s in config.strategies
+        }
+        # WS infra: create CandleAggregator using finest resolution across exit and entry
+        all_resolutions = [r for r in [effective_resolution, self._effective_entry_resolution] if r > 0]
+        ws_resolution = min(all_resolutions) if all_resolutions else 0
+        if ws_resolution > 0:
             from v4.candle_aggregator import CandleAggregator
             # Always create own CandleAggregator (resolution is per-engine)
-            self._candle_aggregator = CandleAggregator(effective_resolution)
+            self._candle_aggregator = CandleAggregator(ws_resolution)
             if price_monitor is not None:
                 # Use shared PriceMonitor from runner — don't create our own
                 self._price_monitor = price_monitor
@@ -134,13 +130,22 @@ class PaperPortfolioEngine:
         # Keyed by (strategy_id, token) so each strategy gets its own ATR values
         self._cached_bar_data: dict[tuple[str, str], dict] = {}
         # Historical parquet cache — populated on first tick, reused on subsequent
-        # ticks.  Historical parquets are immutable between cache rebuilds.
+        # ticks. Historical parquets are immutable between cache rebuilds.
         # Live buffer is always re-read fresh from disk.
         self._hist_cache: dict[tuple[str, str], "pd.DataFrame"] = {}
-        # Background tick: heavy work (data fetch + signal precomputation) runs off main thread
-        self._bg_executor = ThreadPoolExecutor(max_workers=1)
-        self._bg_future: Optional[Future] = None
+
+        # Armed order tracking (sub-hourly entry observability)
+        # _armed_tokens holds pending limit orders keyed by (strategy_id, token)
+        self._armed_tokens: dict[tuple[str, str], dict] = {}
         self._armed_tokens_lock = threading.Lock()
+        self._last_armed_skip_reasons: dict[tuple[str, str], str] = {}
+        self._last_expired_orders: list[dict] = []
+        self._armed_log_lock = threading.Lock()
+        self._armed_log_path = os.path.join(config.state_dir, "armed_log.jsonl")
+
+        # Background tick executor (AC28)
+        self._bg_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="tick-bg")
+        self._bg_future: concurrent.futures.Future | None = None
 
         if config.mode == "independent":
             self._init_independent_mode()
@@ -153,7 +158,7 @@ class PaperPortfolioEngine:
             self.strategy_states = {}
 
     def cleanup(self) -> None:
-        """Release resources. Disconnects PriceMonitor and shuts down background executor."""
+        """Release resources. Disconnects PriceMonitor only if this engine owns it."""
         if self._price_monitor is not None and self._owns_price_monitor:
             try:
                 self._price_monitor.disconnect()
@@ -423,8 +428,8 @@ class PaperPortfolioEngine:
 
                 h, l, c = candles[pos.token]
 
-                # Guard against inf/NaN candle values (corrupted WS feed)
-                if not (np.isfinite(h) and np.isfinite(l) and np.isfinite(c)):
+                # NaN/Inf guard (AC30)
+                if not (math.isfinite(h) and math.isfinite(l) and math.isfinite(c)):
                     continue
 
                 # Get cached bar data from last hourly tick (per-strategy)
@@ -519,33 +524,34 @@ class PaperPortfolioEngine:
             pm = st.position_manager
 
             # Apply exit slippage (matching backtest _close_position)
-            if reason != "liquidation":
-                notional = abs(pos.quantity * exit_price)
-                bar_data = self._cached_bar_data.get((pos.strategy_id, pos.token))
-                exit_adv = bar_data.get("adv", 1e6) if bar_data else 1e6
-                effective_adv = exit_adv
-                if reason in ("stop", "margin_call"):
-                    effective_adv = exit_adv * self.config.stress_adv_multiplier
-                _slip_model = st._slippage_models.get(pos.strategy_id)
-                if _slip_model is not None:
-                    slip_bps = _slip_model.compute_slippage(notional, effective_adv, self.config.base_spread_bps, self.config.impact_coeff, self.config.max_slip_bps)
-                else:
-                    slip_bps = compute_slippage_bps(notional, effective_adv, self.config.base_spread_bps, self.config.impact_coeff, self.config.max_slip_bps)
-                slip = exit_price * slip_bps / 10000.0
-                if pos.direction == 1:
-                    exit_price -= slip  # Long exit: sell lower
-                else:
-                    exit_price += slip  # Short exit: buy higher
+            notional = abs(pos.quantity * exit_price)
+            bar_data = self._cached_bar_data.get((pos.strategy_id, pos.token))
+            exit_adv = bar_data.get("adv", 1e6) if bar_data else 1e6
+            effective_adv = exit_adv
+            if reason in ("stop", "margin_call"):
+                effective_adv = exit_adv * self.config.stress_adv_multiplier
+            _slip_model = st._slippage_models.get(pos.strategy_id)
+            if _slip_model is not None:
+                slip_bps = _slip_model.compute_slippage(notional, effective_adv, self.config.base_spread_bps, self.config.impact_coeff, self.config.max_slip_bps)
+            else:
+                slip_bps = compute_slippage_bps(notional, effective_adv, self.config.base_spread_bps, self.config.impact_coeff, self.config.max_slip_bps)
+            slip = exit_price * slip_bps / 10000.0
+            if pos.direction == 1:
+                exit_price -= slip  # Long exit: sell lower
+            else:
+                exit_price += slip  # Short exit: buy higher
 
             entry_fee = getattr(st, '_entry_fees_by_pos', {}).pop(pos.position_id, 0.0) if isinstance(getattr(st, '_entry_fees_by_pos', {}), dict) else 0.0
-            exit_fee = abs(pos.quantity) * exit_price * pos.fee_rate
 
+            # Normal exit PnL (liquidation is handled by hourly _process_margin_calls, not sub-hourly)
+            exit_fee = abs(pos.quantity) * exit_price * pos.fee_rate
             if pos.direction == 1:
                 raw_pnl = pos.quantity * (exit_price - pos.entry_price)
             else:
                 raw_pnl = abs(pos.quantity) * (pos.entry_price - exit_price)
-
             net_pnl = raw_pnl - exit_fee - pos.cumulative_funding
+            st.realized_pnl += raw_pnl
+            st.total_fees += exit_fee
 
             pm.close_position(
                 pos=pos,
@@ -558,13 +564,12 @@ class PaperPortfolioEngine:
                 exit_reason=reason,
                 exit_timestamp=timestamp,
             )
-            st.realized_pnl += raw_pnl
-            st.total_fees += exit_fee
             closed_count += 1
 
         # Always update last known prices from candle closes for fresh MTM
+        # AC30: skip NaN/Inf to prevent price corruption
         for token, (_, _, c_price) in candles.items():
-            if np.isfinite(c_price):
+            if math.isfinite(c_price):
                 self._last_known_prices[token] = c_price
 
         # Persist state if any exits or partial closes occurred
@@ -572,12 +577,15 @@ class PaperPortfolioEngine:
             self._persist_sub_hourly_state(timestamp)
             if closed_count > 0:
                 self._update_ws_subscriptions()
-            if closed_count > 0:
                 logger.info("Sub-hourly exits: %d positions closed", closed_count)
             if partial_count > 0:
                 logger.info("Sub-hourly partial TP: %d positions partially closed", partial_count)
 
         return closed_count
+
+    # ------------------------------------------------------------------
+    # Integrated sub-hourly entries (AC22, AC23, AC25, AC30)
+    # ------------------------------------------------------------------
 
     def process_sub_hourly_entries(
         self, candles: dict[str, tuple[float, float, float]],
@@ -608,28 +616,30 @@ class PaperPortfolioEngine:
 
         from v4.sizing import compute_slippage_bps, get_sizing_model
         from v4.config import resolve_sizing
-        from v4.universe import get_fee_rate
         from v4.simulator import _dd_size_mult
 
-        entry_count = 0
+        entries = 0
+        to_remove: list[tuple[str, str]] = []
+        self._last_armed_skip_reasons.clear()
         strategy_specs = {s.strategy_id: s for s in self.config.strategies}
-        executed_keys: list[tuple[str, str]] = []
 
         for (sid, token), cand in armed_snapshot:
             if token not in candles:
                 continue
 
-            h, l, c = candles[token]
-            if not np.isfinite(c):
-                continue  # NaN/inf candle — skip to avoid corrupting state
+            high, low, close = candles[token]
+
+            # NaN/Inf guard (AC30)
+            if not (math.isfinite(high) and math.isfinite(low) and math.isfinite(close)):
+                continue
 
             level = cand["level"]
             direction = cand["direction"]
 
-            # Cross detection: did the 1m candle breach the armed level?
-            if direction == 1 and h < level:
+            # Cross detection (AC22)
+            if direction == 1 and high < level:
                 continue  # Long: need high >= level
-            if direction == -1 and l > level:
+            if direction == -1 and low > level:
                 continue  # Short: need low <= level
 
             # Cross detected — execute entry
@@ -639,37 +649,49 @@ class PaperPortfolioEngine:
 
             # Get the state to open position in
             if self.config.mode == "independent":
-                st = self.strategy_states.get(sid)
-                if st is None:
+                state = self.strategy_states.get(sid)
+                if state is None:
                     continue
             else:
-                st = self.state
+                state = self.state
 
             # --- Pump filter Layer 1: range anomaly ---
             if spec.pump_filter_range_threshold > 0:
                 pump_range = cand.get("pump_range", 0.0)
                 if pump_range > spec.pump_filter_range_threshold:
+                    self._last_armed_skip_reasons[(sid, token)] = "pump_range"
                     continue
 
             # --- Pump filter Layer 3: funding z-score (longs only) ---
             if spec.pump_filter_funding_zscore > 0 and direction >= 1:
                 f_zscore = cand.get("funding_zscore", float('nan'))
                 if not np.isnan(f_zscore) and f_zscore > spec.pump_filter_funding_zscore:
+                    self._last_armed_skip_reasons[(sid, token)] = "pump_funding"
+                    continue
+
+            # Conviction threshold check (matching simulator)
+            if self.config.min_conviction_threshold > 0:
+                conv = cand.get("conviction", 1.0)
+                if conv < self.config.min_conviction_threshold:
+                    self._last_armed_skip_reasons[(sid, token)] = "conviction"
                     continue
 
             # Portfolio constraints
-            if st.position_manager.total_open() >= self.config.max_portfolio_positions:
+            if state.position_manager.total_open() >= self.config.max_portfolio_positions:
+                self._last_armed_skip_reasons[(sid, token)] = "portfolio_limit"
                 continue
-            if st.position_manager.count_for_strategy(sid) >= spec.max_positions:
+            if state.position_manager.count_for_strategy(sid) >= spec.max_positions:
+                self._last_armed_skip_reasons[(sid, token)] = "strategy_limit"
                 continue
             max_conc = spec.max_concurrent_per_token
-            if len(st.position_manager.find_open_for_token_strategy(token, sid)) >= max_conc:
+            if len(state.position_manager.find_open_for_token_strategy(token, sid)) >= max_conc:
+                self._last_armed_skip_reasons[(sid, token)] = "max_concurrent"
                 continue
 
             # Compute sizing (matching backtest normal-mode path)
             resolved = resolve_sizing(self.config.sizing_defaults, spec.sizing_overrides)
             sizing_model = get_sizing_model(spec.sizing_model)
-            slippage_model = st._slippage_models.get(sid)
+            slippage_model = state._slippage_models.get(sid)
 
             close_val = cand["close_val"]
             atr_val = cand["atr_val"]
@@ -682,12 +704,12 @@ class PaperPortfolioEngine:
             volatility = atr_val / max(close_val, 1e-10)
 
             # Unrealized PnL adjustment (constrain-only: losses reduce, gains don't inflate)
-            total_unrealized = self._compute_sub_hourly_unrealized(st)
+            total_unrealized = self._compute_sub_hourly_unrealized(state)
 
             if self.config.raw_mode:
                 strategy_equity = self.config.capital * spec.weight
             else:
-                portfolio_eq = st.portfolio_equity
+                portfolio_eq = state.portfolio_equity
                 sizing_eq = max(min(portfolio_eq + total_unrealized, portfolio_eq),
                                 portfolio_eq * self.config.sizing_defaults.unrealized_pnl_floor)
                 sizing_eq = max(sizing_eq, 0.0)
@@ -696,8 +718,9 @@ class PaperPortfolioEngine:
                 strategy_equity = sizing_eq * spec.weight
 
             # DD scaling overlay
-            dd_mult = _dd_size_mult(st, spec.dd_scaling, total_unrealized)
+            dd_mult = _dd_size_mult(state, spec.dd_scaling, total_unrealized)
             if dd_mult <= 0:
+                self._last_armed_skip_reasons[(sid, token)] = "dd_scaling"
                 continue
             strategy_equity *= dd_mult
 
@@ -705,10 +728,10 @@ class PaperPortfolioEngine:
                 strategy_equity=strategy_equity,
                 rolling_adv=adv_val,
                 volatility=volatility,
-                edge=cand["edge"],
+                edge=cand.get("edge", 0.0),
                 size_multiplier=sm_val,
                 cap_multiplier=cap_mult,
-                max_trade_pct=cand["max_trade_pct"],
+                max_trade_pct=cand.get("max_trade_pct", 0.05),
                 adv_cap_pct=self.config.adv_cap_pct,
                 adv_sizing_enabled=spec.adv_sizing_enabled,
                 adv_sizing_base=spec.adv_sizing_base,
@@ -730,6 +753,7 @@ class PaperPortfolioEngine:
             )
 
             if pos_usd <= 0 or pos_usd < self.config.min_position_usd:
+                self._last_armed_skip_reasons[(sid, token)] = "below_min_usd"
                 continue
 
             # Leverage
@@ -740,16 +764,18 @@ class PaperPortfolioEngine:
                 notional_usd = pos_usd
 
             # ADV cap check
-            if pos_usd > adv_val * self.config.adv_cap_pct:
+            if adv_val > 0 and pos_usd > adv_val * self.config.adv_cap_pct:
+                self._last_armed_skip_reasons[(sid, token)] = "adv_cap"
                 continue
 
             # Concentration limit (scale down or reject)
             if not self.config.raw_mode:
-                portfolio_eq = st.portfolio_equity
-                existing_margin = st.position_manager.total_margin_for_token(token)
+                portfolio_eq = state.portfolio_equity
+                existing_margin = state.position_manager.total_margin_for_token(token)
                 max_for_token = self.config.concentration_limit * portfolio_eq - existing_margin
                 if margin_usd > max_for_token:
                     if max_for_token < self.config.min_position_usd:
+                        self._last_armed_skip_reasons[(sid, token)] = "concentration"
                         continue
                     pos_usd = max_for_token
                     margin_usd = pos_usd
@@ -759,23 +785,22 @@ class PaperPortfolioEngine:
                         notional_usd = pos_usd
 
             # Fee
-            if is_perp:
-                fee_rate = get_fee_rate(self.config.exchange, "perp", "taker")
-            else:
-                fee_rate = get_fee_rate(self.config.exchange, "spot", "taker")
+            fee_rate = get_fee_rate(self.config.exchange, "perp" if is_perp else "spot", "taker")
             entry_fee = notional_usd * fee_rate
 
             # Free capital check (scale down with funding buffer, matching backtest)
-            if not self.config.raw_mode and st.free_capital < margin_usd + entry_fee:
-                funding_buffer = max(st.portfolio_equity * self.config.sizing_defaults.funding_buffer_pct, 1.0)
-                usable = st.free_capital - funding_buffer
+            if not self.config.raw_mode and state.free_capital < margin_usd + entry_fee:
+                funding_buffer = max(state.portfolio_equity * self.config.sizing_defaults.funding_buffer_pct, 1.0)
+                usable = state.free_capital - funding_buffer
                 if usable <= 0:
+                    self._last_armed_skip_reasons[(sid, token)] = "capital"
                     continue
                 if is_perp and lev_val > 1.0:
                     affordable = usable / (1.0 + lev_val * fee_rate)
                 else:
                     affordable = usable / (1.0 + fee_rate)
                 if affordable < self.config.min_position_usd:
+                    self._last_armed_skip_reasons[(sid, token)] = "capital"
                     continue
                 pos_usd = affordable
                 margin_usd = pos_usd
@@ -796,11 +821,19 @@ class PaperPortfolioEngine:
                     notional_usd, adv_val, self.config.base_spread_bps,
                     self.config.impact_coeff, self.config.max_slip_bps,
                 )
-            slip = c * slip_bps / 10000.0
-            entry_price = c + slip * direction
+            slip = close * slip_bps / 10000.0
+            entry_price = close + slip * direction
 
+            if not math.isfinite(entry_price) or entry_price <= 0:
+                continue
+
+            # Quantity (signed like simulator)
             quantity = notional_usd / max(entry_price, 1e-10) * direction
 
+            if abs(quantity) <= 0:
+                continue
+
+            # Position creation
             stop_mult = cand["stop_mult"]
             initial_risk = stop_mult * atr_val
             if direction == 1:
@@ -808,15 +841,15 @@ class PaperPortfolioEngine:
             else:
                 stop_price = entry_price + initial_risk
 
-            timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            tick = cand["tick_counter"]
+            position_id = f"{token}:{sid}:{tick}:sub"
 
-            cached_tick = cand["tick_counter"]
             pos = Position(
-                position_id=f"{token}:{sid}:{cached_tick}:sub",
+                position_id=position_id,
                 token=token,
                 strategy_id=sid,
                 leg="primary",
-                entry_bar=cached_tick,
+                entry_bar=tick,
                 entry_price=entry_price,
                 direction=direction,
                 quantity=quantity,
@@ -825,65 +858,82 @@ class PaperPortfolioEngine:
                 is_perp=is_perp,
                 fee_rate=fee_rate,
                 stop_mult=stop_mult,
-                trail_mult=cand["trail_mult"],
-                target_mult=cand["target_mult"],
-                no_stop_bars=cand["no_stop_bars"],
-                min_hold=cand["min_hold"],
-                max_hold=cand["max_hold"],
-                exit_regimes=cand["exit_regimes"],
-                convex_exit=cand["convex_exit"],
+                trail_mult=cand.get("trail_mult", 999.0),
+                target_mult=cand.get("target_mult", 999.0),
+                no_stop_bars=cand.get("no_stop_bars", 0),
+                min_hold=cand.get("min_hold", 1),
+                max_hold=cand.get("max_hold", 4),
+                exit_regimes=set(cand.get("exit_regimes", set())),
+                convex_exit=cand.get("convex_exit", False),
+                stop_price=stop_price,
+                highest=high,   # AC23: from 1m candle, not cached hourly
+                lowest=low,     # AC23: from 1m candle, not cached hourly
+                initial_risk=initial_risk,
+                limit_price=level,
+                limit_placed_at=cand.get("limit_placed_at", ""),
+                stop_limit_price=stop_price,
+                fill_source="sub_hourly",
+                # Exit handler parameters (backtest parity)
                 rsi_exit_level=cand.get("rsi_exit_level", 999.0),
                 regime_exit_min_bars=cand.get("regime_exit_min_bars", 6),
                 convex_bar_thresholds=cand.get("convex_bar_thresholds", (48, 12)),
                 convex_multipliers=cand.get("convex_multipliers", (2.0, 1.5, 0.3)),
                 trail_schedule=cand.get("trail_schedule"),
                 time_trail_schedule=cand.get("time_trail_schedule"),
-                max_trail_mult_arr=cand.get("max_trail_mult"),
+                max_trail_mult_arr=cand.get("max_trail_mult_arr"),
                 funding_exit_threshold=cand.get("funding_exit_threshold", 0.0),
                 partial_tp_atr=cand.get("partial_tp_atr", 0.0),
                 partial_tp_pct=cand.get("partial_tp_pct", 0.5),
                 partial_tp_trail=cand.get("partial_tp_trail", 1.5),
                 breakeven_atr=cand.get("breakeven_atr", 0.0),
                 chandelier_lookback=cand.get("chandelier_lookback", 0),
-                stop_price=stop_price,
-                highest=cand["high_val"],
-                lowest=cand["low_val"],
-                initial_risk=initial_risk,
-                limit_price=level,
-                limit_placed_at=cand.get("limit_placed_at", ""),
-                stop_limit_price=stop_price,
-                fill_source="sub_hourly",
             )
-            pos.entry_timestamp = timestamp
+            pos.entry_timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
-            # Build exit handler chain immediately (backtest parity: simulator.py:839)
+            # Open position
+            state.position_manager.open_position(pos)
+            state.total_fees += entry_fee
+            # Store entry fee for retrieval on close (matching simulator pattern)
+            state._entry_fees_by_pos[position_id] = entry_fee
+
+            # Build exit chain from sig_ref if available (AC23)
             sig_ref = cand.get("sig_ref")
             if sig_ref is not None:
                 from v4.exit_handlers import build_exit_chain
-                spec = strategy_specs.get(sid)
-                pos.exit_handlers = build_exit_chain(pos, sig_ref, spec, state=st, config=self.config)
+                pos.exit_handlers = build_exit_chain(pos, sig_ref, spec, state, self.config)
 
-            # Update state
-            st.total_fees += entry_fee
-            st._entry_fees_by_pos[pos.position_id] = entry_fee
-            st.position_manager.open_position(pos)
-            self._last_known_prices[token] = c  # fresh price for unrealized PnL
-            entry_count += 1
-            executed_keys.append((sid, token))
+            # Update last known price (valid close only — AC30)
+            self._last_known_prices[token] = close
 
-        # Remove executed candidates
+            to_remove.append((sid, token))
+            entries += 1
+
+            # Log filled event
+            self._log_armed_event({
+                "event": "filled",
+                "strategy": sid,
+                "token": token,
+                "direction": direction,
+                "level": level,
+                "fill_price": entry_price,
+                "position_id": position_id,
+                "tick_counter": cand.get("tick_counter", 0),
+                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            })
+
+        # Remove executed armed tokens under lock
         with self._armed_tokens_lock:
-            for key in executed_keys:
+            for key in to_remove:
                 self._armed_tokens.pop(key, None)
 
-        # Persist state if any entries occurred
-        if entry_count > 0:
+        # Persist state and update WS subscriptions after entries
+        if entries > 0:
             ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
             self._persist_sub_hourly_state(ts)
             self._update_ws_subscriptions()
-            logger.info("Sub-hourly entries: %d positions opened", entry_count)
+            logger.info("Sub-hourly entries: %d positions opened", entries)
 
-        return entry_count
+        return entries
 
     def _compute_sub_hourly_unrealized(self, st: "SimulationState") -> float:
         """Compute total unrealized P&L for sub-hourly entry sizing.
@@ -901,7 +951,7 @@ class PaperPortfolioEngine:
         return total
 
     def _persist_sub_hourly_state(self, timestamp: str) -> None:
-        """Persist state after sub-hourly exits or entries (trades + state.json only).
+        """Persist state after sub-hourly exits (trades + state.json only).
 
         Does NOT recompute signals or process entries (that's hourly only).
         """
@@ -1019,88 +1069,161 @@ class PaperPortfolioEngine:
                     "bear_target_mult": sig.bear_target_mult if hasattr(sig, 'bear_target_mult') else 0.0,
                 }
 
+    def _update_ws_subscriptions(self) -> None:
+        """Update WebSocket subscriptions to match current open positions.
+
+        AC24: Also includes armed tokens (from _armed_tokens cache) so that
+        sub-hourly entry monitoring receives 1m candle data for armed levels.
+
+        No-op when engine does not own its PriceMonitor — the runner manages
+        subscriptions centrally to prevent clobbering other engines' tokens.
+        """
+        if self._price_monitor is None or not self._owns_price_monitor:
+            return
+        open_tokens = set()
+        for st in self._get_all_states():
+            for pos in st.position_manager.open_positions:
+                open_tokens.add(pos.token)
+        # AC24: Include armed tokens alongside open-position tokens
+        with self._armed_tokens_lock:
+            armed_snapshot = list(self._armed_tokens.keys())
+        for (_sid, token) in armed_snapshot:
+            open_tokens.add(token)
+        self._price_monitor.update_subscriptions(open_tokens)
+        if self._candle_aggregator:
+            self._candle_aggregator.update_tokens(open_tokens)
+
+    # ------------------------------------------------------------------
+    # Armed order observability
+    # ------------------------------------------------------------------
+
+    def _log_armed_event(self, event: dict) -> None:
+        """Append one event to armed_log.jsonl (thread-safe).
+
+        Events: armed, expired, filled, skipped.
+        Non-fatal — observability should never crash the engine.
+        """
+        with self._armed_log_lock:
+            try:
+                with open(self._armed_log_path, "a") as f:
+                    f.write(json.dumps(event, default=str) + "\n")
+            except OSError:
+                pass
+
+    def _rotate_armed_log(self) -> None:
+        """Rotate armed_log.jsonl if > 200KB. Call from tick thread only.
+
+        Size check and rename are both inside the lock to prevent TOCTOU race
+        with _log_armed_event() appending concurrently from the WS thread.
+        """
+        try:
+            with self._armed_log_lock:
+                if os.path.getsize(self._armed_log_path) > 200_000:
+                    rotated = self._armed_log_path + "." + time.strftime("%Y%m%d_%H%M%S")
+                    os.rename(self._armed_log_path, rotated)
+        except OSError:
+            pass
+
+    # ------------------------------------------------------------------
+    # Armed level caching (AC21)
+    # ------------------------------------------------------------------
+
     def _cache_armed_levels(
         self,
-        all_signals: dict[str, dict],
-        strategy_specs: dict[str, "StrategySpec"],
-        bar_maps: dict[str, np.ndarray],
+        all_signals: dict,
+        strategy_specs: dict,
+        bar_maps: dict,
     ) -> None:
-        """Extract armed entry levels from latest hourly signals for WS monitoring.
+        """Populate _armed_tokens from signals for sub-hourly entry monitoring.
 
-        After each hourly tick, extracts armed_levels — tokens where BB bands
-        are set but the cross hasn't happened yet (pre-cross bars). These are
-        monitored via WebSocket 1m candles between hourly ticks.
-        Armed levels are refreshed each hourly tick (fresh cache).
+        Called after each hourly tick. Atomically swaps the cache so stale
+        entries from the previous hour are discarded.
+
+        Skips:
+        - Strategies with entry_resolution == 0
+        - Combined strategies (can't arm independent legs)
+        - Tokens with existing open positions
+        - Signals without armed_levels or with NaN at the current bar
         """
-        import logging
-        logger = logging.getLogger(__name__)
         new_armed: dict[tuple[str, str], dict] = {}
 
-        for sid, token_sigs in all_signals.items():
+        for sid, token_signals in all_signals.items():
+            # Skip strategies without entry_resolution
             if self._strategy_entry_resolution.get(sid, 0) == 0:
                 continue
+
             spec = strategy_specs.get(sid)
             if spec is None:
                 continue
-            # Skip combined strategies (require atomic two-leg entry)
-            if spec.market == "combined":
-                continue
 
-            for token, sig in token_sigs.items():
-                if sig.armed_levels is None:
-                    continue
-                bm = bar_maps.get(token)
-                if bm is None:
-                    continue
-                local_bar = int(bm[self.tick_counter]) if self.tick_counter < len(bm) else -1
-                if local_bar == -1 or local_bar >= sig.n_bars:
+            max_conc = spec.max_concurrent_per_token
+
+            for token, sig in token_signals.items():
+                # Skip combined strategies (legs can't be armed independently)
+                if spec.market == "combined":
                     continue
 
-                # Get latest bar's armed level
-                if local_bar >= len(sig.armed_levels):
+                # Skip if at max concurrent positions for this token+strategy
+                open_count = 0
+                for st in self._get_all_states():
+                    open_count += len(st.position_manager.find_open_for_token_strategy(token, sid))
+                if open_count >= max_conc:
                     continue
-                level = float(sig.armed_levels[local_bar])
-                if np.isnan(level):
+
+                # Skip if no armed_levels
+                armed_levels = getattr(sig, 'armed_levels', None)
+                if armed_levels is None:
                     continue
+
+                # Get bar index
+                bar_idx_arr = bar_maps.get(token)
+                if bar_idx_arr is None or len(bar_idx_arr) == 0:
+                    continue
+                local_bar = int(bar_idx_arr[-1])
+
+                if local_bar < 0 or local_bar >= len(armed_levels):
+                    continue
+
+                level = float(armed_levels[local_bar])
+                if math.isnan(level):
+                    continue
+
+                # Bounds-checked armed_direction
                 if sig.armed_direction is None or local_bar >= len(sig.armed_direction):
                     continue
                 direction = int(sig.armed_direction[local_bar])
                 if direction == 0:
                     continue
 
-                # Check if position already exists for this token+strategy
-                skip = False
-                for st in self._get_all_states():
-                    open_for_ts = st.position_manager.find_open_for_token_strategy(token, sid)
-                    max_conc = spec.max_concurrent_per_token
-                    if len(open_for_ts) >= max_conc:
-                        skip = True
-                        break
-                if skip:
-                    continue
-
-                # Pre-extract signal data for entry execution
+                # Base values from spot arrays
                 h_val = float(sig.high[local_bar])
                 l_val = float(sig.low[local_bar])
                 close_val = float(sig.close[local_bar])
                 atr_val = float(sig.atr[local_bar])
+                spot_atr_val = atr_val  # Keep spot ATR for pump_range
                 if np.isnan(atr_val):
                     atr_val = close_val * 0.02
-                # Spot ATR for pump filter (backtest runs pump check before venue routing)
-                spot_atr_val = atr_val
                 adv_val = float(sig.rolling_adv[local_bar])
                 lev_val = float(sig.leverage[local_bar])
                 sm_val = float(sig.size_multiplier[local_bar])
                 cap_mult = float(sig.cap_multiplier[local_bar])
-                is_perp = sig.is_perp_primary
-                if sig.per_bar_is_perp is not None:
-                    is_perp = bool(sig.per_bar_is_perp[local_bar])
-                    if is_perp and sig.perp_close is not None:
-                        close_val = float(sig.perp_close[local_bar])
-                        atr_val = float(sig.perp_atr[local_bar])
-                        if np.isnan(atr_val):
-                            atr_val = close_val * 0.02
-                        adv_val = float(sig.perp_rolling_adv[local_bar])
+
+                # Per-bar venue routing (perp vs spot)
+                is_perp = getattr(sig, 'is_perp_primary', spec.market != "spot")
+                per_bar = getattr(sig, 'per_bar_is_perp', None)
+                if per_bar is not None and local_bar < len(per_bar):
+                    is_perp = bool(per_bar[local_bar])
+                    perp_close = getattr(sig, 'perp_close', None)
+                    if is_perp and perp_close is not None and local_bar < len(perp_close):
+                        close_val = float(perp_close[local_bar])
+                        perp_atr = getattr(sig, 'perp_atr', None)
+                        if perp_atr is not None and local_bar < len(perp_atr):
+                            atr_val = float(perp_atr[local_bar])
+                            if np.isnan(atr_val):
+                                atr_val = close_val * 0.02
+                        perp_adv = getattr(sig, 'perp_rolling_adv', None)
+                        if perp_adv is not None and local_bar < len(perp_adv):
+                            adv_val = float(perp_adv[local_bar])
 
                 new_armed[(sid, token)] = {
                     "level": level,
@@ -1114,77 +1237,110 @@ class PaperPortfolioEngine:
                     "size_multiplier": sm_val,
                     "cap_multiplier": cap_mult,
                     "is_perp": is_perp,
-                    "sig_ref": sig,  # For build_exit_chain at sub-hourly entry
+                    "sig_ref": sig,
                     "stop_mult": float(sig.stop_mult[local_bar]),
                     "trail_mult": float(sig.trail_mult[local_bar]),
-                    "target_mult": sig.target_mult,
-                    "no_stop_bars": sig.no_stop_bars,
-                    "min_hold": sig.min_hold,
-                    "max_hold": sig.max_hold,
-                    "exit_regimes": sig.exit_regimes,
-                    "convex_exit": sig.convex_exit,
-                    "edge": sig.edge,
-                    "max_trade_pct": sig.max_trade_pct,
+                    "target_mult": getattr(sig, 'target_mult', 999.0),
+                    "no_stop_bars": getattr(sig, 'no_stop_bars', 0),
+                    "min_hold": getattr(sig, 'min_hold', 1),
+                    "max_hold": getattr(sig, 'max_hold', 4),
+                    "exit_regimes": getattr(sig, 'exit_regimes', set()),
+                    "convex_exit": getattr(sig, 'convex_exit', False),
+                    "edge": getattr(sig, 'edge', 0.0),
+                    "max_trade_pct": getattr(sig, 'max_trade_pct', 0.05),
                     "high_val": h_val,
                     "low_val": l_val,
-                    # Exit handler parameters (backtest parity)
-                    "rsi_exit_level": sig.rsi_exit_level,
-                    "regime_exit_min_bars": sig.regime_exit_min_bars,
-                    "convex_bar_thresholds": sig.convex_bar_thresholds,
-                    "convex_multipliers": sig.convex_multipliers,
-                    "trail_schedule": sig.trail_schedule,
-                    "time_trail_schedule": sig.time_trail_schedule,
-                    "max_trail_mult": sig.max_trail_mult,
-                    "funding_exit_threshold": sig.funding_exit_threshold,
-                    "partial_tp_atr": sig.partial_tp_atr,
-                    "partial_tp_pct": sig.partial_tp_pct,
-                    "partial_tp_trail": sig.partial_tp_trail,
-                    "breakeven_atr": sig.breakeven_atr,
-                    "chandelier_lookback": sig.chandelier_lookback,
                     # Pump filter data (cached for constraint checks)
                     "pump_range": (h_val - l_val) / max(spot_atr_val, 1e-10),
                     "funding_zscore": (
                         float(sig.funding_zscore[local_bar])
-                        if sig.funding_zscore is not None and local_bar < len(sig.funding_zscore)
+                        if getattr(sig, 'funding_zscore', None) is not None and local_bar < len(sig.funding_zscore)
                         else float('nan')
                     ),
+                    # Conviction score for threshold check
+                    "conviction": (
+                        float(sig.conviction_score[local_bar])
+                        if getattr(sig, 'conviction_score', None) is not None and local_bar < len(sig.conviction_score)
+                        else 1.0
+                    ),
+                    # Exit handler parameters (backtest parity for Position fields)
+                    "rsi_exit_level": getattr(sig, 'rsi_exit_level', 999.0),
+                    "regime_exit_min_bars": getattr(sig, 'regime_exit_min_bars', 6),
+                    "convex_bar_thresholds": getattr(sig, 'convex_bar_thresholds', (48, 12)),
+                    "convex_multipliers": getattr(sig, 'convex_multipliers', (2.0, 1.5, 0.3)),
+                    "trail_schedule": getattr(sig, 'trail_schedule', None),
+                    "time_trail_schedule": getattr(sig, 'time_trail_schedule', None),
+                    "max_trail_mult_arr": getattr(sig, 'max_trail_mult', None),
+                    "funding_exit_threshold": getattr(sig, 'funding_exit_threshold', 0.0),
+                    "partial_tp_atr": getattr(sig, 'partial_tp_atr', 0.0),
+                    "partial_tp_pct": getattr(sig, 'partial_tp_pct', 0.5),
+                    "partial_tp_trail": getattr(sig, 'partial_tp_trail', 1.5),
+                    "breakeven_atr": getattr(sig, 'breakeven_atr', 0.0),
+                    "chandelier_lookback": getattr(sig, 'chandelier_lookback', 0),
                 }
 
-        # Atomic swap: replace armed_tokens dict under lock
+        # Detect expired (unfilled) armed entries before swap
+        expired = []
         with self._armed_tokens_lock:
+            old_armed = self._armed_tokens
+            for key, armed in old_armed.items():
+                if key not in new_armed:
+                    expired.append({
+                        "event": "expired",
+                        "strategy": key[0],
+                        "token": key[1],
+                        "direction": armed.get("direction", 0),
+                        "level": armed.get("level", 0),
+                        "close_val": armed.get("close_val", 0),
+                        "tick_counter": armed.get("tick_counter", 0),
+                        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                    })
             self._armed_tokens = new_armed
+            self._last_expired_orders = expired
 
-        n_cached = len(new_armed)
-        if n_cached > 0:
-            logger.info(
-                "Armed levels: %d tokens cached for WS 1m cross detection (%s)",
-                n_cached,
-                ", ".join(t for _, t in new_armed),
-            )
+        # Log expired + newly armed events
+        for evt in expired:
+            self._log_armed_event(evt)
+        for key, armed in new_armed.items():
+            self._log_armed_event({
+                "event": "armed",
+                "strategy": key[0],
+                "token": key[1],
+                "direction": armed.get("direction", 0),
+                "level": armed.get("level", 0),
+                "close_val": armed.get("close_val", 0),
+                "tick_counter": armed.get("tick_counter", 0),
+                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            })
 
-    def _update_ws_subscriptions(self) -> None:
-        """Update WebSocket subscriptions to match current open positions.
+        # Rotate log if needed
+        self._rotate_armed_log()
 
-        Also includes tokens with armed entry levels for sub-hourly
-        cross detection.
+    # ------------------------------------------------------------------
+    # Background tick (AC28)
+    # ------------------------------------------------------------------
 
-        No-op when engine does not own its PriceMonitor — the runner manages
-        subscriptions centrally to prevent clobbering other engines' tokens.
-        """
-        if self._price_monitor is None or not self._owns_price_monitor:
+    def _tick_internal_async(self) -> None:
+        """Submit _tick_internal to background executor for non-blocking execution."""
+        if self._bg_future is not None and not self._bg_future.done():
+            import logging
+            logging.getLogger(__name__).warning("Previous tick still running -- skipping")
             return
-        open_tokens = set()
-        for st in self._get_all_states():
-            for pos in st.position_manager.open_positions:
-                open_tokens.add(pos.token)
-        # Include tokens with armed entry levels (snapshot under lock)
-        with self._armed_tokens_lock:
-            armed_snapshot = dict(self._armed_tokens)
-        for (sid, token) in armed_snapshot:
-            open_tokens.add(token)
-        self._price_monitor.update_subscriptions(open_tokens)
-        if self._candle_aggregator:
-            self._candle_aggregator.update_tokens(open_tokens)
+        self._bg_future = self._bg_executor.submit(self._tick_bg_worker)
+
+    def _tick_bg_worker(self) -> None:
+        """Worker function for background tick execution."""
+        try:
+            self._tick_internal()
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception("Background tick failed")
+        finally:
+            self._on_tick_complete()
+
+    def _on_tick_complete(self) -> None:
+        """Called when background tick completes (success or failure)."""
+        pass  # Hook for future signaling (e.g., event.set())
 
     # ------------------------------------------------------------------
     # Bar maps
@@ -1465,12 +1621,16 @@ class PaperPortfolioEngine:
         all_signals: dict,
         bar_maps: dict,
     ) -> None:
-        """Delegate exit processing to v4 simulator."""
-        # Clear exit_handlers so they rebuild with fresh sig each tick.
-        # In the backtest, sig is a single long-lived object (arrays cover all bars).
-        # In paper mode, precompute_strategy_signals() creates NEW TokenSignals each
-        # tick with +1 bar. Handlers holding old sig refs would IndexError on
-        # RSIExitHandler, MeanTargetHandler, or chandelier lookback.
+        """Delegate exit processing to v4 simulator.
+
+        Clear ALL positions' exit_handlers before processing so they rebuild
+        with fresh signal data via lazy init (simulator.py:456). In paper mode,
+        precompute_strategy_signals() creates NEW TokenSignals each tick with
+        +1 bar. Handlers holding old sig refs would IndexError on
+        RSIExitHandler, MeanTargetHandler, or chandelier lookback.
+
+        This covers both :sub positions (AC29) and hourly positions.
+        """
         for st in self._get_all_states():
             for pos in st.position_manager.open_positions:
                 pos.exit_handlers = []
@@ -1491,24 +1651,25 @@ class PaperPortfolioEngine:
     ) -> None:
         """Delegate entry processing to v4 simulator with per-bar RNG seeding (AC9c).
 
-        Strategies with entry_resolution > 0 are excluded from retroactive hourly
-        fills — they enter exclusively through the armed_levels WebSocket path.
+        AC25: Strategies with entry_resolution > 0 are excluded from hourly
+        entries — they use process_sub_hourly_entries() instead.
         """
+        # AC25: Filter out strategies that use sub-hourly entry resolution
+        entry_res = getattr(self, '_strategy_entry_resolution', {})
+        filtered_signals = {
+            sid: sigs for sid, sigs in all_signals.items()
+            if entry_res.get(sid, 0) == 0
+        }
+        filtered_specs = {
+            sid: spec for sid, spec in strategy_specs.items()
+            if entry_res.get(sid, 0) == 0
+        }
+
         rng = np.random.RandomState(self.config.seed + self.tick_counter)
-
-        # Filter out strategies using real-time entry resolution (armed_levels path)
-        filtered_signals = all_signals
-        filtered_specs = strategy_specs
-        if getattr(self, '_effective_entry_resolution', 0) > 0:
-            excluded_sids = {sid for sid, res in getattr(self, '_strategy_entry_resolution', {}).items() if res > 0}
-            if excluded_sids:
-                filtered_signals = {sid: sigs for sid, sigs in all_signals.items() if sid not in excluded_sids}
-                filtered_specs = {sid: spec for sid, spec in strategy_specs.items() if sid not in excluded_sids}
-
         if self.config.mode == "independent":
             for sid, sstate in self.strategy_states.items():
-                if sid not in filtered_signals:
-                    continue  # Skip strategies using armed_levels path
+                if entry_res.get(sid, 0) > 0:
+                    continue  # AC25: skip sub-hourly strategies
                 sid_signals = {sid: filtered_signals.get(sid, {})}
                 if sid in filtered_specs:
                     orig_spec = filtered_specs[sid]
@@ -1564,21 +1725,27 @@ class PaperPortfolioEngine:
         if getattr(self, '_effective_exit_resolution', 0) > 0:
             self._cache_bar_data(all_signals, bar_maps)
 
-        # Cache armed levels for sub-hourly entry resolution (real-time BB cross detection)
+        # Cache armed levels for sub-hourly entry checks (AC22/AC23)
         if getattr(self, '_effective_entry_resolution', 0) > 0:
             self._cache_armed_levels(all_signals, strategy_specs, bar_maps)
 
-        # Update WS subscriptions (covers both exit positions and entry candidates)
+        # Update WS subscriptions for sub-hourly monitoring
         if getattr(self, '_effective_exit_resolution', 0) > 0 or getattr(self, '_effective_entry_resolution', 0) > 0:
             self._update_ws_subscriptions()
 
-    def _tick_bg_worker(self, bar_timestamp=None) -> tuple:
-        """Background: fetch data + precompute signals (steps 1-4).
+    def _tick_internal(self, bar_timestamp=None) -> None:
+        """Full tick processing: fetch data, recompute signals, process.
 
-        This is the heavy work (60-120s) that now runs off the main thread
-        so WebSocket monitoring continues unblocked.
-
-        Returns (all_signals, strategy_specs, bar_maps, timestamp).
+        Pipeline (AC10b):
+          1. Fetch live data via self.fetcher + append to parquet
+          2. Discover tokens from parquet cache
+          3. Call precompute_strategy_signals() per strategy
+          4. Build bar_maps
+          5. Handle disappeared tokens
+          6. Call _tick_internal_with_signals()
+          7. Update last known prices
+          8. Compute mark-to-market equity + populate equity_history
+          9. Persist state (state.json, equity.csv, shadow_pools)
         """
         import logging
         logger = logging.getLogger(__name__)
@@ -1587,13 +1754,14 @@ class PaperPortfolioEngine:
 
         # --- Step 1: Fetch live data + append to parquet ---
         if self.fetcher is not None:
+            # Discover which tokens to fetch for each market
             all_tokens_to_fetch: set[str] = set()
             for spec in self.config.strategies:
                 try:
                     tokens = discover_tokens(spec.market)
                     all_tokens_to_fetch.update(tokens)
                 except Exception:
-                    pass
+                    pass  # No parquet data yet — will handle below
 
             fetch_ok = 0
             fetch_err = 0
@@ -1610,9 +1778,10 @@ class PaperPortfolioEngine:
                         fetch_ok += 1
                     except Exception as e:
                         fetch_err += 1
-                        if fetch_err <= 3:
+                        if fetch_err <= 3:  # Log first 3 errors
                             logger.warning("Fetch %s/%s failed: %s", token, market, e)
 
+                # Fetch and merge funding rates for perp
                 try:
                     rates = self.fetcher.fetch_funding_rates(token, limit=10)
                     if rates and hasattr(self.fetcher, 'merge_funding_into_parquet'):
@@ -1636,7 +1805,7 @@ class PaperPortfolioEngine:
             tokens = discover_tokens(spec.market)
             if tokens:
                 any_tokens_found = True
-            live_bar = self.tick_counter if self._strategy_entry_resolution.get(spec.strategy_id, 0) > 0 else -1
+            live_bar = self.tick_counter if getattr(self, '_strategy_entry_resolution', {}).get(spec.strategy_id, 0) > 0 else -1
             sigs = precompute_strategy_signals(spec, tokens, self.config, self.config.lookback_months, live_bar=live_bar, hist_cache=self._hist_cache)
             all_signals[spec.strategy_id] = sigs
 
@@ -1650,40 +1819,14 @@ class PaperPortfolioEngine:
                 len(self._hist_cache),
             )
 
+        # Timestamp: use wall-clock time (set on line 446) for precise equity.csv
+        # and trade entry timestamps. Previously this was overridden with the
+        # hourly bar close time as a temp fix for backwards-tick issues caused by
+        # the ablation tick-counter reset — that is no longer needed.
+
         # --- Step 4: Build bar_maps ---
         bar_maps = self._build_bar_maps(all_signals, self.tick_counter)
 
-        return all_signals, strategy_specs, bar_maps, timestamp
-
-    def _on_tick_complete(self, future: Future) -> None:
-        """Callback: process exits/entries + update armed levels + persist state.
-
-        Runs on the thread pool thread after background work completes.
-        State mutations are serialized because we guard against overlapping ticks
-        (_tick_internal_async checks _bg_future.done() before submitting).
-
-        THREADING NOTE: This callback may run concurrently with the WebSocket
-        handler thread (process_sub_hourly_entries). The _armed_tokens dict is
-        protected by _armed_tokens_lock. Position mutations from both paths are
-        currently NOT locked — they are safe in practice because entries create
-        new Position objects (append-only) and exits only run in this callback.
-        """
-        logger = logging.getLogger(__name__)
-        try:
-            all_signals, strategy_specs, bar_maps, timestamp = future.result()
-        except Exception:
-            logger.exception("Background tick worker failed")
-            return
-
-        try:
-            self._tick_complete_with_results(all_signals, strategy_specs, bar_maps, timestamp)
-        except Exception:
-            logger.exception("Tick completion failed")
-
-    def _tick_complete_with_results(
-        self, all_signals, strategy_specs, bar_maps, timestamp,
-    ) -> None:
-        """Complete tick processing with pre-computed signals (steps 5-9)."""
         # --- Step 5: Handle disappeared tokens ---
         self._handle_disappeared_tokens(all_signals, timestamp=timestamp)
 
@@ -1691,15 +1834,23 @@ class PaperPortfolioEngine:
         self._apply_dynamic_weights(all_signals, bar_maps)
 
         # --- Step 6: Process exits → entries ---
+        # Note: walk-forward mask is already applied by precompute_strategy_signals
         self._tick_internal_with_signals(all_signals, strategy_specs, bar_maps)
 
         # --- Step 6b: Stamp entry_timestamp on ALL positions missing it ---
+        # New positions (entry_bar == tick_counter) get the current timestamp.
+        # Pre-existing positions that were never stamped (e.g., created before
+        # this code existed) get backfilled with the current timestamp so the
+        # dashboard shows *something* rather than "—".
         for st in self._get_all_states():
             for pos in st.position_manager.open_positions:
                 if not pos.entry_timestamp:
                     pos.entry_timestamp = timestamp
 
         # --- Step 6c: Stamp exit_timestamp on newly closed trades missing it ---
+        # Simulator-driven exits don't have access to wall-clock time, so we
+        # stamp them here. Sentinel exits already have exit_timestamp set from
+        # event.sentinel_timestamp and are skipped.
         for st in self._get_all_states():
             for trade in st.position_manager.closed_trades:
                 if not trade.exit_timestamp:
@@ -1719,17 +1870,25 @@ class PaperPortfolioEngine:
             "portfolio_equity": portfolio_eq,
             "mark_to_market_equity": mtm_eq,
         })
+        # R7-I5 fix: cap equity_history to prevent unbounded memory growth
+        # in long-running daemon mode (720 entries = 30 days of hourly ticks)
         _MAX_EQUITY_HISTORY = 720
         if len(self.equity_history) > _MAX_EQUITY_HISTORY:
             self.equity_history = self.equity_history[-_MAX_EQUITY_HISTORY:]
 
         # --- Step 9: Persist state ---
+        # C5 fix: increment tick_counter BEFORE persisting so state.json
+        # records the NEXT expected tick. On crash-recovery, we restore to
+        # the next tick and don't re-process the current one.
         self.tick_counter += 1
+        # R5-I1 fix: track whether state.json commit point was reached.
+        # If exception occurs AFTER commit, tick_counter should NOT be rolled back.
         self._state_committed = False
 
         state_dir = self.config.state_dir
         os.makedirs(state_dir, exist_ok=True)
 
+        # Shadow pools
         shadow = getattr(self, 'shadow', None)
         if shadow is not None:
             shadow_pools = {
@@ -1744,22 +1903,34 @@ class PaperPortfolioEngine:
                 "spot_deployed": 0.0, "perp_deployed": 0.0,
             }
 
+        # QM-C2 fix: Write trades.jsonl BEFORE state.json so that on
+        # crash between the two writes, recovery truncation removes the
+        # orphaned trades (they have tick > restored tick_counter).
         trades_path = os.path.join(state_dir, "trades.jsonl")
         new_closed = []
         for st in self._get_all_states():
             new_closed.extend(st.position_manager.closed_trades)
+        # R4-I1 fix: track flushed trades by position_id to prevent duplicates
+        # on partial write failures. Previously used a count which could re-write
+        # trades if the count wasn't updated due to a write exception.
         if not hasattr(self, '_flushed_position_ids'):
             self._flushed_position_ids = set()
         unflushed = [t for t in new_closed if t.position_id not in self._flushed_position_ids]
+        # R7-I1 fix: stage position_ids written this tick. Only promote to
+        # _flushed_position_ids after state.json commit, so failed ticks don't
+        # permanently mark trades as flushed when the state was never committed.
         self._tick_staged_ids = set()
         if unflushed:
             with open(trades_path, "a") as f:
                 for trade in unflushed:
                     f.write(json.dumps(_closed_trade_to_dict(trade, tick=self.tick_counter)) + "\n")
                 f.flush()
-                os.fsync(f.fileno())
+                os.fsync(f.fileno())  # R3-C1 fix: fsync before state.json commit
             self._tick_staged_ids = {t.position_id for t in unflushed}
 
+        # R5-I2 fix: write equity.csv BEFORE state.json commit point
+        # so crash between trades and state doesn't create permanent equity gaps
+        # R6-I4 fix: skip if this tick was already written (retry after failed state.json)
         last_equity_tick = getattr(self, '_last_equity_tick', -1)
         if self.tick_counter != last_equity_tick:
             equity_path = os.path.join(state_dir, "equity.csv")
@@ -1776,8 +1947,12 @@ class PaperPortfolioEngine:
             )
             self._last_equity_tick = self.tick_counter
 
+        # Write state.json — handle both pool and independent modes
+        # This is the "commit point": once state.json is atomically written,
+        # the tick is considered complete.
         state_path = os.path.join(state_dir, "state.json")
         if self.state is not None:
+            # Pool mode: single shared state
             atomic_write_state(
                 self.state,
                 self.tick_counter,
@@ -1788,6 +1963,7 @@ class PaperPortfolioEngine:
                 last_known_regimes=dict(self._last_known_regimes),
             )
         else:
+            # Independent mode: serialize all strategy states (C4 fix)
             from v4.paper_state import serialize_engine_state
             data = serialize_engine_state(
                 dict(self.strategy_states), self.tick_counter, timestamp,
@@ -1802,47 +1978,29 @@ class PaperPortfolioEngine:
             with open(tmp, "w") as f:
                 json.dump(data, f, indent=2)
                 f.flush()
-                os.fsync(f.fileno())
+                os.fsync(f.fileno())  # QM-I3 fix: fsync for independent mode
             os.rename(tmp, state_path)
 
+        # R5-I1 fix: mark commit point reached — tick_counter should NOT
+        # be rolled back if anything after this point throws
         self._state_committed = True
 
+        # Write stops.json for sentinel consumption (after state.json commit)
         if self.config.sentinel_mode != "off":
             self._write_stops()
 
+        # R7-I1 fix: promote staged position_ids to flushed now that state
+        # is committed. If state.json commit failed, these would NOT be promoted,
+        # allowing retry to re-write the trades (duplicates cleaned by truncation).
         self._flushed_position_ids.update(self._tick_staged_ids)
         self._tick_staged_ids = set()
 
+        # R4-I3 fix: update last_timestamp so dashboard stale-data checks
+        # use the latest processed tick's timestamp, not the restored one
         self.last_timestamp = timestamp
 
+        # AC26: Trigger dashboard generation after persistence
         self._trigger_dashboard()
-
-    def _tick_internal(self, bar_timestamp=None) -> None:
-        """Synchronous tick processing: fetch data, recompute signals, process.
-
-        Runs the full pipeline in the current thread.
-        For non-blocking execution, use _tick_internal_async() instead.
-        """
-        all_signals, strategy_specs, bar_maps, timestamp = self._tick_bg_worker(bar_timestamp)
-        self._tick_complete_with_results(all_signals, strategy_specs, bar_maps, timestamp)
-
-    def _tick_internal_async(self, bar_timestamp=None) -> None:
-        """Non-blocking tick: submit heavy work to background thread.
-
-        Steps 1-4 (data fetch + signal precomputation) run on a background thread.
-        Steps 5-9 (exits, entries, persistence) complete via callback when ready.
-        WebSocket monitoring continues unblocked during the heavy computation.
-        """
-        import logging
-        logger = logging.getLogger(__name__)
-
-        # Guard against overlapping ticks
-        if self._bg_future is not None and not self._bg_future.done():
-            logger.warning("Previous tick still running — skipping")
-            return
-
-        self._bg_future = self._bg_executor.submit(self._tick_bg_worker, bar_timestamp)
-        self._bg_future.add_done_callback(self._on_tick_complete)
 
     def _trigger_dashboard(self) -> None:
         """Trigger dashboard generation after each tick (AC26).
@@ -2313,6 +2471,10 @@ class PaperPortfolioEngine:
             if val <= 0: return "hourly"
             return f"{val}min"
 
+        # Compute effective entry resolution across strategies
+        entry_resolutions = [s.entry_resolution for s in config.strategies if getattr(s, 'entry_resolution', 0) > 0]
+        effective_entry_resolution = min(entry_resolutions) if entry_resolutions else 0
+
         if config.mode == "pool" and config.pool_name:
             strategies = [{
                 "id": config.pool_name,
@@ -2322,7 +2484,8 @@ class PaperPortfolioEngine:
                 "trade_count": len(all_closed_trades),
                 "open_positions": self._aggregate_open_positions(),
                 "strategies": [s.strategy_id for s in config.strategies],
-                "exit_resolution": _exit_res_label(getattr(self, '_effective_exit_resolution', 0)),
+                "exit_resolution": _exit_res_label(self._effective_exit_resolution),
+                "entry_resolution": _exit_res_label(effective_entry_resolution),
             }]
         else:
             strategies = [{
@@ -2330,6 +2493,7 @@ class PaperPortfolioEngine:
                 "name": s.strategy_id,
                 "weight": s.weight,
                 "exit_resolution": _exit_res_label(s.exit_resolution),
+                "entry_resolution": _exit_res_label(getattr(s, 'entry_resolution', 0)),
             } for s in config.strategies]
 
         # Build all_trades (closed + open)
@@ -2412,6 +2576,43 @@ class PaperPortfolioEngine:
                     "leverage": pos.leverage,
                 })
 
+        # Thread-safe snapshot of armed orders + expired orders + skip reasons
+        with self._armed_tokens_lock:
+            armed_snap = dict(self._armed_tokens)
+            expired_snap = list(self._last_expired_orders)
+            skip_reasons_snap = dict(self._last_armed_skip_reasons)
+
+        armed_orders = []
+        for (sid, token), cand in armed_snap.items():
+            current_price = last_prices.get(token, cand.get("close_val", 0))
+            level = cand.get("level", 0)
+            direction = cand.get("direction", 1)
+            # Guard against invalid prices/levels
+            if level <= 0 or current_price <= 0:
+                pct_to_fill = 0.0
+                crossed = False
+            elif direction == 1:
+                pct_to_fill = (level - current_price) / current_price * 100
+                crossed = pct_to_fill < 0
+                pct_to_fill = max(pct_to_fill, 0.0)
+            else:
+                pct_to_fill = (current_price - level) / current_price * 100
+                crossed = pct_to_fill < 0
+                pct_to_fill = max(pct_to_fill, 0.0)
+            armed_orders.append({
+                "strategy": sid,
+                "token": token,
+                "direction": direction,
+                "level": level,
+                "current_price": current_price,
+                "pct_to_fill": round(pct_to_fill, 2),
+                "crossed": crossed,
+                "is_perp": cand.get("is_perp", True),
+                "armed_at": cand.get("limit_placed_at", ""),
+                "tick_counter": cand.get("tick_counter", 0),
+                "last_skip": skip_reasons_snap.get((sid, token), "waiting"),
+            })
+
         # Equity history
         equity_history = getattr(self, 'equity_history', [])
 
@@ -2479,6 +2680,8 @@ class PaperPortfolioEngine:
             "total_fees": agg_fees,
             "total_funding": agg_funding,
             "realized_pnl": agg_realized_pnl,
+            "armed_orders": armed_orders,
+            "expired_orders": expired_snap,
         }
 
     # ------------------------------------------------------------------

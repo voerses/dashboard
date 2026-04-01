@@ -27,8 +27,9 @@ from v4.signals import discover_tokens
 from v4.paper_utils import restore_state, acquire_pid_lock, compute_sleep_until_next_hour
 from v4.dashboard_state import write_dashboard_state
 from v4.data_maintenance import ensure_data_fresh
+from v4.hourly_bar_collector import HourlyBarCollector
 from v4.live_fetcher import LiveFetcher
-from v4.price_monitor import PriceMonitor
+from v4.price_monitor import PriceMonitor, _symbol_to_token
 
 logger = logging.getLogger(__name__)
 
@@ -314,6 +315,119 @@ def fetch_all_data(fetcher, all_configs: list[PaperConfig]) -> tuple[int, int, i
         fetch_ok, fetch_err, bars_appended, funding_merged,
     )
     return fetch_ok, fetch_err, bars_appended, funding_merged
+
+
+# ---------------------------------------------------------------------------
+# WS 1H kline feed helpers (AC7, AC8, AC12, AC13, AC14, AC15, AC16)
+# ---------------------------------------------------------------------------
+
+_FUNDING_HOURS = {0, 7, 8, 15, 16, 23}
+
+
+def _near_funding_interval(hour_utc: int) -> bool:
+    """Return True if hour_utc is within a funding settlement window.
+
+    Binance funding is every 8h at 00:00, 08:00, 16:00 UTC.
+    We include the hour before each settlement for timely fetches.
+    """
+    return hour_utc in _FUNDING_HOURS
+
+
+def _should_fetch_funding(hour_utc: int, first_tick: bool) -> bool:
+    """Determine whether to fetch funding rates this tick.
+
+    Always fetch on first tick (bootstrap). Otherwise only near settlements.
+    """
+    if first_tick:
+        return True
+    return _near_funding_interval(hour_utc)
+
+
+def _fetch_batch_funding(session) -> dict[str, list[dict]]:
+    """Fetch all perp funding rates in one premiumIndex call.
+
+    Returns dict mapping token → [{"fundingRate": ..., "timestamp": ...}].
+    Uses the premiumIndex API which returns all perp pairs at once,
+    replacing 236+ sequential funding calls with a single request.
+    """
+    import requests
+    resp = session.get("https://fapi.binance.com/fapi/v1/premiumIndex")
+    resp.raise_for_status()
+    data = resp.json()
+    result: dict[str, list[dict]] = {}
+    for item in data:
+        symbol = item.get("symbol", "")
+        if not symbol.endswith("USDT"):
+            continue
+        token = _symbol_to_token(symbol)
+        if not token:
+            continue
+        funding_rate = item.get("lastFundingRate")
+        next_funding_time = item.get("nextFundingTime")
+        if funding_rate is not None and next_funding_time and next_funding_time > 0:
+            timestamp = int(next_funding_time - 8 * 3600 * 1000)  # 8h before next
+            result[token] = [{"fundingRate": float(funding_rate), "timestamp": timestamp}]
+    return result
+
+
+def _fetch_missing_tokens(
+    fetcher,
+    missing: dict[str, set[str]],
+    collector,
+) -> None:
+    """REST fallback: fetch OHLCV for tokens missing from WS delivery.
+
+    Acquires collector's per-token write locks before appending
+    to prevent corruption with the collector's writer thread.
+    Does NOT fetch funding — that's handled by _fetch_batch_funding.
+    """
+    for market, tokens in missing.items():
+        for token in tokens:
+            try:
+                bars = fetcher.fetch_ohlcv(token, market, limit=24)
+                closed = fetcher.filter_closed_bars(bars)
+                if closed:
+                    lock = collector._1h_write_locks.setdefault(
+                        token, threading.Lock(),
+                    )
+                    with lock:
+                        fetcher.append_to_parquet(token, market, closed)
+            except Exception as e:
+                logger.warning("_fetch_missing_tokens %s/%s failed: %s", token, market, e)
+
+
+def _process_sub_hourly_candles(
+    engines: list,
+    configs: list,
+    candle_errors: dict[int, int],
+) -> None:
+    """Flush completed 1m candles and run sub-hourly exits then entries.
+
+    AC26: Exit-before-entry ordering. Single flush per engine feeds both
+    process_sub_hourly_exits and process_sub_hourly_entries.
+    """
+    for engine, config in zip(engines, configs):
+        if engine._candle_aggregator is None:
+            continue
+        try:
+            candles = engine._candle_aggregator.flush_completed()
+            if candles:
+                engine.process_sub_hourly_exits(candles)
+                engine.process_sub_hourly_entries(candles)
+                candle_errors[id(engine)] = 0
+        except Exception:
+            err_key = id(engine)
+            candle_errors[err_key] = candle_errors.get(err_key, 0) + 1
+            if candle_errors[err_key] <= 3:
+                logger.exception(
+                    "[%s] Sub-hourly candle processing failed (%d consecutive)",
+                    config.pool_name, candle_errors[err_key],
+                )
+            elif candle_errors[err_key] == 4:
+                logger.error(
+                    "[%s] Suppressing repeated sub-hourly errors until next tick",
+                    config.pool_name,
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -709,6 +823,62 @@ def main(argv: list[str] | None = None) -> None:
                 except Exception:
                     logger.warning("[%s] Dedicated PriceMonitor start failed", config.pool_name)
 
+    # ---------------------------------------------------------------------------
+    # AC7/AC14: Create HourlyBarCollector + dedicated 1H PriceMonitors
+    # ---------------------------------------------------------------------------
+    # Discover ALL universe tokens for data collection
+    all_perp_tokens: set[str] = set()
+    all_spot_tokens: set[str] = set()
+    for cfg in configs:
+        for spec in cfg.strategies:
+            try:
+                tokens = discover_tokens(spec.market)
+                if spec.market == "spot":
+                    all_spot_tokens.update(tokens)
+                else:
+                    all_perp_tokens.update(tokens)
+            except Exception:
+                pass
+
+    collector = None
+    perp_1h_monitor = None
+    spot_1h_monitor = None
+    ws_available = False
+
+    if all_perp_tokens or all_spot_tokens:
+        expected = {}
+        if all_perp_tokens:
+            expected["perp"] = all_perp_tokens
+        if all_spot_tokens:
+            expected["spot"] = all_spot_tokens
+        collector = HourlyBarCollector(
+            expected_tokens=expected,
+            fetcher=shared_fetcher,
+        )
+        try:
+            if all_perp_tokens:
+                perp_1h_monitor = PriceMonitor(
+                    callback=lambda *a: None,  # no-op: no real-time price from 1h
+                    venue="perp",
+                    streams=["kline_1h"],
+                    kline_1h_callback=lambda token, bar: collector.on_bar(token, bar, "perp"),
+                )
+                perp_1h_monitor.connect(list(all_perp_tokens))
+                logger.info("1H perp PriceMonitor started (%d tokens)", len(all_perp_tokens))
+            if all_spot_tokens:
+                spot_1h_monitor = PriceMonitor(
+                    callback=lambda *a: None,
+                    venue="spot",
+                    streams=["kline_1h"],
+                    kline_1h_callback=lambda token, bar: collector.on_bar(token, bar, "spot"),
+                )
+                spot_1h_monitor.connect(list(all_spot_tokens))
+                logger.info("1H spot PriceMonitor started (%d tokens)", len(all_spot_tokens))
+            ws_available = True
+        except Exception:
+            logger.warning("1H PriceMonitor connection failed — will use REST fallback")
+            ws_available = False
+
     # AC9: Startup data maintenance — backfill gaps, promote, fetch 1m
     try:
         maint_summary = ensure_data_fresh(
@@ -755,11 +925,10 @@ def main(argv: list[str] | None = None) -> None:
     # AC10: Track last promotion time for periodic 4h promote
     last_promote_time = time.time()
 
+    first_tick = True
     try:
         while not shutdown.is_set():
-            # Step 1: Fetch data once for all portfolios.
-            # Keep dashboard alive during fetch via background heartbeat —
-            # engines are idle so it's safe to read their state from another thread.
+            # Step 1: Wait for 1H data via WS or fall back to REST
             _heartbeat_stop = threading.Event()
             if live_dashboard:
                 def _heartbeat():
@@ -774,7 +943,44 @@ def main(argv: list[str] | None = None) -> None:
                 _hb.start()
 
             try:
-                fetch_ok, fetch_err, bars_appended, _ = fetch_all_data(shared_fetcher, configs)
+                if ws_available and collector is not None:
+                    # AC14: Event-driven wait on WS-delivered 1H bars
+                    got_data = collector.wait_for_ready(timeout=120)
+                    if got_data:
+                        # AC7a: Drain write queue before reading parquets
+                        collector._write_queue.join()
+                        received = collector.consume()
+                        # Compute missing from consumed data (not get_missing_tokens()
+                        # which sees the NEXT hour's empty _received after replay)
+                        missing = {}
+                        for mkt, expected_set in collector._expected.items():
+                            got = received.get(mkt, set())
+                            diff = expected_set - got
+                            if diff:
+                                missing[mkt] = diff
+                        if missing and any(missing.values()):
+                            # AC15: REST fallback only for missing tokens
+                            _fetch_missing_tokens(shared_fetcher, missing, collector)
+                            logger.info(
+                                "REST fallback for %d missing tokens",
+                                sum(len(v) for v in missing.values()),
+                            )
+                    else:
+                        # AC10 timeout: full REST fallback
+                        logger.warning("Collector timeout — full REST fallback")
+                        fetch_all_data(shared_fetcher, configs)
+                else:
+                    # AC20: WS unavailable — timer-based tick with full REST fetch
+                    fetch_ok, fetch_err, bars_appended, _ = fetch_all_data(shared_fetcher, configs)
+                    # Stale-data guard
+                    if bars_appended == 0 and fetch_ok == 0 and fetch_err > 0:
+                        logger.warning(
+                            "All %d fetches failed — network down? Skipping tick, "
+                            "retrying in 5 minutes", fetch_err,
+                        )
+                        if shutdown.wait(300):
+                            break
+                        continue
             except Exception:
                 logger.exception("Data fetch failed")
                 _heartbeat_stop.set()
@@ -784,16 +990,22 @@ def main(argv: list[str] | None = None) -> None:
             finally:
                 _heartbeat_stop.set()
 
-            # Stale-data guard: skip tick if no new bars were appended
-            # (all fetches failed = network down, no point ticking on stale data)
-            if bars_appended == 0 and fetch_ok == 0 and fetch_err > 0:
-                logger.warning(
-                    "All %d fetches failed — network down? Skipping tick, "
-                    "retrying in 5 minutes", fetch_err,
-                )
-                if shutdown.wait(300):
-                    break
-                continue
+            # AC12/AC12a/AC13: Batch funding via premiumIndex
+            try:
+                hour_utc = time.gmtime().tm_hour
+                if _should_fetch_funding(hour_utc, first_tick):
+                    import requests
+                    session = requests.Session()
+                    try:
+                        batch_funding = _fetch_batch_funding(session)
+                    finally:
+                        session.close()
+                    for token, rates in batch_funding.items():
+                        if hasattr(shared_fetcher, 'merge_funding_into_parquet'):
+                            shared_fetcher.merge_funding_into_parquet(token, rates)
+                    logger.info("Batch funding: %d tokens updated", len(batch_funding))
+            except Exception as e:
+                logger.warning("Batch funding fetch failed: %s — continuing without fresh funding", e)
 
             # Step 2: Tick each engine (no fetcher — data already in parquet)
             any_success = False
@@ -894,6 +1106,8 @@ def main(argv: list[str] | None = None) -> None:
                 if engine._price_monitor is not None and engine._owns_price_monitor:
                     engine._update_ws_subscriptions()
 
+            first_tick = False
+
             # Reset consecutive error counters for sub-hourly checks
             _candle_errors: dict[int, int] = {}
 
@@ -926,28 +1140,8 @@ def main(argv: list[str] | None = None) -> None:
                             logger.exception("Live dashboard state write failed (non-fatal)")
                     logger.info("Price refresh complete (%.1fs total)", time.time() - t0)
 
-                # Sub-hourly exit + entry check: flush completed candles and process
-                for engine, config in zip(engines, configs):
-                    if engine._candle_aggregator is not None:
-                        try:
-                            candles = engine._candle_aggregator.flush_completed()
-                            if candles:
-                                engine.process_sub_hourly_exits(candles)
-                                engine.process_sub_hourly_entries(candles)
-                                _candle_errors[id(engine)] = 0
-                        except Exception:
-                            err_key = id(engine)
-                            _candle_errors[err_key] = _candle_errors.get(err_key, 0) + 1
-                            if _candle_errors[err_key] <= 3:
-                                logger.exception(
-                                    "[%s] Sub-hourly check failed (%d consecutive)",
-                                    config.pool_name, _candle_errors[err_key],
-                                )
-                            elif _candle_errors[err_key] == 4:
-                                logger.error(
-                                    "[%s] Suppressing repeated sub-hourly errors until next tick",
-                                    config.pool_name,
-                                )
+                # Sub-hourly: flush_completed from _candle_aggregator → process_sub_hourly_exits → entries (AC26)
+                _process_sub_hourly_candles(engines, configs, _candle_errors)
 
                 # Live dashboard: write state.json with current prices
                 if live_dashboard:
@@ -960,6 +1154,19 @@ def main(argv: list[str] | None = None) -> None:
                 break
 
     finally:
+        # AC11a: Shutdown HourlyBarCollector (drain writer thread)
+        if collector is not None:
+            try:
+                collector.shutdown()
+            except Exception:
+                logger.warning("Collector shutdown failed", exc_info=True)
+        # Disconnect 1H data-collection monitors
+        for mon in (perp_1h_monitor, spot_1h_monitor):
+            if mon is not None:
+                try:
+                    mon.disconnect()
+                except Exception:
+                    pass
         # Drain 1m write queue before disconnecting monitors
         shutdown_kline_writer(timeout=10.0)
         # Wait for background 1m backfill to finish current write

@@ -102,11 +102,15 @@ class PriceMonitor:
         rest_poll_interval_s: int = 10,
         venue: str = "perp",
         kline_callback: Optional[Callable[[str, dict], None]] = None,
+        kline_1h_callback: Optional[Callable[[str, dict], None]] = None,
+        streams: Optional[list] = None,
     ) -> None:
         self.callback = callback
         self.kline_callback = kline_callback
+        self.kline_1h_callback = kline_1h_callback
         self.rest_poll_interval_s = rest_poll_interval_s
         self._venue = venue
+        self._streams = streams
 
         self._ws_connected: bool = False
         self._reconnect_attempt: int = 0
@@ -163,18 +167,42 @@ class PriceMonitor:
            "s":"BTCUSDT","i":"1m","o":"65000.0","c":"65100.0","h":"65200.0",
            "l":"64900.0","v":"100.0","n":50,"x":true/false,"q":"6500000.0"}}
 
-        Price callback fires on EVERY update (both x:false and x:true).
-        kline_callback fires ONLY on candle close (x:true) with full OHLCV bar.
+        Routes by interval (k.i):
+        - "1m": Price callback on every update, kline_callback on close (existing).
+        - "1h": kline_1h_callback on close only. No price callback (separate data channel).
         """
         event_type = msg.get("e", "")
         if event_type != "kline":
             return
 
         k = msg.get("k", {})
+        interval = k.get("i", "")
         symbol = msg.get("s", "")
         # T5-1 fix: Use proper symbol-to-token mapping (handles 1000-prefix)
         token = _symbol_to_token(symbol)
 
+        if interval == "1h":
+            # 1H handling: only fire kline_1h_callback on candle close
+            if k.get("x") and self.kline_1h_callback is not None:
+                try:
+                    bar = {
+                        "timestamp": int(k["t"]),
+                        "open": float(k["o"]),
+                        "high": float(k["h"]),
+                        "low": float(k["l"]),
+                        "close": float(k["c"]),
+                        "volume": float(k["v"]),
+                    }
+                except (KeyError, ValueError, TypeError) as exc:
+                    logger.warning("Bad OHLCV fields in 1h kline close for %s: %s", symbol, exc)
+                    return
+                try:
+                    self.kline_1h_callback(token, bar)
+                except Exception as exc:
+                    logger.error("Error in kline_1h_callback: %s", exc, exc_info=True)
+            return
+
+        # 1m handling (default): price callback on every update + kline_callback on close
         try:
             price = float(k["c"])
         except (KeyError, ValueError, TypeError) as exc:
@@ -210,32 +238,53 @@ class PriceMonitor:
                 logger.error("Error in kline_callback: %s", exc, exc_info=True)
 
     def _handle_spot_message(self, msg: dict) -> None:
-        """Process a single WebSocket 24hrMiniTicker message (spot venue).
+        """Process a single WebSocket message (spot venue).
 
-        Spot miniTicker format:
-          {"e":"24hrMiniTicker","E":<ts>,"s":"BTCUSDT","c":"65000.00",...}
-        Price is in ``c`` (close/last price).
+        Handles two event types:
+        - ``24hrMiniTicker``: dispatches price callback (existing behavior).
+        - ``kline`` with ``i="1h"``: dispatches kline_1h_callback on close.
         """
         event_type = msg.get("e", "")
-        if event_type != "24hrMiniTicker":
-            return
 
-        symbol = msg.get("s", "")
-        token = _spot_symbol_to_token(symbol)
+        if event_type == "24hrMiniTicker":
+            symbol = msg.get("s", "")
+            token = _spot_symbol_to_token(symbol)
 
-        try:
-            price = float(msg["c"])
-        except (KeyError, ValueError, TypeError) as exc:
-            logger.warning("Bad price in spot WS message %s: %s", symbol, exc)
-            return
+            try:
+                price = float(msg["c"])
+            except (KeyError, ValueError, TypeError) as exc:
+                logger.warning("Bad price in spot WS message %s: %s", symbol, exc)
+                return
 
-        if not (price > 0):
-            return
+            if not (price > 0):
+                return
 
-        timestamp = msg.get("E", int(time.time() * 1000))
-        with self._price_lock:
-            self._latest_prices[token] = price
-        self.callback(token, price, timestamp)
+            timestamp = msg.get("E", int(time.time() * 1000))
+            with self._price_lock:
+                self._latest_prices[token] = price
+            self.callback(token, price, timestamp)
+
+        elif event_type == "kline":
+            k = msg.get("k", {})
+            if k.get("i") == "1h" and k.get("x") and self.kline_1h_callback is not None:
+                symbol = msg.get("s", "")
+                token = _spot_symbol_to_token(symbol)
+                try:
+                    bar = {
+                        "timestamp": int(k["t"]),
+                        "open": float(k["o"]),
+                        "high": float(k["h"]),
+                        "low": float(k["l"]),
+                        "close": float(k["c"]),
+                        "volume": float(k["v"]),
+                    }
+                except (KeyError, ValueError, TypeError) as exc:
+                    logger.warning("Bad OHLCV fields in spot 1h kline close for %s: %s", symbol, exc)
+                    return
+                try:
+                    self.kline_1h_callback(token, bar)
+                except Exception as exc:
+                    logger.error("Error in kline_1h_callback: %s", exc, exc_info=True)
 
     # ------------------------------------------------------------------
     # Dynamic subscription management (AC15)
@@ -266,15 +315,34 @@ class PriceMonitor:
         return self._build_perp_stream_names(tokens)
 
     def _build_perp_stream_names(self, tokens: list[str]) -> list[str]:
-        """Build Binance Futures combined-stream names for kline_1m.
+        """Build Binance Futures combined-stream names.
 
-        T5-1 fix: Uses proper symbol mapping for 1000-prefix tokens.
+        Uses self._streams to determine stream types. Default (None) preserves
+        existing behavior (kline_1m only). With streams=["kline_1h"], returns
+        @kline_1h streams only.
         """
-        return [f"{_token_to_symbol(t).lower()}@kline_1m" for t in tokens]
+        stream_types = self._streams or ["kline_1m"]
+        names = []
+        for t in tokens:
+            sym = _token_to_symbol(t).lower()
+            for st in stream_types:
+                names.append(f"{sym}@{st}")
+        return names
 
     def _build_spot_stream_names(self, tokens: list[str]) -> list[str]:
-        """Build Binance Spot combined-stream names for miniTicker."""
-        return [f"{_token_to_spot_symbol(t).lower()}@miniTicker" for t in tokens]
+        """Build Binance Spot combined-stream names.
+
+        Uses self._streams to determine stream types. Default (None) preserves
+        existing behavior (miniTicker only). With streams=["kline_1h"], returns
+        @kline_1h streams only.
+        """
+        stream_types = self._streams or ["miniTicker"]
+        names = []
+        for t in tokens:
+            sym = _token_to_spot_symbol(t).lower()
+            for st in stream_types:
+                names.append(f"{sym}@{st}")
+        return names
 
     # ------------------------------------------------------------------
     # Reconnect backoff

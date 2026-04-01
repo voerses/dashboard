@@ -32,6 +32,8 @@ def write_dashboard_state(
     path: str = DEFAULT_STATE_PATH,
     include_sentinel: bool = False,
     runner_status: str = "idle",
+    runner_health: dict | None = None,
+    include_armed: bool = False,
 ) -> None:
     """Write a combined dashboard state file for all portfolios.
 
@@ -41,6 +43,9 @@ def write_dashboard_state(
         path: Output path (default: /srv/data/state.json).
         include_sentinel: If True, include sentinel data from state_dir files.
         runner_status: One of "idle", "fetching", "ticking".
+        runner_health: Dict with runner health metrics (started_at, last_tick_at, etc.).
+        include_armed: If True, include armed_orders/expired_orders in portfolio data.
+            Set to True every 60s (sentinel writes) to avoid bloating 1s heartbeats.
     """
     # Collect live WebSocket prices from any engine that has a PriceMonitor
     # (typically only the first portfolio has one; share prices across all)
@@ -56,7 +61,8 @@ def write_dashboard_state(
 
     portfolios = []
     for engine, config in zip(engines, configs):
-        sim = _build_portfolio(engine, config, include_sentinel, shared_live_prices)
+        sim = _build_portfolio(engine, config, include_sentinel, shared_live_prices,
+                               include_armed=include_armed)
         portfolios.append(sim)
 
     envelope = {
@@ -66,6 +72,8 @@ def write_dashboard_state(
         "runner_status": runner_status,
         "portfolios": portfolios,
     }
+    if runner_health is not None:
+        envelope["runner_health"] = runner_health
 
     _atomic_write_json(envelope, path)
 
@@ -75,10 +83,16 @@ def _build_portfolio(
     config: PaperConfig,
     include_sentinel: bool,
     shared_live_prices: dict[str, float] | None = None,
+    include_armed: bool = False,
 ) -> dict:
     """Build a single portfolio dict with live price overlay."""
     # Pass live prices as overrides instead of mutating engine state (thread-safe)
     sim = engine.to_dashboard_sim(price_overrides=shared_live_prices)
+
+    # Strip armed data from 1s heartbeat writes to keep state.json small (P1 fix)
+    if not include_armed:
+        sim.pop("armed_orders", None)
+        sim.pop("expired_orders", None)
 
     # Load full equity history from equity.csv (engine only keeps in-memory
     # entries from current session; equity.csv has the full run history)

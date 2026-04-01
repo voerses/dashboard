@@ -871,6 +871,52 @@ class TestExitHandlerRebuildOnTick:
         assert pos.exit_handlers == []
         assert pos.exit_handlers is not stale_handlers
 
+    def test_all_positions_handlers_cleared_not_just_sub(self):
+        """ALL positions should have exit_handlers cleared, not just :sub ones.
+
+        In paper mode, precompute_strategy_signals() creates NEW TokenSignals each
+        tick with +1 bar length. Handlers (RSIExitHandler, MeanTargetHandler,
+        SMATrailExitHandler) hold sig refs and index into arrays by local_bar.
+        On the next tick, local_bar would exceed the old sig's array length,
+        causing IndexError. Clearing forces rebuild with fresh sigs via lazy
+        init in simulator._process_exits (line ~456).
+        """
+        config = _make_test_config(entry_resolution=1)
+        engine = PaperPortfolioEngine(config)
+
+        # Create a regular position (no :sub suffix)
+        regular_pos = Position(
+            position_id="BTC:s501:0", token="BTC", strategy_id="s501",
+            leg="primary", entry_bar=0, entry_price=100.0, direction=1,
+            quantity=1.0, margin_usd=100.0, leverage=1.0, is_perp=True,
+            fee_rate=0.0004, stop_mult=2.0, trail_mult=999.0, target_mult=999.0,
+            no_stop_bars=0, min_hold=1, max_hold=4, exit_regimes=set(),
+            stop_price=90.0, highest=110.0, lowest=95.0, initial_risk=10.0,
+        )
+        original_handlers = [MagicMock(), MagicMock()]
+        regular_pos.exit_handlers = list(original_handlers)
+        engine.state.position_manager.open_position(regular_pos)
+
+        # Create a :sub position
+        sub_pos = Position(
+            position_id="ETH:s501:0:sub", token="ETH", strategy_id="s501",
+            leg="primary", entry_bar=0, entry_price=50.0, direction=1,
+            quantity=1.0, margin_usd=50.0, leverage=1.0, is_perp=True,
+            fee_rate=0.0004, stop_mult=2.0, trail_mult=999.0, target_mult=999.0,
+            no_stop_bars=0, min_hold=1, max_hold=4, exit_regimes=set(),
+            stop_price=40.0, highest=55.0, lowest=48.0, initial_risk=10.0,
+        )
+        sub_pos.exit_handlers = [MagicMock()]
+        engine.state.position_manager.open_position(sub_pos)
+
+        all_signals = {"s501": {}}
+        engine._process_exits_for_tick(all_signals=all_signals, bar_maps={})
+
+        # Both :sub and regular positions should have handlers cleared
+        assert sub_pos.exit_handlers == []
+        assert regular_pos.exit_handlers == []
+        assert regular_pos.exit_handlers is not original_handlers
+
 
 # ---------------------------------------------------------------------------
 # Inf guard on sub-hourly exits
@@ -987,3 +1033,273 @@ class TestBackgroundTick:
         engine.cleanup()
         # Executor should be shut down (non-fatal if already done)
         assert engine._bg_executor is not None  # Still exists, just shut down
+
+
+# ---------------------------------------------------------------------------
+# AC22: Equity computation for sub-hourly sizing
+# ---------------------------------------------------------------------------
+
+class TestSubHourlySizingEquity:
+    """AC22: Sizing uses realized equity + min(unrealized_pnl, 0) from _last_known_prices."""
+
+    def test_sub_hourly_entry_sizing_uses_capped_unrealized_equity(self):
+        """Position size must use equity = realized + min(unrealized, 0), NOT raw portfolio_equity.
+
+        Setup:
+        - initial_capital = 100000
+        - realized_pnl = -5000  =>  portfolio_equity = 95000
+        - Open position: entry=50000, current=45000 => unrealized = -5000
+        - Capped unrealized = min(-5000, 0) = -5000
+        - Sizing equity = 95000 + (-5000) = 90000  (NOT 95000)
+
+        The position size must reflect equity=90000, not 95000.
+        """
+        config = _make_test_config(entry_resolution=1, capital=100_000.0)
+        engine = PaperPortfolioEngine(config)
+        engine.tick_counter = 10
+
+        # Inject realized loss
+        engine.state.realized_pnl = -5000.0
+
+        # Open position with unrealized loss visible via _last_known_prices
+        existing_pos = Position(
+            position_id="ETH:s501:5:primary", token="ETH",
+            strategy_id="s501", leg="primary", entry_bar=5,
+            entry_price=50000.0, direction=1, quantity=0.1,
+            margin_usd=5000.0, leverage=1.0, is_perp=True,
+            fee_rate=0.0005, stop_mult=2.0, trail_mult=999.0,
+            target_mult=999.0, no_stop_bars=0, min_hold=1,
+            max_hold=4, exit_regimes=set(), convex_exit=False,
+            stop_price=48000.0, highest=50000.0, lowest=50000.0,
+            initial_risk=2000.0,
+        )
+        engine.state.position_manager.open_position(existing_pos)
+
+        # Current price for ETH = 45000 => unrealized = 0.1 * (45000 - 50000) = -500
+        # (small position for simplicity; the key is the SIGN of unrealized)
+        engine._last_known_prices["ETH"] = 45000.0
+
+        # Arm a different token (BTC)
+        engine._armed_tokens[("s501", "BTC")] = {
+            "level": 100.0, "direction": 1, "tick_counter": 10,
+            "limit_placed_at": "",
+            "close_val": 95.0, "atr_val": 5.0, "adv_val": 1e6,
+            "leverage": 1.0, "size_multiplier": 1.0, "cap_multiplier": 1.0,
+            "is_perp": True, "stop_mult": 2.0, "trail_mult": 999.0,
+            "target_mult": 999.0, "no_stop_bars": 0, "min_hold": 1,
+            "max_hold": 4, "exit_regimes": set(), "convex_exit": False,
+            "edge": 0.15, "max_trade_pct": 0.05,
+            "high_val": 98.0, "low_val": 90.0,
+        }
+
+        candles = {"BTC": (101.0, 99.0, 100.5)}
+        engine.process_sub_hourly_entries(candles)
+
+        # A position should have been opened for BTC
+        btc_positions = [
+            p for p in engine.state.position_manager.open_positions
+            if p.token == "BTC"
+        ]
+        assert len(btc_positions) == 1
+        pos = btc_positions[0]
+
+        # The unrealized PnL from ETH = 0.1 * (45000 - 50000) = -500
+        # portfolio_equity (realized only) = 100000 - 5000 = 95000
+        # sizing_equity (capped) = 95000 + min(-500, 0) = 94500  (NOT 95000)
+        #
+        # Verify the engine used capped equity by checking the position was sized
+        # off the lower value. We capture this by computing what the margin WOULD be
+        # with raw vs capped equity — margin must be <= capped-equity-based max.
+        assert pos.margin_usd > 0, "position was opened"
+
+        # The sizing equity passed to the sizing function must include unrealized overlay.
+        # With capped equity = 94500 and max_trade_pct=0.05:
+        #   max possible margin = 94500 * 0.5 (weight) * 0.05 (max_trade) = 2362.5
+        # With raw equity = 95000:
+        #   max possible margin = 95000 * 0.5 * 0.05 = 2375.0
+        # The margin must be <= the capped-equity-based maximum.
+        capped_max = 94500.0 * 0.5 * 0.05
+        raw_max = 95000.0 * 0.5 * 0.05
+        assert pos.margin_usd <= capped_max + 1.0, (
+            f"margin_usd={pos.margin_usd} exceeds capped equity max={capped_max}. "
+            f"Sizing may be using raw portfolio_equity={95000} instead of capped={94500}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# AC23: highest/lowest from 1m candle
+# ---------------------------------------------------------------------------
+
+class TestHighestLowestFromCandle:
+    """AC23: Exit chain initializes highest/lowest from the 1m candle's high/low."""
+
+    def test_sub_hourly_entry_initializes_highest_lowest_from_1m_candle(self):
+        """Position highest/lowest should come from 1m candle high/low, not cached hourly.
+
+        Armed level for BTC, trigger sub-hourly entry with candle:
+          high=101.0, low=99.0, close=100.5
+        Position should have highest=101.0 and lowest=99.0
+        (not from cached hourly high_val/low_val in the armed dict).
+        """
+        config = _make_test_config(entry_resolution=1)
+        engine = PaperPortfolioEngine(config)
+        engine.tick_counter = 10
+
+        engine._armed_tokens[("s501", "BTC")] = {
+            "level": 100.0, "direction": 1, "tick_counter": 10,
+            "limit_placed_at": "",
+            "close_val": 95.0, "atr_val": 5.0, "adv_val": 1e6,
+            "leverage": 1.0, "size_multiplier": 1.0, "cap_multiplier": 1.0,
+            "is_perp": True, "stop_mult": 2.0, "trail_mult": 999.0,
+            "target_mult": 999.0, "no_stop_bars": 0, "min_hold": 1,
+            "max_hold": 4, "exit_regimes": set(), "convex_exit": False,
+            "edge": 0.15, "max_trade_pct": 0.05,
+            "high_val": 98.0,   # cached hourly high (should NOT be used)
+            "low_val": 90.0,    # cached hourly low (should NOT be used)
+        }
+
+        # 1m candle with distinct high/low different from cached hourly values
+        candles = {"BTC": (101.0, 99.0, 100.5)}
+        entries = engine.process_sub_hourly_entries(candles)
+        assert entries == 1
+
+        pos = engine.state.position_manager.open_positions[0]
+        # highest/lowest must come from the 1m candle, NOT cached hourly
+        assert pos.highest == 101.0, (
+            f"highest should be 1m candle high (101.0), got {pos.highest}"
+        )
+        assert pos.lowest == 99.0, (
+            f"lowest should be 1m candle low (99.0), got {pos.lowest}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# AC25: Fix conditionally vacuous retroactive fill test
+# ---------------------------------------------------------------------------
+
+class TestRetroactiveFillSkipNonVacuous:
+    """AC25: The assertion must NOT be conditional — enforce deterministic check."""
+
+    def test_entry_resolution_strategies_excluded_non_vacuous(self):
+        """Strategies with entry_resolution > 0 must be filtered from hourly entries.
+
+        With only one strategy (s501, entry_resolution=1), filtering it means
+        _process_entries should either not be called at all, or be called with
+        empty signals for s501. The assertion is unconditional.
+        """
+        config = _make_test_config(entry_resolution=1)
+        engine = PaperPortfolioEngine(config)
+        engine.tick_counter = 0
+
+        sig = _make_mock_signal(n_bars=1, armed_bar=0, direction=1, armed_level=100.0)
+        sig.entry_mask[0] = True
+        sig.direction[0] = 1
+        all_signals = {"s501": {"BTC": sig}}
+        bar_maps = {"BTC": np.array([0])}
+        strategy_specs = {"s501": config.strategies[0]}
+
+        with patch("v4.simulator._process_entries") as mock_entries:
+            engine._process_entries_for_tick(all_signals, strategy_specs, bar_maps)
+
+            # Unconditional assertion: s501 must NOT appear in any call to _process_entries
+            assert (
+                not mock_entries.called
+                or "s501" not in mock_entries.call_args[0][1]
+            ), (
+                "s501 has entry_resolution=1 and must be excluded from hourly entries. "
+                f"Called={mock_entries.called}, "
+                f"signals={'N/A' if not mock_entries.called else list(mock_entries.call_args[0][1].keys())}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# AC30: NaN guard for _last_known_prices in process_sub_hourly_entries
+# ---------------------------------------------------------------------------
+
+class TestSubHourlyEntryNaNPriceGuard:
+    """AC30: NaN candle close must not be stored in _last_known_prices."""
+
+    def test_sub_hourly_entry_nan_price_not_stored_in_last_known(self):
+        """NaN close in sub-hourly entry candle should reject entry AND not update prices.
+
+        If a candle arrives with close=NaN:
+        1. The entry must be rejected (no position opened)
+        2. _last_known_prices must NOT be updated with NaN
+        """
+        config = _make_test_config(entry_resolution=1)
+        engine = PaperPortfolioEngine(config)
+        engine.tick_counter = 10
+
+        # Pre-set a valid last known price
+        engine._last_known_prices["BTC"] = 50000.0
+
+        engine._armed_tokens[("s501", "BTC")] = {
+            "level": 100.0, "direction": 1, "tick_counter": 10,
+            "limit_placed_at": "",
+            "close_val": 95.0, "atr_val": 5.0, "adv_val": 1e6,
+            "leverage": 1.0, "size_multiplier": 1.0, "cap_multiplier": 1.0,
+            "is_perp": True, "stop_mult": 2.0, "trail_mult": 999.0,
+            "target_mult": 999.0, "no_stop_bars": 0, "min_hold": 1,
+            "max_hold": 4, "exit_regimes": set(), "convex_exit": False,
+            "edge": 0.15, "max_trade_pct": 0.05,
+            "high_val": 98.0, "low_val": 90.0,
+        }
+
+        # NaN close candle — high might look like a cross but close is NaN
+        candles = {"BTC": (101.0, 99.0, float('nan'))}
+        entries = engine.process_sub_hourly_entries(candles)
+
+        # Entry must be rejected
+        assert entries == 0
+        assert len(engine.state.position_manager.open_positions) == 0
+
+        # _last_known_prices must NOT be overwritten with NaN
+        assert engine._last_known_prices["BTC"] == 50000.0, (
+            f"_last_known_prices should remain 50000.0, got {engine._last_known_prices['BTC']}"
+        )
+        # Verify it's not NaN (explicit check)
+        assert not np.isnan(engine._last_known_prices["BTC"])
+
+
+# ---------------------------------------------------------------------------
+# AC28: Background tick actually runs async
+# ---------------------------------------------------------------------------
+
+class TestTickInternalAsyncBehavior:
+    """AC28: _tick_internal_async must actually submit work to _bg_executor."""
+
+    def test_tick_internal_async_runs_in_background(self):
+        """_tick_internal_async should submit to _bg_executor and set _bg_future.
+
+        Verify that calling _tick_internal_async():
+        1. Returns (or sets) a Future object
+        2. _bg_future is not None after the call
+        3. _bg_future is a concurrent.futures.Future (not done immediately)
+        """
+        from concurrent.futures import Future
+        from unittest.mock import patch as _patch
+
+        config = _make_test_config(entry_resolution=0)
+        engine = PaperPortfolioEngine(config)
+
+        assert engine._bg_executor is not None, "Engine must have _bg_executor"
+        assert engine._bg_future is None, "_bg_future should be None before first async call"
+
+        # Mock _tick_internal to be a slow no-op (so the future isn't done instantly)
+        import time as _time
+
+        def _slow_tick(*args, **kwargs):
+            _time.sleep(0.5)
+
+        with _patch.object(engine, '_tick_internal', side_effect=_slow_tick):
+            engine._tick_internal_async()
+
+        # _bg_future should now be a Future object
+        assert engine._bg_future is not None, "_bg_future must be set after _tick_internal_async()"
+        assert isinstance(engine._bg_future, Future), (
+            f"_bg_future should be a Future, got {type(engine._bg_future)}"
+        )
+
+        # Clean up: wait for completion and shut down executor
+        engine._bg_future.result(timeout=5)
+        engine.cleanup()

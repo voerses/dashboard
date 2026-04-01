@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-generated-at="2026-04-01T08:36:18Z" data-source="runner" data-pools="1">
+<html lang="en" data-generated-at="2026-04-01T12:42:31Z" data-source="runner" data-pools="1">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -77,6 +77,14 @@ tr.trade-row { cursor:pointer; }
 .sc h3 { color:#c9d1d9; font-size:0.85em; margin-bottom:6px; }
 .sc .row { display:flex; justify-content:space-between; padding:2px 0; font-size:0.8em; }
 .sc .row .k { color:#484f58; }
+
+.armed-panel { padding: 12px 20px; }
+.armed-row { background: #1f1f0d; }
+.badge-crossed { background: #d2992233; color: #d29922; padding: 1px 6px; border-radius: 4px; font-size: 0.75em; font-weight: 700; }
+.badge-waiting { background: #3fb95022; color: #3fb950; padding: 1px 6px; border-radius: 4px; font-size: 0.75em; font-weight: 700; }
+.badge-skip { background: #f8514922; color: #f85149; padding: 1px 6px; border-radius: 4px; font-size: 0.75em; font-weight: 700; }
+details summary { cursor: pointer; color: #8b949e; font-size: 0.9em; padding: 4px 0; }
+details summary:hover { color: #c9d1d9; }
 </style>
 </head>
 <body>
@@ -89,7 +97,7 @@ tr.trade-row { cursor:pointer; }
             <div class="view-btn" id="vb-sentinel" onclick="switchView('sentinel')">Sentinel</div>
         </div>
     </div>
-    <div class="meta" id="hdr-time">Updated: 2026-04-01T08:36:18Z</div>
+    <div class="meta" id="hdr-time">Updated: 2026-04-01T12:42:31Z</div>
 </div>
 <div class="stale-banner" id="stale-banner">
     Data is stale — last update was more than 2 hours ago. Check paper trading engine.
@@ -98,7 +106,7 @@ tr.trade-row { cursor:pointer; }
 <div id="app"></div>
 
 <script>
-const SIMS = [{"id":"paper_trading","name":"paper_trading","capital":150000.0,"strategies":[{"id":"paper_trading","name":"paper_trading","weight":0,"final_equity":149948.03414270905,"trade_count":1,"open_positions":0,"strategies":[],"exit_resolution":"hourly","strategy_resolutions":{}}],"all_trades":[{"token":"ADA","strategy":"s501","market_type":"perp","direction":-1,"pnl":-50.55,"exit_reason":"stop","signal":{"entry_bar":1,"exit_bar":3,"entry_price":0.2377,"exit_price":0.2418,"hold_bars":2},"entry_price":0.23769261734270078,"exit_price":0.24181261807279159,"margin_usd":2266.2,"hold_bars":2,"funding_cost":0.01,"entry_fee":1.42,"exit_fee":1.44,"entry_timestamp":"2026-03-31T16:05:01Z","exit_timestamp":"2026-03-31T17:15:00Z"}],"equity_history":[{"timestamp":"2026-03-31T15:51:15Z","mark_to_market_equity":150000.0},{"timestamp":"2026-03-31T16:00:43Z","mark_to_market_equity":150000.0},{"timestamp":"2026-03-31T17:03:39Z","mark_to_market_equity":149977.04},{"timestamp":"2026-03-31T18:03:41Z","mark_to_market_equity":149948.03},{"timestamp":"2026-03-31T19:03:39Z","mark_to_market_equity":149948.03},{"timestamp":"2026-03-31T20:03:44Z","mark_to_market_equity":149948.03},{"timestamp":"2026-03-31T21:03:48Z","mark_to_market_equity":149948.03},{"timestamp":"2026-03-31T22:03:02Z","mark_to_market_equity":149948.03},{"timestamp":"2026-03-31T23:03:44Z","mark_to_market_equity":149948.03},{"timestamp":"2026-04-01T00:03:42Z","mark_to_market_equity":149948.03},{"timestamp":"2026-04-01T01:03:43Z","mark_to_market_equity":149948.03},{"timestamp":"2026-04-01T08:35:52Z","mark_to_market_equity":149948.03}],"shadow_pools":{"spot_funds":0.0,"perp_funds":0.0,"spot_deployed":0.0,"perp_deployed":0.0,"imbalance_pct":0.0,"blocked_entries_count":0},"rebalance_history":[],"last_updated":"2026-04-01T08:35:52Z","is_stale":false,"tick_counter":19,"portfolio_equity":149948.03414270905,"open_positions":0,"realized_pnl":-49.10104423133855,"total_fees":2.857306262270441,"total_funding":0.007506797339002481,"sentinel_events":[],"sentinel_heartbeat":{},"sentinel_metrics":{},"sentinel_summary":{"total_breaches":0,"wick_filters":0,"true_positives":0,"false_triggers":0},"sentinel_strategy_breakdown":{},"sentinel_reconciliation":{"records":[],"total_savings":0.0,"avg_savings":0.0,"sentinel_better_count":0,"matched_count":0}}];
+const SIMS = [{"id":"paper_trading","name":"paper_trading","capital":150000.0,"strategies":[{"id":"paper_trading","name":"paper_trading","weight":0,"final_equity":149948.03414270905,"trade_count":1,"open_positions":0,"strategies":[],"exit_resolution":"hourly","strategy_resolutions":{}}],"all_trades":[{"token":"ADA","strategy":"s501","market_type":"perp","direction":-1,"pnl":-50.55,"exit_reason":"stop","signal":{"entry_bar":1,"exit_bar":3,"entry_price":0.2377,"exit_price":0.2418,"hold_bars":2},"entry_price":0.23769261734270078,"exit_price":0.24181261807279159,"margin_usd":2266.2,"hold_bars":2,"funding_cost":0.01,"entry_fee":1.42,"exit_fee":1.44,"entry_timestamp":"2026-03-31T16:05:01Z","exit_timestamp":"2026-03-31T17:15:00Z"}],"equity_history":[{"timestamp":"2026-03-31T15:51:15Z","mark_to_market_equity":150000.0},{"timestamp":"2026-03-31T16:00:43Z","mark_to_market_equity":150000.0},{"timestamp":"2026-03-31T17:03:39Z","mark_to_market_equity":149977.04},{"timestamp":"2026-03-31T18:03:41Z","mark_to_market_equity":149948.03},{"timestamp":"2026-03-31T19:03:39Z","mark_to_market_equity":149948.03},{"timestamp":"2026-03-31T20:03:44Z","mark_to_market_equity":149948.03},{"timestamp":"2026-03-31T21:03:48Z","mark_to_market_equity":149948.03},{"timestamp":"2026-03-31T22:03:02Z","mark_to_market_equity":149948.03},{"timestamp":"2026-03-31T23:03:44Z","mark_to_market_equity":149948.03},{"timestamp":"2026-04-01T00:03:42Z","mark_to_market_equity":149948.03},{"timestamp":"2026-04-01T01:03:43Z","mark_to_market_equity":149948.03},{"timestamp":"2026-04-01T08:35:52Z","mark_to_market_equity":149948.03},{"timestamp":"2026-04-01T12:14:30Z","mark_to_market_equity":149948.03},{"timestamp":"2026-04-01T12:26:15Z","mark_to_market_equity":149948.03},{"timestamp":"2026-04-01T12:34:49Z","mark_to_market_equity":149948.03},{"timestamp":"2026-04-01T12:41:58Z","mark_to_market_equity":149948.03}],"shadow_pools":{"spot_funds":0.0,"perp_funds":0.0,"spot_deployed":0.0,"perp_deployed":0.0,"imbalance_pct":0.0,"blocked_entries_count":0},"rebalance_history":[],"last_updated":"2026-04-01T12:41:58Z","is_stale":false,"tick_counter":26,"portfolio_equity":149948.03414270905,"open_positions":0,"realized_pnl":-49.10104423133855,"total_fees":2.857306262270441,"total_funding":0.007506797339002481,"sentinel_events":[],"sentinel_heartbeat":{},"sentinel_metrics":{},"sentinel_summary":{"total_breaches":0,"wick_filters":0,"true_positives":0,"false_triggers":0},"sentinel_strategy_breakdown":{},"sentinel_reconciliation":{"records":[],"total_savings":0.0,"avg_savings":0.0,"sentinel_better_count":0,"matched_count":0}}];
 let activeSim = (() => {const h=decodeURIComponent(location.hash.slice(1)); if(!h) return 0; const i=SIMS.findIndex(s=>s.name===h); return i>=0?i:0;})();
 /* Convert header time to user locale */
 {const el=document.getElementById('hdr-time');if(el){const m=el.textContent.match(/Updated:\s*(.+)/);if(m){const d=new Date(m[1]);if(!isNaN(d))el.textContent='Updated: '+d.toLocaleString();}}}
@@ -117,6 +125,21 @@ const fmtUsd = v => { const a = Math.abs(v); const s = v<0?'-$':'$'; return s+a.
 const fmtPct = v => (v>=0?'+':'')+v.toFixed(1)+'%';
 const pc = v => v>=0?'g':'r';
 const fmtPrice = v => {if(!v) return '-'; if(v>=1000) return '$'+v.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); if(v>=100) return '$'+v.toFixed(2); if(v>=1) return '$'+v.toFixed(4); if(v>=0.01) return '$'+v.toFixed(6); return '$'+v.toPrecision(4);};
+const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+function humanAge(ts) {
+    if (!ts) return 'never';
+    const ms = Date.now() - new Date(ts).getTime();
+    if (isNaN(ms)) return 'never';
+    if (ms < 60000) return Math.round(ms/1000) + 's ago';
+    if (ms < 3600000) return Math.round(ms/60000) + 'm ago';
+    return (ms/3600000).toFixed(1) + 'h ago';
+}
+
+let _runnerHealth = {};
+let _runnerStatus = 'unknown';
+let _lastArmedByPortfolio = {};
+let _lastExpiredByPortfolio = {};
+let _lastArmedUpdate = null;
 
 /* ---- Tabs ---- */
 function renderTabs() {
@@ -220,7 +243,9 @@ function render() {
         <div class="kpi"><div class="lbl">Fees</div><div class="val r" style="display:flex;flex-wrap:wrap;justify-content:center;gap:0 6px">-$${fmt(openFees)} <span style="opacity:0.5">/</span> -$${fmt(closedFees)}</div><div style="font-size:0.45em;color:#484f58;text-align:center">open / closed</div></div>
         <div class="kpi"><div class="lbl">Funding</div><div class="val" style="display:flex;flex-wrap:wrap;justify-content:center;gap:0 6px"><span class="${pc(-openFunding)}">${fmtUsd(-openFunding)}</span> <span style="opacity:0.5">/</span> <span class="${pc(-closedFunding)}">${fmtUsd(-closedFunding)}</span></div><div style="font-size:0.45em;color:#484f58;text-align:center">open / closed</div></div>
         <div class="kpi"><div class="lbl">Tick</div><div class="val b">${s.tick_counter||0}<div style="font-size:0.45em;color:#484f58;margin-top:2px">${s.last_updated ? new Date(s.last_updated).toLocaleString() : 'N/A'}</div></div></div>
-    </div>`;
+    </div>
+    <div id="runner-health-panel"></div>
+    <div id="armed-panel-container"></div>`;
 
     // ---- Fund Allocation Panel (AC26) ----
     if (poolTotal > 0) {
@@ -284,6 +309,7 @@ function render() {
                 ${st.open_positions !== undefined ? `<div class="row"><span class="k">Open</span><span>${st.open_positions}</span></div>` : ''}
                 ${st.strategies ? `<div class="row"><span class="k">Contains</span><span>${st.strategies.join(', ')}</span></div>` : ''}
                 ${st.exit_resolution ? `<div class="row"><span class="k">Exit Res</span><span style="color:${st.exit_resolution!=='hourly'?'#58a6ff':'#484f58'}">${st.exit_resolution}</span></div>` : ''}
+                ${st.entry_resolution ? `<div class="row"><span class="k">Entry Res</span><span style="color:${st.entry_resolution!=='hourly'?'#d29922':'#484f58'}">${st.entry_resolution}</span></div>` : ''}
             </div>`).join('')}
         </div>
     </div>`;
@@ -342,6 +368,8 @@ function render() {
     });
     renderTrades(trades, curFilter);
     renderTokens(trades);
+    renderRunnerHealth();
+    renderArmedPanel();
     setTimeout(() => drawEquity(), 0);
 }
 
@@ -359,6 +387,8 @@ function setF(el, f) {
 let _allFiltered = [];
 let _tradeLimit = 50;
 function renderTrades(trades, filter) {
+    const tbody = document.getElementById('tb-trades');
+    if (!tbody) return;
     let ft = trades;
     if (filter==='winners') ft = trades.filter(t=>t.status!=='open'&&(t.pnl||0)>0);
     else if (filter==='losers') ft = trades.filter(t=>t.status!=='open'&&(t.pnl||0)<=0);
@@ -370,7 +400,6 @@ function renderTrades(trades, filter) {
         return (b.signal?.exit_bar||b.entry_bar||0)-(a.signal?.exit_bar||a.entry_bar||0);
     });
     const visible = _allFiltered.slice(0, _tradeLimit);
-    const tbody = document.getElementById('tb-trades');
     let rows = '';
     visible.forEach(t => {
         const isOpen = t.status==='open';
@@ -440,6 +469,8 @@ function showMore() {
 
 /* ---- Per-token table ---- */
 function renderTokens(trades) {
+    const el = document.getElementById('tb-tokens');
+    if (!el) return;
     const m = {};
     trades.filter(t=>t.status!=='open').forEach(t => {
         const tk = t.token||'?';
@@ -455,7 +486,7 @@ function renderTokens(trades) {
         if(p<0 && p<m[tk].worst) m[tk].worst=p;
     });
     const tks = Object.keys(m).sort((a,b)=>m[b].pnl-m[a].pnl);
-    document.getElementById('tb-tokens').innerHTML = tks.map(tk => {
+    el.innerHTML = tks.map(tk => {
         const d=m[tk];
         const wr = d.n>0 ? (d.wins/d.n*100).toFixed(1) : '-';
         const bestStr = d.best!==-Infinity ? fmtUsd(d.best) : '-';
@@ -468,6 +499,101 @@ function renderTokens(trades) {
             <td class="r">${d.fees===0?'—':'-$'+fmt(d.fees)}</td>
             <td class="${pc(-d.funding)}">${d.funding===0?(d.hasPerp?'$0':'—'):(-d.funding<0?'-':'')+'$'+fmt(Math.abs(d.funding))}</td></tr>`;
     }).join('');
+}
+
+/* ---- Runner Health Panel ---- */
+function renderRunnerHealth() {
+    const el = document.getElementById('runner-health-panel');
+    if (!el) return;
+    const rh = _runnerHealth || {};
+    const status = _runnerStatus || 'unknown';
+    const statusColors = {fetching:'#d29922', ticking:'#3fb950', idle:'#484f58', unknown:'#484f58'};
+    const statusColor = statusColors[status] || '#484f58';
+    const tickAge = humanAge(rh.last_tick_at);
+    const promoteAge = humanAge(rh.last_promote_at);
+    const s = SIMS[activeSim];
+    const armedCount = (s.armed_orders || _lastArmedByPortfolio[s.id || s.name] || []).length;
+    el.innerHTML = `<div class="kpi-row">
+        <div class="kpi"><div class="lbl">Runner Status</div><div class="val" style="color:${statusColor}">${esc(status.toUpperCase())}</div></div>
+        <div class="kpi"><div class="lbl">Last Tick</div><div class="val b">${esc(tickAge)}<div style="font-size:0.45em;color:#484f58;margin-top:2px">${esc(String(rh.ticks_completed||0))} ticks</div></div></div>
+        <div class="kpi"><div class="lbl">Data Fetch</div><div class="val"><span class="g">${rh.fetch_ok||0}</span> <span style="color:#484f58">/</span> <span class="r">${rh.fetch_err||0}</span><div style="font-size:0.45em;color:#484f58;margin-top:2px">ok / err</div></div></div>
+        <div class="kpi"><div class="lbl">Last Promote</div><div class="val b">${esc(promoteAge)}</div></div>
+        <div class="kpi"><div class="lbl">Armed Orders</div><div class="val y">${armedCount}</div></div>
+    </div>`;
+}
+
+/* ---- Armed Orders Panel ---- */
+function renderArmedPanel() {
+    const el = document.getElementById('armed-panel-container');
+    if (!el) return;
+    const s = SIMS[activeSim];
+    const pid = s.id || s.name;
+    const armed = s.armed_orders || _lastArmedByPortfolio[pid] || [];
+    const expired = s.expired_orders || _lastExpiredByPortfolio[pid] || [];
+    const staleMs = _lastArmedUpdate ? (Date.now() - _lastArmedUpdate) : null;
+    const staleBadge = staleMs && staleMs > 120000 ? ` <span style="color:#484f58;font-size:0.75em">(${Math.round(staleMs/1000)}s ago)</span>` : '';
+
+    const strats = s.strategies || [];
+    const hasSubHourly = strats.some(st => st.entry_resolution && st.entry_resolution !== 'hourly');
+
+    let h = `<div class="armed-panel"><details${armed.length > 0 ? ' open' : ''}>
+        <summary>Armed Orders (${armed.length} pending, ${expired.length} expired last hour)${staleBadge}</summary>`;
+
+    if (armed.length > 0) {
+        h += `<div class="card tbl-wrap" style="margin-top:8px;max-height:400px">
+        <table>
+            <thead><tr><th>Strategy</th><th>Token</th><th>Dir</th><th>Mkt</th><th>Armed Level</th><th>Current $</th><th>% to Fill</th><th>Status</th><th>Armed At</th></tr></thead>
+            <tbody>`;
+        armed.forEach(a => {
+            const dir = a.direction === 1 ? '<span class="pill long">LONG</span>' : '<span class="pill short">SHORT</span>';
+            const mkt = a.is_perp ? '<span class="pill perp">PERP</span>' : '<span class="pill spot">SPOT</span>';
+            let statusBadge;
+            if (a.crossed) {
+                statusBadge = '<span class="badge-crossed">CROSSED</span>';
+            } else if (a.last_skip === 'waiting') {
+                statusBadge = '<span class="badge-waiting">WAITING</span>';
+            } else {
+                statusBadge = `<span class="badge-skip">${esc(a.last_skip)}</span>`;
+            }
+            const pctStr = a.crossed ? '-' : a.pct_to_fill.toFixed(2) + '%';
+            h += `<tr class="armed-row">
+                <td style="color:#8b949e;font-size:0.7em">${esc(a.strategy)}</td>
+                <td><b>${esc(a.token)}</b></td>
+                <td>${dir}</td>
+                <td>${mkt}</td>
+                <td style="font-size:0.85em">${fmtPrice(a.level)}</td>
+                <td style="font-size:0.85em">${fmtPrice(a.current_price)}</td>
+                <td style="font-weight:700;color:${a.pct_to_fill < 1 ? '#d29922' : '#3fb950'}">${pctStr}</td>
+                <td>${statusBadge}</td>
+                <td style="font-size:0.75em;color:#8b949e">${a.armed_at ? new Date(a.armed_at).toLocaleString() : '—'}</td>
+            </tr>`;
+        });
+        h += `</tbody></table></div>`;
+    }
+
+    if (expired.length > 0) {
+        h += `<div style="margin-top:8px"><div style="font-size:0.75em;color:#484f58;margin-bottom:4px">EXPIRED LAST HOUR</div>
+        <div class="card tbl-wrap" style="max-height:250px">
+        <table>
+            <thead><tr><th>Strategy</th><th>Token</th><th>Expired At</th></tr></thead>
+            <tbody>${expired.map(e => `<tr>
+                <td style="color:#8b949e;font-size:0.7em">${esc(e.strategy)}</td>
+                <td><b>${esc(e.token)}</b></td>
+                <td style="font-size:0.75em;color:#8b949e">${esc(e.expired_at || '—')}</td>
+            </tr>`).join('')}</tbody>
+        </table></div></div>`;
+    }
+
+    if (armed.length === 0 && expired.length === 0) {
+        if (!hasSubHourly) {
+            h += `<div style="padding:16px;text-align:center;color:#484f58;font-size:0.85em">No sub-hourly entry strategies configured</div>`;
+        } else {
+            h += `<div style="padding:16px;text-align:center;color:#484f58;font-size:0.85em">No armed levels this hour</div>`;
+        }
+    }
+
+    h += `</details></div>`;
+    el.innerHTML = h;
 }
 
 /* ---- Equity Chart ---- */
@@ -685,6 +811,8 @@ function renderSentinel() {
 
 renderTabs();
 render();
+renderRunnerHealth();
+renderArmedPanel();
 
 /* ---- Live data: poll state.json every 1s, update in-place ---- */
 (function() {
@@ -696,13 +824,28 @@ render();
             const data = await r.json();
             _liveErr = 0;
             if (!data.portfolios) return;
+            // Cache runner health from envelope
+            if (data.runner_health) _runnerHealth = data.runner_health;
+            if (data.runner_status) _runnerStatus = data.runner_status;
             // Update SIMS in-place with live data
             for (const lp of data.portfolios) {
-                const idx = SIMS.findIndex(s => s.name === lp.id || s.id === lp.id);
+                const idx = SIMS.findIndex(sim => sim.name === lp.id || sim.id === lp.id);
                 if (idx < 0) continue;
+                const pid = lp.id || lp.name;
+                // Cache armed data per-portfolio when present (only included every 60s)
+                if (lp.armed_orders) {
+                    _lastArmedByPortfolio[pid] = lp.armed_orders;
+                    _lastExpiredByPortfolio[pid] = lp.expired_orders || [];
+                    _lastArmedUpdate = Date.now();
+                }
                 // Preserve fields the generator embeds but state.json may not have
                 const prev = SIMS[idx];
                 SIMS[idx] = Object.assign({}, prev, lp);
+                // Ensure armed data persists from cache even when not in this poll
+                if (!lp.armed_orders && _lastArmedByPortfolio[pid]) {
+                    SIMS[idx].armed_orders = _lastArmedByPortfolio[pid];
+                    SIMS[idx].expired_orders = _lastExpiredByPortfolio[pid] || [];
+                }
             }
             // Update header timestamp
             const hdr = document.getElementById('hdr-time');
@@ -712,14 +855,16 @@ render();
             }
             // Re-render tabs (equity/pnl changes) and current view
             renderTabs();
-            const s = SIMS[activeSim];
-            const trades = s.all_trades || [];
+            const sim = SIMS[activeSim];
+            const trades = sim.all_trades || [];
             renderTrades(trades, curFilter);
             renderTokens(trades);
+            renderRunnerHealth();
+            renderArmedPanel();
             // Update stale banner
             const sb = document.getElementById('stale-banner');
             if (sb) {
-                const anyStale = SIMS.some(s => s.is_stale);
+                const anyStale = SIMS.some(sim => sim.is_stale);
                 sb.classList.toggle('visible', anyStale);
             }
         } catch(e) { _liveErr++; }

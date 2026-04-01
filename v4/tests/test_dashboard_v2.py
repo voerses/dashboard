@@ -130,6 +130,17 @@ def _make_engine_with_trades() -> PaperPortfolioEngine:
         {"timestamp": "2026-03-09T20:00:00Z", "mark_to_market_equity": 215_000.0},
     ]
 
+    # Sub-hourly exit/entry resolution attributes
+    engine._effective_exit_resolution = 0
+    engine._strategy_exit_resolution = {}
+
+    # Armed order observability attributes
+    import threading
+    engine._armed_tokens = {}
+    engine._armed_tokens_lock = threading.Lock()
+    engine._last_armed_skip_reasons = {}
+    engine._last_expired_orders = []
+
     return engine
 
 
