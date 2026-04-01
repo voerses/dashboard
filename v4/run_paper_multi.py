@@ -434,8 +434,10 @@ def _connect_shared_monitors(
             for st in engine._get_all_states():
                 for pos in st.position_manager.open_positions:
                     all_tokens.add(pos.token)
-            # Include tokens with pending entry candidates
-            for (sid, token) in engine._pending_entry_candidates:
+            # Include tokens with armed entry levels (snapshot under lock)
+            with engine._armed_tokens_lock:
+                armed_snap = dict(engine._armed_tokens)
+            for (sid, token) in armed_snap:
                 all_tokens.add(token)
         if all_tokens:
             try:
@@ -462,8 +464,10 @@ def _update_shared_subscriptions(
             for st in engine._get_all_states():
                 for pos in st.position_manager.open_positions:
                     all_tokens.add(pos.token)
-            # Include tokens with pending entry candidates
-            for (sid, token) in engine._pending_entry_candidates:
+            # Include tokens with armed entry levels (snapshot under lock)
+            with engine._armed_tokens_lock:
+                armed_snap = dict(engine._armed_tokens)
+            for (sid, token) in armed_snap:
                 all_tokens.add(token)
         # Lazy connect: if monitor was never started (no positions at boot),
         # start it now before updating subscriptions.
@@ -532,27 +536,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def _protect_from_oom() -> None:
-    """Try to lower this process's OOM score to make it less likely to be killed.
-
-    Requires CAP_SYS_RESOURCE for negative values. Falls back gracefully.
-    """
-    try:
-        with open("/proc/self/oom_score_adj", "w") as f:
-            f.write("-1000")
-        logger.info("OOM protection set: oom_score_adj=-1000")
-    except PermissionError:
-        try:
-            # Some environments allow moderate negative values
-            with open("/proc/self/oom_score_adj", "w") as f:
-                f.write("-500")
-            logger.info("OOM protection set: oom_score_adj=-500")
-        except PermissionError:
-            logger.warning(
-                "Cannot set OOM protection (no CAP_SYS_RESOURCE). "
-                "Runner may be killed under memory pressure."
-            )
-    except Exception as e:
-        logger.warning("OOM protection failed: %s", e)
+    """No-op. Removed: oom_score_adj is ineffective inside cgroup memory limits."""
+    pass
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -876,10 +861,18 @@ def main(argv: list[str] | None = None) -> None:
                         max_duration_s=30,
                     )
                     last_promote_time = time.time()
+                    tokens_promoted = promote_summary.get("tokens_promoted", 0)
                     logger.info(
                         "4h promotion: %d tokens promoted",
-                        promote_summary.get("tokens_promoted", 0),
+                        tokens_promoted,
                     )
+                    # Invalidate hist_cache after promotion: promoted bars
+                    # moved from live buffer to historical parquet on disk,
+                    # so cached historical DataFrames are now stale.
+                    if tokens_promoted > 0:
+                        for engine in engines:
+                            engine._hist_cache.clear()
+                        logger.debug("Cleared hist_cache on %d engines after promotion", len(engines))
                 except Exception as e:
                     logger.warning("4h promotion failed: %s", e)
                     last_promote_time = time.time()  # Prevent retry spam on persistent failure

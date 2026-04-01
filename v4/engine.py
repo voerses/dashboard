@@ -461,6 +461,12 @@ class StrategyResult:
     # None = disabled (always enter at close).
     entry_limit_price: Optional[np.ndarray] = None
 
+    # Armed entry levels: per-bar watch price for real-time cross detection.
+    # Set on PRE-cross bars (qualifying tokens that haven't crossed yet).
+    # Paper engine monitors via 1m WebSocket and enters at market on cross.
+    armed_levels: Optional[np.ndarray] = None     # float64, NaN = not armed
+    armed_direction: Optional[np.ndarray] = None  # int8, 0 = not armed, 1 = long, -1 = short
+
     # Regime-conditional target: tighter TP in DOWNTREND regime.
     bear_target_mult: float = 0.0
     # Regime-conditional max hold: shorter hold in DOWNTREND (0 = use max_hold)

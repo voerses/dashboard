@@ -14,6 +14,8 @@ import dataclasses
 import os
 import resource
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor, Future
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -98,8 +100,8 @@ class PaperPortfolioEngine:
         }
         entry_resolutions = [s.entry_resolution for s in config.strategies if s.entry_resolution > 0]
         self._effective_entry_resolution = min(entry_resolutions) if entry_resolutions else 0
-        # Pending entry candidates for sub-hourly resolution (keyed by (strategy_id, token))
-        self._pending_entry_candidates: dict[tuple[str, str], dict] = {}
+        # Armed entry levels for real-time BB cross detection (keyed by (strategy_id, token))
+        self._armed_tokens: dict[tuple[str, str], dict] = {}
         # Unify: create WS infra if EITHER exit or entry needs sub-hourly data
         all_resolutions = [s.exit_resolution for s in config.strategies if s.exit_resolution > 0]
         all_resolutions += [s.entry_resolution for s in config.strategies if s.entry_resolution > 0]
@@ -131,6 +133,14 @@ class PaperPortfolioEngine:
         # Cache for sub-hourly exit checks (populated after each hourly tick)
         # Keyed by (strategy_id, token) so each strategy gets its own ATR values
         self._cached_bar_data: dict[tuple[str, str], dict] = {}
+        # Historical parquet cache — populated on first tick, reused on subsequent
+        # ticks.  Historical parquets are immutable between cache rebuilds.
+        # Live buffer is always re-read fresh from disk.
+        self._hist_cache: dict[tuple[str, str], "pd.DataFrame"] = {}
+        # Background tick: heavy work (data fetch + signal precomputation) runs off main thread
+        self._bg_executor = ThreadPoolExecutor(max_workers=1)
+        self._bg_future: Optional[Future] = None
+        self._armed_tokens_lock = threading.Lock()
 
         if config.mode == "independent":
             self._init_independent_mode()
@@ -143,12 +153,14 @@ class PaperPortfolioEngine:
             self.strategy_states = {}
 
     def cleanup(self) -> None:
-        """Release resources. Disconnects PriceMonitor only if this engine owns it."""
+        """Release resources. Disconnects PriceMonitor and shuts down background executor."""
         if self._price_monitor is not None and self._owns_price_monitor:
             try:
                 self._price_monitor.disconnect()
             except Exception:
                 pass
+        if self._bg_executor is not None:
+            self._bg_executor.shutdown(wait=False)
 
     def _init_independent_mode(self) -> None:
         """Initialize separate SimulationState for each strategy (AC6b)."""
@@ -570,11 +582,11 @@ class PaperPortfolioEngine:
     def process_sub_hourly_entries(
         self, candles: dict[str, tuple[float, float, float]],
     ) -> int:
-        """Process pending entry candidates against completed sub-hourly candles.
+        """Check if 1m candle crossed any armed entry levels. Enter at market.
 
-        Mirrors process_sub_hourly_exits(): for each pending candidate, checks
-        if the 1m candle close crosses the limit price. On cross, executes entry
-        with slippage applied to the cross close price.
+        For each armed token, checks if the 1m candle breached the BB armed
+        level. On cross, executes entry at the candle close price (market order)
+        with slippage applied.
 
         Constraint checks match the backtest's _process_entries() for parity:
         portfolio limit, strategy limit, max_concurrent, pump filters,
@@ -585,8 +597,11 @@ class PaperPortfolioEngine:
         """
         if not candles or self._effective_entry_resolution == 0:
             return 0
-        if not self._pending_entry_candidates:
-            return 0
+        with self._armed_tokens_lock:
+            if not self._armed_tokens:
+                return 0
+            # Snapshot armed tokens under lock for iteration
+            armed_snapshot = list(self._armed_tokens.items())
 
         import logging
         logger = logging.getLogger(__name__)
@@ -600,7 +615,7 @@ class PaperPortfolioEngine:
         strategy_specs = {s.strategy_id: s for s in self.config.strategies}
         executed_keys: list[tuple[str, str]] = []
 
-        for (sid, token), cand in list(self._pending_entry_candidates.items()):
+        for (sid, token), cand in armed_snapshot:
             if token not in candles:
                 continue
 
@@ -608,14 +623,14 @@ class PaperPortfolioEngine:
             if not np.isfinite(c):
                 continue  # NaN/inf candle — skip to avoid corrupting state
 
-            lp = cand["limit_price"]
+            level = cand["level"]
             direction = cand["direction"]
 
-            # Check if 1m close crosses the limit price
-            if direction == 1 and c <= lp:
-                continue  # Long: need close > limit
-            if direction == -1 and c >= lp:
-                continue  # Short: need close < limit
+            # Cross detection: did the 1m candle breach the armed level?
+            if direction == 1 and h < level:
+                continue  # Long: need high >= level
+            if direction == -1 and l > level:
+                continue  # Short: need low <= level
 
             # Cross detected — execute entry
             spec = strategy_specs.get(sid)
@@ -834,7 +849,7 @@ class PaperPortfolioEngine:
                 highest=cand["high_val"],
                 lowest=cand["low_val"],
                 initial_risk=initial_risk,
-                limit_price=lp,
+                limit_price=level,
                 limit_placed_at=cand.get("limit_placed_at", ""),
                 stop_limit_price=stop_price,
                 fill_source="sub_hourly",
@@ -857,8 +872,9 @@ class PaperPortfolioEngine:
             executed_keys.append((sid, token))
 
         # Remove executed candidates
-        for key in executed_keys:
-            self._pending_entry_candidates.pop(key, None)
+        with self._armed_tokens_lock:
+            for key in executed_keys:
+                self._armed_tokens.pop(key, None)
 
         # Persist state if any entries occurred
         if entry_count > 0:
@@ -1003,24 +1019,22 @@ class PaperPortfolioEngine:
                     "bear_target_mult": sig.bear_target_mult if hasattr(sig, 'bear_target_mult') else 0.0,
                 }
 
-    def _cache_entry_candidates(
+    def _cache_armed_levels(
         self,
         all_signals: dict[str, dict],
         strategy_specs: dict[str, "StrategySpec"],
         bar_maps: dict[str, np.ndarray],
     ) -> None:
-        """Cache unfilled entry candidates for sub-hourly 1m resolution.
+        """Extract armed entry levels from latest hourly signals for WS monitoring.
 
-        After each hourly tick, extracts pending entry candidates — tokens where
-        entry_limit_price is set but the hourly bar didn't fill the limit.
-        These are monitored via WebSocket 1m candles between hourly ticks.
-        Candidates are discarded at the next hourly tick (fresh cache each tick).
+        After each hourly tick, extracts armed_levels — tokens where BB bands
+        are set but the cross hasn't happened yet (pre-cross bars). These are
+        monitored via WebSocket 1m candles between hourly ticks.
+        Armed levels are refreshed each hourly tick (fresh cache).
         """
         import logging
         logger = logging.getLogger(__name__)
-        self._pending_entry_candidates.clear()
-        _entry_signals_count = 0
-        _filled_on_hourly = 0
+        new_armed: dict[tuple[str, str], dict] = {}
 
         for sid, token_sigs in all_signals.items():
             if self._strategy_entry_resolution.get(sid, 0) == 0:
@@ -1033,6 +1047,8 @@ class PaperPortfolioEngine:
                 continue
 
             for token, sig in token_sigs.items():
+                if sig.armed_levels is None:
+                    continue
                 bm = bar_maps.get(token)
                 if bm is None:
                     continue
@@ -1040,35 +1056,19 @@ class PaperPortfolioEngine:
                 if local_bar == -1 or local_bar >= sig.n_bars:
                     continue
 
-                # Must have entry signal AND entry_limit_price set (BB threshold)
-                if not sig.entry_mask[local_bar]:
+                # Get latest bar's armed level
+                if local_bar >= len(sig.armed_levels):
                     continue
-                if sig.entry_limit_price is None:
+                level = float(sig.armed_levels[local_bar])
+                if np.isnan(level):
                     continue
-                if local_bar >= len(sig.entry_limit_price):
+                if sig.armed_direction is None or local_bar >= len(sig.armed_direction):
                     continue
-                lp = float(sig.entry_limit_price[local_bar])
-                if np.isnan(lp):
-                    continue
-
-                direction = int(sig.direction[local_bar])
+                direction = int(sig.armed_direction[local_bar])
                 if direction == 0:
                     continue
 
-                _entry_signals_count += 1
-
-                # Check if the hourly bar already filled the limit
-                h_val = float(sig.high[local_bar])
-                l_val = float(sig.low[local_bar])
-                if direction == 1 and l_val <= lp:
-                    _filled_on_hourly += 1
-                    continue  # Long limit already filled on hourly bar
-                if direction == -1 and h_val >= lp:
-                    _filled_on_hourly += 1
-                    continue  # Short limit already filled on hourly bar
-
                 # Check if position already exists for this token+strategy
-                # Also skip if the hourly path already entered this tick (prevent double-entry)
                 skip = False
                 for st in self._get_all_states():
                     open_for_ts = st.position_manager.find_open_for_token_strategy(token, sid)
@@ -1076,96 +1076,97 @@ class PaperPortfolioEngine:
                     if len(open_for_ts) >= max_conc:
                         skip = True
                         break
-                    # Check if any were just opened this tick (hourly already entered)
-                    if any(p.entry_bar == self.tick_counter for p in open_for_ts):
-                        skip = True
-                        break
-                if not skip:
-                    # No state had a blocking position — cache candidate
-                    # Pre-extract signal data for entry execution
-                    close_val = float(sig.close[local_bar])
-                    atr_val = float(sig.atr[local_bar])
-                    if np.isnan(atr_val):
-                        atr_val = close_val * 0.02
-                    # Spot ATR for pump filter (backtest runs pump check before venue routing)
-                    spot_atr_val = atr_val
-                    adv_val = float(sig.rolling_adv[local_bar])
-                    lev_val = float(sig.leverage[local_bar])
-                    sm_val = float(sig.size_multiplier[local_bar])
-                    cap_mult = float(sig.cap_multiplier[local_bar])
-                    is_perp = sig.is_perp_primary
-                    if sig.per_bar_is_perp is not None:
-                        is_perp = bool(sig.per_bar_is_perp[local_bar])
-                        if is_perp and sig.perp_close is not None:
-                            close_val = float(sig.perp_close[local_bar])
-                            atr_val = float(sig.perp_atr[local_bar])
-                            if np.isnan(atr_val):
-                                atr_val = close_val * 0.02
-                            adv_val = float(sig.perp_rolling_adv[local_bar])
+                if skip:
+                    continue
 
-                    self._pending_entry_candidates[(sid, token)] = {
-                        "limit_price": lp,
-                        "direction": direction,
-                        "tick_counter": self.tick_counter,
-                        "limit_placed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                        "close_val": close_val,
-                        "atr_val": atr_val,
-                        "adv_val": adv_val,
-                        "leverage": lev_val,
-                        "size_multiplier": sm_val,
-                        "cap_multiplier": cap_mult,
-                        "is_perp": is_perp,
-                        "sig_ref": sig,  # For build_exit_chain at sub-hourly entry
-                        "stop_mult": float(sig.stop_mult[local_bar]),
-                        "trail_mult": float(sig.trail_mult[local_bar]),
-                        "target_mult": sig.target_mult,
-                        "no_stop_bars": sig.no_stop_bars,
-                        "min_hold": sig.min_hold,
-                        "max_hold": sig.max_hold,
-                        "exit_regimes": sig.exit_regimes,
-                        "convex_exit": sig.convex_exit,
-                        "edge": sig.edge,
-                        "max_trade_pct": sig.max_trade_pct,
-                        "high_val": h_val,
-                        "low_val": l_val,
-                        # Exit handler parameters (backtest parity)
-                        "rsi_exit_level": sig.rsi_exit_level,
-                        "regime_exit_min_bars": sig.regime_exit_min_bars,
-                        "convex_bar_thresholds": sig.convex_bar_thresholds,
-                        "convex_multipliers": sig.convex_multipliers,
-                        "trail_schedule": sig.trail_schedule,
-                        "time_trail_schedule": sig.time_trail_schedule,
-                        "max_trail_mult": sig.max_trail_mult,
-                        "funding_exit_threshold": sig.funding_exit_threshold,
-                        "partial_tp_atr": sig.partial_tp_atr,
-                        "partial_tp_pct": sig.partial_tp_pct,
-                        "partial_tp_trail": sig.partial_tp_trail,
-                        "breakeven_atr": sig.breakeven_atr,
-                        "chandelier_lookback": sig.chandelier_lookback,
-                        # Pump filter data (cached for constraint checks)
-                        # Use spot ATR to match backtest (pump filter runs before venue routing)
-                        "pump_range": (h_val - l_val) / max(spot_atr_val, 1e-10),
-                        "funding_zscore": (
-                            float(sig.funding_zscore[local_bar])
-                            if sig.funding_zscore is not None and local_bar < len(sig.funding_zscore)
-                            else float('nan')
-                        ),
-                    }
+                # Pre-extract signal data for entry execution
+                h_val = float(sig.high[local_bar])
+                l_val = float(sig.low[local_bar])
+                close_val = float(sig.close[local_bar])
+                atr_val = float(sig.atr[local_bar])
+                if np.isnan(atr_val):
+                    atr_val = close_val * 0.02
+                # Spot ATR for pump filter (backtest runs pump check before venue routing)
+                spot_atr_val = atr_val
+                adv_val = float(sig.rolling_adv[local_bar])
+                lev_val = float(sig.leverage[local_bar])
+                sm_val = float(sig.size_multiplier[local_bar])
+                cap_mult = float(sig.cap_multiplier[local_bar])
+                is_perp = sig.is_perp_primary
+                if sig.per_bar_is_perp is not None:
+                    is_perp = bool(sig.per_bar_is_perp[local_bar])
+                    if is_perp and sig.perp_close is not None:
+                        close_val = float(sig.perp_close[local_bar])
+                        atr_val = float(sig.perp_atr[local_bar])
+                        if np.isnan(atr_val):
+                            atr_val = close_val * 0.02
+                        adv_val = float(sig.perp_rolling_adv[local_bar])
 
-        n_cached = len(self._pending_entry_candidates)
-        if _entry_signals_count > 0 or n_cached > 0:
+                new_armed[(sid, token)] = {
+                    "level": level,
+                    "direction": direction,
+                    "tick_counter": self.tick_counter,
+                    "limit_placed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                    "close_val": close_val,
+                    "atr_val": atr_val,
+                    "adv_val": adv_val,
+                    "leverage": lev_val,
+                    "size_multiplier": sm_val,
+                    "cap_multiplier": cap_mult,
+                    "is_perp": is_perp,
+                    "sig_ref": sig,  # For build_exit_chain at sub-hourly entry
+                    "stop_mult": float(sig.stop_mult[local_bar]),
+                    "trail_mult": float(sig.trail_mult[local_bar]),
+                    "target_mult": sig.target_mult,
+                    "no_stop_bars": sig.no_stop_bars,
+                    "min_hold": sig.min_hold,
+                    "max_hold": sig.max_hold,
+                    "exit_regimes": sig.exit_regimes,
+                    "convex_exit": sig.convex_exit,
+                    "edge": sig.edge,
+                    "max_trade_pct": sig.max_trade_pct,
+                    "high_val": h_val,
+                    "low_val": l_val,
+                    # Exit handler parameters (backtest parity)
+                    "rsi_exit_level": sig.rsi_exit_level,
+                    "regime_exit_min_bars": sig.regime_exit_min_bars,
+                    "convex_bar_thresholds": sig.convex_bar_thresholds,
+                    "convex_multipliers": sig.convex_multipliers,
+                    "trail_schedule": sig.trail_schedule,
+                    "time_trail_schedule": sig.time_trail_schedule,
+                    "max_trail_mult": sig.max_trail_mult,
+                    "funding_exit_threshold": sig.funding_exit_threshold,
+                    "partial_tp_atr": sig.partial_tp_atr,
+                    "partial_tp_pct": sig.partial_tp_pct,
+                    "partial_tp_trail": sig.partial_tp_trail,
+                    "breakeven_atr": sig.breakeven_atr,
+                    "chandelier_lookback": sig.chandelier_lookback,
+                    # Pump filter data (cached for constraint checks)
+                    "pump_range": (h_val - l_val) / max(spot_atr_val, 1e-10),
+                    "funding_zscore": (
+                        float(sig.funding_zscore[local_bar])
+                        if sig.funding_zscore is not None and local_bar < len(sig.funding_zscore)
+                        else float('nan')
+                    ),
+                }
+
+        # Atomic swap: replace armed_tokens dict under lock
+        with self._armed_tokens_lock:
+            self._armed_tokens = new_armed
+
+        n_cached = len(new_armed)
+        if n_cached > 0:
             logger.info(
-                "Entry candidates: %d signals this bar, %d filled on hourly, "
-                "%d cached for WS 1m resolution (%s)",
-                _entry_signals_count, _filled_on_hourly, n_cached,
-                ", ".join(t for _, t in self._pending_entry_candidates) if n_cached else "none",
+                "Armed levels: %d tokens cached for WS 1m cross detection (%s)",
+                n_cached,
+                ", ".join(t for _, t in new_armed),
             )
 
     def _update_ws_subscriptions(self) -> None:
         """Update WebSocket subscriptions to match current open positions.
 
-        Also includes tokens with pending entry candidates for sub-hourly
-        entry resolution.
+        Also includes tokens with armed entry levels for sub-hourly
+        cross detection.
 
         No-op when engine does not own its PriceMonitor — the runner manages
         subscriptions centrally to prevent clobbering other engines' tokens.
@@ -1176,8 +1177,10 @@ class PaperPortfolioEngine:
         for st in self._get_all_states():
             for pos in st.position_manager.open_positions:
                 open_tokens.add(pos.token)
-        # Include tokens with pending entry candidates
-        for (sid, token) in self._pending_entry_candidates:
+        # Include tokens with armed entry levels (snapshot under lock)
+        with self._armed_tokens_lock:
+            armed_snapshot = dict(self._armed_tokens)
+        for (sid, token) in armed_snapshot:
             open_tokens.add(token)
         self._price_monitor.update_subscriptions(open_tokens)
         if self._candle_aggregator:
@@ -1486,13 +1489,29 @@ class PaperPortfolioEngine:
         strategy_specs: dict,
         bar_maps: dict,
     ) -> None:
-        """Delegate entry processing to v4 simulator with per-bar RNG seeding (AC9c)."""
+        """Delegate entry processing to v4 simulator with per-bar RNG seeding (AC9c).
+
+        Strategies with entry_resolution > 0 are excluded from retroactive hourly
+        fills — they enter exclusively through the armed_levels WebSocket path.
+        """
         rng = np.random.RandomState(self.config.seed + self.tick_counter)
+
+        # Filter out strategies using real-time entry resolution (armed_levels path)
+        filtered_signals = all_signals
+        filtered_specs = strategy_specs
+        if getattr(self, '_effective_entry_resolution', 0) > 0:
+            excluded_sids = {sid for sid, res in getattr(self, '_strategy_entry_resolution', {}).items() if res > 0}
+            if excluded_sids:
+                filtered_signals = {sid: sigs for sid, sigs in all_signals.items() if sid not in excluded_sids}
+                filtered_specs = {sid: spec for sid, spec in strategy_specs.items() if sid not in excluded_sids}
+
         if self.config.mode == "independent":
             for sid, sstate in self.strategy_states.items():
-                sid_signals = {sid: all_signals.get(sid, {})}
-                if sid in strategy_specs:
-                    orig_spec = strategy_specs[sid]
+                if sid not in filtered_signals:
+                    continue  # Skip strategies using armed_levels path
+                sid_signals = {sid: filtered_signals.get(sid, {})}
+                if sid in filtered_specs:
+                    orig_spec = filtered_specs[sid]
                     # Weight=1.0 because capital was already pre-split in _init_independent_mode.
                     # Passing the original weight would double-apply it (portfolio_equity already
                     # reflects weight-scaled initial_capital, and _process_entries multiplies
@@ -1508,7 +1527,7 @@ class PaperPortfolioEngine:
                 )
         else:
             _sim._process_entries(
-                self.state, all_signals, strategy_specs,
+                self.state, filtered_signals, filtered_specs,
                 bar_maps, self.tick_counter, self.config, rng,
             )
 
@@ -1545,27 +1564,21 @@ class PaperPortfolioEngine:
         if getattr(self, '_effective_exit_resolution', 0) > 0:
             self._cache_bar_data(all_signals, bar_maps)
 
-        # Cache entry candidates for sub-hourly entry resolution
+        # Cache armed levels for sub-hourly entry resolution (real-time BB cross detection)
         if getattr(self, '_effective_entry_resolution', 0) > 0:
-            self._cache_entry_candidates(all_signals, strategy_specs, bar_maps)
+            self._cache_armed_levels(all_signals, strategy_specs, bar_maps)
 
         # Update WS subscriptions (covers both exit positions and entry candidates)
         if getattr(self, '_effective_exit_resolution', 0) > 0 or getattr(self, '_effective_entry_resolution', 0) > 0:
             self._update_ws_subscriptions()
 
-    def _tick_internal(self, bar_timestamp=None) -> None:
-        """Full tick processing: fetch data, recompute signals, process.
+    def _tick_bg_worker(self, bar_timestamp=None) -> tuple:
+        """Background: fetch data + precompute signals (steps 1-4).
 
-        Pipeline (AC10b):
-          1. Fetch live data via self.fetcher + append to parquet
-          2. Discover tokens from parquet cache
-          3. Call precompute_strategy_signals() per strategy
-          4. Build bar_maps
-          5. Handle disappeared tokens
-          6. Call _tick_internal_with_signals()
-          7. Update last known prices
-          8. Compute mark-to-market equity + populate equity_history
-          9. Persist state (state.json, equity.csv, shadow_pools)
+        This is the heavy work (60-120s) that now runs off the main thread
+        so WebSocket monitoring continues unblocked.
+
+        Returns (all_signals, strategy_specs, bar_maps, timestamp).
         """
         import logging
         logger = logging.getLogger(__name__)
@@ -1574,14 +1587,13 @@ class PaperPortfolioEngine:
 
         # --- Step 1: Fetch live data + append to parquet ---
         if self.fetcher is not None:
-            # Discover which tokens to fetch for each market
             all_tokens_to_fetch: set[str] = set()
             for spec in self.config.strategies:
                 try:
                     tokens = discover_tokens(spec.market)
                     all_tokens_to_fetch.update(tokens)
                 except Exception:
-                    pass  # No parquet data yet — will handle below
+                    pass
 
             fetch_ok = 0
             fetch_err = 0
@@ -1598,10 +1610,9 @@ class PaperPortfolioEngine:
                         fetch_ok += 1
                     except Exception as e:
                         fetch_err += 1
-                        if fetch_err <= 3:  # Log first 3 errors
+                        if fetch_err <= 3:
                             logger.warning("Fetch %s/%s failed: %s", token, market, e)
 
-                # Fetch and merge funding rates for perp
                 try:
                     rates = self.fetcher.fetch_funding_rates(token, limit=10)
                     if rates and hasattr(self.fetcher, 'merge_funding_into_parquet'):
@@ -1626,20 +1637,53 @@ class PaperPortfolioEngine:
             if tokens:
                 any_tokens_found = True
             live_bar = self.tick_counter if self._strategy_entry_resolution.get(spec.strategy_id, 0) > 0 else -1
-            sigs = precompute_strategy_signals(spec, tokens, self.config, self.config.lookback_months, live_bar=live_bar)
+            sigs = precompute_strategy_signals(spec, tokens, self.config, self.config.lookback_months, live_bar=live_bar, hist_cache=self._hist_cache)
             all_signals[spec.strategy_id] = sigs
 
         if not any_tokens_found:
             logger.warning("No parquet cache data found — cold start or missing data directory")
 
-        # Timestamp: use wall-clock time (set on line 446) for precise equity.csv
-        # and trade entry timestamps. Previously this was overridden with the
-        # hourly bar close time as a temp fix for backwards-tick issues caused by
-        # the ablation tick-counter reset — that is no longer needed.
+        if self._hist_cache and self.tick_counter <= 1:
+            logger.info(
+                "Historical parquet cache: %d entries. "
+                "Restart runner after build_parquet_cache.py to pick up rebuilt data.",
+                len(self._hist_cache),
+            )
 
         # --- Step 4: Build bar_maps ---
         bar_maps = self._build_bar_maps(all_signals, self.tick_counter)
 
+        return all_signals, strategy_specs, bar_maps, timestamp
+
+    def _on_tick_complete(self, future: Future) -> None:
+        """Callback: process exits/entries + update armed levels + persist state.
+
+        Runs on the thread pool thread after background work completes.
+        State mutations are serialized because we guard against overlapping ticks
+        (_tick_internal_async checks _bg_future.done() before submitting).
+
+        THREADING NOTE: This callback may run concurrently with the WebSocket
+        handler thread (process_sub_hourly_entries). The _armed_tokens dict is
+        protected by _armed_tokens_lock. Position mutations from both paths are
+        currently NOT locked — they are safe in practice because entries create
+        new Position objects (append-only) and exits only run in this callback.
+        """
+        logger = logging.getLogger(__name__)
+        try:
+            all_signals, strategy_specs, bar_maps, timestamp = future.result()
+        except Exception:
+            logger.exception("Background tick worker failed")
+            return
+
+        try:
+            self._tick_complete_with_results(all_signals, strategy_specs, bar_maps, timestamp)
+        except Exception:
+            logger.exception("Tick completion failed")
+
+    def _tick_complete_with_results(
+        self, all_signals, strategy_specs, bar_maps, timestamp,
+    ) -> None:
+        """Complete tick processing with pre-computed signals (steps 5-9)."""
         # --- Step 5: Handle disappeared tokens ---
         self._handle_disappeared_tokens(all_signals, timestamp=timestamp)
 
@@ -1647,23 +1691,15 @@ class PaperPortfolioEngine:
         self._apply_dynamic_weights(all_signals, bar_maps)
 
         # --- Step 6: Process exits → entries ---
-        # Note: walk-forward mask is already applied by precompute_strategy_signals
         self._tick_internal_with_signals(all_signals, strategy_specs, bar_maps)
 
         # --- Step 6b: Stamp entry_timestamp on ALL positions missing it ---
-        # New positions (entry_bar == tick_counter) get the current timestamp.
-        # Pre-existing positions that were never stamped (e.g., created before
-        # this code existed) get backfilled with the current timestamp so the
-        # dashboard shows *something* rather than "—".
         for st in self._get_all_states():
             for pos in st.position_manager.open_positions:
                 if not pos.entry_timestamp:
                     pos.entry_timestamp = timestamp
 
         # --- Step 6c: Stamp exit_timestamp on newly closed trades missing it ---
-        # Simulator-driven exits don't have access to wall-clock time, so we
-        # stamp them here. Sentinel exits already have exit_timestamp set from
-        # event.sentinel_timestamp and are skipped.
         for st in self._get_all_states():
             for trade in st.position_manager.closed_trades:
                 if not trade.exit_timestamp:
@@ -1683,25 +1719,17 @@ class PaperPortfolioEngine:
             "portfolio_equity": portfolio_eq,
             "mark_to_market_equity": mtm_eq,
         })
-        # R7-I5 fix: cap equity_history to prevent unbounded memory growth
-        # in long-running daemon mode (720 entries = 30 days of hourly ticks)
         _MAX_EQUITY_HISTORY = 720
         if len(self.equity_history) > _MAX_EQUITY_HISTORY:
             self.equity_history = self.equity_history[-_MAX_EQUITY_HISTORY:]
 
         # --- Step 9: Persist state ---
-        # C5 fix: increment tick_counter BEFORE persisting so state.json
-        # records the NEXT expected tick. On crash-recovery, we restore to
-        # the next tick and don't re-process the current one.
         self.tick_counter += 1
-        # R5-I1 fix: track whether state.json commit point was reached.
-        # If exception occurs AFTER commit, tick_counter should NOT be rolled back.
         self._state_committed = False
 
         state_dir = self.config.state_dir
         os.makedirs(state_dir, exist_ok=True)
 
-        # Shadow pools
         shadow = getattr(self, 'shadow', None)
         if shadow is not None:
             shadow_pools = {
@@ -1716,34 +1744,22 @@ class PaperPortfolioEngine:
                 "spot_deployed": 0.0, "perp_deployed": 0.0,
             }
 
-        # QM-C2 fix: Write trades.jsonl BEFORE state.json so that on
-        # crash between the two writes, recovery truncation removes the
-        # orphaned trades (they have tick > restored tick_counter).
         trades_path = os.path.join(state_dir, "trades.jsonl")
         new_closed = []
         for st in self._get_all_states():
             new_closed.extend(st.position_manager.closed_trades)
-        # R4-I1 fix: track flushed trades by position_id to prevent duplicates
-        # on partial write failures. Previously used a count which could re-write
-        # trades if the count wasn't updated due to a write exception.
         if not hasattr(self, '_flushed_position_ids'):
             self._flushed_position_ids = set()
         unflushed = [t for t in new_closed if t.position_id not in self._flushed_position_ids]
-        # R7-I1 fix: stage position_ids written this tick. Only promote to
-        # _flushed_position_ids after state.json commit, so failed ticks don't
-        # permanently mark trades as flushed when the state was never committed.
         self._tick_staged_ids = set()
         if unflushed:
             with open(trades_path, "a") as f:
                 for trade in unflushed:
                     f.write(json.dumps(_closed_trade_to_dict(trade, tick=self.tick_counter)) + "\n")
                 f.flush()
-                os.fsync(f.fileno())  # R3-C1 fix: fsync before state.json commit
+                os.fsync(f.fileno())
             self._tick_staged_ids = {t.position_id for t in unflushed}
 
-        # R5-I2 fix: write equity.csv BEFORE state.json commit point
-        # so crash between trades and state doesn't create permanent equity gaps
-        # R6-I4 fix: skip if this tick was already written (retry after failed state.json)
         last_equity_tick = getattr(self, '_last_equity_tick', -1)
         if self.tick_counter != last_equity_tick:
             equity_path = os.path.join(state_dir, "equity.csv")
@@ -1760,12 +1776,8 @@ class PaperPortfolioEngine:
             )
             self._last_equity_tick = self.tick_counter
 
-        # Write state.json — handle both pool and independent modes
-        # This is the "commit point": once state.json is atomically written,
-        # the tick is considered complete.
         state_path = os.path.join(state_dir, "state.json")
         if self.state is not None:
-            # Pool mode: single shared state
             atomic_write_state(
                 self.state,
                 self.tick_counter,
@@ -1776,7 +1788,6 @@ class PaperPortfolioEngine:
                 last_known_regimes=dict(self._last_known_regimes),
             )
         else:
-            # Independent mode: serialize all strategy states (C4 fix)
             from v4.paper_state import serialize_engine_state
             data = serialize_engine_state(
                 dict(self.strategy_states), self.tick_counter, timestamp,
@@ -1791,29 +1802,47 @@ class PaperPortfolioEngine:
             with open(tmp, "w") as f:
                 json.dump(data, f, indent=2)
                 f.flush()
-                os.fsync(f.fileno())  # QM-I3 fix: fsync for independent mode
+                os.fsync(f.fileno())
             os.rename(tmp, state_path)
 
-        # R5-I1 fix: mark commit point reached — tick_counter should NOT
-        # be rolled back if anything after this point throws
         self._state_committed = True
 
-        # Write stops.json for sentinel consumption (after state.json commit)
         if self.config.sentinel_mode != "off":
             self._write_stops()
 
-        # R7-I1 fix: promote staged position_ids to flushed now that state
-        # is committed. If state.json commit failed, these would NOT be promoted,
-        # allowing retry to re-write the trades (duplicates cleaned by truncation).
         self._flushed_position_ids.update(self._tick_staged_ids)
         self._tick_staged_ids = set()
 
-        # R4-I3 fix: update last_timestamp so dashboard stale-data checks
-        # use the latest processed tick's timestamp, not the restored one
         self.last_timestamp = timestamp
 
-        # AC26: Trigger dashboard generation after persistence
         self._trigger_dashboard()
+
+    def _tick_internal(self, bar_timestamp=None) -> None:
+        """Synchronous tick processing: fetch data, recompute signals, process.
+
+        Runs the full pipeline in the current thread.
+        For non-blocking execution, use _tick_internal_async() instead.
+        """
+        all_signals, strategy_specs, bar_maps, timestamp = self._tick_bg_worker(bar_timestamp)
+        self._tick_complete_with_results(all_signals, strategy_specs, bar_maps, timestamp)
+
+    def _tick_internal_async(self, bar_timestamp=None) -> None:
+        """Non-blocking tick: submit heavy work to background thread.
+
+        Steps 1-4 (data fetch + signal precomputation) run on a background thread.
+        Steps 5-9 (exits, entries, persistence) complete via callback when ready.
+        WebSocket monitoring continues unblocked during the heavy computation.
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        # Guard against overlapping ticks
+        if self._bg_future is not None and not self._bg_future.done():
+            logger.warning("Previous tick still running — skipping")
+            return
+
+        self._bg_future = self._bg_executor.submit(self._tick_bg_worker, bar_timestamp)
+        self._bg_future.add_done_callback(self._on_tick_complete)
 
     def _trigger_dashboard(self) -> None:
         """Trigger dashboard generation after each tick (AC26).

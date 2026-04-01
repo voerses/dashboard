@@ -22,6 +22,7 @@ import pytest
 
 from v4.data_loader import (
     load_token_data,
+    load_token_data_cached,
     discover_tokens_from_data,
     infer_data_end_date,
     historical_path,
@@ -371,3 +372,151 @@ class TestPaths:
     def test_live_path(self):
         p = live_path("BTC", "perp", "/data")
         assert str(p) == "/data/perp/live/BTC.parquet"
+
+
+# ===================================================================
+# Test: load_token_data_cached
+# ===================================================================
+
+class TestLoadTokenDataCached:
+    """load_token_data_cached caches historical reads, always reads live fresh."""
+
+    def test_cache_miss_populates_cache(self):
+        """First call reads from disk and populates the cache dict."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            hist = _make_df(0, 5)
+            _write_parquet(hist, historical_path("BTC", "perp", tmpdir))
+
+            cache = {}
+            result = load_token_data_cached("BTC", "perp", hist_cache=cache, data_dir=tmpdir)
+            assert result is not None
+            assert len(result) == 5
+            assert ("BTC", "perp") in cache
+
+    def test_cache_hit_skips_disk_read(self):
+        """Second call uses cached historical — no disk read."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            hist = _make_df(0, 5)
+            _write_parquet(hist, historical_path("BTC", "perp", tmpdir))
+
+            cache = {}
+            # First call: populates cache
+            load_token_data_cached("BTC", "perp", hist_cache=cache, data_dir=tmpdir)
+
+            # Delete the file — cache hit should still work
+            historical_path("BTC", "perp", tmpdir).unlink()
+
+            result = load_token_data_cached("BTC", "perp", hist_cache=cache, data_dir=tmpdir)
+            assert result is not None
+            assert len(result) == 5
+
+    def test_cache_hit_returns_independent_copy(self):
+        """Mutating returned DataFrame does NOT corrupt the cache."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            hist = _make_df(0, 5)
+            _write_parquet(hist, historical_path("BTC", "perp", tmpdir))
+
+            cache = {}
+            result1 = load_token_data_cached("BTC", "perp", hist_cache=cache, data_dir=tmpdir)
+            # Mutate the returned DataFrame
+            result1["close"] = 0.0
+
+            # Second call should return uncorrupted data
+            result2 = load_token_data_cached("BTC", "perp", hist_cache=cache, data_dir=tmpdir)
+            assert result2.iloc[0]["close"] != 0.0
+
+    def test_first_read_mutation_does_not_corrupt_cache(self):
+        """Mutating the first call's result does NOT corrupt the cache."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            hist = _make_df(0, 5)
+            _write_parquet(hist, historical_path("BTC", "perp", tmpdir))
+
+            cache = {}
+            result1 = load_token_data_cached("BTC", "perp", hist_cache=cache, data_dir=tmpdir)
+            original_close = result1.iloc[0]["close"]
+            # Mutate the returned DataFrame
+            result1.iloc[0, result1.columns.get_loc("close")] = -999.0
+
+            # Cache should be unaffected
+            cached_df = cache[("BTC", "perp")]
+            assert cached_df.iloc[0]["close"] == original_close
+
+    def test_live_always_read_fresh(self):
+        """Live buffer is re-read from disk on every call (not cached)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            hist = _make_df(0, 5)
+            _write_parquet(hist, historical_path("BTC", "perp", tmpdir))
+
+            live1 = _make_df(5 * 3_600_000, 2)
+            _write_parquet(live1, live_path("BTC", "perp", tmpdir))
+
+            cache = {}
+            result1 = load_token_data_cached("BTC", "perp", hist_cache=cache, data_dir=tmpdir)
+            assert len(result1) == 7  # 5 hist + 2 live
+
+            # Update live buffer with more bars
+            live2 = _make_df(5 * 3_600_000, 4)
+            _write_parquet(live2, live_path("BTC", "perp", tmpdir))
+
+            result2 = load_token_data_cached("BTC", "perp", hist_cache=cache, data_dir=tmpdir)
+            assert len(result2) == 9  # 5 hist + 4 live (new bars captured)
+
+    def test_cache_clear_forces_reread(self):
+        """After cache.clear(), next call re-reads from disk."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            hist = _make_df(0, 5)
+            _write_parquet(hist, historical_path("BTC", "perp", tmpdir))
+
+            cache = {}
+            load_token_data_cached("BTC", "perp", hist_cache=cache, data_dir=tmpdir)
+            assert ("BTC", "perp") in cache
+
+            cache.clear()
+            assert ("BTC", "perp") not in cache
+
+            # Write updated historical
+            hist2 = _make_df(0, 10)
+            _write_parquet(hist2, historical_path("BTC", "perp", tmpdir))
+
+            result = load_token_data_cached("BTC", "perp", hist_cache=cache, data_dir=tmpdir)
+            assert len(result) == 10  # Reads updated file
+
+    def test_none_cache_behaves_like_load_token_data(self):
+        """hist_cache=None falls back to identical behavior as load_token_data."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            hist = _make_df(0, 5)
+            _write_parquet(hist, historical_path("BTC", "perp", tmpdir))
+            live = _make_df(3 * 3_600_000, 4)
+            _write_parquet(live, live_path("BTC", "perp", tmpdir))
+
+            result_cached = load_token_data_cached("BTC", "perp", hist_cache=None, data_dir=tmpdir)
+            result_original = load_token_data("BTC", "perp", data_dir=tmpdir)
+
+            pd.testing.assert_frame_equal(result_cached, result_original)
+
+    def test_merge_correctness_matches_load_token_data(self):
+        """Cached path produces identical merge result to uncached path."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Historical with funding
+            hist = pd.DataFrame(
+                {"open": [100.0], "high": [105.0], "low": [95.0],
+                 "close": [100.0], "volume": [1000.0],
+                 "funding_rate": [0.0003], "funding_1h": [3e-5]},
+                index=pd.to_datetime([0], unit="ms"),
+            )
+            _write_parquet(hist, historical_path("BTC", "perp", tmpdir))
+
+            # Live overlaps + extends, no funding columns
+            live = pd.DataFrame(
+                {"open": [101.0, 110.0], "high": [106.0, 115.0],
+                 "low": [96.0, 105.0], "close": [999.0, 111.0],
+                 "volume": [1100.0, 1200.0]},
+                index=pd.to_datetime([0, 3_600_000], unit="ms"),
+            )
+            _write_parquet(live, live_path("BTC", "perp", tmpdir))
+
+            cache = {}
+            result_cached = load_token_data_cached("BTC", "perp", hist_cache=cache, data_dir=tmpdir)
+            result_original = load_token_data("BTC", "perp", data_dir=tmpdir)
+
+            pd.testing.assert_frame_equal(result_cached, result_original)

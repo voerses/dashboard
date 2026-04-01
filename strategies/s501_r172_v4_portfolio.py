@@ -294,11 +294,32 @@ def strategy(contexts: dict) -> dict:
         limit_price_1h[brk_long_1h] = prior_bb_upper_1h[brk_long_1h]
         limit_price_1h[brk_short_1h] = prior_bb_lower_1h[brk_short_1h]
 
+        # Armed levels for live detection: BB levels for qualifying tokens BEFORE cross
+        # (close hasn't crossed yet, but all other filters pass)
+        arm_long = valid_bb_1h & (vol_ratio_1h > BB_VOL_RATIO) & (mom_7d_1h > 0) & (close_1h <= prior_bb_upper_1h)
+        arm_short = valid_bb_1h & (vol_ratio_1h > BB_VOL_RATIO) & (mom_7d_1h < 0) & (close_1h >= prior_bb_lower_1h)
+
+        # Apply ADV filter
+        if ctx.rolling_adv is not None:
+            adv_ok_arm = ctx.rolling_adv >= MIN_ADV_BREAKOUT
+            arm_long = arm_long & adv_ok_arm
+            arm_short = arm_short & adv_ok_arm
+
+        armed_level = np.full(n_1h, np.nan, dtype=np.float64)
+        armed_level[arm_long] = prior_bb_upper_1h[arm_long]
+        armed_level[arm_short] = prior_bb_lower_1h[arm_short]
+
+        armed_dir = np.zeros(n_1h, dtype=np.int8)
+        armed_dir[arm_long] = 1
+        armed_dir[arm_short] = -1
+
         td['brk_long_1h'] = brk_long_1h
         td['brk_short_1h'] = brk_short_1h
         td['strength_1h'] = strength_1h
         td['sma_trail_1h'] = sma_trail_1h
         td['limit_price_1h'] = limit_price_1h
+        td['armed_levels'] = armed_level
+        td['armed_direction'] = armed_dir
 
     # ── Step 3: Momentum ranking (cross-sectional) ─────────────────
     tokens_list = sorted(token_data.keys())
@@ -498,6 +519,8 @@ def strategy(contexts: dict) -> dict:
             market_type=MarketType.PERP,
             leverage=LEVERAGE,
             entry_limit_price=limit_prices,
+            armed_levels=td.get('armed_levels'),
+            armed_direction=td.get('armed_direction'),
             # Exit management — sweep-optimized (Calmar 121.26 vs 91.83 baseline)
             stop_mult=999.0,           # No fixed stop (sweep: stop has no effect)
             trail_mult=2.0,            # 2.0 ATR trailing stop (sweep: top Calmar lever)

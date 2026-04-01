@@ -70,7 +70,7 @@ class TestDataCapAfterAnchor:
             market="perp",
         )
 
-        with patch("v4.portfolio_signals.load_token_data") as mock_load, \
+        with patch("v4.portfolio_signals.load_token_data_cached") as mock_load, \
              patch("v4.engine.Engine._build_context", _capturing_build_context):
             mock_load.return_value = df
 
@@ -83,7 +83,7 @@ class TestDataCapAfterAnchor:
             )
 
         assert len(contexts_received) > 0, "Expected _build_context to be called"
-        assert mock_load.call_count >= 1, "Expected load_token_data to be called"
+        assert mock_load.call_count >= 1, "Expected load_token_data_cached to be called"
         for ctx_info in contexts_received:
             assert ctx_info["df_max"] <= ANCHOR, (
                 f"AC1: _build_context received data up to {ctx_info['df_max']}, "
@@ -120,7 +120,7 @@ class TestDataCapAfterAnchor:
             market="perp",
         )
 
-        with patch("v4.signals.load_token_data") as mock_load, \
+        with patch("v4.signals.load_token_data_cached") as mock_load, \
              patch("v4.engine.Engine._build_context", _capturing_build_context), \
              patch("v4.signals._load_strategy_fn", return_value=_dummy_strategy):
             mock_load.return_value = df
@@ -173,7 +173,7 @@ class TestDataCapBackwardCompat:
             market="perp",
         )
 
-        with patch("v4.portfolio_signals.load_token_data") as mock_load, \
+        with patch("v4.portfolio_signals.load_token_data_cached") as mock_load, \
              patch("v4.engine.Engine._build_context", _capturing_build_context):
             mock_load.return_value = df
 
@@ -219,7 +219,7 @@ class TestDataCapBackwardCompat:
             market="perp",
         )
 
-        with patch("v4.portfolio_signals.load_token_data") as mock_load, \
+        with patch("v4.portfolio_signals.load_token_data_cached") as mock_load, \
              patch("v4.engine.Engine._build_context", _capturing_build_context):
             mock_load.return_value = df
 
@@ -274,7 +274,7 @@ class TestDataCapEquityAndSignals:
             market="perp",
         )
 
-        with patch("v4.portfolio_signals.load_token_data") as mock_load, \
+        with patch("v4.portfolio_signals.load_token_data_cached") as mock_load, \
              patch("v4.engine.Engine._build_context", _capturing_build_context):
             mock_load.return_value = df
             contexts, cutoff, anchor = _load_all_contexts(

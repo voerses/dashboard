@@ -36,7 +36,7 @@ if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
 from v4.engine import Engine, MarketType, _load_strategy_fn
-from v4.data_loader import load_token_data
+from v4.data_loader import load_token_data, load_token_data_cached
 
 
 def _load_all_contexts(
@@ -45,6 +45,7 @@ def _load_all_contexts(
     config: PortfolioConfig,
     months: int,
     end_date: Optional[pd.Timestamp] = None,
+    hist_cache: dict | None = None,
 ) -> tuple[dict, pd.Timestamp, pd.Timestamp]:
     """Load contexts for ALL tokens at once.
 
@@ -60,7 +61,7 @@ def _load_all_contexts(
     eng_perp = Engine(data_dir=DATA_DIR, market="perp", capital=config.capital, exchange=config.exchange)
 
     WARMUP_DAYS = 180
-    anchor = end_date if end_date is not None else pd.Timestamp.now().tz_localize(None)
+    anchor = end_date if end_date is not None else pd.Timestamp.now("UTC").tz_localize(None)
     trade_start = anchor - pd.DateOffset(months=months)
     if config.skip_walk_forward:
         cutoff = trade_start
@@ -73,8 +74,8 @@ def _load_all_contexts(
     for token in tokens:
         try:
             # Load data via data_loader (merges historical + live buffer)
-            df_spot_full = load_token_data(token, "spot", data_dir=DATA_DIR)
-            df_perp_full = load_token_data(token, "perp", data_dir=DATA_DIR)
+            df_spot_full = load_token_data_cached(token, "spot", hist_cache=hist_cache, data_dir=DATA_DIR)
+            df_perp_full = load_token_data_cached(token, "perp", hist_cache=hist_cache, data_dir=DATA_DIR)
 
             if is_combined:
                 if df_spot_full is None or df_perp_full is None:
@@ -110,6 +111,9 @@ def _load_all_contexts(
                 ctx_perp = eng_perp._build_context(token, df_perp, min_bars=210, market_override="perp")
                 if ctx_spot is None or ctx_perp is None:
                     continue
+                # Drop raw DataFrames — strategies only use ind_*/idx_*/regime_1h
+                ctx_spot.df_1h = ctx_spot.df_4h = ctx_spot.df_daily = None
+                ctx_perp.df_1h = ctx_perp.df_4h = ctx_perp.df_daily = None
                 contexts[token] = (ctx_spot, ctx_perp)
             elif strategy_spec.market == "spot":
                 if df_spot is None or len(df_spot) < 500:
@@ -117,6 +121,7 @@ def _load_all_contexts(
                 ctx_spot = eng_spot._build_context(token, df_spot, min_bars=210, market_override="spot")
                 if ctx_spot is None:
                     continue
+                ctx_spot.df_1h = ctx_spot.df_4h = ctx_spot.df_daily = None
                 contexts[token] = ctx_spot
             else:
                 if df_perp is None or len(df_perp) < 500:
@@ -124,11 +129,19 @@ def _load_all_contexts(
                 ctx_perp = eng_perp._build_context(token, df_perp, min_bars=210, market_override="perp")
                 if ctx_perp is None:
                     continue
+                ctx_perp.df_1h = ctx_perp.df_4h = ctx_perp.df_daily = None
                 contexts[token] = ctx_perp
 
         except Exception as e:
             print(f"  {token}: context load error - {e}")
             continue
+
+    # Clear Engine context caches to prevent accumulation across tokens.
+    # Each _build_context() call adds to _context_cache; without clearing,
+    # all 199 tokens' aggregated DataFrames persist in the Engine objects.
+    eng_spot._context_cache.clear()
+    eng_perp._context_cache.clear()
+    del eng_spot, eng_perp
 
     return contexts, cutoff, anchor
 
@@ -235,6 +248,8 @@ def _sr_to_token_signals(
     mean_target = _copy_f32(sr.mean_target_vals, n_safe) if sr.mean_target_vals is not None else None
     sma_trail = _copy_f32(sr.sma_trail_vals, n_safe) if getattr(sr, 'sma_trail_vals', None) is not None else None
     entry_limit = _copy_f32(sr.entry_limit_price, n_safe) if getattr(sr, 'entry_limit_price', None) is not None else None
+    armed_lvl = sr.armed_levels[:n_safe].copy() if getattr(sr, 'armed_levels', None) is not None else None
+    armed_dir = sr.armed_direction[:n_safe].copy() if getattr(sr, 'armed_direction', None) is not None else None
     trail_sched = np.asarray(sr.trail_schedule, dtype=np.float32) if sr.trail_schedule is not None else None
     time_trail_sched = np.asarray(sr.time_trail_schedule, dtype=np.float32) if getattr(sr, 'time_trail_schedule', None) is not None else None
     max_trail = np.asarray(sr.max_trail_mult, dtype=np.float32)[:n_safe].copy() if sr.max_trail_mult is not None else None
@@ -307,6 +322,10 @@ def _sr_to_token_signals(
             sr_conviction = sr_conviction[s:]
         if entry_limit is not None:
             entry_limit = entry_limit[s:]
+        if armed_lvl is not None:
+            armed_lvl = armed_lvl[s:]
+        if armed_dir is not None:
+            armed_dir = armed_dir[s:]
         if mean_target is not None:
             mean_target = mean_target[s:]
         if sma_trail is not None:
@@ -393,6 +412,8 @@ def _sr_to_token_signals(
         mean_target_vals=mean_target,
         sma_trail_vals=sma_trail,
         entry_limit_price=entry_limit,
+        armed_levels=armed_lvl,
+        armed_direction=armed_dir,
         is_combined=is_combined,
         secondary_entry_mask=sec_entry,
         secondary_direction=sec_dir,
@@ -506,6 +527,7 @@ def precompute_portfolio_signals(
     months: int,
     end_date: Optional[pd.Timestamp] = None,
     live_bar: int = -1,
+    hist_cache: dict | None = None,
 ) -> dict[str, TokenSignals]:
     """Precompute signals for a portfolio (Class B) strategy.
 
@@ -523,6 +545,7 @@ def precompute_portfolio_signals(
     if config.true_walk_forward:
         return _precompute_true_walk_forward(
             strategy_spec, tokens, config, months, end_date, strategy_fn,
+            hist_cache=hist_cache,
         )
 
     is_combined = strategy_spec.market == "combined"
@@ -530,6 +553,7 @@ def precompute_portfolio_signals(
     print(f"  Loading contexts for {len(tokens)} tokens ({strategy_spec.market})...")
     contexts, cutoff, anchor = _load_all_contexts(
         tokens, strategy_spec, config, months, end_date,
+        hist_cache=hist_cache,
     )
     print(f"  Loaded {len(contexts)} token contexts")
 
@@ -575,6 +599,15 @@ def precompute_portfolio_signals(
             continue
 
     print(f"  Portfolio signals: {len(results)} tokens ready for simulation")
+
+    # Free contexts and strategy results — these hold ~1.6GB of DataFrames
+    # and Engine context objects that are no longer needed after TokenSignals
+    # are built. Without this, they linger until GC runs (which may not fully
+    # reclaim under memory pressure).
+    del contexts, strategy_results
+    import gc
+    gc.collect()
+
     return results
 
 
@@ -627,6 +660,7 @@ def _precompute_true_walk_forward(
     months: int,
     end_date: Optional[pd.Timestamp],
     strategy_fn: Callable,
+    hist_cache: dict | None = None,
 ) -> dict[str, TokenSignals]:
     """Per-window signal recomputation for true walk-forward.
 
@@ -656,8 +690,8 @@ def _precompute_true_walk_forward(
     raw_data: dict[str, tuple] = {}
     for token in tokens:
         try:
-            df_spot = load_token_data(token, "spot", data_dir=DATA_DIR)
-            df_perp = load_token_data(token, "perp", data_dir=DATA_DIR)
+            df_spot = load_token_data_cached(token, "spot", hist_cache=hist_cache, data_dir=DATA_DIR)
+            df_perp = load_token_data_cached(token, "perp", hist_cache=hist_cache, data_dir=DATA_DIR)
 
             if end_date is not None:
                 if df_spot is not None:
@@ -721,6 +755,8 @@ def _precompute_true_walk_forward(
                 ctx_s = eng_spot._build_context(token, df_s, min_bars=210, market_override="spot")
                 ctx_p = eng_perp._build_context(token, df_p, min_bars=210, market_override="perp")
                 if ctx_s is not None and ctx_p is not None:
+                    ctx_s.df_1h = ctx_s.df_4h = ctx_s.df_daily = None
+                    ctx_p.df_1h = ctx_p.df_4h = ctx_p.df_daily = None
                     contexts[token] = (ctx_s, ctx_p)
             elif strategy_spec.market == "spot":
                 df_s = df1.iloc[:w.data_cap] if w.data_cap < len(df1) else df1
@@ -728,6 +764,7 @@ def _precompute_true_walk_forward(
                     continue
                 ctx = eng_spot._build_context(token, df_s, min_bars=210, market_override="spot")
                 if ctx is not None:
+                    ctx.df_1h = ctx.df_4h = ctx.df_daily = None
                     contexts[token] = ctx
             else:
                 df_p = df1.iloc[:w.data_cap] if w.data_cap < len(df1) else df1
@@ -735,6 +772,7 @@ def _precompute_true_walk_forward(
                     continue
                 ctx = eng_perp._build_context(token, df_p, min_bars=210, market_override="perp")
                 if ctx is not None:
+                    ctx.df_1h = ctx.df_4h = ctx.df_daily = None
                     contexts[token] = ctx
 
         # Call strategy

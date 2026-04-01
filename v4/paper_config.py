@@ -64,17 +64,29 @@ def load_paper_config(path: str) -> PaperConfig:
         strategy_list.append(StrategySpec.from_dict(s))
 
     # --- Merge strategy-declared PORTFOLIO_CONFIG as defaults ---
-    # Strategy module's PORTFOLIO_CONFIG fills in missing config.json fields
+    # Strategy module's PORTFOLIO_CONFIG fills in missing config.json fields.
+    # Also auto-detect strategy_type from module's STRATEGY_TYPE attribute
+    # when config.json doesn't set it explicitly.
     merged_pconf = {}
-    for spec in strategy_list:
+    for i, spec in enumerate(strategy_list):
         try:
-            from v4.portfolio_backtest import _load_strategy_module_attrs
+            from v4.portfolio_backtest import _load_strategy_module_attrs, _detect_strategy_type
             mod_attrs = _load_strategy_module_attrs(spec.strategy_id)
             pconf = mod_attrs.get('portfolio_config', {})
             merged_pconf.update(pconf)
             # Fill entry_resolution from strategy if config.json didn't set it
             if 'entry_resolution' in pconf and spec.entry_resolution == 0:
                 spec.entry_resolution = pconf['entry_resolution']
+            # Auto-detect strategy_type from module if config.json didn't set it
+            if spec.strategy_type == "per_token" and "strategy_type" not in data["strategies"][i]:
+                detected = _detect_strategy_type(spec.strategy_id)
+                if detected != spec.strategy_type:
+                    import logging
+                    logging.getLogger(__name__).info(
+                        "Auto-detected strategy_type='%s' for %s (module STRATEGY_TYPE)",
+                        detected, spec.strategy_id,
+                    )
+                    spec.strategy_type = detected
         except Exception as e:
             import logging
             logging.getLogger(__name__).warning(

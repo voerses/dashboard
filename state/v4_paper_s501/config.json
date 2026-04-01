@@ -2,15 +2,12 @@
   "pool_name": "s501",
   "initial_capital": 150000.0,
   "mode": "pool",
-  "conviction_mode": "ranked",
-  "max_portfolio_positions": 50,
   "strategies": [
     {
       "strategy_id": "s501",
       "weight": 1.0,
       "market": "perp",
       "max_positions": 50,
-      "entry_resolution": 1,
       "exit_resolution": 5
     }
   ]

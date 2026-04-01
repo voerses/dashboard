@@ -344,7 +344,7 @@ SIGNAL_LIBRARY = {
     "volume_climax_reversal": {
         "family": "microstructure",
         "code": """
-    vol = ctx.ind_1h['volume'] if 'volume' in ctx.ind_1h else ctx.df_1h['volume'].values
+    vol = ctx.ind_1h['volume']
     from engine import rolling_mean, rolling_std
     vol_mean = rolling_mean(vol, 168)
     vol_std = rolling_std(vol, 168)
@@ -362,7 +362,7 @@ SIGNAL_LIBRARY = {
     "obv_divergence": {
         "family": "microstructure",
         "code": """
-    vol = ctx.ind_1h['volume'] if 'volume' in ctx.ind_1h else ctx.df_1h['volume'].values
+    vol = ctx.ind_1h['volume']
     ret_sign = np.sign(ctx.ind_1h['ret_1'])
     obv = np.cumsum(ret_sign * vol)
     from engine import rolling_mean
@@ -383,7 +383,7 @@ SIGNAL_LIBRARY = {
     "vpin_regime": {
         "family": "microstructure",
         "code": """
-    vol = ctx.ind_1h['volume'] if 'volume' in ctx.ind_1h else ctx.df_1h['volume'].values
+    vol = ctx.ind_1h['volume']
     high = ctx.ind_1h['high']
     low = ctx.ind_1h['low']
     mid = (high + low) / 2
@@ -802,7 +802,7 @@ SIGNAL_LIBRARY = {
         "family": "microstructure",
         "code": """
     # Volume-Price Trend Confirmation: rising price on rising volume
-    vol = ctx.ind_1h['volume'] if 'volume' in ctx.ind_1h else ctx.df_1h['volume'].values
+    vol = ctx.ind_1h['volume']
     from engine import rolling_mean
     vol_20 = rolling_mean(vol, 20)
     vol_rising = vol > vol_20 * 1.2

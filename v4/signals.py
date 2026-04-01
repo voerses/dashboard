@@ -23,7 +23,7 @@ if str(_project_root) not in sys.path:
 
 from v4.engine import Engine, MarketType, _load_strategy_fn
 from v4.universe import get_all_tradeable
-from v4.data_loader import load_token_data, discover_tokens_from_data, infer_data_end_date as _infer_end
+from v4.data_loader import load_token_data, load_token_data_cached, discover_tokens_from_data, infer_data_end_date as _infer_end
 
 
 DATA_DIR = str(_project_root / "data")
@@ -89,6 +89,10 @@ class TokenSignals:
     sma_trail_vals: Optional[np.ndarray] = None
     # Limit entry price: per-bar limit price (None = market at close)
     entry_limit_price: Optional[np.ndarray] = None
+    # Armed entry levels: per-bar watch price for real-time cross detection (None = not armed)
+    # Unlike entry_limit_price (set on cross bars), armed_levels are set on PRE-cross bars
+    armed_levels: Optional[np.ndarray] = None     # float64, NaN = not armed
+    armed_direction: Optional[np.ndarray] = None  # int8, 0 = not armed, 1 = long, -1 = short
     # Combined strategy (spot+perp)
     is_combined: bool = False
     secondary_entry_mask: Optional[np.ndarray] = None
@@ -211,6 +215,7 @@ def precompute_strategy_signals(
     months: int,
     end_date: Optional[pd.Timestamp] = None,
     live_bar: int = -1,
+    hist_cache: dict | None = None,
 ) -> dict[str, TokenSignals]:
     """Precompute signal arrays for one strategy across all tokens.
 
@@ -227,7 +232,7 @@ def precompute_strategy_signals(
     # Dispatch to portfolio adapter for Class B strategies
     if strategy_spec.strategy_type == "portfolio":
         from .portfolio_signals import precompute_portfolio_signals
-        return precompute_portfolio_signals(strategy_spec, tokens, config, months, end_date, live_bar=live_bar)
+        return precompute_portfolio_signals(strategy_spec, tokens, config, months, end_date, live_bar=live_bar, hist_cache=hist_cache)
 
     strategy_fn = _load_strategy_fn(strategy_spec.strategy_id)
     is_single_ctx = len(inspect.signature(strategy_fn).parameters) == 1
@@ -241,8 +246,8 @@ def precompute_strategy_signals(
     for token in tokens:
         try:
             # Load data via data_loader (merges historical + live buffer)
-            df_spot_full = load_token_data(token, "spot", data_dir=DATA_DIR)
-            df_perp_full = load_token_data(token, "perp", data_dir=DATA_DIR)
+            df_spot_full = load_token_data_cached(token, "spot", hist_cache=hist_cache, data_dir=DATA_DIR)
+            df_perp_full = load_token_data_cached(token, "perp", hist_cache=hist_cache, data_dir=DATA_DIR)
 
             if is_combined:
                 if df_spot_full is None or df_perp_full is None:
@@ -263,7 +268,7 @@ def precompute_strategy_signals(
             # Warm-up budget: 180 days covers all burn-in periods with margin.
             # This avoids loading full 4-5yr parquets which cause OOM.
             WARMUP_DAYS = 180
-            anchor = end_date if end_date is not None else pd.Timestamp.now().tz_localize(None)
+            anchor = end_date if end_date is not None else pd.Timestamp.now("UTC").tz_localize(None)
             # Trading should start at anchor - months. Cutoff must be
             # train_bars hours earlier so walk-forward mask aligns exactly.
             trade_start = anchor - pd.DateOffset(months=months)
@@ -466,6 +471,13 @@ def precompute_strategy_signals(
             if getattr(sr, 'sma_trail_vals', None) is not None:
                 sma_trail = _copy_f32(sr.sma_trail_vals, n_safe)
 
+            # Entry limit price
+            entry_limit = _copy_f32(sr.entry_limit_price, n_safe) if getattr(sr, 'entry_limit_price', None) is not None else None
+
+            # Armed entry levels (pre-cross BB watch prices for real-time detection)
+            armed_lvl = sr.armed_levels[:n_safe].copy() if getattr(sr, 'armed_levels', None) is not None else None
+            armed_dir = sr.armed_direction[:n_safe].copy() if getattr(sr, 'armed_direction', None) is not None else None
+
             # Trail schedule
             trail_sched = None
             if sr.trail_schedule is not None:
@@ -567,6 +579,12 @@ def precompute_strategy_signals(
                     mean_target = mean_target[s:]
                 if sma_trail is not None:
                     sma_trail = sma_trail[s:]
+                if entry_limit is not None:
+                    entry_limit = entry_limit[s:]
+                if armed_lvl is not None:
+                    armed_lvl = armed_lvl[s:]
+                if armed_dir is not None:
+                    armed_dir = armed_dir[s:]
                 if max_trail is not None:
                     max_trail = max_trail[s:]
                 if sec_entry is not None:
@@ -655,6 +673,9 @@ def precompute_strategy_signals(
                 rsi_exit_level=sr_rsi_exit_level,
                 mean_target_vals=mean_target,
                 sma_trail_vals=sma_trail,
+                entry_limit_price=entry_limit,
+                armed_levels=armed_lvl,
+                armed_direction=armed_dir,
                 is_combined=ts_is_combined,
                 secondary_entry_mask=sec_entry,
                 secondary_direction=sec_dir,

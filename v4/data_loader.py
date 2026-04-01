@@ -99,6 +99,19 @@ def load_token_data(
                 "Corrupt live parquet for %s/%s: %s", token, market, e
             )
 
+    return _merge_hist_live(df_hist, df_live)
+
+
+def _merge_hist_live(
+    df_hist: pd.DataFrame | None,
+    df_live: pd.DataFrame | None,
+) -> pd.DataFrame | None:
+    """Merge historical and live DataFrames with dedup and schema reconciliation.
+
+    - Live wins on overlapping timestamps (shared columns only)
+    - Gap-fill bars in the historical range are preserved
+    - Funding columns filled with 0.0 to handle schema mismatch
+    """
     if df_hist is None and df_live is None:
         return None
 
@@ -157,6 +170,57 @@ def load_token_data(
         return df_hist
 
     return df_live
+
+
+def load_token_data_cached(
+    token: str,
+    market: str,
+    hist_cache: dict[tuple[str, str], pd.DataFrame] | None = None,
+    data_dir: str = DATA_DIR,
+) -> pd.DataFrame | None:
+    """Like load_token_data but caches historical parquet reads.
+
+    Historical parquets are immutable between cache rebuilds.
+    Live buffer is always read fresh from disk.
+    Falls back to identical behavior when hist_cache is None.
+    """
+    key = (token, market)
+    hist_pq = historical_path(token, market, data_dir)
+    live_pq = live_path(token, market, data_dir)
+
+    # Historical: use cache if available, else read from disk
+    df_hist = None
+    if hist_cache is not None and key in hist_cache:
+        # Defensive copy: _merge_hist_live returns df_hist directly when
+        # no live data exists, and callers must not mutate cached objects.
+        df_hist = hist_cache[key].copy()
+    elif hist_pq.exists():
+        try:
+            df_hist = pd.read_parquet(hist_pq)
+            df_hist = _ensure_datetime_index(df_hist)
+            if hist_cache is not None:
+                # Store a copy so the returned df_hist stays independent
+                # from the cached object (prevents latent cache poisoning
+                # if callers mutate the returned DataFrame).
+                hist_cache[key] = df_hist.copy()
+
+        except Exception as e:
+            logging.getLogger(__name__).warning(
+                "Corrupt historical parquet for %s/%s: %s", token, market, e
+            )
+
+    # Live: always read fresh
+    df_live = None
+    if live_pq.exists():
+        try:
+            df_live = pd.read_parquet(live_pq)
+            df_live = _ensure_datetime_index(df_live)
+        except Exception as e:
+            logging.getLogger(__name__).warning(
+                "Corrupt live parquet for %s/%s: %s", token, market, e
+            )
+
+    return _merge_hist_live(df_hist, df_live)
 
 
 def discover_tokens_from_data(
@@ -254,7 +318,7 @@ def infer_data_end_date(
                             continue
 
     if latest == pd.Timestamp.min:
-        return pd.Timestamp.now().tz_localize(None)
+        return pd.Timestamp.now("UTC").tz_localize(None)
     return latest
 
 
