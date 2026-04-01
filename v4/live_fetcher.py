@@ -23,9 +23,12 @@ _MINUTE_MS = 60_000
 class LiveFetcher:
     """Fetches live OHLCV + funding data and appends to parquet cache."""
 
-    def __init__(self, exchange=None, data_dir: str = "data"):
+    write_to_history: bool = False
+
+    def __init__(self, exchange=None, data_dir: str = "data", write_to_history: bool = False):
         self.exchange = exchange
         self.data_dir = data_dir
+        self.write_to_history = write_to_history
         # Per-token locks for 1m parquet writes — prevents lost-update race
         # when writer thread and backfill thread write concurrently.
         self._1m_write_locks: dict[str, threading.Lock] = {}
@@ -332,13 +335,16 @@ class LiveFetcher:
     # ------------------------------------------------------------------
 
     def _parquet_path(self, token: str, market: str) -> str:
-        """Return the live buffer parquet path for a token/market.
+        """Return the parquet path for a token/market.
 
-        Live data is written to data/{market}/live/{TOKEN}.parquet,
-        separate from the immutable historical cache in 1h_cache/.
-        Consumers use v4/data_loader.load_token_data() to merge both
-        at read time.
+        When write_to_history=True, writes directly to the historical
+        cache (data/{market}/1h_cache/{TOKEN}_1h.parquet).
+        Otherwise writes to the live buffer (data/{market}/live/{TOKEN}.parquet).
         """
+        if self.write_to_history:
+            return os.path.join(
+                self.data_dir, market, "1h_cache", f"{token}_1h.parquet",
+            )
         return os.path.join(
             self.data_dir, market, "live", f"{token}.parquet",
         )

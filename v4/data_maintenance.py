@@ -213,7 +213,9 @@ def ensure_data_fresh(
 
         if not promote_only:
             # AC3/AC6: Backfill 1h gaps for spot and perp
-            fetcher = LiveFetcher(exchange=exchange, data_dir=data_dir)
+            # Write directly to 1h_cache — these are fully closed historical
+            # bars, no need for the live buffer → promote roundtrip.
+            fetcher = LiveFetcher(exchange=exchange, data_dir=data_dir, write_to_history=True)
             try:
                 elapsed = time.monotonic() - start_time
                 if elapsed >= max_duration_s:
