@@ -879,12 +879,14 @@ def main(argv: list[str] | None = None) -> None:
             logger.warning("1H PriceMonitor connection failed — will use REST fallback")
             ws_available = False
 
-    # AC9: Startup data maintenance — backfill gaps, promote, fetch 1m
+    # AC9: Startup data maintenance — backfill 1h gaps, promote.
+    # skip_1m=True: s501 uses live WS 1m candles, not historical 1m parquets.
     try:
         maint_summary = ensure_data_fresh(
             exchange=exchange,
             data_dir="data",
             caller="runner_startup",
+            skip_1m=True,
         )
         logger.info(
             "Data maintenance: %d gaps filled, %d bars fetched, %d tokens promoted",
@@ -943,7 +945,12 @@ def main(argv: list[str] | None = None) -> None:
                 _hb.start()
 
             try:
-                if ws_available and collector is not None:
+                if first_tick:
+                    # Startup just ran ensure_data_fresh() which backfilled all
+                    # 1H gaps and promoted live→hist. Data is already current —
+                    # skip the redundant REST fetch (~2 min for 236 tokens).
+                    logger.info("First tick — skipping data fetch (startup backfill is fresh)")
+                elif ws_available and collector is not None:
                     # AC14: Event-driven wait on WS-delivered 1H bars
                     got_data = collector.wait_for_ready(timeout=120)
                     if got_data:
@@ -1089,14 +1096,18 @@ def main(argv: list[str] | None = None) -> None:
                     logger.warning("4h promotion failed: %s", e)
                     last_promote_time = time.time()  # Prevent retry spam on persistent failure
 
-            # AC11: Backfill 1m data for all perp tokens after each hourly fetch
-            try:
-                from v4.data_maintenance import discover_perp_1m_tokens
-                all_1m_tokens = set(discover_perp_1m_tokens("data"))
-                if all_1m_tokens:
-                    _backfill_1m_background(exchange_cls, ccxt_config, all_1m_tokens)
-            except Exception as e:
-                logger.warning("1m background backfill launch failed: %s", e)
+            # AC11: Backfill 1m data — DISABLED for paper trading.
+            # s501's entry_resolution=1 uses live WS 1m candles, not historical
+            # 1m parquets.  The 1m backfill is only needed for backtesting.
+            # Skipping saves ~5-8 min per tick and reduces memory pressure.
+            # To re-enable: uncomment the block below.
+            # try:
+            #     from v4.data_maintenance import discover_perp_1m_tokens
+            #     all_1m_tokens = set(discover_perp_1m_tokens("data"))
+            #     if all_1m_tokens:
+            #         _backfill_1m_background(exchange_cls, ccxt_config, all_1m_tokens)
+            # except Exception as e:
+            #     logger.warning("1m background backfill launch failed: %s", e)
 
             # Step 4: Update PriceMonitor subscriptions for sub-hourly exits
             # Shared monitors: update with union of all engines' tokens (AC11, AC13)

@@ -74,8 +74,11 @@ def _load_all_contexts(
     for token in tokens:
         try:
             # Load data via data_loader (merges historical + live buffer)
-            df_spot_full = load_token_data_cached(token, "spot", hist_cache=hist_cache, data_dir=DATA_DIR)
-            df_perp_full = load_token_data_cached(token, "perp", hist_cache=hist_cache, data_dir=DATA_DIR)
+            # max_rows=22000 trims multi-year parquets in cache to fit the
+            # worst case: 12mo lookback + 8760h train + 180d warmup ≈ 21,840 bars.
+            # Saves ~400MB across 236 tokens (55K→22K rows per token).
+            df_spot_full = load_token_data_cached(token, "spot", hist_cache=hist_cache, data_dir=DATA_DIR, max_rows=22000)
+            df_perp_full = load_token_data_cached(token, "perp", hist_cache=hist_cache, data_dir=DATA_DIR, max_rows=22000)
 
             if is_combined:
                 if df_spot_full is None or df_perp_full is None:
@@ -142,6 +145,13 @@ def _load_all_contexts(
     eng_spot._context_cache.clear()
     eng_perp._context_cache.clear()
     del eng_spot, eng_perp
+
+    # Clear hist_cache to free ~290MB of cached DataFrames that are no longer
+    # needed — all data has been extracted into StrategyContext objects.
+    # The cache will re-populate from disk on the next tick (~30s IO cost,
+    # but prevents OOM in 4GB containers).
+    if hist_cache is not None:
+        hist_cache.clear()
 
     return contexts, cutoff, anchor
 
@@ -568,11 +578,14 @@ def precompute_portfolio_signals(
 
     # Convert each StrategyResult → TokenSignals
     results: dict[str, TokenSignals] = {}
-    for token, sr in strategy_results.items():
+    for token, sr in list(strategy_results.items()):
         if token not in contexts:
             continue
 
-        ctx = contexts[token]
+        # pop() instead of [] — frees the StrategyContext immediately after
+        # TokenSignals extraction, reducing peak memory by ~400-600MB for
+        # 236-token universes.
+        ctx = contexts.pop(token)
         if is_combined:
             ctx_spot, ctx_perp = ctx
         elif strategy_spec.market == "spot":

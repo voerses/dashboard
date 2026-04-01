@@ -1999,6 +1999,14 @@ class PaperPortfolioEngine:
         # use the latest processed tick's timestamp, not the restored one
         self.last_timestamp = timestamp
 
+        # Free large tick-scoped data structures before dashboard generation.
+        # all_signals + bar_maps hold ~300-500MB of NumPy arrays that are no
+        # longer needed after persistence.  Explicit del + gc.collect() reclaims
+        # memory immediately rather than waiting for Python's GC cycle.
+        del all_signals, bar_maps
+        import gc as _gc
+        _gc.collect()
+
         # AC26: Trigger dashboard generation after persistence
         self._trigger_dashboard()
 

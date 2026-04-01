@@ -170,8 +170,14 @@ def ensure_data_fresh(
     data_dir: str = "data",
     promote_only: bool = False,
     verbose: bool = False,
+    skip_1m: bool = False,
 ) -> dict:
     """Ensure data is fresh by backfilling gaps, promoting, and fetching 1m.
+
+    Args:
+        skip_1m: If True, skip the 1m perp backfill. Used by the paper
+            trading runner where 1m data comes from live WebSocket feeds,
+            not historical parquets.
 
     Returns a summary dict with keys:
       gaps_filled, bars_fetched, tokens_failed, tokens_promoted,
@@ -241,7 +247,7 @@ def ensure_data_fresh(
                 )
 
             # AC11: Backfill 1m gaps for perp tokens via backfill_gaps
-            if not summary["timed_out"]:
+            if not summary["timed_out"] and not skip_1m:
                 try:
                     perp_1m_tokens = discover_perp_1m_tokens(data_dir)
                     if perp_1m_tokens:
