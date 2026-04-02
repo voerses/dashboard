@@ -203,15 +203,13 @@ def load_token_data_cached(
         try:
             df_hist = pd.read_parquet(hist_pq)
             df_hist = _ensure_datetime_index(df_hist)
+            # Trim to max_rows BEFORE caching AND returning.  Without this,
+            # the full parquet (e.g. 55K rows) is returned even though only
+            # the trimmed copy is cached — wasting ~10× memory on first load.
+            if max_rows > 0:
+                df_hist = df_hist.iloc[-max_rows:]
             if hist_cache is not None:
-                # Trim to max_rows to prevent multi-year parquets from bloating
-                # the in-memory cache.  236 tokens x 55K rows x 3.4MB = ~800MB;
-                # trimmed to 15K rows = ~230MB (saving ~570MB).
-                # Always .copy() on insertion so returned df_hist stays independent.
-                if max_rows > 0:
-                    hist_cache[key] = df_hist.iloc[-max_rows:].copy()
-                else:
-                    hist_cache[key] = df_hist.copy()
+                hist_cache[key] = df_hist.copy()
 
         except Exception as e:
             logging.getLogger(__name__).warning(

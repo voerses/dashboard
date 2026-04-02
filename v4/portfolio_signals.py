@@ -90,7 +90,7 @@ def _load_all_contexts(
         try:
             # Load only the market data this strategy actually needs.
             # Avoids caching ~789 MB of unused data (e.g., spot for perp-only).
-            # config.cache_max_rows controls trimming: 22000 for paper, 0 for backtest.
+            # config.cache_max_rows controls trimming: 5000 for paper, 0 for backtest.
             df_spot_full = None
             df_perp_full = None
             if need_spot:
@@ -220,8 +220,8 @@ def _sr_to_token_signals(
         p_regime = ctx_spot.regime_1h[:n_safe].copy()
         p_funding = np.zeros(n_safe, dtype=np.float32)
         timestamps = ctx_spot.idx_1h[:n_safe].copy()
-        p_rsi = _copy_f32(ctx_spot.ind_1h["rsi"], n_safe)
         _ind = ctx_spot.ind_1h
+        p_rsi = _copy_f32(_ind["rsi"], n_safe) if "rsi" in _ind else None
         p_volume = _copy_f32(_ind["volume"], n_safe) if "volume" in _ind else None
         p_vol_20 = _copy_f32(_ind["vol_20"], n_safe) if "vol_20" in _ind else None
         p_ret_1h = _copy_f32(_ind["ret_1"], n_safe) if "ret_1" in _ind else None
@@ -234,8 +234,8 @@ def _sr_to_token_signals(
         p_regime = ctx_perp.regime_1h[:n_safe].copy()
         p_funding = _copy_f32(ctx_perp.funding_1h, n_safe) if ctx_perp.funding_1h is not None else np.zeros(n_safe, dtype=np.float32)
         timestamps = ctx_perp.idx_1h[:n_safe].copy()
-        p_rsi = _copy_f32(ctx_perp.ind_1h["rsi"], n_safe)
         _ind = ctx_perp.ind_1h
+        p_rsi = _copy_f32(_ind["rsi"], n_safe) if "rsi" in _ind else None
         p_volume = _copy_f32(_ind["volume"], n_safe) if "volume" in _ind else None
         p_vol_20 = _copy_f32(_ind["vol_20"], n_safe) if "vol_20" in _ind else None
         p_ret_1h = _copy_f32(_ind["ret_1"], n_safe) if "ret_1" in _ind else None
@@ -348,7 +348,8 @@ def _sr_to_token_signals(
         p_adv = p_adv[s:]
         p_regime = p_regime[s:]
         p_funding = p_funding[s:]
-        p_rsi = p_rsi[s:]
+        if p_rsi is not None:
+            p_rsi = p_rsi[s:]
         entry_mask = entry_mask[s:]
         sr_direction = sr_direction[s:]
         sr_stop_mult = sr_stop_mult[s:]
