@@ -32,6 +32,7 @@ from v4.position import Position, ClosedTrade, PositionManager
 import v4.simulator as _sim
 from v4.simulator import SimulationState
 from v4.signals import precompute_strategy_signals, discover_tokens
+from v4.engine import Engine, _load_strategy_fn, _load_strategy_required_plugins
 from v4.sizing import get_slippage_model
 from v4.paper_state import (
     serialize_state, atomic_write_state, append_trades, append_equity,
@@ -2028,14 +2029,49 @@ class PaperPortfolioEngine:
         all_signals: dict[str, dict] = {}
         strategy_specs = {s.strategy_id: s for s in self.config.strategies}
 
+        # Pre-load strategy modules and compute shared plugin requirements.
+        # If ALL strategies declare REQUIRED_PLUGINS, create shared engines
+        # with _required_plugins = union(all). If ANY lacks it, fall back to
+        # _required_plugins = None (all plugins, backward compat).
+        all_req_plugins = []
+        for spec in self.config.strategies:
+            _load_strategy_fn(spec.strategy_id)  # populate module cache
+            rp = _load_strategy_required_plugins(spec.strategy_id)
+            all_req_plugins.append(rp)
+
+        if all(rp is not None for rp in all_req_plugins):
+            union_plugins = sorted(set().union(*(rp for rp in all_req_plugins)))
+        else:
+            union_plugins = None  # fall back to all plugins
+            if any(rp is not None for rp in all_req_plugins):
+                logger.warning(
+                    "Mixed REQUIRED_PLUGINS declarations — some strategies "
+                    "declare plugins, some don't. Running all plugins (safe fallback)."
+                )
+
+        DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+        shared_eng_spot = Engine(data_dir=DATA_DIR, market="spot", capital=self.config.capital, exchange=self.config.exchange)
+        shared_eng_perp = Engine(data_dir=DATA_DIR, market="perp", capital=self.config.capital, exchange=self.config.exchange)
+        shared_eng_spot._required_plugins = union_plugins
+        shared_eng_perp._required_plugins = union_plugins
+
         any_tokens_found = False
         for spec in self.config.strategies:
             tokens = discover_tokens(spec.market)
             if tokens:
                 any_tokens_found = True
             live_bar = self.tick_counter if getattr(self, '_strategy_entry_resolution', {}).get(spec.strategy_id, 0) > 0 else -1
-            sigs = precompute_strategy_signals(spec, tokens, self.config, self.config.lookback_months, live_bar=live_bar, hist_cache=self._hist_cache)
+            sigs = precompute_strategy_signals(
+                spec, tokens, self.config, self.config.lookback_months,
+                live_bar=live_bar, hist_cache=self._hist_cache,
+                eng_spot=shared_eng_spot, eng_perp=shared_eng_perp,
+            )
             all_signals[spec.strategy_id] = sigs
+
+        # Clear shared engine context caches after all strategies complete
+        shared_eng_spot._context_cache.clear()
+        shared_eng_perp._context_cache.clear()
+        del shared_eng_spot, shared_eng_perp
 
         if not any_tokens_found:
             logger.warning("No parquet cache data found — cold start or missing data directory")
