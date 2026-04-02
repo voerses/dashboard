@@ -41,6 +41,31 @@ from v4.paper_state import (
 from v4.universe import get_fee_rate
 
 
+def _parse_ts(s: str) -> float:
+    """Parse ISO-UTC timestamp to epoch seconds, returning 0 on failure."""
+    import calendar
+    try:
+        return calendar.timegm(time.strptime(s, "%Y-%m-%dT%H:%M:%SZ"))
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def _current_4h_window_end() -> float:
+    """Return epoch seconds of the end of the current 4H window (UTC).
+
+    4H windows align to Binance candle boundaries: 0, 4, 8, 12, 16, 20 UTC.
+    """
+    import calendar
+    t = time.gmtime()
+    next_4h = (t.tm_hour // 4 + 1) * 4
+    if next_4h >= 24:
+        # Rolls to next day at midnight
+        import datetime
+        d = datetime.date(t.tm_year, t.tm_mon, t.tm_mday) + datetime.timedelta(days=1)
+        return calendar.timegm(d.timetuple())
+    return calendar.timegm((t.tm_year, t.tm_mon, t.tm_mday, next_4h, 0, 0, 0, 0, 0))
+
+
 @dataclass
 class TickResult:
     """Result of processing a single tick."""
@@ -1277,14 +1302,25 @@ class PaperPortfolioEngine:
                     "partial_tp_trail": getattr(sig, 'partial_tp_trail', 1.5),
                     "breakeven_atr": getattr(sig, 'breakeven_atr', 0.0),
                     "chandelier_lookback": getattr(sig, 'chandelier_lookback', 0),
+                    "window_end": _current_4h_window_end(),
                 }
 
-        # Detect expired (unfilled) armed entries before swap
+        # Detect expired (unfilled) armed entries before swap.
+        # Carry forward old armed orders whose 4H window hasn't ended,
+        # even if the strategy no longer arms them (matches backtester
+        # which evaluates all conditions on the cross bar, not pre-emptively).
+        now_epoch = time.time()
         expired = []
         with self._armed_tokens_lock:
             old_armed = self._armed_tokens
             for key, armed in old_armed.items():
-                if key not in new_armed:
+                if key in new_armed:
+                    continue  # Still armed by strategy — new_armed takes precedence
+                window_end = armed.get("window_end", 0)
+                if window_end > now_epoch:
+                    # 4H window still open — carry forward
+                    new_armed[key] = armed
+                else:
                     expired.append({
                         "event": "expired",
                         "strategy": key[0],
@@ -1293,7 +1329,7 @@ class PaperPortfolioEngine:
                         "level": armed.get("level", 0),
                         "close_val": armed.get("close_val", 0),
                         "tick_counter": armed.get("tick_counter", 0),
-                        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                        "expired_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                     })
             self._armed_tokens = new_armed
             self._last_expired_orders = expired
@@ -1613,6 +1649,64 @@ class PaperPortfolioEngine:
             os.rename(tmp, state_path)
 
     # ------------------------------------------------------------------
+    # Funding settlement
+    # ------------------------------------------------------------------
+
+    def apply_funding_settlement(self, funding_rates: dict[str, list[dict]]) -> int:
+        """Apply funding rate settlement to all open perp positions.
+
+        Called at 8-hour settlement intervals when funding rates are fetched
+        via REST.  Applies the full 8h funding rate as a one-time debit/credit,
+        independent of the simulator's per-bar exit processing.
+
+        Args:
+            funding_rates: Dict mapping token → [{"fundingRate": float, ...}]
+
+        Returns:
+            Number of positions that had funding applied.
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        applied = 0
+        total_cost = 0.0
+
+        for st in self._get_all_states():
+            for pos in list(st.position_manager.open_positions):
+                if not pos.is_perp:
+                    continue
+                rates = funding_rates.get(pos.token)
+                if not rates:
+                    continue
+                rate = float(rates[0]["fundingRate"])  # raw 8h rate
+                if rate == 0.0:
+                    continue
+
+                # Use last known price for notional (or entry price as fallback)
+                price = self._last_known_prices.get(pos.token, pos.entry_price)
+                notional = abs(pos.quantity * price)
+                d_sign = 1.0 if pos.quantity > 0 else -1.0
+                funding_cost = notional * rate * d_sign
+
+                pos.cumulative_funding += funding_cost
+                st.total_funding += funding_cost
+                total_cost += funding_cost
+                applied += 1
+
+                logger.debug(
+                    "Funding settlement: %s %s rate=%.6f notional=%.2f cost=%.4f cum=%.4f",
+                    pos.token, "LONG" if pos.quantity > 0 else "SHORT",
+                    rate, notional, funding_cost, pos.cumulative_funding,
+                )
+
+        if applied:
+            logger.info(
+                "Funding settlement: %d positions, total_cost=%.4f",
+                applied, total_cost,
+            )
+        return applied
+
+    # ------------------------------------------------------------------
     # Tick processing
     # ------------------------------------------------------------------
 
@@ -1630,10 +1724,24 @@ class PaperPortfolioEngine:
         RSIExitHandler, MeanTargetHandler, or chandelier lookback.
 
         This covers both :sub positions (AC29) and hourly positions.
+
+        Funding note: funding_1h arrays are zeroed out before calling the
+        simulator to prevent double-counting.  Funding is applied at 8h
+        settlement time via apply_funding_settlement() instead.
         """
         for st in self._get_all_states():
             for pos in st.position_manager.open_positions:
                 pos.exit_handlers = []
+
+        # Zero out funding_1h in signals — funding is handled at settlement
+        # time by apply_funding_settlement(), not per-bar by the simulator.
+        # Signals are regenerated fresh each tick so this has no lasting effect.
+        for _sid, token_sigs in all_signals.items():
+            for _tok, sig in token_sigs.items():
+                if sig.funding_1h is not None:
+                    sig.funding_1h[:] = 0.0
+                if sig.perp_funding_1h is not None:
+                    sig.perp_funding_1h[:] = 0.0
 
         strategy_specs = {s.strategy_id: s for s in self.config.strategies}
         if self.config.mode == "independent":
@@ -1793,6 +1901,23 @@ class PaperPortfolioEngine:
 
             logger.info("Data fetch: %d ok, %d err, %d bars appended, %d funding merged",
                         fetch_ok, fetch_err, bars_appended, funding_merged)
+
+            # Apply funding settlement at 8h intervals (00, 08, 16 UTC)
+            hour_utc = time.gmtime().tm_hour
+            last_settle_hour = getattr(self, '_last_funding_settle_hour', -1)
+            if hour_utc in (0, 8, 16) and hour_utc != last_settle_hour:
+                # Collect per-token rates into batch format for settlement
+                batch: dict[str, list[dict]] = {}
+                for token in all_tokens_to_fetch:
+                    try:
+                        rates = self.fetcher.fetch_funding_rates(token, limit=1)
+                        if rates:
+                            batch[token] = rates
+                    except Exception:
+                        pass
+                if batch:
+                    self.apply_funding_settlement(batch)
+                self._last_funding_settle_hour = hour_utc
         else:
             logger.debug("No fetcher configured — using existing parquet data")
 
@@ -2504,7 +2629,8 @@ class PaperPortfolioEngine:
                 "entry_resolution": _exit_res_label(getattr(s, 'entry_resolution', 0)),
             } for s in config.strategies]
 
-        # Build all_trades (closed + open)
+        # Build all_trades (closed + open) — raw data, no consolidation
+        # (partial TP consolidation is done in the frontend JS)
         all_trades = []
         for t in all_closed_trades:
             all_trades.append({
@@ -2531,6 +2657,9 @@ class PaperPortfolioEngine:
                 "entry_timestamp": t.entry_timestamp,
                 "exit_timestamp": t.exit_timestamp,
             })
+
+        if strategies and "trade_count" in strategies[0]:
+            strategies[0]["trade_count"] = len(all_trades)
 
         # AC28: Include open positions with status="open"
         last_prices = dict(getattr(self, '_last_known_prices', {}))

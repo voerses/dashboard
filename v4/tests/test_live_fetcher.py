@@ -326,11 +326,11 @@ class TestMergeFundingIntoParquet:
     """Funding merge: merge_funding_into_parquet adds funding_1h column."""
 
     def test_merge_funding_adds_column(self):
-        """merge_funding_into_parquet adds funding_1h column to perp live buffer."""
+        """merge_funding_into_parquet adds funding_1h column to 1h_cache parquet."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            live_dir = os.path.join(tmpdir, "perp", "live")
-            os.makedirs(live_dir, exist_ok=True)
-            parquet_path = os.path.join(live_dir, "BTC.parquet")
+            cache_dir = os.path.join(tmpdir, "perp", "1h_cache")
+            os.makedirs(cache_dir, exist_ok=True)
+            parquet_path = os.path.join(cache_dir, "BTC_1h.parquet")
 
             # Use hour-aligned timestamps (matching production data format).
             # Funding timestamps floor to hours, so parquet index must be on
@@ -364,9 +364,9 @@ class TestMergeFundingIntoParquet:
     def test_merge_funding_empty_rates(self):
         """merge_funding_into_parquet with empty rates does not crash or corrupt data."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            live_dir = os.path.join(tmpdir, "perp", "live")
-            os.makedirs(live_dir, exist_ok=True)
-            parquet_path = os.path.join(live_dir, "BTC.parquet")
+            cache_dir = os.path.join(tmpdir, "perp", "1h_cache")
+            os.makedirs(cache_dir, exist_ok=True)
+            parquet_path = os.path.join(cache_dir, "BTC_1h.parquet")
 
             existing_df = _make_parquet_df(1_000_000, 3)
             existing_df.to_parquet(parquet_path)

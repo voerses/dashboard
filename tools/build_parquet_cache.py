@@ -205,7 +205,9 @@ def read_binance_funding(token):
     if 'timestamp' not in df.columns or 'funding_rate' not in df.columns:
         return None
 
-    df['dt'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True).dt.tz_localize(None)
+    # Floor to hour to prevent ms jitter (e.g. 08:00:00.010) from shifting
+    # the settlement into the wrong hourly bin during resample().ffill().
+    df['dt'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True).dt.tz_localize(None).dt.floor('h')
     df = df.set_index('dt').sort_index()
     return df[['funding_rate']].copy()
 
@@ -220,7 +222,7 @@ def read_kraken_funding(token):
     if 'timestamp' not in df.columns or 'funding_rate' not in df.columns:
         return None
 
-    df['dt'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True).dt.tz_localize(None)
+    df['dt'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True).dt.tz_localize(None).dt.floor('h')
     df = df.set_index('dt').sort_index()
     return df[['funding_rate']].copy()
 
@@ -239,7 +241,7 @@ def read_hyperliquid_funding(token):
     if 'time' not in df.columns or 'fundingRate' not in df.columns:
         return None
 
-    df['dt'] = pd.to_datetime(df['time'], unit='ms', utc=True).dt.tz_localize(None)
+    df['dt'] = pd.to_datetime(df['time'], unit='ms', utc=True).dt.tz_localize(None).dt.floor('h')
     df = df.set_index('dt').sort_index()
     df = df.rename(columns={'fundingRate': 'funding_rate'})
     return df[['funding_rate']].copy()

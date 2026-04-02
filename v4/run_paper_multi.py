@@ -710,7 +710,6 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.prices:
         # Fetch and print current prices — no tick, no PID lock
-        from v4.signals import discover_tokens
         all_tokens: set[str] = set()
         for config in configs:
             for spec in config.strategies:
@@ -797,7 +796,7 @@ def main(argv: list[str] | None = None) -> None:
             while not _startup_heartbeat_stop.wait(1.0):
                 try:
                     write_dashboard_state(
-                        engines, configs, runner_status="starting",
+                        engines, configs, runner_status="starting", include_armed=True,
                     )
                 except Exception:
                     pass
@@ -838,7 +837,7 @@ def main(argv: list[str] | None = None) -> None:
                 else:
                     all_perp_tokens.update(tokens)
             except Exception:
-                pass
+                logger.exception("discover_tokens(%s) failed", spec.market)
 
     collector = None
     perp_1h_monitor = None
@@ -876,8 +875,11 @@ def main(argv: list[str] | None = None) -> None:
                 logger.info("1H spot PriceMonitor started (%d tokens)", len(all_spot_tokens))
             ws_available = True
         except Exception:
-            logger.warning("1H PriceMonitor connection failed — will use REST fallback")
+            logger.warning("1H PriceMonitor connection failed — will use REST fallback", exc_info=True)
             ws_available = False
+
+    logger.info("1H WS setup: perp=%d tokens, spot=%d tokens, ws_available=%s, collector=%s",
+                len(all_perp_tokens), len(all_spot_tokens), ws_available, collector is not None)
 
     # AC9: Startup data maintenance — backfill 1h gaps, promote.
     # skip_1m=True: s501 uses live WS 1m candles, not historical 1m parquets.
@@ -912,7 +914,7 @@ def main(argv: list[str] | None = None) -> None:
             _startup_heartbeat_stop.set()
             if live_dashboard:
                 try:
-                    write_dashboard_state(engines, configs, include_sentinel=True)
+                    write_dashboard_state(engines, configs, include_sentinel=True, include_armed=True)
                 except Exception:
                     logger.exception("Live dashboard state write failed (non-fatal)")
             _disconnect_shared_monitors(shared_monitors)
@@ -928,6 +930,7 @@ def main(argv: list[str] | None = None) -> None:
     last_promote_time = time.time()
 
     first_tick = True
+    _last_settlement_ts = 0  # Track last applied funding settlement timestamp
     try:
         while not shutdown.is_set():
             # Step 1: Wait for 1H data via WS or fall back to REST
@@ -937,7 +940,7 @@ def main(argv: list[str] | None = None) -> None:
                     while not _heartbeat_stop.wait(1.0):
                         try:
                             write_dashboard_state(
-                                engines, configs, runner_status="fetching",
+                                engines, configs, runner_status="fetching", include_armed=True,
                             )
                         except Exception:
                             pass
@@ -952,11 +955,17 @@ def main(argv: list[str] | None = None) -> None:
                     logger.info("First tick — skipping data fetch (startup backfill is fresh)")
                 elif ws_available and collector is not None:
                     # AC14: Event-driven wait on WS-delivered 1H bars
+                    logger.info("WS path: waiting for collector ready (timeout=120s)...")
                     got_data = collector.wait_for_ready(timeout=120)
+                    logger.info("WS collector ready=%s", got_data)
                     if got_data:
                         # AC7a: Drain write queue before reading parquets
                         collector._write_queue.join()
                         received = collector.consume()
+                        total_ws = sum(len(v) for v in received.values())
+                        logger.info("WS received: %d tokens across %d markets (%s)",
+                                    total_ws, len(received),
+                                    {m: len(t) for m, t in received.items()})
                         # Compute missing from consumed data (not get_missing_tokens()
                         # which sees the NEXT hour's empty _received after replay)
                         missing = {}
@@ -966,19 +975,34 @@ def main(argv: list[str] | None = None) -> None:
                             if diff:
                                 missing[mkt] = diff
                         if missing and any(missing.values()):
-                            # AC15: REST fallback only for missing tokens
-                            _fetch_missing_tokens(shared_fetcher, missing, collector)
+                            n_missing = sum(len(v) for v in missing.values())
                             logger.info(
-                                "REST fallback for %d missing tokens",
-                                sum(len(v) for v in missing.values()),
+                                "REST fallback for %d missing tokens: %s",
+                                n_missing,
+                                {m: sorted(list(t))[:10] for m, t in missing.items()},
                             )
+                            _fetch_missing_tokens(shared_fetcher, missing, collector)
+                        else:
+                            logger.info("WS complete — no REST fallback needed")
+                        # Check a sample token was written to live/
+                        import glob as _glob
+                        sample_files = _glob.glob("data/perp/live/*.parquet")
+                        if sample_files:
+                            import os as _os
+                            newest = max(sample_files, key=_os.path.getmtime)
+                            age_s = time.time() - _os.path.getmtime(newest)
+                            logger.info("Live data check: %d files in data/perp/live/, newest=%s (%.0fs ago)",
+                                        len(sample_files), _os.path.basename(newest), age_s)
                     else:
                         # AC10 timeout: full REST fallback
                         logger.warning("Collector timeout — full REST fallback")
                         fetch_all_data(shared_fetcher, configs)
                 else:
                     # AC20: WS unavailable — timer-based tick with full REST fetch
+                    logger.warning("NO WS path: ws_available=%s, collector=%s — doing full REST fetch",
+                                   ws_available, collector is not None)
                     fetch_ok, fetch_err, bars_appended, _ = fetch_all_data(shared_fetcher, configs)
+                    logger.info("REST fetch done: ok=%d err=%d bars=%d", fetch_ok, fetch_err, bars_appended)
                     # Stale-data guard
                     if bars_appended == 0 and fetch_ok == 0 and fetch_err > 0:
                         logger.warning(
@@ -1011,6 +1035,25 @@ def main(argv: list[str] | None = None) -> None:
                         if hasattr(shared_fetcher, 'merge_funding_into_parquet'):
                             shared_fetcher.merge_funding_into_parquet(token, rates)
                     logger.info("Batch funding: %d tokens updated", len(batch_funding))
+                    # Apply funding settlement — deduplicate by settlement timestamp
+                    # to avoid double-applying when _should_fetch_funding fires
+                    # at both pre-settlement and post-settlement hours.
+                    settle_ts = 0
+                    for rates in batch_funding.values():
+                        if rates:
+                            settle_ts = int(rates[0].get("timestamp", 0))
+                            break
+                    if settle_ts and settle_ts != _last_settlement_ts:
+                        _last_settlement_ts = settle_ts
+                        for engine in engines:
+                            try:
+                                n = engine.apply_funding_settlement(batch_funding)
+                                if n:
+                                    logger.info("[%s] Funding settlement @%d: %d positions",
+                                                engine.config.pool_name, settle_ts, n)
+                            except Exception:
+                                logger.exception("[%s] Funding settlement failed",
+                                                 engine.config.pool_name)
             except Exception as e:
                 logger.warning("Batch funding fetch failed: %s — continuing without fresh funding", e)
 
@@ -1054,7 +1097,7 @@ def main(argv: list[str] | None = None) -> None:
             # Step 3: Write live dashboard state
             if any_success and live_dashboard:
                 try:
-                    write_dashboard_state(engines, configs, include_sentinel=True)
+                    write_dashboard_state(engines, configs, include_sentinel=True, include_armed=True)
                 except Exception:
                     logger.exception("Live dashboard state write failed (non-fatal)")
 
@@ -1146,7 +1189,7 @@ def main(argv: list[str] | None = None) -> None:
                             logger.exception("[%s] Price refresh failed", config.pool_name)
                     if live_dashboard:
                         try:
-                            write_dashboard_state(engines, configs, include_sentinel=True)
+                            write_dashboard_state(engines, configs, include_sentinel=True, include_armed=True)
                         except Exception:
                             logger.exception("Live dashboard state write failed (non-fatal)")
                     logger.info("Price refresh complete (%.1fs total)", time.time() - t0)
@@ -1157,7 +1200,7 @@ def main(argv: list[str] | None = None) -> None:
                 # Live dashboard: write state.json with current prices
                 if live_dashboard:
                     try:
-                        write_dashboard_state(engines, configs, include_sentinel=False)
+                        write_dashboard_state(engines, configs, include_sentinel=False, include_armed=True)
                     except Exception:
                         pass  # non-fatal, no log spam at 1s interval
 

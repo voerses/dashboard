@@ -163,7 +163,7 @@ def _log_maintenance(data_dir: str, entry: dict) -> None:
 
 
 def ensure_data_fresh(
-    gap_threshold_hours: int = 1,
+    gap_threshold_hours: int = 2,
     max_duration_s: float = 300,
     caller: str = "standalone",
     exchange=None,

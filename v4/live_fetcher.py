@@ -145,29 +145,26 @@ class LiveFetcher:
                     logger.warning("Failed to read 1m parquet %s: %s", path, e)
             return None
 
-        # 1h: Check live buffer first
-        live_path = self._parquet_path(token, market)
-        if os.path.exists(live_path):
-            try:
-                idx = pd.read_parquet(live_path, columns=[]).index
-                if len(idx) > 0:
-                    return self._ts_to_ms(idx.max())
-            except Exception as e:
-                logger.warning("Failed to read live parquet %s: %s", live_path, e)
-
-        # Fall back to historical cache
+        # 1h: Check both live buffer and historical cache, return the max.
+        best_ms: Optional[int] = None
+        live_path = os.path.join(
+            self.data_dir, market, "live", f"{token}.parquet",
+        )
         hist_path = os.path.join(
             self.data_dir, market, "1h_cache", f"{token}_1h.parquet",
         )
-        if os.path.exists(hist_path):
-            try:
-                idx = pd.read_parquet(hist_path, columns=[]).index
-                if len(idx) > 0:
-                    return self._ts_to_ms(idx.max())
-            except Exception as e:
-                logger.warning("Failed to read hist parquet %s: %s", hist_path, e)
+        for path in (live_path, hist_path):
+            if os.path.exists(path):
+                try:
+                    idx = pd.read_parquet(path, columns=[]).index
+                    if len(idx) > 0:
+                        ts_ms = self._ts_to_ms(idx.max())
+                        if best_ms is None or ts_ms > best_ms:
+                            best_ms = ts_ms
+                except Exception as e:
+                    logger.warning("Failed to read parquet %s: %s", path, e)
 
-        return None
+        return best_ms
 
     def backfill_gaps(
         self,
@@ -516,6 +513,11 @@ class LiveFetcher:
     ) -> None:
         """Merge funding rates into the perp parquet's funding_1h column.
 
+        Always writes to the 1h_cache (historical) parquet regardless of
+        write_to_history setting, because funding is a periodic settlement
+        event that belongs in the main historical data — not the tiny
+        live buffer which only has a few recent OHLCV rows.
+
         Funding rates are mapped by timestamp to the parquet index.
         Exchange timestamps are rounded to the nearest hour to align with
         the hourly parquet index.  Timestamps without a matching funding
@@ -524,7 +526,10 @@ class LiveFetcher:
         if not funding_rates:
             return
 
-        path = self._parquet_path(token, "perp")
+        # Always target 1h_cache for funding (not the live buffer)
+        path = os.path.join(
+            self.data_dir, "perp", "1h_cache", f"{token}_1h.parquet",
+        )
         if not os.path.exists(path):
             logger.warning("No perp parquet for %s at %s — skipping funding merge", token, path)
             return
@@ -557,11 +562,16 @@ class LiveFetcher:
         # the parquet DatetimeIndex.  Floor to the nearest hour so that
         # settlement timestamps (e.g. 00:00:03.456) align with the hourly
         # OHLCV index (00:00:00).
+        # Forward-fill each settlement rate across all hours in the window
+        # (e.g., 8h settlement → same rate/8 for each of the 8 hourly rows).
+        # This matches the format produced by build_parquet_cache.py.
         funding_map = {}
         for r in funding_rates:
             ts_ms = int(r["timestamp"])
             ts = pd.Timestamp(ts_ms, unit="ms").floor("h")
-            funding_map[ts] = float(r["fundingRate"]) / interval_hours
+            rate_per_hour = float(r["fundingRate"]) / interval_hours
+            for h_offset in range(interval_hours):
+                funding_map[ts + pd.Timedelta(hours=h_offset)] = rate_per_hour
 
         # Map parquet index to funding values
         new_funding = df.index.map(lambda idx: funding_map.get(idx))

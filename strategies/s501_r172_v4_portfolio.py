@@ -267,7 +267,7 @@ def strategy(contexts: dict) -> dict:
         vol_ratio_1h = ctx.ind_1h['vol_ratio']
         valid_bb_1h = ~np.isnan(prior_bb_upper_1h) & ~np.isnan(prior_bb_lower_1h)
         cross_long_1h = valid_bb_1h & (close_1h > prior_bb_upper_1h) & (vol_ratio_1h > BB_VOL_RATIO) & (mom_7d_1h > 0)
-        cross_short_1h = valid_bb_1h & (close_1h < prior_bb_lower_1h) & (vol_ratio_1h > BB_VOL_RATIO) & (mom_7d_1h < 0)
+        cross_short_1h = valid_bb_1h & (close_1h < prior_bb_lower_1h) & (prior_bb_lower_1h > 0) & (vol_ratio_1h > BB_VOL_RATIO) & (mom_7d_1h < 0)
 
         # Deduplicate: first cross per 4H window (enter on cross bar itself)
         brk_long_1h = _first_cross_only(cross_long_1h, ctx)
@@ -297,7 +297,7 @@ def strategy(contexts: dict) -> dict:
         # Armed levels for live detection: BB levels for qualifying tokens BEFORE cross
         # (close hasn't crossed yet, but all other filters pass)
         arm_long = valid_bb_1h & (vol_ratio_1h > BB_VOL_RATIO) & (mom_7d_1h > 0) & (close_1h <= prior_bb_upper_1h)
-        arm_short = valid_bb_1h & (vol_ratio_1h > BB_VOL_RATIO) & (mom_7d_1h < 0) & (close_1h >= prior_bb_lower_1h)
+        arm_short = valid_bb_1h & (vol_ratio_1h > BB_VOL_RATIO) & (mom_7d_1h < 0) & (close_1h >= prior_bb_lower_1h) & (prior_bb_lower_1h > 0)
 
         # Apply ADV filter
         if ctx.rolling_adv is not None:
@@ -501,6 +501,12 @@ def strategy(contexts: dict) -> dict:
         brk_size = W_BREAKOUT * BREAKOUT_POS_SIZE  # 0.16
         size_mult[brk_entry] = brk_size
         size_mult[mom_only] = mom_size[token][mom_only]
+        # Also set breakout size at armed bars (pre-cross) so paper engine
+        # captures the correct size_multiplier before sub-hourly fill
+        armed_levels_arr = td.get('armed_levels')
+        if armed_levels_arr is not None:
+            armed_mask = ~np.isnan(armed_levels_arr[:n])
+            size_mult[armed_mask] = brk_size
 
         # Conviction score for entry prioritization
         conviction = np.zeros(n, dtype=np.float64)

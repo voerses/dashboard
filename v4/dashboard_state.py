@@ -15,9 +15,129 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import calendar
+
 if TYPE_CHECKING:
     from v4.paper_config import PaperConfig
     from v4.paper_engine import PaperPortfolioEngine
+
+EXPIRED_WINDOW_S = 86400  # 24 hours
+
+
+def consolidate_partial_trades(trades: list[dict]) -> list[dict]:
+    """Merge partial_tp trades with their remainder into single logical trades.
+
+    Partial TP creates two ClosedTrade records:
+      - position_id="X:partial" with exit_reason="partial_tp"
+      - position_id="X" with the final exit reason
+
+    This function merges them into one trade with combined margin, PnL, and fees,
+    using the remainder's exit price/reason/timestamp. Trades without a partial
+    counterpart pass through unchanged.
+    """
+    # Index partials by their base position_id
+    partials: dict[str, dict] = {}
+    remainders: dict[str, dict] = {}
+    standalone: list[dict] = []
+
+    for t in trades:
+        pid = t.get("position_id", "")
+        if pid.endswith(":partial"):
+            base_id = pid[:-len(":partial")]
+            partials[base_id] = t
+        else:
+            remainders[pid] = t
+
+    result = []
+    merged_bases: set[str] = set()
+
+    for base_id, rem in remainders.items():
+        partial = partials.get(base_id)
+        if partial is not None:
+            # Merge: combine margin, pnl, fees; use remainder's exit info
+            merged = dict(rem)
+            merged["margin_usd"] = float(partial.get("margin_usd", 0)) + float(rem.get("margin_usd", 0))
+            merged["pnl"] = float(partial.get("pnl", 0)) + float(rem.get("pnl", 0))
+            merged["entry_fee"] = float(partial.get("entry_fee", 0)) + float(rem.get("entry_fee", 0))
+            merged["exit_fee"] = float(partial.get("exit_fee", 0)) + float(rem.get("exit_fee", 0))
+            merged["funding_cost"] = float(partial.get("funding_cost", 0)) + float(rem.get("funding_cost", 0))
+            # Show partial TP in exit reason so it's visible at a glance
+            final_reason = rem.get("exit_reason", "")
+            merged["exit_reason"] = f"partial_tp + {final_reason}"
+            # Detailed legs for click-to-expand view
+            merged["had_partial_tp"] = True
+            merged["partial_legs"] = [
+                _leg_summary(partial),
+                _leg_summary(rem),
+            ]
+            result.append(merged)
+            merged_bases.add(base_id)
+        else:
+            result.append(rem)
+
+    # Add orphan partials (no matching remainder yet — position may still be open)
+    for base_id, partial in partials.items():
+        if base_id not in merged_bases:
+            result.append(partial)
+
+    return result
+
+
+def _leg_summary(t: dict) -> dict:
+    """Extract a compact summary of one leg for partial_legs display."""
+    return {
+        "exit_reason": t.get("exit_reason", ""),
+        "margin_usd": float(t.get("margin_usd", 0)),
+        "pnl": float(t.get("pnl", 0)),
+        "entry_price": float(t.get("entry_price", 0)),
+        "exit_price": float(t.get("exit_price", 0)),
+        "hold_bars": t.get("hold_bars", 0),
+        "entry_fee": float(t.get("entry_fee", 0)),
+        "exit_fee": float(t.get("exit_fee", 0)),
+        "funding_cost": float(t.get("funding_cost", 0)),
+        "exit_timestamp": t.get("exit_timestamp", ""),
+    }
+
+
+def _parse_ts(s: str) -> float:
+    """Parse ISO-UTC timestamp to epoch seconds, returning 0 on failure."""
+    try:
+        return calendar.timegm(time.strptime(s, "%Y-%m-%dT%H:%M:%SZ"))
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def _load_expired_from_log(state_dir: str) -> list[dict]:
+    """Read expired events from armed_log.jsonl within the 24h window."""
+    log_path = os.path.join(state_dir, "armed_log.jsonl")
+    cutoff = time.time() - EXPIRED_WINDOW_S
+    expired = []
+    seen: set[tuple] = set()
+    try:
+        with open(log_path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    evt = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if evt.get("event") != "expired":
+                    continue
+                ts_field = evt.get("expired_at") or evt.get("timestamp", "")
+                if _parse_ts(ts_field) <= cutoff:
+                    continue
+                # Deduplicate by (strategy, token, expired_at)
+                key = (evt.get("strategy"), evt.get("token"), ts_field)
+                if key in seen:
+                    continue
+                seen.add(key)
+                evt["expired_at"] = ts_field
+                expired.append(evt)
+    except (FileNotFoundError, OSError):
+        pass
+    return expired
 
 # Default output path (external HTTP server reads from here)
 DEFAULT_STATE_PATH = "/srv/data/state.json"
@@ -43,9 +163,8 @@ def write_dashboard_state(
         path: Output path (default: /srv/data/state.json).
         include_sentinel: If True, include sentinel data from state_dir files.
         runner_status: One of "idle", "fetching", "ticking".
-        runner_health: Dict with runner health metrics (started_at, last_tick_at, etc.).
+        runner_health: Deprecated, ignored. Kept for API compat.
         include_armed: If True, include armed_orders/expired_orders in portfolio data.
-            Set to True every 60s (sentinel writes) to avoid bloating 1s heartbeats.
     """
     # Collect live WebSocket prices from any engine that has a PriceMonitor
     # (typically only the first portfolio has one; share prices across all)
@@ -72,8 +191,6 @@ def write_dashboard_state(
         "runner_status": runner_status,
         "portfolios": portfolios,
     }
-    if runner_health is not None:
-        envelope["runner_health"] = runner_health
 
     _atomic_write_json(envelope, path)
 
@@ -89,8 +206,10 @@ def _build_portfolio(
     # Pass live prices as overrides instead of mutating engine state (thread-safe)
     sim = engine.to_dashboard_sim(price_overrides=shared_live_prices)
 
-    # Strip armed data from 1s heartbeat writes to keep state.json small (P1 fix)
-    if not include_armed:
+    if include_armed:
+        # Load expired orders from armed_log.jsonl (same pattern as trades.jsonl)
+        sim["expired_orders"] = _load_expired_from_log(config.state_dir)
+    else:
         sim.pop("armed_orders", None)
         sim.pop("expired_orders", None)
 
@@ -117,7 +236,7 @@ def _build_portfolio(
         jsonl_trades = _load_trades_jsonl(trades_jsonl)
         if len(jsonl_trades) > len(closed_trades):
             # trades.jsonl has more history — use it instead, mapping to
-            # the same format that to_dashboard_sim() produces
+            # the same format that to_dashboard_sim() produces.
             closed_trades = [_jsonl_to_dashboard_trade(t) for t in jsonl_trades]
 
     sim["all_trades"] = closed_trades + open_trades
@@ -160,9 +279,9 @@ def _load_trades_jsonl(path: Path) -> list[dict]:
 
 def _jsonl_to_dashboard_trade(t: dict) -> dict:
     """Convert a trades.jsonl entry to the dashboard trade format."""
-    return {
+    d = {
         "token": t.get("token", ""),
-        "strategy": t.get("strategy_id", ""),
+        "strategy": t.get("strategy_id", t.get("strategy", "")),
         "market_type": "perp" if t.get("is_perp") else "spot",
         "direction": t.get("direction", 1),
         "pnl": float(t.get("pnl", 0)),
@@ -184,6 +303,11 @@ def _jsonl_to_dashboard_trade(t: dict) -> dict:
         "entry_timestamp": t.get("entry_timestamp", ""),
         "exit_timestamp": t.get("exit_timestamp", ""),
     }
+    # Pass through partial TP metadata from consolidation
+    if t.get("had_partial_tp"):
+        d["had_partial_tp"] = True
+        d["partial_legs"] = t.get("partial_legs", [])
+    return d
 
 def _load_equity_csv(path: Path) -> list[dict]:
     """Load equity history from equity.csv (cached by mtime to avoid re-reading every second)."""
