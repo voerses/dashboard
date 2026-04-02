@@ -44,6 +44,12 @@ PORTFOLIO_CONFIG = {
 # WARNING: If you add ctx.custom reads, update REQUIRED_PLUGINS accordingly.
 REQUIRED_PLUGINS = []
 
+# s501 reads: ind_1h[close, high, low, vol_ratio, atr], ind_4h[close, bb_upper, bb_lower].
+# Core (close/high/low/volume/atr/vol_20) is always computed.
+# Only need 'bb' (BB bands) and 'volume' (vol_ratio) groups on top of core.
+# WARNING: If you add ind_1h/ind_4h reads, update REQUIRED_INDICATOR_GROUPS accordingly.
+REQUIRED_INDICATOR_GROUPS = {'bb', 'volume'}
+
 # ══════════════════════════════════════════════════════════════════════
 # CONFIGURATION
 # ══════════════════════════════════════════════════════════════════════

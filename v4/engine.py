@@ -1084,6 +1084,36 @@ def _load_strategy_required_plugins(strategy_id: str):
     return plugins
 
 
+def _load_strategy_required_indicator_groups(strategy_id: str):
+    """Return the REQUIRED_INDICATOR_GROUPS set from a cached strategy module.
+
+    Returns None if the module has no REQUIRED_INDICATOR_GROUPS attribute
+    (backward compatible — all 7 indicator groups will be computed).
+
+    Available groups: ema, macd, rsi, bb, adx, volume, donchian.
+    Core indicators (close, high, low, volume, atr, vol_20) are always
+    computed regardless of this setting.
+
+    Note: daily indicators always compute all groups (cheap, ~208 bars)
+    so detect_daily_regime() works.  This setting only affects 1H and 4H.
+    """
+    with _STRATEGY_MODULE_LOCK:
+        mod = _STRATEGY_MODULE_CACHE.get(strategy_id)
+    if mod is None:
+        return None
+    groups = getattr(mod, 'REQUIRED_INDICATOR_GROUPS', None)
+    if groups is not None:
+        groups = set(groups)
+        unknown = groups - set(_INDICATOR_GROUPS.keys())
+        if unknown:
+            logging.getLogger(__name__).warning(
+                "Strategy %s: REQUIRED_INDICATOR_GROUPS contains unknown groups %s "
+                "(available: %s)", strategy_id, sorted(unknown),
+                sorted(_INDICATOR_GROUPS.keys())
+            )
+    return groups
+
+
 # =============================================================================
 # Engine
 # =============================================================================
@@ -1161,8 +1191,17 @@ class Engine:
         c4, h4, l4, v4, t4 = _arrays(df_4h)
         cd, hd, ld, vd, _ = _arrays(df_daily)
 
-        ind_1h = compute_indicators_fast(c1, h1, l1, v1, t1)
-        ind_4h = compute_indicators_fast(c4, h4, l4, v4, t4)
+        # Use selective indicator groups when the strategy declares
+        # REQUIRED_INDICATOR_GROUPS (saves compute + memory for 1H/4H).
+        # Daily always computes all groups — cheap (~208 bars) and
+        # detect_daily_regime() needs adx + ema.
+        _ind_groups = getattr(self, '_required_indicator_groups', None)
+        if _ind_groups is not None:
+            ind_1h = compute_indicators_selective(c1, h1, l1, v1, t1, groups=_ind_groups)
+            ind_4h = compute_indicators_selective(c4, h4, l4, v4, t4, groups=_ind_groups)
+        else:
+            ind_1h = compute_indicators_fast(c1, h1, l1, v1, t1)
+            ind_4h = compute_indicators_fast(c4, h4, l4, v4, t4)
         ind_d = compute_indicators_fast(cd, hd, ld, vd)
 
         idx_1h = df_1h.index

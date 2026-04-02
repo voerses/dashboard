@@ -22,7 +22,7 @@ _project_root = Path(__file__).resolve().parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from v4.engine import Engine, MarketType, _load_strategy_fn, _load_strategy_required_plugins
+from v4.engine import Engine, MarketType, _load_strategy_fn, _load_strategy_required_plugins, _load_strategy_required_indicator_groups
 from v4.universe import get_all_tradeable
 from v4.data_loader import load_token_data, load_token_data_cached, discover_tokens_from_data, infer_data_end_date as _infer_end
 
@@ -256,6 +256,10 @@ def precompute_strategy_signals(
         req_plugins = _load_strategy_required_plugins(strategy_spec.strategy_id)
         eng_spot._required_plugins = req_plugins
         eng_perp._required_plugins = req_plugins
+        # Wire selective indicator groups
+        req_groups = _load_strategy_required_indicator_groups(strategy_spec.strategy_id)
+        eng_spot._required_indicator_groups = req_groups
+        eng_perp._required_indicator_groups = req_groups
 
     def _build_ctx(eng, token, df, **kwargs):
         """Build context, using external cache for shared engines.

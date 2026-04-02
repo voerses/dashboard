@@ -80,15 +80,15 @@ class TestCacheMaxRowsConfig:
         config = PortfolioConfig()
         assert config.cache_max_rows == 0
 
-    def test_paper_config_default_22000(self):
-        """AC3: PaperConfig.cache_max_rows defaults to 22000.
+    def test_paper_config_default_5000(self):
+        """AC3: PaperConfig.cache_max_rows defaults to 5000.
         RED: No such field -> AttributeError."""
         config = _make_paper_config()
-        assert config.cache_max_rows == 22000
+        assert config.cache_max_rows == 5000
 
     def test_load_all_contexts_passes_config_max_rows(self):
         """AC4: _load_all_contexts passes config.cache_max_rows to load_token_data_cached.
-        RED: Current code hardcodes max_rows=22000, not 0. Assertion max_rows==0 fails."""
+        RED: Current code hardcodes max_rows=5000, not 0. Assertion max_rows==0 fails."""
         from v4.portfolio_signals import _load_all_contexts
 
         config = PortfolioConfig()  # After impl: cache_max_rows=0 (unlimited)
@@ -97,7 +97,7 @@ class TestCacheMaxRowsConfig:
         with patch("v4.portfolio_signals.load_token_data_cached", return_value=None) as mock_load:
             _load_all_contexts(["BTC"], spec, config, months=12, hist_cache={})
 
-        # Must pass max_rows=0 (from config), not hardcoded 22000
+        # Must pass max_rows=0 (from config), not hardcoded 5000
         assert mock_load.called, "load_token_data_cached never called"
         for c in mock_load.call_args_list:
             assert c.kwargs.get("max_rows") == 0, \
@@ -118,11 +118,11 @@ class TestCacheMaxRowsConfig:
         _, kwargs = mock_load.call_args
         assert kwargs.get("max_rows") == 0, f"Expected max_rows=0, got {kwargs.get('max_rows')}"
 
-    def test_paper_config_limits_to_22000(self):
-        """AC6: Paper (PaperConfig, cache_max_rows=22000) limits to 22000.
+    def test_paper_config_limits_to_5000(self):
+        """AC6: Paper (PaperConfig, cache_max_rows=5000) limits to 5000.
         RED: No such field -> AttributeError."""
         config = _make_paper_config()
-        assert config.cache_max_rows == 22000
+        assert config.cache_max_rows == 5000
 
 
 # ============================================================================
@@ -422,12 +422,12 @@ class TestClassAMaxRows:
             assert c.kwargs.get("max_rows") == 0, \
                 f"Expected max_rows=0 (unlimited), got {c.kwargs.get('max_rows')}"
 
-    def test_paper_config_class_a_limits_to_22000(self):
-        """AC21+AC6: Class A path with PaperConfig passes max_rows=22000.
+    def test_paper_config_class_a_limits_to_5000(self):
+        """AC21+AC6: Class A path with PaperConfig passes max_rows=5000.
         RED: signals.py has no max_rows param -> kwargs.get('max_rows') is None."""
         from v4.signals import precompute_strategy_signals
 
-        config = _make_paper_config()  # cache_max_rows=22000 after impl
+        config = _make_paper_config()  # cache_max_rows=5000 after impl
         spec = StrategySpec(strategy_id="s100", weight=0.5, market="perp", max_positions=10)
 
         with patch("v4.signals.load_token_data_cached", return_value=None) as mock_load:
@@ -436,8 +436,8 @@ class TestClassAMaxRows:
 
         assert mock_load.called
         for c in mock_load.call_args_list:
-            assert c.kwargs.get("max_rows") == 22000, \
-                f"Expected max_rows=22000, got {c.kwargs.get('max_rows')}"
+            assert c.kwargs.get("max_rows") == 5000, \
+                f"Expected max_rows=5000, got {c.kwargs.get('max_rows')}"
 
 
 # ============================================================================
@@ -446,7 +446,7 @@ class TestClassAMaxRows:
 
 class TestConfigJsonWiring:
     def test_load_paper_config_wires_cache_max_rows_default(self):
-        """AC22: load_paper_config() defaults cache_max_rows to 22000.
+        """AC22: load_paper_config() defaults cache_max_rows to 5000.
         RED: PaperConfig has no cache_max_rows field -> AttributeError,
         or if field exists but not wired in load_paper_config, defaults to 0."""
         from v4.paper_config import load_paper_config
@@ -462,8 +462,8 @@ class TestConfigJsonWiring:
 
         try:
             config = load_paper_config(tmp_path)
-            assert config.cache_max_rows == 22000, \
-                f"Expected cache_max_rows=22000, got {config.cache_max_rows}"
+            assert config.cache_max_rows == 5000, \
+                f"Expected cache_max_rows=5000, got {config.cache_max_rows}"
         finally:
             os.unlink(tmp_path)
 
@@ -721,8 +721,8 @@ class TestRunPaperMultiConfigWiring:
         try:
             configs = load_multi_config(tmp_path)
             assert len(configs) >= 1
-            assert configs[0].cache_max_rows == 22000, \
-                f"Expected cache_max_rows=22000, got {configs[0].cache_max_rows}"
+            assert configs[0].cache_max_rows == 5000, \
+                f"Expected cache_max_rows=5000, got {configs[0].cache_max_rows}"
         finally:
             os.unlink(tmp_path)
 

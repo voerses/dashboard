@@ -32,7 +32,7 @@ from v4.position import Position, ClosedTrade, PositionManager
 import v4.simulator as _sim
 from v4.simulator import SimulationState
 from v4.signals import precompute_strategy_signals, discover_tokens
-from v4.engine import Engine, _load_strategy_fn, _load_strategy_required_plugins
+from v4.engine import Engine, _load_strategy_fn, _load_strategy_required_plugins, _load_strategy_required_indicator_groups
 from v4.sizing import get_slippage_model
 from v4.paper_state import (
     serialize_state, atomic_write_state, append_trades, append_equity,
@@ -168,6 +168,11 @@ class PaperPortfolioEngine:
         self._last_expired_orders: list[dict] = []
         self._armed_log_lock = threading.Lock()
         self._armed_log_path = os.path.join(config.state_dir, "armed_log.jsonl")
+
+        # Track filled 4H windows to prevent re-entry after stop-out.
+        # Matches backtest's _first_cross_only: one entry per 4H window per token.
+        # Keys are (strategy_id, token, window_end_epoch).
+        self._filled_4h_windows: set[tuple[str, str, float]] = set()
 
         # Background tick executor (AC28)
         self._bg_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="tick-bg")
@@ -934,6 +939,13 @@ class PaperPortfolioEngine:
             to_remove.append((sid, token))
             entries += 1
 
+            # Record this 4H window as filled — prevent re-entry after stop-out
+            # (matches backtest's _first_cross_only: one entry per 4H window)
+            window_end = cand.get("window_end", 0)
+            if window_end > 0:
+                with self._armed_tokens_lock:
+                    self._filled_4h_windows.add((sid, token, window_end))
+
             # Log filled event
             self._log_armed_event({
                 "event": "filled",
@@ -1011,6 +1023,7 @@ class PaperPortfolioEngine:
             "spot_deployed": shadow.spot_deployed if shadow else 0.0,
             "perp_deployed": shadow.perp_deployed if shadow else 0.0,
         }
+        filled_windows_snapshot = self._serialize_filled_4h_windows()
         if self.state is not None:
             atomic_write_state(
                 self.state, self.tick_counter, timestamp, state_path,
@@ -1018,6 +1031,7 @@ class PaperPortfolioEngine:
                 last_known_prices=dict(self._last_known_prices),
                 last_known_regimes=dict(self._last_known_regimes),
                 armed_tokens=armed_snapshot,
+                filled_4h_windows=filled_windows_snapshot,
             )
         else:
             from v4.paper_state import serialize_engine_state
@@ -1028,6 +1042,7 @@ class PaperPortfolioEngine:
                 last_known_prices=dict(self._last_known_prices),
                 last_known_regimes=dict(self._last_known_regimes),
                 armed_tokens=armed_snapshot,
+                filled_4h_windows=filled_windows_snapshot,
             )
             import tempfile as _tmpfile
             fd, tmp = _tmpfile.mkstemp(dir=state_dir, suffix=".tmp")
@@ -1190,6 +1205,34 @@ class PaperPortfolioEngine:
             result.append(entry)
         return result
 
+    def _serialize_filled_4h_windows(self) -> list[list]:
+        """Serialize _filled_4h_windows to JSON-compatible list.
+
+        Each entry is [strategy_id, token, window_end_epoch].
+        Only includes non-expired windows. Thread-safe via _armed_tokens_lock.
+        """
+        now = time.time()
+        with self._armed_tokens_lock:
+            snapshot = list(self._filled_4h_windows)
+        return [
+            [s, t, w] for s, t, w in snapshot if w > now
+        ]
+
+    @staticmethod
+    def _deserialize_filled_4h_windows(data: list) -> set[tuple[str, str, float]]:
+        """Deserialize filled 4H windows from state.json.
+
+        Filters out expired entries (window_end in the past).
+        """
+        now = time.time()
+        result: set[tuple[str, str, float]] = set()
+        for entry in data:
+            if len(entry) >= 3:
+                s, t, w = str(entry[0]), str(entry[1]), float(entry[2])
+                if w > now:
+                    result.add((s, t, w))
+        return result
+
     @staticmethod
     def _deserialize_armed_tokens(
         data: list[dict],
@@ -1265,8 +1308,18 @@ class PaperPortfolioEngine:
         - Combined strategies (can't arm independent legs)
         - Tokens with existing open positions
         - Signals without armed_levels or with NaN at the current bar
+        - Tokens already filled in the current 4H window (backtest parity)
         """
         new_armed: dict[tuple[str, str], dict] = {}
+
+        # Purge expired 4H window entries (window_end in the past)
+        now_epoch = time.time()
+        current_window_end = _current_4h_window_end()
+        with self._armed_tokens_lock:
+            self._filled_4h_windows = {
+                (s, t, w) for s, t, w in self._filled_4h_windows if w > now_epoch
+            }
+            filled_snapshot = frozenset(self._filled_4h_windows)
 
         for sid, token_signals in all_signals.items():
             # Skip strategies without entry_resolution
@@ -1289,6 +1342,12 @@ class PaperPortfolioEngine:
                 for st in self._get_all_states():
                     open_count += len(st.position_manager.find_open_for_token_strategy(token, sid))
                 if open_count >= max_conc:
+                    continue
+
+                # Skip if already filled in this 4H window (backtest parity:
+                # _first_cross_only allows one entry per 4H window, no re-entry
+                # after stop-out within the same window)
+                if (sid, token, current_window_end) in filled_snapshot:
                     continue
 
                 # Skip if no armed_levels
@@ -1726,6 +1785,7 @@ class PaperPortfolioEngine:
             "spot_deployed": shadow.spot_deployed if shadow else 0.0,
             "perp_deployed": shadow.perp_deployed if shadow else 0.0,
         }
+        filled_windows_snapshot = self._serialize_filled_4h_windows()
         if self.state is not None:
             atomic_write_state(
                 self.state, self.tick_counter, timestamp, state_path,
@@ -1733,6 +1793,7 @@ class PaperPortfolioEngine:
                 last_known_prices=dict(self._last_known_prices),
                 last_known_regimes=dict(self._last_known_regimes),
                 armed_tokens=armed_snapshot,
+                filled_4h_windows=filled_windows_snapshot,
             )
         else:
             from v4.paper_state import serialize_engine_state
@@ -1742,6 +1803,7 @@ class PaperPortfolioEngine:
                 last_known_prices=dict(self._last_known_prices),
                 last_known_regimes=dict(self._last_known_regimes),
                 armed_tokens=armed_snapshot,
+                filled_4h_windows=filled_windows_snapshot,
             )
             import tempfile as _tmpfile
             fd, tmp = _tmpfile.mkstemp(dir=state_dir, suffix=".tmp")
@@ -2034,10 +2096,13 @@ class PaperPortfolioEngine:
         # with _required_plugins = union(all). If ANY lacks it, fall back to
         # _required_plugins = None (all plugins, backward compat).
         all_req_plugins = []
+        all_req_groups = []
         for spec in self.config.strategies:
             _load_strategy_fn(spec.strategy_id)  # populate module cache
             rp = _load_strategy_required_plugins(spec.strategy_id)
             all_req_plugins.append(rp)
+            rg = _load_strategy_required_indicator_groups(spec.strategy_id)
+            all_req_groups.append(rg)
 
         if all(rp is not None for rp in all_req_plugins):
             union_plugins = sorted(set().union(*(rp for rp in all_req_plugins)))
@@ -2049,11 +2114,18 @@ class PaperPortfolioEngine:
                     "declare plugins, some don't. Running all plugins (safe fallback)."
                 )
 
+        if all(rg is not None for rg in all_req_groups):
+            union_groups = set().union(*(rg for rg in all_req_groups))
+        else:
+            union_groups = None  # fall back to all groups
+
         DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
         shared_eng_spot = Engine(data_dir=DATA_DIR, market="spot", capital=self.config.capital, exchange=self.config.exchange)
         shared_eng_perp = Engine(data_dir=DATA_DIR, market="perp", capital=self.config.capital, exchange=self.config.exchange)
         shared_eng_spot._required_plugins = union_plugins
         shared_eng_perp._required_plugins = union_plugins
+        shared_eng_spot._required_indicator_groups = union_groups
+        shared_eng_perp._required_indicator_groups = union_groups
 
         any_tokens_found = False
         try:
@@ -2218,6 +2290,7 @@ class PaperPortfolioEngine:
         # the tick is considered complete.
         state_path = os.path.join(state_dir, "state.json")
         armed_snapshot = self._serialize_armed_tokens()
+        filled_windows_snapshot = self._serialize_filled_4h_windows()
         if self.state is not None:
             # Pool mode: single shared state
             atomic_write_state(
@@ -2229,6 +2302,7 @@ class PaperPortfolioEngine:
                 last_known_prices=dict(self._last_known_prices),
                 last_known_regimes=dict(self._last_known_regimes),
                 armed_tokens=armed_snapshot,
+                filled_4h_windows=filled_windows_snapshot,
             )
         else:
             # Independent mode: serialize all strategy states (C4 fix)
@@ -2240,6 +2314,7 @@ class PaperPortfolioEngine:
                 last_known_prices=dict(self._last_known_prices),
                 last_known_regimes=dict(self._last_known_regimes),
                 armed_tokens=armed_snapshot,
+                filled_4h_windows=filled_windows_snapshot,
             )
             import tempfile as _tmpfile
             fd, tmp = _tmpfile.mkstemp(dir=state_dir, suffix=".tmp")
@@ -2627,6 +2702,7 @@ class PaperPortfolioEngine:
         if updated > 0:
             refresh_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             armed_snapshot = self._serialize_armed_tokens()
+            filled_windows_snapshot = self._serialize_filled_4h_windows()
             state_path = os.path.join(state_dir, "state.json")
             if self.state is not None:
                 atomic_write_state(
@@ -2637,6 +2713,7 @@ class PaperPortfolioEngine:
                     last_known_prices=dict(self._last_known_prices),
                     last_known_regimes=dict(self._last_known_regimes),
                     armed_tokens=armed_snapshot,
+                    filled_4h_windows=filled_windows_snapshot,
                 )
             else:
                 from v4.paper_state import serialize_engine_state
@@ -2646,6 +2723,7 @@ class PaperPortfolioEngine:
                     last_known_prices=dict(self._last_known_prices),
                     last_known_regimes=dict(self._last_known_regimes),
                     armed_tokens=armed_snapshot,
+                    filled_4h_windows=filled_windows_snapshot,
                 )
                 import tempfile as _tmpfile2
                 fd2, tmp2 = _tmpfile2.mkstemp(dir=state_dir, suffix=".tmp")

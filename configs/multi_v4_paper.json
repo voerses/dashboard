@@ -29,7 +29,7 @@
     "seed": 42,
     "base_spread_bps": 3.0,
     "impact_coeff": 0.03,
-    "lookback_months": 12,
+    "lookback_months": 3,
     "enable_purge_windows": false,
     "skip_walk_forward": true,
     "drawdown_alert_pct": 5.0,

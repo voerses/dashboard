@@ -37,7 +37,7 @@ _project_root = Path(__file__).resolve().parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from v4.engine import Engine, MarketType, _load_strategy_fn, _load_strategy_required_plugins
+from v4.engine import Engine, MarketType, _load_strategy_fn, _load_strategy_required_plugins, _load_strategy_required_indicator_groups
 from v4.data_loader import load_token_data, load_token_data_cached
 
 
@@ -66,6 +66,11 @@ def _load_all_contexts(
     req_plugins = _load_strategy_required_plugins(strategy_spec.strategy_id)
     eng_spot._required_plugins = req_plugins
     eng_perp._required_plugins = req_plugins
+
+    # Wire selective indicator groups (if declared)
+    req_groups = _load_strategy_required_indicator_groups(strategy_spec.strategy_id)
+    eng_spot._required_indicator_groups = req_groups
+    eng_perp._required_indicator_groups = req_groups
 
     WARMUP_DAYS = 180
     anchor = end_date if end_date is not None else pd.Timestamp.now("UTC").tz_localize(None)
@@ -727,6 +732,11 @@ def _precompute_true_walk_forward(
     req_plugins = _load_strategy_required_plugins(strategy_spec.strategy_id)
     eng_spot._required_plugins = req_plugins
     eng_perp._required_plugins = req_plugins
+
+    # Wire selective indicator groups (if declared)
+    req_groups = _load_strategy_required_indicator_groups(strategy_spec.strategy_id)
+    eng_spot._required_indicator_groups = req_groups
+    eng_perp._required_indicator_groups = req_groups
 
     raw_data: dict[str, tuple] = {}
     for token in tokens:
