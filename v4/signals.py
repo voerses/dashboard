@@ -5,6 +5,7 @@ Walk-forward masking applied during precomputation (matches v3/portfolio.py:152-
 """
 from __future__ import annotations
 
+import copy
 import inspect
 import os
 import sys
@@ -257,12 +258,19 @@ def precompute_strategy_signals(
         eng_perp._required_plugins = req_plugins
 
     def _build_ctx(eng, token, df, **kwargs):
-        """Build context, using external cache for shared engines."""
+        """Build context, using external cache for shared engines.
+
+        Returns a shallow copy on cache hit to prevent cross-strategy
+        contamination (e.g. regime_params mutating regime_1h in-place).
+        """
         if _use_ctx_cache:
-            key = (token, len(df))
+            # Include last timestamp as cheap integrity check — catches
+            # same-length DataFrames with different content.
+            last_ts = df.index[-1] if len(df) > 0 else None
+            key = (token, len(df), last_ts)
             cached = eng._context_cache.get(key)
             if cached is not None:
-                return cached
+                return copy.copy(cached)
             ctx = eng._build_context(token, df, **kwargs)
             if ctx is not None:
                 eng._context_cache[key] = ctx

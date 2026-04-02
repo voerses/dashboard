@@ -2056,22 +2056,24 @@ class PaperPortfolioEngine:
         shared_eng_perp._required_plugins = union_plugins
 
         any_tokens_found = False
-        for spec in self.config.strategies:
-            tokens = discover_tokens(spec.market)
-            if tokens:
-                any_tokens_found = True
-            live_bar = self.tick_counter if getattr(self, '_strategy_entry_resolution', {}).get(spec.strategy_id, 0) > 0 else -1
-            sigs = precompute_strategy_signals(
-                spec, tokens, self.config, self.config.lookback_months,
-                live_bar=live_bar, hist_cache=self._hist_cache,
-                eng_spot=shared_eng_spot, eng_perp=shared_eng_perp,
-            )
-            all_signals[spec.strategy_id] = sigs
-
-        # Clear shared engine context caches after all strategies complete
-        shared_eng_spot._context_cache.clear()
-        shared_eng_perp._context_cache.clear()
-        del shared_eng_spot, shared_eng_perp
+        try:
+            for spec in self.config.strategies:
+                tokens = discover_tokens(spec.market)
+                if tokens:
+                    any_tokens_found = True
+                live_bar = self.tick_counter if getattr(self, '_strategy_entry_resolution', {}).get(spec.strategy_id, 0) > 0 else -1
+                sigs = precompute_strategy_signals(
+                    spec, tokens, self.config, self.config.lookback_months,
+                    live_bar=live_bar, hist_cache=self._hist_cache,
+                    eng_spot=shared_eng_spot, eng_perp=shared_eng_perp,
+                )
+                all_signals[spec.strategy_id] = sigs
+        finally:
+            # Clear shared engine context caches even on exception to prevent
+            # ~2.3 GB leak (236 tokens x 2 engines of cached StrategyContext).
+            shared_eng_spot._context_cache.clear()
+            shared_eng_perp._context_cache.clear()
+            del shared_eng_spot, shared_eng_perp
 
         if not any_tokens_found:
             logger.warning("No parquet cache data found — cold start or missing data directory")

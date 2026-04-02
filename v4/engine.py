@@ -515,8 +515,9 @@ CombinedStrategyFn = Callable[[StrategyContext, StrategyContext], StrategyResult
 
 _INDICATOR_PLUGINS: List[Callable] = []
 _NAMED_PLUGINS: Dict[str, Callable] = {}
-# Reverse map: id(fn) -> name, for dependency-correct iteration order
-_PLUGIN_NAMES: Dict[int, str] = {}
+# Reverse map: fn.__name__ -> plugin name, for dependency-correct iteration order.
+# Uses __name__ (not id(fn)) to survive importlib.reload scenarios.
+_PLUGIN_NAMES: Dict[str, str] = {}
 
 
 def register_indicator(fn=None, *, name=None):
@@ -530,7 +531,9 @@ def register_indicator(fn=None, *, name=None):
         def _compute_obv(ctx): ...
 
     Named plugins can be selectively executed when a strategy declares
-    REQUIRED_PLUGINS = ['obv', 'vwap']. Unnamed plugins always execute.
+    REQUIRED_PLUGINS = ['obv', 'vwap']. Unnamed plugins ONLY execute
+    when _required_plugins is None (all-plugins mode, the default).
+    In opt-in mode (REQUIRED_PLUGINS is a list), unnamed plugins are skipped.
 
     Plugin dependencies (must include in REQUIRED_PLUGINS if using selective opt-in):
       - obv_divergence requires obv
@@ -540,7 +543,7 @@ def register_indicator(fn=None, *, name=None):
         _INDICATOR_PLUGINS.append(f)
         if name is not None:
             _NAMED_PLUGINS[name] = f
-            _PLUGIN_NAMES[id(f)] = name
+            _PLUGIN_NAMES[f.__name__] = name
         return f
 
     if fn is not None:
@@ -854,6 +857,21 @@ def _compute_vrp_overlay(ctx: StrategyContext):
     except Exception:
         ctx.custom['vrp_z'] = np.zeros(n, dtype=np.float64)
         ctx.custom['vrp_mult'] = np.ones(n, dtype=np.float64)
+
+
+# Plugin dependency ordering assertion — catches silent misconfigurations
+# if decorators are ever reordered or new plugins added in wrong position.
+def _assert_plugin_ordering():
+    """Verify that plugin registration order satisfies dependency DAG."""
+    names_in_order = [_PLUGIN_NAMES.get(fn.__name__) for fn in _INDICATOR_PLUGINS]
+    names_in_order = [n for n in names_in_order if n is not None]
+    # obv must come before obv_divergence; momentum must come before momentum_accel
+    for dep, dependent in [('obv', 'obv_divergence'), ('momentum', 'momentum_accel')]:
+        if dep in names_in_order and dependent in names_in_order:
+            assert names_in_order.index(dep) < names_in_order.index(dependent), \
+                f"Plugin ordering violated: {dep} must be registered before {dependent}"
+
+_assert_plugin_ordering()
 
 
 # =============================================================================
@@ -1216,7 +1234,7 @@ class Engine:
         if required_plugins is not None:
             required_set = set(required_plugins)
             for fn in _INDICATOR_PLUGINS:
-                pname = _PLUGIN_NAMES.get(id(fn))
+                pname = _PLUGIN_NAMES.get(fn.__name__)
                 if pname is not None and pname in required_set:
                     try:
                         fn(ctx)
