@@ -2119,13 +2119,21 @@ class PaperPortfolioEngine:
         else:
             union_groups = None  # fall back to all groups
 
+        # Only create shared engines if at least one Class A strategy exists.
+        # Portfolio (Class B) strategies create their own engines internally
+        # and ignore shared engines — avoid wasting memory on unused Engine objects.
+        has_class_a = any(s.strategy_type != "portfolio" for s in self.config.strategies)
+
         DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
-        shared_eng_spot = Engine(data_dir=DATA_DIR, market="spot", capital=self.config.capital, exchange=self.config.exchange)
-        shared_eng_perp = Engine(data_dir=DATA_DIR, market="perp", capital=self.config.capital, exchange=self.config.exchange)
-        shared_eng_spot._required_plugins = union_plugins
-        shared_eng_perp._required_plugins = union_plugins
-        shared_eng_spot._required_indicator_groups = union_groups
-        shared_eng_perp._required_indicator_groups = union_groups
+        shared_eng_spot = None
+        shared_eng_perp = None
+        if has_class_a:
+            shared_eng_spot = Engine(data_dir=DATA_DIR, market="spot", capital=self.config.capital, exchange=self.config.exchange)
+            shared_eng_perp = Engine(data_dir=DATA_DIR, market="perp", capital=self.config.capital, exchange=self.config.exchange)
+            shared_eng_spot._required_plugins = union_plugins
+            shared_eng_perp._required_plugins = union_plugins
+            shared_eng_spot._required_indicator_groups = union_groups
+            shared_eng_perp._required_indicator_groups = union_groups
 
         any_tokens_found = False
         try:
@@ -2143,8 +2151,10 @@ class PaperPortfolioEngine:
         finally:
             # Clear shared engine context caches even on exception to prevent
             # ~2.3 GB leak (236 tokens x 2 engines of cached StrategyContext).
-            shared_eng_spot._context_cache.clear()
-            shared_eng_perp._context_cache.clear()
+            if shared_eng_spot is not None:
+                shared_eng_spot._context_cache.clear()
+            if shared_eng_perp is not None:
+                shared_eng_perp._context_cache.clear()
             del shared_eng_spot, shared_eng_perp
 
         if not any_tokens_found:

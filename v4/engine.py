@@ -519,6 +519,14 @@ _NAMED_PLUGINS: Dict[str, Callable] = {}
 # Uses __name__ (not id(fn)) to survive importlib.reload scenarios.
 _PLUGIN_NAMES: Dict[str, str] = {}
 
+# Plugin → indicator group dependencies.
+# If a plugin requires an indicator group key (e.g. 'bb_width' from 'bb'),
+# that group must be included in REQUIRED_INDICATOR_GROUPS.
+_PLUGIN_GROUP_DEPS: Dict[str, set] = {
+    'squeeze': {'bb'},
+    'multi_tf': {'macd', 'ema'},
+}
+
 
 def register_indicator(fn=None, *, name=None):
     """Decorator: register a custom indicator computation function.
@@ -538,6 +546,11 @@ def register_indicator(fn=None, *, name=None):
     Plugin dependencies (must include in REQUIRED_PLUGINS if using selective opt-in):
       - obv_divergence requires obv
       - momentum_accel requires momentum
+
+    Plugin → indicator group dependencies (REQUIRED_INDICATOR_GROUPS must include):
+      - squeeze requires 'bb' (accesses ind_1h['bb_width'])
+      - multi_tf requires 'macd' (accesses ind_1h['macd'], ind_4h['macd'])
+                          and 'ema' (accesses ind_d['ema_20'], ind_d['ema_50'])
     """
     def decorator(f):
         _INDICATOR_PLUGINS.append(f)
@@ -1270,22 +1283,42 @@ class Engine:
         # order (not the caller's list) to guarantee dependency-correct
         # execution: obv before obv_divergence, momentum before momentum_accel.
         required_plugins = getattr(self, '_required_plugins', None)
+        _ind_groups = getattr(self, '_required_indicator_groups', None)
         if required_plugins is not None:
             required_set = set(required_plugins)
+            # Cross-validate plugin→group dependencies: warn if a plugin
+            # requires an indicator group that wasn't computed.
+            if _ind_groups is not None:
+                for pname in required_set:
+                    needed_groups = _PLUGIN_GROUP_DEPS.get(pname)
+                    if needed_groups:
+                        missing = needed_groups - _ind_groups
+                        if missing:
+                            logging.getLogger(__name__).warning(
+                                "Plugin '%s' requires indicator groups %s "
+                                "but REQUIRED_INDICATOR_GROUPS=%s is missing %s. "
+                                "Plugin will likely fail silently.",
+                                pname, needed_groups, _ind_groups, missing,
+                            )
             for fn in _INDICATOR_PLUGINS:
                 pname = _PLUGIN_NAMES.get(fn.__name__)
                 if pname is not None and pname in required_set:
                     try:
                         fn(ctx)
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logging.getLogger(__name__).warning(
+                            "Plugin '%s' failed for %s: %s", pname, ticker, exc,
+                        )
         else:
             # Default: run all plugins (backward compat for 211 strategies)
             for plugin in _INDICATOR_PLUGINS:
                 try:
                     plugin(ctx)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logging.getLogger(__name__).debug(
+                        "Plugin '%s' failed for %s: %s",
+                        getattr(plugin, '__name__', '?'), ticker, exc,
+                    )
 
         if use_cache:
             self._context_cache[cache_key] = ctx

@@ -742,8 +742,8 @@ def _precompute_true_walk_forward(
     raw_data: dict[str, tuple] = {}
     for token in tokens:
         try:
-            df_spot = load_token_data_cached(token, "spot", hist_cache=hist_cache, data_dir=DATA_DIR)
-            df_perp = load_token_data_cached(token, "perp", hist_cache=hist_cache, data_dir=DATA_DIR)
+            df_spot = load_token_data_cached(token, "spot", hist_cache=hist_cache, data_dir=DATA_DIR, max_rows=config.cache_max_rows)
+            df_perp = load_token_data_cached(token, "perp", hist_cache=hist_cache, data_dir=DATA_DIR, max_rows=config.cache_max_rows)
 
             if end_date is not None:
                 if df_spot is not None:
@@ -838,7 +838,10 @@ def _precompute_true_walk_forward(
         for token, sr in strategy_results.items():
             if token not in universe:
                 continue
-            per_token_segments[token].append((w, sr, contexts.get(token)))
+            # Store only the strategy result and window — NOT the context.
+            # Holding context refs across all windows would accumulate ~4000
+            # StrategyContext objects and OOM in a 4GB container.
+            per_token_segments[token].append((w, sr))
 
         elapsed = time.time() - t_win
         print(
@@ -847,7 +850,9 @@ def _precompute_true_walk_forward(
             f"{len(contexts)} tokens, {elapsed:.1f}s"
         )
 
-        # Memory release
+        # Memory release: clear context caches and collected contexts
+        eng_spot._context_cache.clear()
+        eng_perp._context_cache.clear()
         del contexts, strategy_results
         gc.collect()
 

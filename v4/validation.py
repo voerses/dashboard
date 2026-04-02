@@ -335,7 +335,7 @@ def _run_cpcv_v4(strategy_id: str, ticker: str,
         p_funding = np.zeros(fold_len, dtype=np.float32)
         if effective_market == 'perp' and ctx.funding_1h is not None:
             p_funding = ctx.funding_1h[:fold_len].astype(np.float32)
-        p_rsi = ctx.ind_1h['rsi'][:fold_len].astype(np.float32)
+        p_rsi = ctx.ind_1h['rsi'][:fold_len].astype(np.float32) if 'rsi' in ctx.ind_1h else None
 
         ts = TokenSignals(
             token=ticker,

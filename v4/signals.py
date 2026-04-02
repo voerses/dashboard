@@ -766,4 +766,16 @@ def precompute_strategy_signals(
         eng_perp._context_cache.clear()
         del eng_spot, eng_perp
 
+    # Paper mode: clear hist_cache between ticks to reclaim memory.
+    # Mirrors portfolio_signals._load_all_contexts behavior for Class B strategies.
+    if config.cache_max_rows > 0 and hist_cache is not None:
+        hist_cache.clear()
+        import gc
+        import ctypes
+        gc.collect()
+        try:
+            ctypes.CDLL("libc.so.6").malloc_trim(0)
+        except (OSError, AttributeError):
+            pass
+
     return results
