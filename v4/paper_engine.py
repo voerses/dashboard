@@ -1002,6 +1002,7 @@ class PaperPortfolioEngine:
 
         # Write state.json atomically
         state_path = os.path.join(state_dir, "state.json")
+        armed_snapshot = self._serialize_armed_tokens()
         shadow = getattr(self, 'shadow', None)
         shadow_pools = {
             "spot_funds": shadow.spot_funds_shadow if shadow else 0.0,
@@ -1015,6 +1016,7 @@ class PaperPortfolioEngine:
                 shadow_pools=shadow_pools,
                 last_known_prices=dict(self._last_known_prices),
                 last_known_regimes=dict(self._last_known_regimes),
+                armed_tokens=armed_snapshot,
             )
         else:
             from v4.paper_state import serialize_engine_state
@@ -1024,6 +1026,7 @@ class PaperPortfolioEngine:
                 shadow_pools=shadow_pools,
                 last_known_prices=dict(self._last_known_prices),
                 last_known_regimes=dict(self._last_known_regimes),
+                armed_tokens=armed_snapshot,
             )
             import tempfile as _tmpfile
             fd, tmp = _tmpfile.mkstemp(dir=state_dir, suffix=".tmp")
@@ -1148,6 +1151,98 @@ class PaperPortfolioEngine:
                     os.rename(self._armed_log_path, rotated)
         except OSError:
             pass
+
+    # ------------------------------------------------------------------
+    # Armed tokens persistence
+    # ------------------------------------------------------------------
+
+    def _serialize_armed_tokens(self) -> list[dict]:
+        """Serialize _armed_tokens to a JSON-compatible list.
+
+        Skips non-serializable fields (sig_ref) and converts numpy arrays/sets
+        to JSON-compatible types. Used for state.json persistence so armed
+        orders survive restarts.
+        """
+        with self._armed_tokens_lock:
+            snapshot = dict(self._armed_tokens)
+
+        result = []
+        for (sid, token), armed in snapshot.items():
+            entry = {"strategy_id": sid, "token": token}
+            for k, v in armed.items():
+                if k == "sig_ref":
+                    continue  # Not serializable
+                if isinstance(v, set):
+                    entry[k] = sorted(v)
+                elif isinstance(v, (np.integer,)):
+                    entry[k] = int(v)
+                elif isinstance(v, (np.floating,)):
+                    entry[k] = float(v)
+                elif isinstance(v, np.ndarray):
+                    entry[k] = v.tolist()
+                elif isinstance(v, tuple):
+                    entry[k] = list(v)
+                elif isinstance(v, float) and math.isnan(v):
+                    entry[k] = None  # JSON doesn't support NaN
+                else:
+                    entry[k] = v
+            result.append(entry)
+        return result
+
+    @staticmethod
+    def _deserialize_armed_tokens(
+        data: list[dict],
+    ) -> tuple[dict[tuple[str, str], dict], list[dict]]:
+        """Deserialize armed tokens from state.json.
+
+        Filters out expired entries based on real UTC time (window_end).
+        Converts JSON-serialized types back to expected Python types.
+
+        Returns (active_armed, expired_list) so callers can log expired entries.
+        """
+        now_epoch = time.time()
+        result: dict[tuple[str, str], dict] = {}
+        expired: list[dict] = []
+        for raw in data:
+            sid = raw.get("strategy_id", "")
+            token = raw.get("token", "")
+            if not sid or not token:
+                continue
+
+            # Check window_end against real UTC time — expired orders are discarded.
+            # window_end == 0 (missing) is treated as expired to avoid immortal tokens.
+            window_end = raw.get("window_end", 0)
+            if not window_end or window_end <= now_epoch:
+                expired.append({
+                    "event": "expired",
+                    "strategy": sid,
+                    "token": token,
+                    "direction": raw.get("direction", 0),
+                    "level": raw.get("level", 0),
+                    "close_val": raw.get("close_val", 0),
+                    "tick_counter": raw.get("tick_counter", 0),
+                    "expired_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                })
+                continue
+
+            # Build a clean copy without strategy_id/token keys
+            entry = {k: v for k, v in raw.items() if k not in ("strategy_id", "token")}
+
+            # Convert types back
+            if "exit_regimes" in entry and isinstance(entry["exit_regimes"], list):
+                entry["exit_regimes"] = set(entry["exit_regimes"])
+            for tuple_key in ("convex_bar_thresholds", "convex_multipliers"):
+                if tuple_key in entry and isinstance(entry[tuple_key], list):
+                    entry[tuple_key] = tuple(entry[tuple_key])
+            for arr_key in ("trail_schedule", "time_trail_schedule", "max_trail_mult_arr"):
+                if arr_key in entry and isinstance(entry[arr_key], list):
+                    entry[arr_key] = np.array(entry[arr_key])
+            # Restore NaN from None
+            if entry.get("funding_zscore") is None:
+                entry["funding_zscore"] = float('nan')
+
+            result[(sid, token)] = entry
+        return result, expired
 
     # ------------------------------------------------------------------
     # Armed level caching (AC21)
@@ -1587,6 +1682,11 @@ class PaperPortfolioEngine:
             st.realized_pnl += raw_pnl
             st.total_fees += exit_fee
 
+        # Clear armed tokens — don't re-enter after invariant violation
+        lock = getattr(self, '_armed_tokens_lock', None)
+        if lock is not None:
+            with lock:
+                self._armed_tokens.clear()
         self._alerts.append("EMERGENCY: All positions closed due to invariant violation")
 
     def _persist_emergency_state(self) -> None:
@@ -1615,8 +1715,9 @@ class PaperPortfolioEngine:
                 os.fsync(f.fileno())
             self._flushed_position_ids.update(t.position_id for t in unflushed)
 
-        # Write state.json (atomic)
+        # Write state.json (atomic) — armed tokens already cleared in _emergency_close_all
         state_path = os.path.join(state_dir, "state.json")
+        armed_snapshot = self._serialize_armed_tokens()
         shadow = getattr(self, 'shadow', None)
         shadow_pools = {
             "spot_funds": shadow.spot_funds_shadow if shadow else 0.0,
@@ -1630,6 +1731,7 @@ class PaperPortfolioEngine:
                 shadow_pools=shadow_pools,
                 last_known_prices=dict(self._last_known_prices),
                 last_known_regimes=dict(self._last_known_regimes),
+                armed_tokens=armed_snapshot,
             )
         else:
             from v4.paper_state import serialize_engine_state
@@ -1638,6 +1740,7 @@ class PaperPortfolioEngine:
                 mode="independent", shadow_pools=shadow_pools,
                 last_known_prices=dict(self._last_known_prices),
                 last_known_regimes=dict(self._last_known_regimes),
+                armed_tokens=armed_snapshot,
             )
             import tempfile as _tmpfile
             fd, tmp = _tmpfile.mkstemp(dir=state_dir, suffix=".tmp")
@@ -2076,6 +2179,7 @@ class PaperPortfolioEngine:
         # This is the "commit point": once state.json is atomically written,
         # the tick is considered complete.
         state_path = os.path.join(state_dir, "state.json")
+        armed_snapshot = self._serialize_armed_tokens()
         if self.state is not None:
             # Pool mode: single shared state
             atomic_write_state(
@@ -2086,6 +2190,7 @@ class PaperPortfolioEngine:
                 shadow_pools=shadow_pools,
                 last_known_prices=dict(self._last_known_prices),
                 last_known_regimes=dict(self._last_known_regimes),
+                armed_tokens=armed_snapshot,
             )
         else:
             # Independent mode: serialize all strategy states (C4 fix)
@@ -2096,6 +2201,7 @@ class PaperPortfolioEngine:
                 shadow_pools=shadow_pools,
                 last_known_prices=dict(self._last_known_prices),
                 last_known_regimes=dict(self._last_known_regimes),
+                armed_tokens=armed_snapshot,
             )
             import tempfile as _tmpfile
             fd, tmp = _tmpfile.mkstemp(dir=state_dir, suffix=".tmp")
@@ -2482,6 +2588,7 @@ class PaperPortfolioEngine:
         # Re-persist state.json so dashboard picks up fresh last_known_prices
         if updated > 0:
             refresh_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            armed_snapshot = self._serialize_armed_tokens()
             state_path = os.path.join(state_dir, "state.json")
             if self.state is not None:
                 atomic_write_state(
@@ -2491,6 +2598,7 @@ class PaperPortfolioEngine:
                     state_path,
                     last_known_prices=dict(self._last_known_prices),
                     last_known_regimes=dict(self._last_known_regimes),
+                    armed_tokens=armed_snapshot,
                 )
             else:
                 from v4.paper_state import serialize_engine_state
@@ -2499,6 +2607,7 @@ class PaperPortfolioEngine:
                     mode="independent",
                     last_known_prices=dict(self._last_known_prices),
                     last_known_regimes=dict(self._last_known_regimes),
+                    armed_tokens=armed_snapshot,
                 )
                 import tempfile as _tmpfile2
                 fd2, tmp2 = _tmpfile2.mkstemp(dir=state_dir, suffix=".tmp")

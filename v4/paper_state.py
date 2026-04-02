@@ -159,6 +159,7 @@ def serialize_state(
     shadow_pools: Optional[dict] = None,
     last_known_prices: Optional[dict] = None,
     last_known_regimes: Optional[dict] = None,
+    armed_tokens: Optional[list] = None,
 ) -> dict:
     """Serialize SimulationState to a JSON-compatible dict.
 
@@ -187,6 +188,9 @@ def serialize_state(
 
     if last_known_regimes is not None:
         data["last_known_regimes"] = {k: int(v) for k, v in last_known_regimes.items()}
+
+    if armed_tokens is not None:
+        data["armed_tokens"] = armed_tokens
 
     return data
 
@@ -245,12 +249,13 @@ def atomic_write_state(
     shadow_pools: Optional[dict] = None,
     last_known_prices: Optional[dict] = None,
     last_known_regimes: Optional[dict] = None,
+    armed_tokens: Optional[list] = None,
 ) -> None:
     """Write state to target_path atomically (write to temp, fsync, rename).
 
     If rename fails, the original file is preserved.
     """
-    data = serialize_state(state, tick_counter, last_timestamp, shadow_pools, last_known_prices, last_known_regimes)
+    data = serialize_state(state, tick_counter, last_timestamp, shadow_pools, last_known_prices, last_known_regimes, armed_tokens=armed_tokens)
     json_str = json.dumps(data, indent=2)
 
     target_dir = os.path.dirname(target_path) or "."
@@ -472,6 +477,7 @@ def serialize_engine_state(
     shadow_pools: Optional[dict] = None,
     last_known_prices: Optional[dict] = None,
     last_known_regimes: Optional[dict] = None,
+    armed_tokens: Optional[list] = None,
 ) -> dict:
     """Serialize multiple strategy states for independent mode.
 
@@ -507,6 +513,9 @@ def serialize_engine_state(
 
     if last_known_regimes is not None:
         data["last_known_regimes"] = {k: int(v) for k, v in last_known_regimes.items()}
+
+    if armed_tokens is not None:
+        data["armed_tokens"] = armed_tokens
 
     return data
 

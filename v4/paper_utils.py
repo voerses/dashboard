@@ -164,6 +164,31 @@ def restore_state(engine: PaperPortfolioEngine, config) -> None:
     engine._last_known_prices = data.get("last_known_prices", {})
     engine._last_known_regimes = data.get("last_known_regimes", {})
 
+    # Restore armed tokens (persisted across restarts)
+    # Expired entries are filtered by real UTC time in _deserialize_armed_tokens
+    armed_data = data.get("armed_tokens", [])
+    if armed_data:
+        from v4.paper_engine import PaperPortfolioEngine
+        restored, expired_on_restore = PaperPortfolioEngine._deserialize_armed_tokens(armed_data)
+        if restored:
+            with engine._armed_tokens_lock:
+                engine._armed_tokens = restored
+        # Log expired entries to armed_log.jsonl so dashboard shows them
+        if expired_on_restore:
+            armed_log_path = os.path.join(state_dir, "armed_log.jsonl")
+            try:
+                with open(armed_log_path, "a") as f:
+                    for evt in expired_on_restore:
+                        f.write(json.dumps(evt) + "\n")
+                    f.flush()
+                    os.fsync(f.fileno())
+            except OSError:
+                pass
+        logger.info(
+            "Restored %d armed orders (%d expired during downtime, logged)",
+            len(restored), len(expired_on_restore),
+        )
+
     # Restore shadow pools if present
     shadow_pools = data.get("shadow_pools", {})
     if shadow_pools and hasattr(engine, 'shadow') and engine.shadow is not None:
