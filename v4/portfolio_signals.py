@@ -35,7 +35,7 @@ _project_root = Path(__file__).resolve().parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from v4.engine import Engine, MarketType, _load_strategy_fn
+from v4.engine import Engine, MarketType, _load_strategy_fn, _load_strategy_required_plugins
 from v4.data_loader import load_token_data, load_token_data_cached
 
 
@@ -60,6 +60,11 @@ def _load_all_contexts(
     eng_spot = Engine(data_dir=DATA_DIR, market="spot", capital=config.capital, exchange=config.exchange)
     eng_perp = Engine(data_dir=DATA_DIR, market="perp", capital=config.capital, exchange=config.exchange)
 
+    # Wire plugin opt-in from strategy module (if declared)
+    req_plugins = _load_strategy_required_plugins(strategy_spec.strategy_id)
+    eng_spot._required_plugins = req_plugins
+    eng_perp._required_plugins = req_plugins
+
     WARMUP_DAYS = 180
     anchor = end_date if end_date is not None else pd.Timestamp.now("UTC").tz_localize(None)
     trade_start = anchor - pd.DateOffset(months=months)
@@ -74,11 +79,10 @@ def _load_all_contexts(
     for token in tokens:
         try:
             # Load data via data_loader (merges historical + live buffer)
-            # max_rows=22000 trims multi-year parquets in cache to fit the
-            # worst case: 12mo lookback + 8760h train + 180d warmup ≈ 21,840 bars.
-            # Saves ~400MB across 236 tokens (55K→22K rows per token).
-            df_spot_full = load_token_data_cached(token, "spot", hist_cache=hist_cache, data_dir=DATA_DIR, max_rows=22000)
-            df_perp_full = load_token_data_cached(token, "perp", hist_cache=hist_cache, data_dir=DATA_DIR, max_rows=22000)
+            # config.cache_max_rows controls trimming: 22000 for paper (saves ~400MB
+            # across 236 tokens), 0 (unlimited) for backtest.
+            df_spot_full = load_token_data_cached(token, "spot", hist_cache=hist_cache, data_dir=DATA_DIR, max_rows=config.cache_max_rows)
+            df_perp_full = load_token_data_cached(token, "perp", hist_cache=hist_cache, data_dir=DATA_DIR, max_rows=config.cache_max_rows)
 
             if is_combined:
                 if df_spot_full is None or df_perp_full is None:
@@ -145,13 +149,6 @@ def _load_all_contexts(
     eng_spot._context_cache.clear()
     eng_perp._context_cache.clear()
     del eng_spot, eng_perp
-
-    # Clear hist_cache to free ~290MB of cached DataFrames that are no longer
-    # needed — all data has been extracted into StrategyContext objects.
-    # The cache will re-populate from disk on the next tick (~30s IO cost,
-    # but prevents OOM in 4GB containers).
-    if hist_cache is not None:
-        hist_cache.clear()
 
     return contexts, cutoff, anchor
 
@@ -699,6 +696,11 @@ def _precompute_true_walk_forward(
 
     eng_spot = Engine(data_dir=DATA_DIR, market="spot", capital=config.capital, exchange=config.exchange)
     eng_perp = Engine(data_dir=DATA_DIR, market="perp", capital=config.capital, exchange=config.exchange)
+
+    # Wire plugin opt-in from strategy module (if declared)
+    req_plugins = _load_strategy_required_plugins(strategy_spec.strategy_id)
+    eng_spot._required_plugins = req_plugins
+    eng_perp._required_plugins = req_plugins
 
     raw_data: dict[str, tuple] = {}
     for token in tokens:

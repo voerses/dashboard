@@ -40,6 +40,9 @@ PORTFOLIO_CONFIG = {
     "max_portfolio_positions": 50,
 }
 
+# s501 uses zero ctx.custom fields — skip all indicator plugins
+REQUIRED_PLUGINS = []
+
 # ══════════════════════════════════════════════════════════════════════
 # CONFIGURATION
 # ══════════════════════════════════════════════════════════════════════

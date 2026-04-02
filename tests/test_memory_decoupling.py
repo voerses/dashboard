@@ -537,7 +537,7 @@ class TestPluginDispatchIntegration:
         close = 100.0 + np.cumsum(rng.normal(0, 0.5, 2000))
         df = pd.DataFrame({
             "close": close, "high": close + 0.5, "low": close - 0.5,
-            "volume": rng.uniform(1e5, 1e6, 2000),
+            "open": close, "volume": rng.uniform(1e5, 1e6, 2000),
             "taker_buy_base": rng.uniform(1e4, 1e5, 2000),
         }, index=idx)
 
@@ -562,7 +562,7 @@ class TestPluginDispatchIntegration:
         close = 100.0 + np.cumsum(rng.normal(0, 0.5, 2000))
         df = pd.DataFrame({
             "close": close, "high": close + 0.5, "low": close - 0.5,
-            "volume": rng.uniform(1e5, 1e6, 2000),
+            "open": close, "volume": rng.uniform(1e5, 1e6, 2000),
             "taker_buy_base": rng.uniform(1e4, 1e5, 2000),
         }, index=idx)
 
@@ -628,7 +628,7 @@ class TestSelectivePluginIntegration:
         close = 100.0 + np.cumsum(rng.normal(0, 0.5, 2000))
         df = pd.DataFrame({
             "close": close, "high": close + 0.5, "low": close - 0.5,
-            "volume": rng.uniform(1e5, 1e6, 2000),
+            "open": close, "volume": rng.uniform(1e5, 1e6, 2000),
             "taker_buy_base": rng.uniform(1e4, 1e5, 2000),
         }, index=idx)
 
@@ -706,7 +706,7 @@ class TestRunPaperMultiConfigWiring:
     def test_run_paper_multi_config_has_cache_max_rows(self):
         """AC22: run_paper_multi.py PaperConfig constructor wires cache_max_rows.
         RED: PaperConfig has no cache_max_rows field -> AttributeError."""
-        from v4.run_paper_multi import load_portfolio_configs
+        from v4.run_paper_multi import load_multi_config
 
         config_data = {
             "portfolios": [{
@@ -719,7 +719,7 @@ class TestRunPaperMultiConfigWiring:
             tmp_path = f.name
 
         try:
-            configs = load_portfolio_configs(tmp_path)
+            configs = load_multi_config(tmp_path)
             assert len(configs) >= 1
             assert configs[0].cache_max_rows == 22000, \
                 f"Expected cache_max_rows=22000, got {configs[0].cache_max_rows}"
@@ -750,7 +750,7 @@ class TestPluginDependencyOrdering:
         close = 100.0 + np.cumsum(rng.normal(0, 0.5, 2000))
         df = pd.DataFrame({
             "close": close, "high": close + 0.5, "low": close - 0.5,
-            "volume": rng.uniform(1e5, 1e6, 2000),
+            "open": close, "volume": rng.uniform(1e5, 1e6, 2000),
             "taker_buy_base": rng.uniform(1e4, 1e5, 2000),
         }, index=idx)
 

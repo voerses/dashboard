@@ -21,7 +21,7 @@ _project_root = Path(__file__).resolve().parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from v4.engine import Engine, MarketType, _load_strategy_fn
+from v4.engine import Engine, MarketType, _load_strategy_fn, _load_strategy_required_plugins
 from v4.universe import get_all_tradeable
 from v4.data_loader import load_token_data, load_token_data_cached, discover_tokens_from_data, infer_data_end_date as _infer_end
 
@@ -216,6 +216,8 @@ def precompute_strategy_signals(
     end_date: Optional[pd.Timestamp] = None,
     live_bar: int = -1,
     hist_cache: dict | None = None,
+    eng_spot: Optional[Engine] = None,
+    eng_perp: Optional[Engine] = None,
 ) -> dict[str, TokenSignals]:
     """Precompute signal arrays for one strategy across all tokens.
 
@@ -225,6 +227,9 @@ def precompute_strategy_signals(
                   For backtesting, pass infer_data_end_date() for reproducibility.
         live_bar: If >= 0, bars at this index or later are preserved during
                   1m entry resolution when 1m data is missing (paper mode).
+        eng_spot: Optional shared Engine instance for spot market (enables
+                  context caching across strategies). Creates fresh if None.
+        eng_perp: Optional shared Engine instance for perp market. Creates fresh if None.
 
     Follows backtest_funds.py pattern:
       _build_context() -> strategy_fn() -> extract arrays -> walk-forward mask
@@ -238,16 +243,39 @@ def precompute_strategy_signals(
     is_single_ctx = len(inspect.signature(strategy_fn).parameters) == 1
     is_combined = strategy_spec.market == "combined"
 
-    eng_spot = Engine(data_dir=DATA_DIR, market="spot", capital=config.capital, exchange=config.exchange)
-    eng_perp = Engine(data_dir=DATA_DIR, market="perp", capital=config.capital, exchange=config.exchange)
+    # Use shared engines if provided, otherwise create fresh ones
+    _use_ctx_cache = eng_spot is not None or eng_perp is not None
+    if eng_spot is None:
+        eng_spot = Engine(data_dir=DATA_DIR, market="spot", capital=config.capital, exchange=config.exchange)
+    if eng_perp is None:
+        eng_perp = Engine(data_dir=DATA_DIR, market="perp", capital=config.capital, exchange=config.exchange)
+
+    if not _use_ctx_cache:
+        # Wire plugin opt-in from strategy module (only when creating fresh engines)
+        req_plugins = _load_strategy_required_plugins(strategy_spec.strategy_id)
+        eng_spot._required_plugins = req_plugins
+        eng_perp._required_plugins = req_plugins
+
+    def _build_ctx(eng, token, df, **kwargs):
+        """Build context, using external cache for shared engines."""
+        if _use_ctx_cache:
+            key = (token, len(df))
+            cached = eng._context_cache.get(key)
+            if cached is not None:
+                return cached
+            ctx = eng._build_context(token, df, **kwargs)
+            if ctx is not None:
+                eng._context_cache[key] = ctx
+            return ctx
+        return eng._build_context(token, df, **kwargs)
 
     results: dict[str, TokenSignals] = {}
 
     for token in tokens:
         try:
             # Load data via data_loader (merges historical + live buffer)
-            df_spot_full = load_token_data_cached(token, "spot", hist_cache=hist_cache, data_dir=DATA_DIR)
-            df_perp_full = load_token_data_cached(token, "perp", hist_cache=hist_cache, data_dir=DATA_DIR)
+            df_spot_full = load_token_data_cached(token, "spot", hist_cache=hist_cache, data_dir=DATA_DIR, max_rows=config.cache_max_rows)
+            df_perp_full = load_token_data_cached(token, "perp", hist_cache=hist_cache, data_dir=DATA_DIR, max_rows=config.cache_max_rows)
 
             if is_combined:
                 if df_spot_full is None or df_perp_full is None:
@@ -306,20 +334,20 @@ def precompute_strategy_signals(
                 df_perp = df_perp.reindex(common_idx)
                 if len(df_spot) < 500 or len(df_perp) < 500:
                     continue
-                ctx_spot = eng_spot._build_context(token, df_spot, min_bars=210, market_override="spot")
-                ctx_perp = eng_perp._build_context(token, df_perp, min_bars=210, market_override="perp")
+                ctx_spot = _build_ctx(eng_spot, token, df_spot, min_bars=210, market_override="spot")
+                ctx_perp = _build_ctx(eng_perp, token, df_perp, min_bars=210, market_override="perp")
                 if ctx_spot is None or ctx_perp is None:
                     continue
             elif strategy_spec.market == "spot":
                 if df_spot is None or len(df_spot) < 500:
                     continue
-                ctx_spot = eng_spot._build_context(token, df_spot, min_bars=210, market_override="spot")
+                ctx_spot = _build_ctx(eng_spot, token, df_spot, min_bars=210, market_override="spot")
                 if ctx_spot is None:
                     continue
             else:  # perp
                 if df_perp is None or len(df_perp) < 500:
                     continue
-                ctx_perp = eng_perp._build_context(token, df_perp, min_bars=210, market_override="perp")
+                ctx_perp = _build_ctx(eng_perp, token, df_perp, min_bars=210, market_override="perp")
                 if ctx_perp is None:
                     continue
 
@@ -710,11 +738,12 @@ def precompute_strategy_signals(
             print(f"  {token}: signal error - {e}")
             continue
 
-    # Explicitly clear Engine context caches to prevent memory leak in live runner.
-    # Each Engine accumulates _context_cache entries (aggregated DataFrames per token)
-    # that persist until GC collects the Engine objects.
-    eng_spot._context_cache.clear()
-    eng_perp._context_cache.clear()
-    del eng_spot, eng_perp
+    # Clear context caches to prevent memory leak — but only for locally-created
+    # engines. Shared engines (passed via eng_spot/eng_perp params) are managed
+    # by the caller (e.g., paper_engine clears after all strategies complete).
+    if not _use_ctx_cache:
+        eng_spot._context_cache.clear()
+        eng_perp._context_cache.clear()
+        del eng_spot, eng_perp
 
     return results

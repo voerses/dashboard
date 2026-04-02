@@ -40,6 +40,7 @@ class PaperConfig(PortfolioConfig):
     carry_strategies: list = field(default_factory=list)  # strategy_ids excluded from sentinel monitoring
     exit_resolution: int = 0                       # 0=hourly only, 1/5/15/30=sub-hourly WebSocket candles
     dedicated_ws: bool = False                       # True = own WebSocket, skip shared monitor
+    cache_max_rows: int = 22000                        # paper trader memory limit (overrides PortfolioConfig default of 0)
 
 
 def load_paper_config(path: str) -> PaperConfig:
@@ -138,6 +139,7 @@ def load_paper_config(path: str) -> PaperConfig:
         raw_mode=data.get("raw_mode", False),
         raw_max_positions=data.get("raw_max_positions", 500),
         skip_walk_forward=data.get("skip_walk_forward", False),
+        cache_max_rows=data.get("cache_max_rows", 22000),
     )
 
     config.config_path = path

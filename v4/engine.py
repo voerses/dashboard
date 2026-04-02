@@ -12,6 +12,8 @@ Strategy files import `from engine import StrategyContext, StrategyResult`.
 
 import sys
 import os
+import logging
+import threading
 import warnings
 
 import numpy as np
@@ -513,6 +515,8 @@ CombinedStrategyFn = Callable[[StrategyContext, StrategyContext], StrategyResult
 
 _INDICATOR_PLUGINS: List[Callable] = []
 _NAMED_PLUGINS: Dict[str, Callable] = {}
+# Reverse map: id(fn) -> name, for dependency-correct iteration order
+_PLUGIN_NAMES: Dict[int, str] = {}
 
 
 def register_indicator(fn=None, *, name=None):
@@ -527,11 +531,16 @@ def register_indicator(fn=None, *, name=None):
 
     Named plugins can be selectively executed when a strategy declares
     REQUIRED_PLUGINS = ['obv', 'vwap']. Unnamed plugins always execute.
+
+    Plugin dependencies (must include in REQUIRED_PLUGINS if using selective opt-in):
+      - obv_divergence requires obv
+      - momentum_accel requires momentum
     """
     def decorator(f):
         _INDICATOR_PLUGINS.append(f)
         if name is not None:
             _NAMED_PLUGINS[name] = f
+            _PLUGIN_NAMES[id(f)] = name
         return f
 
     if fn is not None:
@@ -542,7 +551,7 @@ def register_indicator(fn=None, *, name=None):
     return decorator
 
 
-@register_indicator
+@register_indicator(name='obv')
 def _compute_obv(ctx: StrategyContext):
     close = ctx.ind_1h['close']
     volume = ctx.ind_1h['volume']
@@ -555,7 +564,7 @@ def _compute_obv(ctx: StrategyContext):
     ctx.custom['obv_slope'] = obv_slope
 
 
-@register_indicator
+@register_indicator(name='vwap')
 def _compute_vwap_session(ctx: StrategyContext):
     close = ctx.ind_1h['close']
     volume = ctx.ind_1h['volume']
@@ -567,7 +576,7 @@ def _compute_vwap_session(ctx: StrategyContext):
     ctx.custom['vwap_dev'] = (close - vwap) / np.maximum(vwap, 1e-10)
 
 
-@register_indicator
+@register_indicator(name='momentum')
 def _compute_momentum_signals(ctx: StrategyContext):
     close = ctx.ind_1h['close']
     for period in [6, 12, 24, 48, 120]:
@@ -581,7 +590,7 @@ def _compute_momentum_signals(ctx: StrategyContext):
         ctx.custom[f'ret_{period}d'] = ctx.align_daily_to_1h(ret_d)
 
 
-@register_indicator
+@register_indicator(name='enriched')
 def _compute_enriched_signals(ctx: StrategyContext):
     if ctx.enriched is None:
         return
@@ -593,7 +602,7 @@ def _compute_enriched_signals(ctx: StrategyContext):
             ctx.custom[f'enr_{col}'] = mapped
 
 
-@register_indicator
+@register_indicator(name='obv_divergence')
 def _compute_obv_divergence(ctx: StrategyContext):
     """OBV slope vs price slope divergence — detects accumulation/distribution."""
     close = ctx.ind_1h['close']
@@ -616,7 +625,7 @@ def _compute_obv_divergence(ctx: StrategyContext):
     ctx.custom['price_slope'] = price_slope
 
 
-@register_indicator
+@register_indicator(name='momentum_accel')
 def _compute_momentum_accel(ctx: StrategyContext):
     """Second derivative of price — momentum acceleration."""
     ret_6h = ctx.custom.get('ret_6h')
@@ -628,7 +637,7 @@ def _compute_momentum_accel(ctx: StrategyContext):
     ctx.custom['momentum_accel'] = accel
 
 
-@register_indicator
+@register_indicator(name='funding_zscore')
 def _compute_funding_zscore(ctx: StrategyContext):
     """Rolling z-score of funding rate — extreme positioning detection."""
     if ctx.funding_raw is None:
@@ -637,7 +646,7 @@ def _compute_funding_zscore(ctx: StrategyContext):
     ctx.custom['funding_zscore'] = rolling_zscore(ctx.funding_raw, 168)  # 7-day rolling window
 
 
-@register_indicator
+@register_indicator(name='squeeze')
 def _compute_squeeze_intensity(ctx: StrategyContext):
     """How deep into squeeze: 1 - (bb_width / bb_avg). 0=normal, 1=max compression."""
     bb_width = ctx.ind_1h['bb_width']
@@ -647,7 +656,7 @@ def _compute_squeeze_intensity(ctx: StrategyContext):
     ctx.custom['squeeze_intensity'] = intensity
 
 
-@register_indicator
+@register_indicator(name='multi_tf')
 def _compute_multi_tf_alignment(ctx: StrategyContext):
     """Score combining 1H/4H/daily trend agreement (0-3)."""
     n = len(ctx.ind_1h['close'])
@@ -746,7 +755,7 @@ def _load_dvol(ticker: str) -> pd.Series:
     return _dvol_cache[ticker]
 
 
-@register_indicator
+@register_indicator(name='positioning')
 def _compute_positioning_overlay(ctx: StrategyContext):
     """Positioning overlay: combined z-score of Top Trader L/S + divergence.
 
@@ -797,7 +806,7 @@ def _compute_positioning_overlay(ctx: StrategyContext):
         ctx.custom['pos_mult'] = np.ones(n, dtype=np.float64)
 
 
-@register_indicator
+@register_indicator(name='vrp')
 def _compute_vrp_overlay(ctx: StrategyContext):
     """VRP (Volatility Risk Premium) overlay: (IV - RV) z-score -> sizing mult.
 
@@ -978,12 +987,25 @@ def compute_custom_indicators(ctx, periods: list[dict]) -> dict[str, np.ndarray]
 # Strategy Loader
 # =============================================================================
 
+_STRATEGY_MODULE_CACHE: Dict[str, object] = {}
+_STRATEGY_MODULE_LOCK = threading.Lock()
+
+
 def _load_strategy_fn(strategy_id: str):
     """Load a strategy function by ID from the strategies/ directory.
 
     Injects v4/ into sys.path so strategy `from engine import ...` resolves
     to this module (v4/engine.py).
+
+    Caches loaded modules in _STRATEGY_MODULE_CACHE (thread-safe).
+    On second call for the same strategy_id, returns from cache without
+    re-executing the module.
     """
+    with _STRATEGY_MODULE_LOCK:
+        cached = _STRATEGY_MODULE_CACHE.get(strategy_id)
+        if cached is not None:
+            return cached.strategy
+
     strategies_dir = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         "strategies",
@@ -1007,7 +1029,41 @@ def _load_strategy_fn(strategy_id: str):
     )
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
+
+    with _STRATEGY_MODULE_LOCK:
+        _STRATEGY_MODULE_CACHE[strategy_id] = mod
+
     return mod.strategy
+
+
+def _load_strategy_required_plugins(strategy_id: str):
+    """Return the REQUIRED_PLUGINS list from a cached strategy module.
+
+    Returns None if the module has no REQUIRED_PLUGINS attribute (backward
+    compatible — all plugins will run).
+
+    Plugin dependencies (callers must include both if using selective opt-in):
+      - obv_divergence requires obv
+      - momentum_accel requires momentum (which produces ret_6h)
+
+    Note: strategy module cache (_STRATEGY_MODULE_CACHE) means strategy file
+    changes on disk require paper trader restart to take effect.
+
+    Logs a warning for any plugin name not found in _NAMED_PLUGINS.
+    """
+    with _STRATEGY_MODULE_LOCK:
+        mod = _STRATEGY_MODULE_CACHE.get(strategy_id)
+    if mod is None:
+        return None
+    plugins = getattr(mod, 'REQUIRED_PLUGINS', None)
+    if plugins is not None:
+        for pname in plugins:
+            if pname not in _NAMED_PLUGINS:
+                logging.getLogger(__name__).warning(
+                    "Strategy %s: REQUIRED_PLUGINS contains unknown plugin '%s' "
+                    "(available: %s)", strategy_id, pname, sorted(_NAMED_PLUGINS.keys())
+                )
+    return plugins
 
 
 # =============================================================================
@@ -1152,13 +1208,16 @@ class Engine:
         ctx._adv_static = _adv_static
         ctx._tier_static = _tier_static
 
-        # Run indicator plugins: all by default, or only requested ones
+        # Run indicator plugins: all by default, or only requested ones.
+        # When opt-in is active, iterate _INDICATOR_PLUGINS in registration
+        # order (not the caller's list) to guarantee dependency-correct
+        # execution: obv before obv_divergence, momentum before momentum_accel.
         required_plugins = getattr(self, '_required_plugins', None)
         if required_plugins is not None:
-            # Opt-in mode: run only named plugins that are requested
-            for pname in required_plugins:
-                fn = _NAMED_PLUGINS.get(pname)
-                if fn is not None:
+            required_set = set(required_plugins)
+            for fn in _INDICATOR_PLUGINS:
+                pname = _PLUGIN_NAMES.get(id(fn))
+                if pname is not None and pname in required_set:
                     try:
                         fn(ctx)
                     except Exception:

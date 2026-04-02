@@ -294,6 +294,8 @@ class PortfolioConfig:
     true_walk_forward: bool = False
     # Safety cap for concurrent positions in raw mode
     raw_max_positions: int = 500
+    # Maximum rows to keep in hist_cache per token (0 = unlimited for backtest)
+    cache_max_rows: int = 0
 
     def __post_init__(self):
         if self.true_walk_forward and self.skip_walk_forward:

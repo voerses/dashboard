@@ -120,6 +120,7 @@ def load_multi_config(path: str) -> list[PaperConfig]:
             exit_resolution=merged.get("exit_resolution", 0),
             dedicated_ws=merged.get("dedicated_ws", False),
             skip_walk_forward=merged.get("skip_walk_forward", False),
+            cache_max_rows=merged.get("cache_max_rows", 22000),
         )
         config.config_path = path
         configs.append(config)
