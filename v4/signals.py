@@ -270,7 +270,14 @@ def precompute_strategy_signals(
             key = (token, len(df), last_ts)
             cached = eng._context_cache.get(key)
             if cached is not None:
-                return copy.copy(cached)
+                ctx_copy = copy.copy(cached)
+                # Shallow-copy mutable dicts so strategy mutations don't
+                # contaminate the cached instance (e.g. ctx.custom writes).
+                ctx_copy.custom = dict(cached.custom)
+                ctx_copy.ind_1h = dict(cached.ind_1h)
+                ctx_copy.ind_4h = dict(cached.ind_4h)
+                ctx_copy.ind_d = dict(cached.ind_d)
+                return ctx_copy
             ctx = eng._build_context(token, df, **kwargs)
             if ctx is not None:
                 eng._context_cache[key] = ctx
