@@ -13,6 +13,8 @@ Portfolio strategy function signature:
 """
 from __future__ import annotations
 
+import ctypes
+import gc
 import inspect
 import os
 import sys
@@ -76,13 +78,20 @@ def _load_all_contexts(
 
     contexts = {}
 
+    need_spot = is_combined or strategy_spec.market == "spot"
+    need_perp = is_combined or strategy_spec.market == "perp"
+
     for token in tokens:
         try:
-            # Load data via data_loader (merges historical + live buffer)
-            # config.cache_max_rows controls trimming: 22000 for paper (saves ~400MB
-            # across 236 tokens), 0 (unlimited) for backtest.
-            df_spot_full = load_token_data_cached(token, "spot", hist_cache=hist_cache, data_dir=DATA_DIR, max_rows=config.cache_max_rows)
-            df_perp_full = load_token_data_cached(token, "perp", hist_cache=hist_cache, data_dir=DATA_DIR, max_rows=config.cache_max_rows)
+            # Load only the market data this strategy actually needs.
+            # Avoids caching ~789 MB of unused data (e.g., spot for perp-only).
+            # config.cache_max_rows controls trimming: 22000 for paper, 0 for backtest.
+            df_spot_full = None
+            df_perp_full = None
+            if need_spot:
+                df_spot_full = load_token_data_cached(token, "spot", hist_cache=hist_cache, data_dir=DATA_DIR, max_rows=config.cache_max_rows)
+            if need_perp:
+                df_perp_full = load_token_data_cached(token, "perp", hist_cache=hist_cache, data_dir=DATA_DIR, max_rows=config.cache_max_rows)
 
             if is_combined:
                 if df_spot_full is None or df_perp_full is None:
@@ -149,6 +158,23 @@ def _load_all_contexts(
     eng_spot._context_cache.clear()
     eng_perp._context_cache.clear()
     del eng_spot, eng_perp
+
+    # Paper mode: clear hist_cache after context building to free ~789 MB.
+    # The cache's purpose is dedup within this function; between ticks the
+    # data is stale anyway (new bars fetched each tick).  Backtest
+    # (cache_max_rows=0) never clears — it may reuse across walk-forward
+    # windows.  The separate invalidation clear in run_paper_multi.py
+    # (after 4h data promotion) remains independent of this.
+    if config.cache_max_rows > 0 and hist_cache is not None:
+        hist_cache.clear()
+        # Force glibc to return freed pages to OS.  Without this, RSS stays
+        # at peak (~2 GB) due to malloc arena fragmentation even though the
+        # actual live data is ~200 MB.
+        gc.collect()
+        try:
+            ctypes.CDLL("libc.so.6").malloc_trim(0)
+        except (OSError, AttributeError):
+            pass  # non-Linux or missing symbol — skip silently
 
     return contexts, cutoff, anchor
 
