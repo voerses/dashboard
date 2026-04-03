@@ -427,19 +427,23 @@ class PaperPortfolioEngine:
     def process_sub_hourly_exits(
         self, candles: dict[str, tuple[float, float, float]],
     ) -> int:
-        """Process price-based exits from completed sub-hourly candles.
+        """Process all exits from completed sub-hourly candles.
 
         Returns number of positions closed.
-        Handles partial profit-taking and trail/stop/target exits.
+        Handles liquidation, partial profit-taking, trail/stop/target exits,
+        and real-time max_hold. For strategies with exit_resolution > 0, this
+        is the sole exit path (hourly _process_exits is skipped).
         """
         if not candles or getattr(self, '_effective_exit_resolution', 0) == 0:
             return 0
 
         import logging
+        from datetime import datetime, timezone
         logger = logging.getLogger(__name__)
 
         from v4.minute_exits import check_candle_exits
         from v4.simulator import _partial_close_position
+        from v4.universe import get_maint_margin_rate
 
         closed_count = 0
         partial_count = 0
@@ -475,6 +479,28 @@ class PaperPortfolioEngine:
 
                 bars_held = self.tick_counter - pos.entry_bar
 
+                # --- Liquidation check (before price-based exits) ---
+                # Mirrors simulator _process_exits lines 424-442.
+                # Note: cumulative_funding reflects 8h settlement intervals
+                # (not per-bar like the simulator), so unsettled funding
+                # between settlements makes this slightly less conservative.
+                if pos.is_perp and (pos.leverage > 1.0 or pos.quantity < 0.0):
+                    mmr = get_maint_margin_rate(self.config.exchange)
+                    if pos.quantity > 0.0:
+                        unrealized = pos.quantity * (l - pos.entry_price)
+                    else:
+                        unrealized = abs(pos.quantity) * (pos.entry_price - h)
+                    entry_notional = pos.margin_usd * pos.leverage
+                    maintenance_margin = entry_notional * mmr
+                    if pos.margin_usd + unrealized - pos.cumulative_funding < maintenance_margin:
+                        positions_to_close.append((st, pos, c, "liquidation"))
+                        if pos.linked_position_id:
+                            linked = st.position_manager.get_linked(pos.linked_position_id)
+                            if linked and not any(p is linked for _, p, _, _ in positions_to_close):
+                                lc = candles.get(linked.token, (c, c, c))[2]
+                                positions_to_close.append((st, linked, lc, "linked_exit"))
+                        continue
+
                 # Partial profit-taking (mirrors backtest process_minute_exits)
                 if (pos.partial_tp_atr > 0.0
                         and not pos.partial_closed
@@ -504,6 +530,33 @@ class PaperPortfolioEngine:
                     pos, h, l, c, cur_atr, bars_held,
                     cb_r, eff_target, pos.initial_risk,
                 )
+
+                # --- Real-time max_hold check ---
+                # Uses wall-clock time so downtime still counts toward hold limit.
+                # Falls back to tick-based bars_held if entry_timestamp is missing.
+                if reason is None and pos.max_hold > 0:
+                    eff_max_hold = pos.max_hold
+                    bear_max_hold = bar_data.get("bear_max_hold", 0)
+                    if bear_max_hold > 0 and regime == 4:
+                        eff_max_hold = bear_max_hold
+                    if pos.entry_timestamp:
+                        try:
+                            entry_dt = datetime.strptime(
+                                pos.entry_timestamp, "%Y-%m-%dT%H:%M:%SZ"
+                            ).replace(tzinfo=timezone.utc)
+                            elapsed_hours = (
+                                datetime.now(timezone.utc) - entry_dt
+                            ).total_seconds() / 3600.0
+                            if elapsed_hours >= eff_max_hold:
+                                reason = "max_hold"
+                                price = c
+                        except (ValueError, TypeError):
+                            if bars_held >= eff_max_hold:
+                                reason = "max_hold"
+                                price = c
+                    elif bars_held >= eff_max_hold:
+                        reason = "max_hold"
+                        price = c
 
                 if reason is not None:
                     positions_to_close.append((st, pos, price, reason))
@@ -546,6 +599,7 @@ class PaperPortfolioEngine:
 
         # Execute closures
         from v4.sizing import compute_slippage_bps
+        from v4.universe import get_liquidation_fee_rate
 
         timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         for st, pos, exit_price, reason in positions_to_close:
@@ -554,12 +608,13 @@ class PaperPortfolioEngine:
 
             pm = st.position_manager
 
-            # Apply exit slippage (matching backtest _close_position)
+            # Slippage on ALL exits (including liquidation — paper trading
+            # uses real prices, not the backtest simplification of no-slip).
             notional = abs(pos.quantity * exit_price)
             bar_data = self._cached_bar_data.get((pos.strategy_id, pos.token))
             exit_adv = bar_data.get("adv", 1e6) if bar_data else 1e6
             effective_adv = exit_adv
-            if reason in ("stop", "margin_call"):
+            if reason in ("stop", "margin_call", "liquidation"):
                 effective_adv = exit_adv * self.config.stress_adv_multiplier
             _slip_model = st._slippage_models.get(pos.strategy_id)
             if _slip_model is not None:
@@ -572,19 +627,36 @@ class PaperPortfolioEngine:
             else:
                 exit_price += slip  # Short exit: buy higher
 
-            entry_fee = getattr(st, '_entry_fees_by_pos', {}).pop(pos.position_id, 0.0) if isinstance(getattr(st, '_entry_fees_by_pos', {}), dict) else 0.0
+            entry_fee = st._entry_fees_by_pos.pop(pos.position_id, 0.0)
 
-            # Normal exit PnL (liquidation is handled by hourly _process_margin_calls, not sub-hourly)
-            exit_fee = abs(pos.quantity) * exit_price * pos.fee_rate
-            if pos.direction == 1:
-                raw_pnl = pos.quantity * (exit_price - pos.entry_price)
+            # PnL accounting — uses simulator's capped max_loss model for
+            # liquidation.  Note: exit_fee uses slipped price (paper realism)
+            # while simulator skips slippage for liquidation exits.
+            if reason == "liquidation":
+                # Exchange-style capped loss: you lose margin minus maintenance
+                # margin reserve, regardless of how far price gaps past liquidation.
+                mmr = get_maint_margin_rate(self.config.exchange)
+                entry_notional = pos.margin_usd * pos.leverage
+                max_loss = pos.margin_usd - entry_notional * mmr
+                liq_fee_rate = get_liquidation_fee_rate(self.config.exchange)
+                exit_fee = abs(pos.quantity * exit_price) * liq_fee_rate
+                # Funding already tracked in total_funding; add back so net
+                # effect is: equity -= (max_loss + exit_fee)
+                st.realized_pnl += -max_loss + pos.cumulative_funding
+                st.total_fees += exit_fee
+                net_pnl = -(max_loss + exit_fee) - pos.cumulative_funding
             else:
-                raw_pnl = abs(pos.quantity) * (pos.entry_price - exit_price)
-            net_pnl = raw_pnl - exit_fee - pos.cumulative_funding
-            st.realized_pnl += raw_pnl
-            st.total_fees += exit_fee
+                # Normal exits: actual price-based PnL with slippage
+                if pos.direction == 1:
+                    raw_pnl = pos.quantity * (exit_price - pos.entry_price)
+                else:
+                    raw_pnl = abs(pos.quantity) * (pos.entry_price - exit_price)
+                exit_fee = abs(pos.quantity * exit_price) * pos.fee_rate
+                net_pnl = raw_pnl - exit_fee - pos.cumulative_funding
+                st.realized_pnl += raw_pnl
+                st.total_fees += exit_fee
 
-            pm.close_position(
+            closed_trade = pm.close_position(
                 pos=pos,
                 exit_bar=self.tick_counter,
                 exit_price=exit_price,
@@ -595,6 +667,10 @@ class PaperPortfolioEngine:
                 exit_reason=reason,
                 exit_timestamp=timestamp,
             )
+            # Carry window_end to trade record for crash-recovery re-entry prevention
+            window_end = getattr(pos, '_window_end', 0.0)
+            if window_end > 0:
+                closed_trade._window_end = window_end
             closed_count += 1
 
         # Always update last known prices from candle closes for fresh MTM
@@ -920,6 +996,8 @@ class PaperPortfolioEngine:
                 chandelier_lookback=cand.get("chandelier_lookback", 0),
             )
             pos.entry_timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            # Stash window_end for trade record (4H re-entry prevention on recovery)
+            pos._window_end = cand.get("window_end", 0.0)
 
             # Open position
             state.position_manager.open_position(pos)
@@ -989,14 +1067,21 @@ class PaperPortfolioEngine:
         return total
 
     def _persist_sub_hourly_state(self, timestamp: str) -> None:
-        """Persist state after sub-hourly exits (trades + state.json only).
+        """Persist state after sub-hourly entries/exits.
+
+        Write order: state.json FIRST, then trades.jsonl.
+        If crash between writes, state.json has the position (safe —
+        position survives, trade record filled on next persist). The
+        reverse order would lose the position while keeping a dangling
+        trade record.
 
         Does NOT recompute signals or process entries (that's hourly only).
         """
         state_dir = self.config.state_dir
         os.makedirs(state_dir, exist_ok=True)
 
-        # Write new trades (staged-flush pattern: R7-I1)
+        # Collect unflushed trades BEFORE writing state.json
+        # (state.json must reflect all positions including ones about to be flushed)
         trades_path = os.path.join(state_dir, "trades.jsonl")
         new_closed = []
         for st in self._get_all_states():
@@ -1004,16 +1089,8 @@ class PaperPortfolioEngine:
         if not hasattr(self, '_flushed_position_ids'):
             self._flushed_position_ids = set()
         unflushed = [t for t in new_closed if t.position_id not in self._flushed_position_ids]
-        staged_ids: set = set()
-        if unflushed:
-            with open(trades_path, "a") as f:
-                for trade in unflushed:
-                    f.write(json.dumps(_closed_trade_to_dict(trade, tick=self.tick_counter)) + "\n")
-                f.flush()
-                os.fsync(f.fileno())
-            staged_ids = {t.position_id for t in unflushed}
 
-        # Write state.json atomically
+        # Step 1: Write state.json atomically (positions, armed tokens, filled windows)
         state_path = os.path.join(state_dir, "state.json")
         armed_snapshot = self._serialize_armed_tokens()
         shadow = getattr(self, 'shadow', None)
@@ -1053,7 +1130,17 @@ class PaperPortfolioEngine:
                 os.fsync(f.fileno())
             os.rename(tmp, state_path)
 
-        # Promote staged position IDs after state.json commit (R7-I1 pattern)
+        # Step 2: Write trades.jsonl (append new closed trades)
+        staged_ids: set = set()
+        if unflushed:
+            with open(trades_path, "a") as f:
+                for trade in unflushed:
+                    f.write(json.dumps(_closed_trade_to_dict(trade, tick=self.tick_counter)) + "\n")
+                f.flush()
+                os.fsync(f.fileno())
+            staged_ids = {t.position_id for t in unflushed}
+
+        # Promote staged position IDs after both writes succeed
         self._flushed_position_ids.update(staged_ids)
 
         # Append equity snapshot so sub-hourly changes are tracked
@@ -1111,6 +1198,7 @@ class PaperPortfolioEngine:
                     "adv": float(adv_val) if not np.isnan(adv_val) else 0.0,
                     "regime": int(sig.regime[local_bar]) if sig.regime is not None and local_bar < len(sig.regime) else 0,
                     "bear_target_mult": sig.bear_target_mult if hasattr(sig, 'bear_target_mult') else 0.0,
+                    "bear_max_hold": sig.bear_max_hold if hasattr(sig, 'bear_max_hold') else 0,
                 }
 
     def _update_ws_subscriptions(self) -> None:
@@ -1600,18 +1688,45 @@ class PaperPortfolioEngine:
         """Pre-scan for tokens with open positions that are no longer in signals.
 
         Force-close at last known price with exit_reason='data_end'.
+
+        Sub-hourly positions with valid cached bar data are exempt — their
+        exits are handled by process_sub_hourly_exits() using real-time
+        prices. This prevents mass liquidation when signal computation
+        fails transiently (e.g., missing indicator data on restart).
         """
+        import logging
+        logger = logging.getLogger(__name__)
+
         # Collect all tokens in current signals
         current_tokens: set[str] = set()
         for sid, token_sigs in all_signals.items():
             current_tokens.update(token_sigs.keys())
 
+        exit_res = getattr(self, '_strategy_exit_resolution', {})
+
         # Find positions for tokens not in current signals (across all states)
         positions_to_close = []
+        skipped_sub_hourly = 0
         for st in self._get_all_states():
-            positions_to_close.extend(
-                pos for pos in list(st.position_manager.open_positions)
-                if pos.token not in current_tokens
+            for pos in list(st.position_manager.open_positions):
+                if pos.token in current_tokens:
+                    continue
+                # Sub-hourly positions with cached bar data survive —
+                # process_sub_hourly_exits handles them via real-time prices.
+                if exit_res.get(pos.strategy_id, 0) > 0:
+                    has_cache = self._cached_bar_data.get(
+                        (pos.strategy_id, pos.token)
+                    ) is not None
+                    if has_cache:
+                        skipped_sub_hourly += 1
+                        continue
+                positions_to_close.append(pos)
+
+        if skipped_sub_hourly:
+            logger.warning(
+                "Token disappeared: %d sub-hourly positions kept alive "
+                "(cached bar data available, exits via real-time prices)",
+                skipped_sub_hourly,
             )
 
         closed_ids: set = set()
@@ -1753,7 +1868,8 @@ class PaperPortfolioEngine:
         """Persist state after emergency close (R4-C1).
 
         Writes trades.jsonl and state.json so emergency closures survive restart.
-        Uses the same crash-safe ordering as _tick_internal: trades before state.
+        Writes trades before state (hourly ordering).  Sub-hourly persist
+        uses the opposite order — see _persist_sub_hourly_state docstring.
         """
         state_dir = self.config.state_dir
         os.makedirs(state_dir, exist_ok=True)
@@ -1881,7 +1997,11 @@ class PaperPortfolioEngine:
         all_signals: dict,
         bar_maps: dict,
     ) -> None:
-        """Delegate exit processing to v4 simulator.
+        """Delegate exit processing to v4 simulator for hourly-only strategies.
+
+        Strategies with exit_resolution > 0 are excluded — their exits
+        (including liquidation, max_hold, trail/stop) are handled entirely
+        by process_sub_hourly_exits() at sub-hourly resolution.
 
         Clear ALL positions' exit_handlers before processing so they rebuild
         with fresh signal data via lazy init (simulator.py:456). In paper mode,
@@ -1889,15 +2009,18 @@ class PaperPortfolioEngine:
         +1 bar. Handlers holding old sig refs would IndexError on
         RSIExitHandler, MeanTargetHandler, or chandelier lookback.
 
-        This covers both :sub positions (AC29) and hourly positions.
-
         Funding note: funding_1h arrays are zeroed out before calling the
         simulator to prevent double-counting.  Funding is applied at 8h
         settlement time via apply_funding_settlement() instead.
         """
+        exit_res = getattr(self, '_strategy_exit_resolution', {})
+
         for st in self._get_all_states():
             for pos in st.position_manager.open_positions:
-                pos.exit_handlers = []
+                # Only clear exit_handlers for hourly strategies — sub-hourly
+                # strategies don't use the handler chain (they use check_candle_exits).
+                if exit_res.get(pos.strategy_id, 0) == 0:
+                    pos.exit_handlers = []
 
         # Zero out funding_1h in signals — funding is handled at settlement
         # time by apply_funding_settlement(), not per-bar by the simulator.
@@ -1912,10 +2035,27 @@ class PaperPortfolioEngine:
         strategy_specs = {s.strategy_id: s for s in self.config.strategies}
         if self.config.mode == "independent":
             for sid, sstate in self.strategy_states.items():
+                if exit_res.get(sid, 0) > 0:
+                    continue  # Sub-hourly strategies: exits handled by process_sub_hourly_exits
                 sid_signals = {sid: all_signals.get(sid, {})}
                 _sim._process_exits(sstate, sid_signals, bar_maps, self.tick_counter, self.config, strategy_specs=strategy_specs)
         else:
-            _sim._process_exits(self.state, all_signals, bar_maps, self.tick_counter, self.config, strategy_specs=strategy_specs)
+            # Pool mode: include hourly strategies' full signals, but provide
+            # empty dicts for sub-hourly strategies. _process_exits uses bracket
+            # notation (all_signals[pos.strategy_id]) so every strategy_id that
+            # has open positions MUST be a key — otherwise KeyError.
+            # Sub-hourly positions will match the empty dict and get sig=None → skip.
+            filtered_signals = {
+                sid: (sigs if exit_res.get(sid, 0) == 0 else {})
+                for sid, sigs in all_signals.items()
+            }
+            # Ensure every strategy_id with open positions is a key.
+            # If signal computation failed for a strategy, its ID won't be in
+            # all_signals — add an empty dict so _process_exits doesn't KeyError.
+            for pos in self.state.position_manager.open_positions:
+                if pos.strategy_id not in filtered_signals:
+                    filtered_signals[pos.strategy_id] = {}
+            _sim._process_exits(self.state, filtered_signals, bar_maps, self.tick_counter, self.config, strategy_specs=strategy_specs)
 
     def _process_entries_for_tick(
         self,
@@ -1967,13 +2107,32 @@ class PaperPortfolioEngine:
             )
 
     def _process_margin_calls_for_tick(self, all_signals, bar_maps):
-        """Run margin-call logic for the current tick."""
+        """Run margin-call logic for the current tick.
+
+        Sub-hourly strategies are excluded — their liquidation/margin
+        pressure is handled by process_sub_hourly_exits() at sub-hourly
+        resolution with real-time price data.
+        """
+        exit_res = getattr(self, '_strategy_exit_resolution', {})
         if self.config.mode == "independent":
             for sid, sstate in self.strategy_states.items():
+                if exit_res.get(sid, 0) > 0:
+                    continue  # Sub-hourly: handled by process_sub_hourly_exits
                 sid_signals = {sid: all_signals.get(sid, {})}
                 _sim._process_margin_calls(sstate, sid_signals, bar_maps, self.tick_counter, self.config)
         else:
-            _sim._process_margin_calls(self.state, all_signals, bar_maps, self.tick_counter, self.config)
+            # Pool mode: _process_margin_calls uses .get() for signal access
+            # (safe), but we still exclude sub-hourly signals to prevent
+            # margin calls based on stale hourly bar prices.
+            filtered_signals = {
+                sid: (sigs if exit_res.get(sid, 0) == 0 else {})
+                for sid, sigs in all_signals.items()
+            }
+            # Same safety net: ensure open-position strategy_ids are keys
+            for pos in self.state.position_manager.open_positions:
+                if pos.strategy_id not in filtered_signals:
+                    filtered_signals[pos.strategy_id] = {}
+            _sim._process_margin_calls(self.state, filtered_signals, bar_maps, self.tick_counter, self.config)
 
     def _tick_internal_with_signals(
         self,

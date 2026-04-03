@@ -84,6 +84,10 @@ def _serialize_position(pos: Position) -> dict:
         "stop_limit_price": float(pos.stop_limit_price),
         "fill_source": pos.fill_source,
     }
+    # Sub-hourly entry window_end for re-entry prevention across restarts
+    window_end = getattr(pos, '_window_end', 0.0)
+    if window_end > 0:
+        d["_window_end"] = float(window_end)
     return d
 
 
@@ -101,7 +105,7 @@ def _deserialize_position(d: dict) -> Position:
     if d.get("max_trail_mult_arr") is not None:
         max_trail_mult_arr = np.array(d["max_trail_mult_arr"], dtype=np.float64)
 
-    return Position(
+    pos = Position(
         position_id=d["position_id"],
         token=d["token"],
         strategy_id=d["strategy_id"],
@@ -146,6 +150,11 @@ def _deserialize_position(d: dict) -> Position:
         stop_limit_price=d.get("stop_limit_price", 0.0),
         fill_source=d.get("fill_source", ""),
     )
+    # Restore sub-hourly window_end if present
+    wend = d.get("_window_end", 0.0)
+    if wend > 0:
+        pos._window_end = wend
+    return pos
 
 
 # ---------------------------------------------------------------------------
@@ -160,6 +169,7 @@ def serialize_state(
     last_known_prices: Optional[dict] = None,
     last_known_regimes: Optional[dict] = None,
     armed_tokens: Optional[list] = None,
+    filled_4h_windows: Optional[list] = None,
 ) -> dict:
     """Serialize SimulationState to a JSON-compatible dict.
 
@@ -191,6 +201,9 @@ def serialize_state(
 
     if armed_tokens is not None:
         data["armed_tokens"] = armed_tokens
+
+    if filled_4h_windows is not None:
+        data["filled_4h_windows"] = filled_4h_windows
 
     return data
 
@@ -250,12 +263,13 @@ def atomic_write_state(
     last_known_prices: Optional[dict] = None,
     last_known_regimes: Optional[dict] = None,
     armed_tokens: Optional[list] = None,
+    filled_4h_windows: Optional[list] = None,
 ) -> None:
     """Write state to target_path atomically (write to temp, fsync, rename).
 
     If rename fails, the original file is preserved.
     """
-    data = serialize_state(state, tick_counter, last_timestamp, shadow_pools, last_known_prices, last_known_regimes, armed_tokens=armed_tokens)
+    data = serialize_state(state, tick_counter, last_timestamp, shadow_pools, last_known_prices, last_known_regimes, armed_tokens=armed_tokens, filled_4h_windows=filled_4h_windows)
     json_str = json.dumps(data, indent=2)
 
     target_dir = os.path.dirname(target_path) or "."
@@ -315,6 +329,10 @@ def _closed_trade_to_dict(trade: ClosedTrade, tick: Optional[int] = None) -> dic
     }
     if tick is not None:
         d["tick"] = tick
+    # Include window_end for 4H re-entry prevention on crash recovery
+    window_end = getattr(trade, '_window_end', 0.0)
+    if window_end > 0:
+        d["window_end"] = float(window_end)
     return d
 
 
@@ -478,6 +496,7 @@ def serialize_engine_state(
     last_known_prices: Optional[dict] = None,
     last_known_regimes: Optional[dict] = None,
     armed_tokens: Optional[list] = None,
+    filled_4h_windows: Optional[list] = None,
 ) -> dict:
     """Serialize multiple strategy states for independent mode.
 
@@ -516,6 +535,9 @@ def serialize_engine_state(
 
     if armed_tokens is not None:
         data["armed_tokens"] = armed_tokens
+
+    if filled_4h_windows is not None:
+        data["filled_4h_windows"] = filled_4h_windows
 
     return data
 

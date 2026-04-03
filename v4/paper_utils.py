@@ -144,6 +144,8 @@ def restore_state(engine: PaperPortfolioEngine, config) -> None:
                 mode="independent",
                 shadow_pools=data.get("shadow_pools"),
                 last_known_prices=data.get("last_known_prices"),
+                armed_tokens=data.get("armed_tokens"),
+                filled_4h_windows=data.get("filled_4h_windows"),
             )
             import tempfile as _tmpfile
             fd, tmp = _tmpfile.mkstemp(dir=state_dir, suffix=".tmp")
@@ -188,6 +190,79 @@ def restore_state(engine: PaperPortfolioEngine, config) -> None:
             "Restored %d armed orders (%d expired during downtime, logged)",
             len(restored), len(expired_on_restore),
         )
+
+    # Restore filled 4H windows (prevent re-entry after stop-out within same window)
+    filled_windows_data = data.get("filled_4h_windows", [])
+    if filled_windows_data:
+        from v4.paper_engine import PaperPortfolioEngine
+        engine._filled_4h_windows = PaperPortfolioEngine._deserialize_filled_4h_windows(
+            filled_windows_data
+        )
+        logger.info("Restored %d filled 4H windows", len(engine._filled_4h_windows))
+
+    # B-fix: Reconstruct filled_4h_windows from trades.jsonl to catch fills
+    # that happened after state.json was last written (crash recovery).
+    # Only scans recent trades with fill_source="sub_hourly" in the current
+    # or future 4H windows. Prefers stored window_end, falls back to
+    # reconstruction from entry_timestamp.
+    # Note: skip trades with tick > tick_counter — those will be truncated
+    # by recovery truncation below, and recovering their windows would
+    # create phantom entries that block legitimate re-entries.
+    trades_path_b = os.path.join(state_dir, "trades.jsonl")
+    if os.path.exists(trades_path_b):
+        import time as _time
+        import calendar
+        now_epoch = _time.time()
+        recovered = 0
+        with open(trades_path_b) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    t = json.loads(line)
+                except (json.JSONDecodeError, KeyError):
+                    continue
+                if t.get("fill_source") != "sub_hourly":
+                    continue
+                # Skip trades beyond restored tick — they'll be truncated
+                trade_tick = t.get("tick", 0)
+                if trade_tick > tick_counter:
+                    continue
+                sid = t.get("strategy_id", "")
+                token = t.get("token", "")
+                if not sid or not token:
+                    continue
+                # Prefer stored window_end (exact), fall back to reconstruction
+                window_end = t.get("window_end", 0.0)
+                if not window_end:
+                    entry_ts = t.get("entry_timestamp", "")
+                    if not entry_ts:
+                        continue
+                    try:
+                        et = _time.strptime(entry_ts, "%Y-%m-%dT%H:%M:%SZ")
+                        next_4h = (et.tm_hour // 4 + 1) * 4
+                        if next_4h >= 24:
+                            import datetime
+                            d = datetime.date(et.tm_year, et.tm_mon, et.tm_mday) + datetime.timedelta(days=1)
+                            window_end = float(calendar.timegm(d.timetuple()))
+                        else:
+                            window_end = float(calendar.timegm(
+                                (et.tm_year, et.tm_mon, et.tm_mday, next_4h, 0, 0, 0, 0, 0)
+                            ))
+                    except (ValueError, TypeError):
+                        continue
+                window_end = float(window_end)
+                if window_end > now_epoch:
+                    key = (sid, token, window_end)
+                    if key not in engine._filled_4h_windows:
+                        engine._filled_4h_windows.add(key)
+                        recovered += 1
+        if recovered:
+            logger.info(
+                "Recovered %d filled 4H windows from trades.jsonl "
+                "(crash recovery — not in state.json)", recovered,
+            )
 
     # Restore shadow pools if present
     shadow_pools = data.get("shadow_pools", {})
