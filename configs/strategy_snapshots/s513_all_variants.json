@@ -1,0 +1,25 @@
+{
+  "s513_original": {
+    "leverage": 3.0, "trail": 2.5, "maxpos": 40, "conc": 0.10,
+    "L12M": {"return": "+122%", "sharpe": 1.59, "maxdd": "-14.9%", "calmar": 8.41}
+  },
+  "s513_lev3_5": {
+    "leverage": 3.5, "trail": 2.5, "maxpos": 40, "conc": 0.10,
+    "L12M": {"return": "+148%", "sharpe": 1.58, "maxdd": "-17.3%", "calmar": 8.81}
+  },
+  "s513_lev4_0": {
+    "leverage": 4.0, "trail": 2.5, "maxpos": 40, "conc": 0.10,
+    "L12M": {"return": "+169%", "sharpe": 1.54, "maxdd": "-19.7%", "calmar": 8.88}
+  },
+  "s513_lev5_0": {
+    "leverage": 5.0, "trail": 2.5, "maxpos": 40, "conc": 0.10,
+    "L12M": {"return": "+233%", "sharpe": 1.55, "maxdd": "-24.8%", "calmar": 9.68}
+  },
+  "s513_paper_config": {
+    "leverage": 3.0, "trail": 2.5, "maxpos": 15, "conc": 0.30,
+    "cap_pct_override": 0.25, "capital": 150000,
+    "L12M_cli": {"return": "+186%", "sharpe": 1.51, "maxdd": "-20.8%"},
+    "L12M_paper_ref": {"return": "+352%", "note": "from paper config meta, not reproduced via CLI — cap_pct_override not exposed in CLI"}
+  },
+  "note": "s513 scales linearly with leverage, Sharpe stays ~1.55-1.60. Trail=2.5 optimal. Best configs depend on DD tolerance."
+}

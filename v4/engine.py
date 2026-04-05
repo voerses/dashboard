@@ -1041,14 +1041,23 @@ def _load_strategy_fn(strategy_id: str):
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         "strategies",
     )
-    for fname in os.listdir(strategies_dir):
-        if fname.startswith(strategy_id + "_") and fname.endswith(".py"):
-            fpath = os.path.join(strategies_dir, fname)
-            break
+    # First try exact match: strategy_id.py (full filename without .py)
+    exact_path = os.path.join(strategies_dir, strategy_id + ".py")
+    if os.path.isfile(exact_path):
+        fpath = exact_path
     else:
-        raise FileNotFoundError(
-            f"No strategy file for '{strategy_id}' in {strategies_dir}"
+        # Fallback: prefix match strategy_id + "_*.py"
+        matches = sorted(
+            f for f in os.listdir(strategies_dir)
+            if f.startswith(strategy_id + "_") and f.endswith(".py")
         )
+        if not matches:
+            raise FileNotFoundError(
+                f"No strategy file for '{strategy_id}' in {strategies_dir}"
+            )
+        if len(matches) > 1:
+            print(f"  [WARNING] Multiple files match '{strategy_id}': {matches}. Using {matches[0]}")
+        fpath = os.path.join(strategies_dir, matches[0])
 
     # Ensure v4/ is on sys.path so `from engine import ...` resolves to v4/engine.py
     v4_dir = os.path.dirname(os.path.abspath(__file__))

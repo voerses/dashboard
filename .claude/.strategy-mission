@@ -1,0 +1,92 @@
+status: active
+name: Multi-Strategy Portfolio — s513 + s523c
+created: 2026-04-04
+updated: 2026-04-05T18:30Z
+gate: gate6
+
+## Current Deployment
+
+**Runner:** `nohup python -u -m v4.run_paper_multi --config configs/runner_pool_config.json > /tmp/runner.log 2>&1 &`
+**PID:** 86264 (started 2026-04-05 18:24 UTC)
+**Config:** `configs/runner_pool_config.json` (two independent pools)
+
+| Pool | Strategy | Capital | Positions | Signal | Status |
+|------|----------|---------|-----------|--------|--------|
+| s513 | s513_triple_trigger_swing | $150K | 15, conc=30%, cap_pct=25% | MACD+RSI+Donchian, 3x, ultra-liquid | LIVE since Apr 4 |
+| s523c | s523c_growth | $150K | 30, ranked | Daily OI/positioning z-scores + RSI timing, 2.6x, BL50 | LIVE since Apr 5 |
+
+**Data pipeline:** `tools/run_daily_metrics_loop.sh` (PID 85290) fetches 5-min Binance metrics at 08:00 UTC daily.
+
+## Verified Backtest Results (2026-04-05, --end-date 2026-04-05T16:00:00)
+
+### s513 family
+Backtest CLI: `python v4/portfolio_backtest.py --strategy s513_triple_trigger_swing --months 12 --capital 50000 --market perp --conviction-mode ranked --max-portfolio-positions 15 --concentration 0.20 --skip-wf --end-date 2026-04-05T16:00:00`
+
+| Variant | Lev | Return | Sharpe | MaxDD | File |
+|---------|-----|--------|--------|-------|------|
+| s513 base | 3.0 | +216% | 2.71 | -16.7% | s513_triple_trigger_swing.py |
+| s513v_lev4_0 | 4.0 | +303% | 2.57 | -23.1% | s513v_lev4_0.py |
+| s513v_lev5_0 | 5.0 | ~+370% | ~2.5 | ~-30% | s513v_lev5_0.py |
+
+### s523 family
+Backtest CLI: `python v4/portfolio_backtest.py --strategy {variant} --months 12 --capital 100000 --market perp --conviction-mode ranked --max-portfolio-positions 30 --skip-wf --end-date 2026-04-05T16:00:00`
+
+| Variant | Lev | Return | Sharpe | MaxDD | File |
+|---------|-----|--------|--------|-------|------|
+| s523a conservative | 1.0 | +152% | 2.66 | -14.6% | s523a_conservative.py |
+| s523e optimal | 2.2 | +280%* | 1.81 | -25.9%* | s523e_optimal.py |
+| **s523c growth** | **2.6** | **+525%** | **2.55** | **-46.0%** | **s523c_growth.py** (deployed) |
+| s523f high_growth | 2.8 | +308% | 2.00 | -51.1% | s523f_high_growth.py |
+
+*s523 results with skip-wf have higher DD than without — early-period trades hurt at leverage.
+Without skip-wf (conservative): s523e = +280%/-25.9%, s523c = +332%/-30.5%
+
+### Correlation
+s513 vs s523: r = 0.012 (uncorrelated — technical vs positioning signals)
+
+## Bugs Fixed Today
+1. **Filename collision:** engine loaded wrong strategy file when prefix matched multiple files. Fixed: exact match first + warning.
+2. **Strategy variants renamed:** s513_lev*.py → s513v_lev*.py to avoid collision.
+3. **--end-date added to CLI** for reproducible backtests.
+4. **All strategy files** now have BACKTEST CLI comment at top.
+
+## Strategies That Failed
+- s524 volume zone (rules-based): -24% L12M. KILLED.
+- s525 ML volume zone: IC=0.112 OOS but -44% standalone. Overlay signal only.
+- s526/s527/s528 HMM regime: all lose standalone. HMM useful as filter only.
+- Weekly ML regime: overfits (78% train → 41% test).
+
+## What To Do Tomorrow
+
+### 1. Monitor both paper pools
+- Check: `tail -f /tmp/runner.log`
+- s513 state: `cat state/v4_paper_s513/state.json | python3 -m json.tool | head -20`
+- s523c state: `cat state/v4_paper_s523c/state.json | python3 -m json.tool | head -20`
+- Verify daily metrics update ran: `tail /tmp/daily_metrics_update.log`
+- Kill criteria: MaxDD > 1.5x backtest or no trades after 3 days
+
+### 2. Volume equilibrium strategy — the RIGHT approach
+The research showed HMM regime detection + rule-based entries work as a FILTER.
+Key insight: it's risk management, not alpha generation.
+Next steps:
+a) Use HMM as sizing overlay on s523c (reduce size in trending regimes where MR suffers)
+b) Research proper CNN/transformer approach for visual pattern recognition (needs more careful implementation than what we tried)
+c) Consider unsupervised regime detection (GMM) as alternative to HMM
+
+### 3. Improve s523c DD
+-46% DD at 2.6x with skip-wf is too high for production. Options:
+a) Integrate HMM filter to skip MR shorts in bull markets (the Nov-Jan DD was from this)
+b) Use s523a (1x, -14.6% DD) for conservative deployment while researching DD reduction
+c) Dynamic leverage: high leverage in consolidation (MR's natural habitat), low in trends
+
+### 4. Explore per-token strategy specialization
+IC scan found token-specific optimal signals/horizons. Instead of one strategy for all tokens,
+build micro-strategies per token cluster:
+- BTC/ETH: macro-driven, longer horizons (30d)
+- Mid-cap (ATOM, APT, NEAR): cross-exchange OI signals
+- Small-cap (DEXE, MORPHO, PIPPIN): OI/positioning with extreme IC but thin liquidity
+
+### 5. Live data pipeline hardening
+- The daily metrics loop is a simple bash sleep loop — replace with proper systemd service or cron
+- Add monitoring/alerting if update fails
+- Consider building a real-time 5-min WebSocket feed for sub-daily signal updates

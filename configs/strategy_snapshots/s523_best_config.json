@@ -1,0 +1,47 @@
+{
+  "strategy": "s523_positioning_rsi_timing",
+  "saved_at": "2026-04-05T18:30Z",
+  "params": {
+    "LEVERAGE": 3.4,
+    "STOP_MULT": 999.0,
+    "TRAIL_MULT": 999.0,
+    "THRESHOLD": 1.0,
+    "RSI_WINDOW_1H": 72,
+    "RSI_PERIOD": 14,
+    "RSI_LONG_LEVEL": 40,
+    "RSI_SHORT_LEVEL": 60,
+    "RSI_RESAMPLE": 4,
+    "MIN_HOLD": 48,
+    "NO_STOP_BARS": 72,
+    "BREAKEVEN_ATR": 1.0,
+    "FUNDING_BOOST": 0.10,
+    "ZSCORE_WINDOW_DAYS": 30,
+    "DIRECTION": "both",
+    "BLACKLIST_SIZE": 50,
+    "MAX_POSITIONS": 30
+  },
+  "backtest_cli": "/workspace/venv/bin/python v4/portfolio_backtest.py --strategy s523 --months 12 --capital 100000 --market perp --conviction-mode ranked --max-portfolio-positions 30",
+  "results": {
+    "L12M": {"return_pct": 338.4, "sharpe": 1.60, "calmar": 10.19, "maxdd_pct": -36.1, "trades": 436, "pf": 1.35, "avg_hold_h": 406, "funding": -23669},
+    "note": "Reproducible. Run the backtest_cli command to verify."
+  }
+}
+
+--- SWEEP RESULTS (2026-04-05) ---
+All with: stop=999, thresh=1.0, BL50, RSI=72, maxpos=30
+
+LEVERAGE SWEEP:
+lev=1.0: +79%, Sharpe 1.76, MaxDD -13.4%
+lev=1.5 nostop: +120%, Sharpe 1.75, MaxDD -22.4%
+lev=2.0 nostop: +247%, Sharpe 1.84, MaxDD -27.5%
+lev=2.2 nostop: +280%, Sharpe 1.81, MaxDD -25.9%
+lev=2.6 nostop: +332%, Sharpe 1.82, MaxDD -30.5%
+lev=2.8 nostop: +325%, Sharpe 1.74, MaxDD -28.5%
+lev=3.4 nostop: +338%, Sharpe 1.60, MaxDD -36.1% (SAVED as s523_338pct_config.py)
+
+KEY CONFIGS:
+  Best risk-adjusted: lev=2.0, +247%, Sharpe 1.84, MaxDD -27.5%
+  Best return over 300%: lev=2.6, +332%, Sharpe 1.82, MaxDD -30.5%
+  Highest return: lev=3.4, +338%, Sharpe 1.60, MaxDD -36.1%
+  
+HMM regime filter: WORSENED DD from -36% to -47%. Removed good trades.

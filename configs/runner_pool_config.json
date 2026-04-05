@@ -1,0 +1,67 @@
+{
+    "_meta": {
+        "description": "Multi-strategy paper trading: s513 + s523c as separate capital pools",
+        "created": "2026-04-05",
+        "strategies": {
+            "s513": "Triple-Trigger Swing (3x, MACD+RSI+Donchian, ultra-liquid). Unchanged from paper_s513.json.",
+            "s523c": "Per-token Composite Positioning + RSI timing (2.6x, daily OI/L-S/taker z-scores, 50-token BL). Needs daily 5-min metrics update via tools/run_daily_metrics_loop.sh."
+        },
+        "correlation": "r = 0.012 (uncorrelated — technical vs positioning signals)"
+    },
+    "shared": {
+        "exchange": "binance",
+        "concentration_limit": 0.30,
+        "adv_cap_pct": 0.05,
+        "min_position_usd": 200.0,
+        "seed": 42,
+        "base_spread_bps": 3.0,
+        "impact_coeff": 0.03,
+        "max_slip_bps": 300,
+        "lookback_months": 3,
+        "skip_walk_forward": true,
+        "drawdown_alert_pct": 5.0,
+        "dashboard_push": true
+    },
+    "portfolios": [
+        {
+            "pool_name": "s513",
+            "initial_capital": 150000.0,
+            "mode": "pool",
+            "conviction_mode": "ranked",
+            "strategies": [
+                {
+                    "strategy_id": "s513",
+                    "strategy_type": "per_token",
+                    "weight": 1.0,
+                    "market": "perp",
+                    "max_positions": 15,
+                    "exit_resolution": 0,
+                    "sizing_overrides": {
+                        "cap_pct_override": 0.25
+                    }
+                }
+            ],
+            "max_portfolio_positions": 15,
+            "state_dir": "state/v4_paper_s513/"
+        },
+        {
+            "pool_name": "s523c",
+            "initial_capital": 150000.0,
+            "mode": "pool",
+            "conviction_mode": "ranked",
+            "strategies": [
+                {
+                    "strategy_id": "s523c",
+                    "strategy_type": "per_token",
+                    "weight": 1.0,
+                    "market": "perp",
+                    "max_positions": 30,
+                    "exit_resolution": 0,
+                    "sizing_overrides": {}
+                }
+            ],
+            "max_portfolio_positions": 30,
+            "state_dir": "state/v4_paper_s523c/"
+        }
+    ]
+}

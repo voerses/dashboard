@@ -23,6 +23,7 @@
 | `NEXT_SESSION_BRIEF.md` | 1K | /dev | WebSocket consolidation task brief. |
 | `SUB_HOURLY_EXIT_E2E_TESTING.md` | 15K | /dev | Sub-hourly exit resolution results. Deployed: s56→5m, s98→30m. |
 | `DASHBOARD_AND_RUNNER_DEPLOYMENT.md` | 5K | /dev | HTTP server, state.json polling, deployment paths. |
+| `DATA_INVENTORY.md` | 12K | /strategy | Complete data source inventory: 45+ sources, 7.8 GB. Price, positioning, OI, liquidations, macro, on-chain, sentiment. Includes gap analysis for future data acquisition. |
 
 ---
 

@@ -1,13 +1,25 @@
 # Research Status — Active Signal Discovery
 
-> **Last updated:** 2026-03-29T21:00Z (session 24 — **s501 exit parameter sweep + sub-hourly partial TP + sub-hourly 1m entry resolution deployed.** Ran Phase 1 (110 combos) and Phase 2 (120 combos) exit sweeps on correct s501 config (50 pos, ranked, 1m entries, 95 tokens, 100k capital). Best: trail=2.0 ATR + partial_tp=1.5 ATR → Calmar 129.48, Ann +736%, DD -5.7% (vs baseline 91.83/+626%/-6.8%). Updated strategy file. Added sub-hourly partial TP to paper engine `process_sub_hourly_exits()` — mirrors backtest `process_minute_exits()`. Added sub-hourly 1m entry resolution to paper engine — `_cache_entry_candidates()` + `process_sub_hourly_entries()` watch WebSocket 1m candles for BB cross entries between hourly ticks. 45 tests pass. Adversarial review: 2 rounds, 0 bugs found. Archived old strategy configs, fresh s501-only deployment config.)
+> **Last updated:** 2026-04-05T18:00Z
+> 
+> **Session summary (2026-04-04 to 2026-04-05):**
+> - Acquired Coinalyze cross-exchange data: 233 tokens × 7 exchanges, OI + liquidations (334 files, 32 MB)
+> - Full 227-token signal scan: 64,725 significant signals (no look-ahead, D+1 entry). OI mean|IC|=0.27, positioning=0.25
+> - Built s520→s521→s522→s523 progression. **s523 positioning + RSI timing at various leverage levels.**
+> - FILENAME BUG FIXED: earlier +303% for "s513" was actually s513v_lev4_0 (4x). Real s513 (3x) = +216%.
+> - s523 results shift with data updates (rolling L12M window). Use exact filenames with backtest CLI.
+> - s513+s521 combo: Sharpe 1.94, Calmar 11.60, MaxDD -9.2% (correlation 0.012 = uncorrelated)
+> - ML volume zone model: IC=0.112 OOS but can't trade profitably standalone (fees kill hourly frequency). Useful as overlay.
+> - HMM 3-state regime detector built (consolidation 43%, bull 23%, bear 34%). Three regime-gated strategies (s526-s528) all lose money standalone. HMM value is as risk FILTER on existing strategies, not standalone alpha.
+> - **Key insight: the HMM should modify s523's behavior per regime (size up/down, direction filter), not generate its own trades.**
+> - s523 needs live data pipeline (5-min Binance metrics daily update) before paper deployment.
 
 ## TIMESTAMP
-2026-03-29T13:30Z
+2026-04-05T18:00Z
 
 ---
 
-## Signal Scoreboard (48 signals tested)
+## Signal Scoreboard (59 signals tested)
 
 | # | Signal | OOS IC / Sharpe | Verdict |
 |---|--------|----------------|---------|
@@ -65,6 +77,15 @@
 | 52 | Funding Flip (sign reversal, 72h decay) | IS IC=-0.151 (t=-2.11), OOS IC=+0.022 (t=+0.25) — sign flip, only 320 events in 6yr | KILLED — IS/OOS sign flip |
 | 53 | Funding RoC Momentum (8h/24h/72h delta) | Best: fr_delta_24h 7d IS IC=-0.172 (t=-2.43), OOS IC=-0.062 (t=-0.70). Funding std 6x collapse | KILLED — OOS insignificant, variance collapsed |
 | 54 | Funding Dispersion (BTC vs alt basket) | Initial weekly IC=+0.13 (t=4.6) was ARTIFACT of overlapping returns. Non-overlapping: all dead. Died post-2024. | KILLED — methodological artifact, structurally dead |
+| 55 | Cross-Sectional Momentum (R162) | PF 0.95 (negative gross edge), funding 41.6% of capital, Sharpe 0.15, -28.2% return | KILLED — negative gross edge, funding costs dominate on perps |
+| 56 | Short-Hold Cross-Sectional Momentum | All ICs negative (reversal not momentum). Best IC=-0.018 at L=24h H=4h. Below |IC|>0.03 threshold. | KILLED — mean-reversion artifact, collapses on liquid tokens |
+| 57 | Funding Rate Mean-Reversion | All configs negative Sharpe OOS (best -0.54). Carry ~0.5 bps vs 16 bps costs. IS→OOS collapse: 0.63→-1.46. | KILLED — 4th funding signal killed, carry negligible, price MR fails OOS |
+| 58 | Taker Buy Ratio (standalone) | 15/16 combos killed (low IC or sign flip). Only marginal pass: taker_persistence@24h OOS IC=+0.077 (t=2.21) but IS IC only +0.024 (t=1.15). Driven by ADA (IC=+0.316), most tokens near zero. | KILLED — overlay/filter signal, not standalone |
+| 59 | OBV Slope Divergence | obv_slope_divergence @ 4h: IS IC=-0.036 (t=-13.92), OOS IC=-0.046 (t=-9.53). 10/10 tokens negative IC OOS. Gate 1: s504 v4 backtest catastrophic. Threshold=2.0 max_hold=8: PF=0.32, return -1640%, 8376 margin calls, 34.8k trades/yr, avg hold=1h. Fee drag $226K-$606K. | KILLED — IC-to-backtest disconnect |
+| 60 | **Full Universe OI/Positioning Scan** | **227 tokens, 3 scans (5-min, cross-exchange, cross-TF), no look-ahead (D+1 entry). 64,725 significant signals. OI: mean|IC|=0.27, positioning: 0.25, flow: 0.19. 67% contrarian. Per-token: 108 contrarian, 44 momentum. Cross-TF: daily→24h IC=-0.53 BTC. Cross-exchange agg OI adds value for ATOM/XRP/LTC but not BTC.** | **GOLD — strongest scan ever, per-token architecture required** |
+| 61 | **s520 Composite Positioning** | 3-family composite z-score, fixed weights, fixed threshold. L12M: Sharpe 1.75, +28.6%, MaxDD -9.1%, 329 trades. Sweep: only +1.4% with optimal params. Fixed architecture too rigid — doesn't materialize per-token IC. | **PASS (prototype) — needs per-token rebuild** |
+| 62 | **s521→s523 Positioning Family** | Per-token IC-weighted OI/positioning/flow composites + RSI timing. Multiple leverage variants stored as separate files. CLI: `python v4/portfolio_backtest.py --strategy s523e_optimal --months 12 --capital 100000 --market perp --conviction-mode ranked --max-portfolio-positions 30 --skip-wf` → s523e (2.2x): +280%, Sharpe 1.81, MaxDD -25.9%. s523c (2.6x): +332%, MaxDD -30.5%. Net receiving funding. Needs live 5-min data pipeline for paper deployment. | **PASS Gate 3 — needs live data for Gate 6** |
+| 63 | **s513 Triple-Trigger Swing** | s98 + RSI pullback + Donchian, 3x leverage. **Paper trading LIVE.** CLI: `python v4/portfolio_backtest.py --strategy s513_triple_trigger_swing --months 12 --capital 50000 --market perp --conviction-mode ranked --max-portfolio-positions 15 --concentration 0.20 --skip-wf` → +216%, Sharpe 2.71, MaxDD -16.7%. At 4x (s513v_lev4_0): +303%, Sharpe 2.57, MaxDD -23.1%. Variants: s513v_lev3_5, s513v_lev4_0, s513v_lev5_0. | **PASS Gate 6 — Paper Trading** |
 
 ---
 
@@ -103,6 +124,12 @@
 | Funding Flip (sign reversal) | IS IC=-0.151, OOS IC=+0.022 — sign flip. Only 320 events in 6yr. | 2026-03-25 |
 | Funding RoC Momentum (delta) | Best OOS IC=-0.062 (t=-0.70). Funding std collapsed 6x IS→OOS. | 2026-03-25 |
 | Funding Dispersion (BTC vs alts) | Weekly IC=+0.13 was overlapping-return artifact. Non-overlapping: all dead post-2024. | 2026-03-25 |
+| Taker Buy Ratio (standalone) | 15/16 combos killed. Only pass driven by ADA anomaly (IC=0.316). Overlay signal, not standalone alpha. | 2026-04-03 |
+| OBV Slope Divergence | Gate 1 catastrophic backtest failure. Strong OOS IC=-0.046 (t=-9.53) does not translate to per-trade profit. Best config: -1640% return, 8376 margin calls (50% of 16.8k entries), 1h avg hold despite 8h max_hold, fee drag $226K-$606K on $100K capital. IC-to-backtest disconnect. | 2026-04-03 |
+| Cross-Sectional Momentum (R162) | Negative gross edge PF=0.95. Funding $41,580 on $100K (41.6%) from 154h avg hold on perps at 2.5x. Research +298% was artifact of no funding cost model. | 2026-04-03 |
+| Short-Hold Cross-Sectional Momentum | All ICs negative (reversal not momentum). Best IC=-0.018 at L=24h H=4h. Below |IC|>0.03 threshold. Reversal effect = liquidity artifact on illiquid tokens. | 2026-04-03 |
+| Funding Rate Mean-Reversion | All configs negative Sharpe OOS (best -0.54). Carry ~0.5 bps vs 16 bps costs. IS 0.63 → OOS -1.46 collapse. 4th funding signal killed (#34/#44/#54/#57). | 2026-04-03 |
+| R160 BB Breakout (s501/R172) | Sharpe 5.59 was limit_price fill gaming (fills at BB level, not market). Market fills: Sharpe -1.32, return -73.5%, DD -75.7%, 2136 margin calls. Zero standalone edge. | 2026-04-03 |
 
 ---
 
@@ -402,8 +429,39 @@
 **Top Trader L/S Standalone — KILLED at Gate 1**
 - GOLD IC (-0.166) but best Sharpe only 1.50 across 11 configs. Too slow/infrequent. Overlay value only.
 
+**R162 Cross-Sectional Momentum (s400) — KILLED at Gate 3P (2026-04-03)**
+- R162 v4 diagnostic: raw+skip-wf backtest returns -28.2%, 151 trades, Sharpe 0.15, MaxDD -46.7%.
+- Funding costs $41,580 on $100K capital (41.6%) from 154h avg hold on perps at 2.5x leverage.
+- Signal has negative gross edge: profit factor 0.95.
+- 14.6% liquidation rate.
+- Research +298% was artifact of missing funding cost model. Not salvageable on perp markets.
+
+**Short-Hold Cross-Sectional Momentum — KILLED at Gate 0 (2026-04-03)**
+- Tested short-lookback cross-sectional momentum (L=4h-48h, H=1h-12h) to see if faster momentum avoids perp funding drag
+- All ICs negative across all lookback/horizon combos — market shows mean-reversion, not momentum at short horizons
+- Best IC = -0.018 at L=24h H=4h, well below |IC|>0.03 threshold
+- Reversal effect collapses to noise on liquid tokens (liquidity artifact on illiquid tokens only)
+- Scripts: `research/momentum_ic_test.py`
+
+**Funding Rate Mean-Reversion — PASS Gate 0 → Gate 1 (2026-04-03)**
+- Cross-sectional IC: cum_24h at 48h = -0.042 (t=-30), well above |IC|>0.03 threshold
+- Per-token ICs: TRUMP IC=-0.12, SUI IC=-0.09, BTC IC=-0.04
+- funding_zscore avg IC = -0.025 (t=-4.7), marginal but consistent across 80% of tokens
+- Key insight: strategy shorts when funding is high positive → receives funding AND gets mean-reversion edge (double edge)
+- Anomaly: ETH/ENA show positive IC (momentum not reversal) — exclude from signal universe
+- Scripts: `research/funding_rate_predictive_power.py`
+
+**Funding Rate Mean-Reversion — KILLED at Gate 1 (2026-04-03)**
+- Raw backtest on BTC: ALL configs negative Sharpe in OOS (best: -0.54, best OOS return: -0.81%)
+- Funding carry negligible: ~0.5 bps/trade vs 16 bps round-trip costs — carry cannot offset execution costs
+- Price mean-reversion fails OOS: prices trend after extreme funding events, not revert
+- IS→OOS collapse: IS Sharpe 0.63 → OOS Sharpe -1.46 (classic overfit)
+- This is the 4th funding-based signal killed (#34 Funding Reversal Short, #44 Funding Contrarian, #54 Funding Dispersion, #57 Funding Rate MR)
+- Conclusion: funding rate signals are structurally dead for alpha generation — carry too small post-2024 regime, price prediction fails
+- Scripts: `research/funding_mean_reversion_backtest.py`
+
 ### Next Actions (Priority Order)
-1. **Adapt s500 to v4 engine** — refactor s500_r172_portfolio.py into v4 StrategyContext/StrategyResult protocol for paper trading deployment
+1. **Adapt s500 to v4 engine** — refactor s500_r172_portfolio.py into v4 StrategyContext/StrategyResult protocol for paper trading deployment (note: R162 component killed, R160 BB breakout is the sole surviving alpha)
 2. **Deploy R172 paper trading** — Gate 6 requires 50+ trades on live data (1-4 weeks)
 3. **Monitor paper performance** — Kill if returns <60% backtest, slippage >50% edge, MaxDD >1.5x
 
@@ -664,30 +722,60 @@ Parameters: 0 KILL flags across all tests
 
 ### Next Actions (Priority Order) — Updated Session 20
 
-**CRITICAL CONTEXT: We have validated alpha that produces 300%+ in standalone research (R172: +446.9%, Sharpe 2.79, 4 configs hit 300%+ AND <20% DD). Every v4 port has failed due to IMPLEMENTATION BUGS, not dead signals:**
+**CRITICAL CONTEXT UPDATE (2026-04-03):** R162 cross-sectional momentum KILLED at Gate 3P. Raw+skip-wf diagnostic: -28.2% return, PF 0.95 (negative gross edge), funding costs 41.6% of capital. Research +298% was artifact of missing funding cost model. R172 portfolio concept survives only through R160 BB breakout component (80% weight was already the profit engine).
+
+Previous v4 port failures:
 - s320: 1.5x leverage bug → then 86% entry rejection from min_size floor
 - s400/s401: target_vol=0.05 created 10x vol_adj blowup → 23k margin calls (FIXED session 20)
 - s400: DD scaling killed 137/140 entries (FIXED session 20 — disabled DD scaling)
 - s400 raw-mode: Sharpe 0.55, $57k funding drag unmodeled in research
-
-**We don't have a signal problem. We have a PORTING problem. Fix the port, returns follow.**
+- **s400 final diagnostic: PF 0.95, funding $41.6K on $100K — KILLED (not a porting problem, signal has no edge after costs)**
 
 **Session 20 completed:** AIPIP-0030 (mandatory sizing verification gate), s400/s401 sizing fixes, `tools/verify_sizing.py`. Always run verify_sizing before backtesting.
 
 ---
 
-**P0 — IMMEDIATE: Faithfully reproduce R172's +446% through V4**
+**~~P0 — IMMEDIATE: Faithfully reproduce R172's +446% through V4~~ CLOSED**
 
-R172 validated portfolio: R162 (xsec momentum, 20%) + R167-optimized R160 (vol breakout, 80%) at 2.5x with 15d DD control. Four configs hit 300%+ AND <20% DD.
+~~R172 validated portfolio: R162 (xsec momentum, 20%) + R167-optimized R160 (vol breakout, 80%) at 2.5x with 15d DD control.~~
 
-1. **Read R172 standalone** (`research/R172_validated_portfolio.py`) line by line
-2. **Map every sizing assumption** to v4 params using `tools/verify_sizing.py`
-3. **Identify every friction point:** funding, slippage, walk-forward masking, ADV gating, DD scaling
-4. **Build v4 portfolio config** that faithfully reproduces R172's conditions
-5. **Run raw-mode FIRST** to isolate signal quality vs engine friction
-6. **Add constraints one at a time** to find which ones break it — don't accept "it doesn't work," diagnose WHY
+**R172 FULLY KILLED (2026-04-03).** Both components dead:
+- R162 (momentum 20%): PF 0.95, funding $41.6K/yr, negative gross edge.
+- R160 (BB breakout 80%): s501 Sharpe 5.59 was **limit_price fill gaming**. With limit fills at BB level: +332.7%, Sharpe 5.59, 3.6% DD. Without limit fills (market entry at T+1 open): **-73.5%, Sharpe -1.32, DD -75.7%, 2136 margin calls**. Zero edge with honest fills. Research +394.7% was entirely artificial.
+- R172 portfolio is irrecoverably dead. No component is salvageable.
 
-The gap between +446% standalone and -0.2% v4 is NOT the signal dying. It's unfaithful reproduction.
+**P0 — ADVANCE s506/s507 L/S Divergence through remaining gates**
+
+s506 L/S Divergence (IC=-0.204, GOLD) reached Gate 4:
+- Gates 0-3: ALL PASS. Strongest single IC ever tested.
+- Gate 4 L12M: Sharpe 2.72, Calmar 5.66, MaxDD -6.7%, +37.3%, 370 trades. PASS.
+- Gate 4 L6M: Sharpe 2.55, Calmar 48.03. PASS.
+- Gate 4 OOS monthly: +33.1%, 10/12 months profitable. PASS.
+- Gate 4 L24M: Sharpe 1.06, Calmar 1.25. FAIL (signal flat in 2024 UPTREND).
+- **Caching bug fixed**: alignment cache key was `(sym, len)` — different months with same bar count collided. Fixed to `(sym, len, start, end)`. OOS monthly went -33.3% → +33.1%.
+
+Overlay sweep results (L12M):
+| Overlay | Sharpe | dSharpe | Calmar | MaxDD | Verdict |
+|---------|--------|---------|--------|-------|---------|
+| s506 base | 2.72 | — | 5.66 | -6.7% | Baseline |
+| s507 +TP@3ATR | **3.27** | **+0.55** | **5.88** | -6.2% | **WINNER** |
+| s508 +time trail | 2.72 | 0.00 | 5.66 | -6.7% | No effect (26h avg hold) |
+| s509 +TP+trail | 3.07 | +0.35 | 5.28 | -6.5% | TP helps, trail nothing |
+| s510 +regime | 2.90 | +0.18 | 5.25 | -6.2% | Hurts return more than helps |
+| s511 full stack | 3.15 | +0.43 | 4.75 | -5.9% | Best DD but worst Calmar |
+| s512 +VRP | 2.71 | -0.01 | 5.40 | -6.5% | Zero impact |
+
+**Next steps:**
+1. Run s507 (fixed TP) through Gate 5 full validation (multi-token, walk-forward)
+2. If passes: advance to Gate 6 paper trading
+3. 24m weakness is regime-dependent (finding #36) — acceptable, not a bug
+
+**P0-ALT — Improve s98 (SR Breakout Swing) trade frequency**
+
+User reports s98 is the best-performing strategy but has too few trades. Next session:
+1. Analyze s98 entry conditions — identify what restricts trade count
+2. Test relaxed thresholds, additional tokens, shorter cooldowns
+3. Goal: massively increase trade count while preserving edge
 
 **P0.5 — Fix s320 (V3 BTC Spot) entry rejection**
 

@@ -1,0 +1,33 @@
+{
+  "s523_bl50_config": {
+    "LEVERAGE": 1.9,
+    "STOP_MULT": 5.0,
+    "BLACKLIST_SIZE": 50,
+    "RSI_WINDOW_1H": 72,
+    "L12M_return": "+131%",
+    "L12M_sharpe": 1.36,
+    "L12M_maxdd": "-29.0%",
+    "L3M_return": "+71.8%",
+    "L3M_sharpe": 2.20
+  },
+  "s523_bl15_config": {
+    "LEVERAGE": 2.0,
+    "STOP_MULT": 8.0,
+    "BLACKLIST_SIZE": 15,
+    "RSI_WINDOW_1H": 72,
+    "L12M_return": "+29.8%",
+    "L12M_sharpe": 0.53,
+    "L12M_maxdd": "-40.4%",
+    "note": "Agent reported +251% but not reproducible with current data"
+  },
+  "s522_base_config": {
+    "LEVERAGE": 1.9,
+    "STOP_MULT": 5.0,
+    "BLACKLIST_SIZE": 50,
+    "RSI": "none",
+    "L12M_return": "+222%",
+    "L12M_sharpe": 1.66,
+    "L12M_maxdd": "-26.6%",
+    "note": "Also not reproducible - current data gives +131%"
+  }
+}

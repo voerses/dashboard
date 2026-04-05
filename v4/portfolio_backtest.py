@@ -109,6 +109,9 @@ def parse_args() -> argparse.Namespace:
                         help="Fetch fresh data before running backtest (AC12)")
     parser.add_argument("--oos-monthly", action="store_true",
                         help="Run month-by-month OOS with hard data cap (AC13)")
+    parser.add_argument("--end-date", type=str, default=None,
+                        help="Pin backtest end date (e.g. 2026-04-05) for reproducibility. "
+                             "Default: use latest available data.")
     return parser.parse_args()
 
 
@@ -394,8 +397,12 @@ def main():
         print(f"  Skip WF:    ON (walk-forward masking disabled)")
 
     # Infer data end date for deterministic backtesting
-    data_end = infer_data_end_date(market)
-    print(f"  Data End:   {data_end.strftime('%Y-%m-%d %H:%M')}")
+    if args.end_date:
+        data_end = pd.Timestamp(args.end_date)
+        print(f"  Data End:   {data_end.strftime('%Y-%m-%d %H:%M')} (pinned via --end-date)")
+    else:
+        data_end = infer_data_end_date(market)
+        print(f"  Data End:   {data_end.strftime('%Y-%m-%d %H:%M')} (from data)")
 
     # Run simulation(s) via run_backtest()
     all_results = []

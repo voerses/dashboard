@@ -1,0 +1,32 @@
+{
+  "strategy": "s513_triple_trigger_swing",
+  "saved_at": "2026-04-05T17:30Z",
+  "description": "s513 at $50K capital, conc=0.20, maxpos=15, skip-wf — HITS 300%+ TARGET",
+  "backtest_cli": "/workspace/venv/bin/python v4/portfolio_backtest.py --strategy s513 --months 12 --capital 50000 --market perp --conviction-mode ranked --max-portfolio-positions 15 --concentration 0.20 --skip-wf",
+  "params_in_strategy_file": {
+    "LEVERAGE": 3.0,
+    "TRAIL_MULT": 2.5,
+    "STOP_MULT": 99.0,
+    "NO_STOP_BARS": 72,
+    "MIN_HOLD": 24,
+    "MAX_HOLD": 720,
+    "ADX_THRESH": 20,
+    "BB_LOOKBACK": 240,
+    "SQUEEZE_MULT": 0.8,
+    "RSI_LONG_THRESH": 40,
+    "RSI_SHORT_THRESH": 60,
+    "DONCHIAN_PERIOD": 480,
+    "MIN_ADV_USD": 1000000000,
+    "EDGE": 0.40
+  },
+  "portfolio_config": {
+    "capital": 50000,
+    "concentration": 0.20,
+    "max_portfolio_positions": 15,
+    "conviction_mode": "ranked",
+    "skip_walk_forward": true
+  },
+  "results": {
+    "L12M": {"return": "+303.2%", "sharpe": 2.57, "calmar": 13.15, "maxdd": "-23.1%", "trades": 196, "pf": 2.20}
+  }
+}

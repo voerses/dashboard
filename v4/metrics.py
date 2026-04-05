@@ -113,7 +113,17 @@ def compute_metrics(trades: list, equity_curve: pd.Series,
     total_return = (equity_curve.iloc[-1] / equity_curve.iloc[0]) - 1.0
     m.total_return_pct = total_return * 100
 
-    n_days = len(equity_curve)
+    # Use actual trading period (first equity change to end) for annualization.
+    # The equity curve may include a flat walk-forward training window at the
+    # start where no trades occur — counting that inflates the year denominator
+    # and understates the annualized return.
+    first_active = 0
+    initial_val = equity_curve.iloc[0]
+    for i in range(1, len(equity_curve)):
+        if equity_curve.iloc[i] != initial_val:
+            first_active = i
+            break
+    n_days = len(equity_curve) - first_active
     years = max(n_days / 365.0, 0.01)
     m.annualized_return_pct = ((1 + total_return) ** (1.0 / years) - 1) * 100
 
