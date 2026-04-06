@@ -29,7 +29,9 @@ class Position:
     no_stop_bars: int
     min_hold: int
     max_hold: int
-    exit_regimes: set
+    exit_regimes: set  # backward compat — used if exit_regimes_long/short not set
+    exit_regimes_long: set = field(default_factory=set)
+    exit_regimes_short: set = field(default_factory=set)
     convex_exit: bool = False
     rsi_exit_level: float = 999.0
     # Configurable exit constants

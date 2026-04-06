@@ -416,7 +416,9 @@ class StrategyResult:
     max_hold: int = 720
     edge: float = 0.35
 
-    exit_regimes: set = field(default_factory=set)  # empty = no regime exit. Strategies opt-in explicitly.
+    exit_regimes: set = field(default_factory=set)       # DEPRECATED — use exit_regimes_long/short instead
+    exit_regimes_long: set = field(default_factory=set)  # regimes that exit long positions (e.g. {CRISIS})
+    exit_regimes_short: set = field(default_factory=set)  # regimes that exit short positions (e.g. {CRISIS})
     rsi_exit_level: float = 999.0
     convex_exit: bool = False
     mean_target_vals: Optional[np.ndarray] = None

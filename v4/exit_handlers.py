@@ -295,13 +295,27 @@ class TakeProfitHandler:
 
 
 class RegimeExitHandler:
-    """Exit when regime enters exit_regimes set."""
+    """Exit when regime enters exit_regimes set (direction-aware).
+
+    Checks exit_regimes_long for long positions and exit_regimes_short for shorts.
+    Falls back to exit_regimes (both directions) for backward compatibility.
+    """
 
     def update_state(self, pos: Position, bar: BarContext) -> None:
         pass
 
     def check_exit(self, pos: Position, bar: BarContext) -> ExitCheck:
-        if bar.regime in pos.exit_regimes and bar.bars_held > pos.regime_exit_min_bars:
+        if bar.bars_held <= pos.regime_exit_min_bars:
+            return _NO_EXIT
+        # Direction-aware: check the appropriate set
+        if pos.direction == 1 and pos.exit_regimes_long:
+            if bar.regime in pos.exit_regimes_long:
+                return ExitCheck(should_exit=True, reason="regime")
+        elif pos.direction == -1 and pos.exit_regimes_short:
+            if bar.regime in pos.exit_regimes_short:
+                return ExitCheck(should_exit=True, reason="regime")
+        # Backward compat: fall back to exit_regimes (applies to both directions)
+        elif pos.exit_regimes and bar.regime in pos.exit_regimes:
             return ExitCheck(should_exit=True, reason="regime")
         return _NO_EXIT
 
