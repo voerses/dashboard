@@ -82,7 +82,7 @@ RSI_RESAMPLE = 4              # resample 1H close to 4H for RSI computation
 
 # -- Trade management --
 LEVERAGE = 2.6
-STOP_MULT = 999.0
+STOP_MULT = 5.0
 TRAIL_MULT = 999.0            # effectively no trail — MR trades need room to breathe
 MIN_HOLD = 48                 # minimum 48h hold before exit allowed
 NO_STOP_BARS = 72             # 72h stop protection after entry
