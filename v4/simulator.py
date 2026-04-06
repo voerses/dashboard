@@ -788,11 +788,13 @@ def _process_entries(
                 fee_rate = get_fee_rate(config.exchange, "spot", "taker")
             entry_fee = notional_usd * fee_rate
 
-            initial_risk = float(sig.stop_mult[local_bar]) * atr_val
-            if direction == 1:
-                stop_price = entry_price - initial_risk
+            _sm = float(sig.stop_mult[local_bar])
+            if _sm >= 999:
+                initial_risk = 0.0
+                stop_price = 0.0
             else:
-                stop_price = entry_price + initial_risk
+                initial_risk = _sm * atr_val
+                stop_price = entry_price - initial_risk if direction == 1 else entry_price + initial_risk
 
             pos = Position(
                 position_id=f"{token}:{strategy_id}:{global_bar}:primary",
@@ -1052,10 +1054,15 @@ def _process_entries(
 
             p_quantity = primary_notional / max(p_entry_price, 1e-10) * direction
 
-            p_initial_risk = float(sig.stop_mult[local_bar]) * p_atr
-            if direction == 1:
+            _psm = float(sig.stop_mult[local_bar])
+            if _psm >= 999:
+                p_initial_risk = 0.0
+                p_stop = 0.0
+            elif direction == 1:
+                p_initial_risk = _psm * p_atr
                 p_stop = p_entry_price - p_initial_risk
             else:
+                p_initial_risk = _psm * p_atr
                 p_stop = p_entry_price + p_initial_risk
 
             primary_pos = Position(
@@ -1332,11 +1339,13 @@ def _process_entries(
 
             quantity = notional_usd / max(entry_price, 1e-10) * direction
 
-            initial_risk = float(sig.stop_mult[local_bar]) * atr_val
-            if direction == 1:
-                stop_price = entry_price - initial_risk
+            _sm2 = float(sig.stop_mult[local_bar])
+            if _sm2 >= 999:
+                initial_risk = 0.0
+                stop_price = 0.0
             else:
-                stop_price = entry_price + initial_risk
+                initial_risk = _sm2 * atr_val
+                stop_price = entry_price - initial_risk if direction == 1 else entry_price + initial_risk
 
             pos = Position(
                 position_id=f"{token}:{strategy_id}:{global_bar}:primary",

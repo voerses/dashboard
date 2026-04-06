@@ -253,6 +253,8 @@ class StopLossHandler:
         pass
 
     def check_exit(self, pos: Position, bar: BarContext) -> ExitCheck:
+        if pos.stop_price <= 0:
+            return _NO_EXIT  # no stop set (stop_mult >= 999)
         stop_active = bar.bars_held >= pos.no_stop_bars or pos.convex_exit
         if not stop_active:
             return _NO_EXIT
