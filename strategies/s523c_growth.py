@@ -43,7 +43,7 @@ import os
 import json
 import numpy as np
 import pandas as pd
-from engine import (StrategyContext, StrategyResult, MarketType,
+from engine import (StrategyContext, StrategyResult, MarketType, CRISIS,
                     rolling_mean, rolling_std, rolling_zscore)
 
 
@@ -456,5 +456,5 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
         name='s523c_growth',
         breakeven_atr=BREAKEVEN_ATR,
         conviction_score=conviction,
-        # exit_regimes defaults to {CRISIS} — tested: removing it HURTS s523c (+24% → +7.7%)
+        exit_regimes={CRISIS},  # tested: removing HURTS (+528% → +306%, DD -46% → -54%)
     )
