@@ -295,6 +295,8 @@ def _sr_to_token_signals(
     # Extract scalar/array fields
     sr_direction = np.asarray(sr.direction[:n_safe], dtype=np.int8)
     sr_exit_regimes = sr.exit_regimes
+    sr_exit_regimes_long = sr.exit_regimes_long
+    sr_exit_regimes_short = sr.exit_regimes_short
     sr_stop_mult = _to_array(sr.stop_mult, n_safe)
     sr_trail_mult = _to_array(sr.trail_mult, n_safe)
     sr_target_mult = float(sr.target_mult)
@@ -422,6 +424,8 @@ def _sr_to_token_signals(
         regime=p_regime,
         funding_1h=p_funding,
         exit_regimes=sr_exit_regimes,
+        exit_regimes_long=sr_exit_regimes_long,
+        exit_regimes_short=sr_exit_regimes_short,
         stop_mult=sr_stop_mult,
         trail_mult=sr_trail_mult,
         target_mult=sr_target_mult,
