@@ -492,8 +492,7 @@ def _setup_shared_monitors(
             strats = getattr(cfg, 'strategies', None)
             if not isinstance(strats, (list, tuple)):
                 raise TypeError("strategies not a list")
-            resolutions = [s.exit_resolution for s in strats if s.exit_resolution > 0]
-            if not resolutions or cfg.dedicated_ws:
+            if cfg.dedicated_ws:
                 continue
             venue = _market_to_venue(cfg)
             key = (cfg.exchange, venue)
@@ -613,13 +612,12 @@ def _build_engine_groups(
 ) -> dict[tuple[str, str], list]:
     """Build mapping of (exchange, venue) -> engines sharing that monitor.
 
-    Only includes engines with a CandleAggregator (sub-hourly). Hourly-only
-    engines have no need for WebSocket data and are excluded.
+    Includes ALL non-dedicated engines so shared monitors can provide
+    live WebSocket prices for dashboard MTM updates, even when
+    sub-hourly exits are disabled (exit_resolution=0).
     """
     groups: dict[tuple[str, str], list] = {}
     for engine, cfg in zip(engines, configs):
-        if engine._candle_aggregator is None:
-            continue  # hourly-only, no benefit from WebSocket data
         venue = _market_to_venue(cfg)
         key = (cfg.exchange, venue)
         if key in shared_monitors and not cfg.dedicated_ws:

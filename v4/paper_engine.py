@@ -127,6 +127,11 @@ class PaperPortfolioEngine:
         self._strategy_entry_resolution: dict[str, int] = {
             s.strategy_id: getattr(s, 'entry_resolution', 0) for s in config.strategies
         }
+        # Store shared PriceMonitor if provided (needed for dashboard live prices
+        # even when sub-hourly exits are disabled, i.e. ws_resolution=0)
+        if price_monitor is not None:
+            self._price_monitor = price_monitor
+            self._owns_price_monitor = False
         # WS infra: create CandleAggregator using finest resolution across exit and entry
         all_resolutions = [r for r in [effective_resolution, self._effective_entry_resolution] if r > 0]
         ws_resolution = min(all_resolutions) if all_resolutions else 0
@@ -134,11 +139,7 @@ class PaperPortfolioEngine:
             from v4.candle_aggregator import CandleAggregator
             # Always create own CandleAggregator (resolution is per-engine)
             self._candle_aggregator = CandleAggregator(ws_resolution)
-            if price_monitor is not None:
-                # Use shared PriceMonitor from runner — don't create our own
-                self._price_monitor = price_monitor
-                self._owns_price_monitor = False
-            else:
+            if self._price_monitor is None:
                 # Create own PriceMonitor (backward compat / dedicated mode)
                 from v4.price_monitor import PriceMonitor
                 # Derive venue from strategy market types
