@@ -68,7 +68,7 @@ def compute_rsi(close: np.ndarray, period: int = 14) -> np.ndarray:
 
 # -- Signal parameters --
 ZSCORE_WINDOW_DAYS = 30       # 30 days for rolling z-score (computed on daily data)
-MAX_LOOKBACK_DAYS = 90        # Only load last N days of 5-min data (0 = load all for backtesting)
+MAX_LOOKBACK_DAYS = 0         # 0 = load all data. Paper config uses lookback_months=3 at runner level.
 THRESHOLD = 1.0               # composite z-score threshold for entry (lower than s520)
 DIRECTION = "both"            # "long", "short", or "both"
 
@@ -455,4 +455,5 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
         name='s523c_growth',
         breakeven_atr=BREAKEVEN_ATR,
         conviction_score=conviction,
+        # exit_regimes defaults to {CRISIS} — tested: removing it HURTS s523c (+24% → +7.7%)
     )
