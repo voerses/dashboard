@@ -3076,14 +3076,15 @@ class PaperPortfolioEngine:
                 entry_fee = all_entry_fees.get(pos.position_id, 0.0)
                 # Net unrealized: deduct known costs (entry fee + accrued funding)
                 unrealized_pnl = raw_unrealized - entry_fee - pos.cumulative_funding
-                # Stop distance
+                # Stop distance (clamp negatives, mark as "no stop" when unreachable)
                 stop_price = pos.stop_price
-                if stop_price and current_price:
+                if stop_price and current_price and stop_price > 0:
                     if pos.direction == 1:
                         pct_to_stop = (current_price - stop_price) / current_price * 100
                     else:
                         pct_to_stop = (stop_price - current_price) / current_price * 100
                 else:
+                    stop_price = 0  # negative or zero = no meaningful stop
                     pct_to_stop = 0
                 # Regime
                 regime_id = last_regimes.get(pos.token, -1)
