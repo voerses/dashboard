@@ -2259,6 +2259,12 @@ class PaperPortfolioEngine:
         all_req_groups = []
         for spec in self.config.strategies:
             _load_strategy_fn(spec.strategy_id)  # populate module cache
+            # Tell strategy it's in paper mode so it can trim data loading
+            from v4.engine import _STRATEGY_MODULE_CACHE, _STRATEGY_MODULE_LOCK
+            with _STRATEGY_MODULE_LOCK:
+                mod = _STRATEGY_MODULE_CACHE.get(spec.strategy_id)
+            if mod is not None:
+                mod._paper_mode = True
             rp = _load_strategy_required_plugins(spec.strategy_id)
             all_req_plugins.append(rp)
             rg = _load_strategy_required_indicator_groups(spec.strategy_id)

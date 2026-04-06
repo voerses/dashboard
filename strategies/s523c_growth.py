@@ -68,7 +68,8 @@ def compute_rsi(close: np.ndarray, period: int = 14) -> np.ndarray:
 
 # -- Signal parameters --
 ZSCORE_WINDOW_DAYS = 30       # 30 days for rolling z-score (computed on daily data)
-MAX_LOOKBACK_DAYS = 0         # 0 = load all data. Paper config uses lookback_months=3 at runner level.
+PAPER_LOOKBACK_DAYS = 60      # days of 5-min data to load in paper trading (0 = all)
+_paper_mode = False           # set to True by paper engine — DO NOT change manually
 THRESHOLD = 1.0               # composite z-score threshold for entry (lower than s520)
 DIRECTION = "both"            # "long", "short", or "both"
 
@@ -211,10 +212,10 @@ def _load_daily_signals(symbol: str, ticker: str):
     df["create_time"] = pd.to_datetime(df["create_time"])
     df = df.set_index("create_time").sort_index()
 
-    # Trim to last MAX_LOOKBACK_DAYS of 5-min data if set (saves memory for paper trading).
-    # For backtesting, set MAX_LOOKBACK_DAYS = 0 to load all data.
-    if MAX_LOOKBACK_DAYS > 0 and len(df) > MAX_LOOKBACK_DAYS * 288:
-        cutoff = df.index[-1] - pd.Timedelta(days=MAX_LOOKBACK_DAYS)
+    # In paper mode, trim to PAPER_LOOKBACK_DAYS to save memory.
+    # _paper_mode is set on this module by the paper engine; absent in backtest → loads all.
+    if _paper_mode and PAPER_LOOKBACK_DAYS > 0:
+        cutoff = df.index[-1] - pd.Timedelta(days=PAPER_LOOKBACK_DAYS)
         df = df.loc[cutoff:]
 
     # Resample 5-min to daily: take last value per day
