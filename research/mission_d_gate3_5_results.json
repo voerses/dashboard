@@ -1,0 +1,223 @@
+{
+  "config": {
+    "tokens_candidate": [
+      "BTC",
+      "ETH",
+      "SOL",
+      "BNB",
+      "XRP",
+      "DOGE",
+      "ADA",
+      "AVAX",
+      "LINK"
+    ],
+    "tokens_used": [
+      "BTC",
+      "ETH",
+      "SOL",
+      "BNB",
+      "XRP",
+      "DOGE",
+      "ADA",
+      "AVAX",
+      "LINK"
+    ],
+    "threshold": 1.5,
+    "hold_hours": 72,
+    "direction": "long_only",
+    "sample_step_bars": 24,
+    "fif_window": 200,
+    "zscore_window": 200,
+    "start": "2022-01-01",
+    "end": "2026-04-08",
+    "capital": 50000,
+    "fee_bps": 7,
+    "leverage_max": 1.0,
+    "slippage_model": "sqrt"
+  },
+  "harness_verdict": "KILL",
+  "harness_kill_reasons": [
+    "L12M Sharpe 1.14 < 2.0",
+    "L12M Calmar 2.77 < 3.0",
+    "L6M Sharpe -0.16 < 2.0",
+    "L6M Calmar -0.27 < 3.0",
+    "L6M negative return -1.0%",
+    "L3M Sharpe -3.34 < 2.0",
+    "L3M Calmar -3.32 < 3.0",
+    "L3M negative return -11.2%"
+  ],
+  "windows": {
+    "L12M": {
+      "total_ret": 0.1268302600863953,
+      "ann_ret": 0.12646268825581886,
+      "sharpe": 1.1372507357759327,
+      "sortino": 1.3817865718148685,
+      "calmar": 2.7697591230584133,
+      "maxdd": -0.04565837050702687,
+      "win_days": 0.16666666666666666,
+      "trades": 93.0,
+      "win_rate": 0.6451612903225806,
+      "profit_factor": 1.7722164426303575,
+      "avg_win": 254.4669034065196,
+      "avg_loss": -261.06692499481807,
+      "start": "2025-04-08T00:00:00",
+      "end": "2026-04-08T00:00:00"
+    },
+    "L6M": {
+      "total_ret": -0.005187118651945544,
+      "ann_ret": -0.010319206081753185,
+      "sharpe": -0.15542186713041087,
+      "sortino": -0.14018844035832628,
+      "calmar": -0.26653811539547223,
+      "maxdd": -0.03871568637169287,
+      "win_days": 0.07650273224043716,
+      "trades": 19.0,
+      "win_rate": 0.5789473684210527,
+      "profit_factor": 0.9046305692998255,
+      "avg_win": 271.67920706656673,
+      "avg_loss": -412.9408428079761,
+      "start": "2025-10-08T00:00:00",
+      "end": "2026-04-08T00:00:00"
+    },
+    "L3M": {
+      "total_ret": -0.02950753244698201,
+      "ann_ret": -0.11204114134366572,
+      "sharpe": -3.339280964422181,
+      "sortino": -1.737906391915756,
+      "calmar": -3.3189701927007507,
+      "maxdd": -0.03375780282392181,
+      "win_days": 0.043478260869565216,
+      "trades": 6.0,
+      "win_rate": 0.16666666666666666,
+      "profit_factor": 0.053691702274483055,
+      "avg_win": 109.81863678004619,
+      "avg_loss": -409.0711679008822,
+      "start": "2026-01-07T00:00:00",
+      "end": "2026-04-08T00:00:00"
+    }
+  },
+  "full_period": {
+    "total_ret": 0.18428039444680255,
+    "ann_ret": 0.04041963829393236,
+    "sharpe": 0.41183157033785084,
+    "sortino": 0.35804467056811334,
+    "calmar": 0.2785027049458146,
+    "maxdd": -0.1451319415436069,
+    "win_days": 0.1527599486521181,
+    "trades": 348.0,
+    "win_rate": 0.514367816091954,
+    "profit_factor": 1.1827711481721277
+  },
+  "trades_total": 348,
+  "liquidations": 0,
+  "violations": 0,
+  "cost_breakdown_usd": {
+    "gross_pnl": 12954.511699893015,
+    "fees": 2706.6666666666665,
+    "funding": 1037.830625000001,
+    "slippage": 35.72033960173931,
+    "net_pnl": 9174.294068624606
+  },
+  "per_token_pnl": {
+    "ADA": {
+      "n_trades": 39,
+      "net_pnl_usd": 1041.3252966678813,
+      "win_rate": 0.4358974358974359,
+      "avg_pnl": 26.700648632509775
+    },
+    "AVAX": {
+      "n_trades": 42,
+      "net_pnl_usd": -3706.309247377037,
+      "win_rate": 0.4523809523809524,
+      "avg_pnl": -88.24545827088184
+    },
+    "BNB": {
+      "n_trades": 34,
+      "net_pnl_usd": 1346.553497791204,
+      "win_rate": 0.5882352941176471,
+      "avg_pnl": 39.60451464091777
+    },
+    "BTC": {
+      "n_trades": 41,
+      "net_pnl_usd": 872.2157526484855,
+      "win_rate": 0.6341463414634146,
+      "avg_pnl": 21.273554942645987
+    },
+    "DOGE": {
+      "n_trades": 38,
+      "net_pnl_usd": 3602.783431435498,
+      "win_rate": 0.4473684210526316,
+      "avg_pnl": 94.81009030093416
+    },
+    "ETH": {
+      "n_trades": 40,
+      "net_pnl_usd": 1581.6250255531145,
+      "win_rate": 0.525,
+      "avg_pnl": 39.54062563882786
+    },
+    "LINK": {
+      "n_trades": 40,
+      "net_pnl_usd": 196.33282193806986,
+      "win_rate": 0.525,
+      "avg_pnl": 4.908320548451746
+    },
+    "SOL": {
+      "n_trades": 41,
+      "net_pnl_usd": 884.6577348585316,
+      "win_rate": 0.5121951219512195,
+      "avg_pnl": 21.57701792337882
+    },
+    "XRP": {
+      "n_trades": 33,
+      "net_pnl_usd": 3355.109755108859,
+      "win_rate": 0.5151515151515151,
+      "avg_pnl": 101.66999257905634
+    }
+  },
+  "gate35_promote_checks": {
+    "L12M": {
+      "sharpe_gt_2": "False",
+      "calmar_gt_3": "False",
+      "maxdd_gt_neg25": "True",
+      "annret_gt_0": "True",
+      "trades_gt_30": true
+    },
+    "L6M": {
+      "sharpe_gt_2": "False",
+      "calmar_gt_3": "False",
+      "maxdd_gt_neg25": "True",
+      "annret_gt_0": "False"
+    },
+    "L3M": {
+      "sharpe_gt_2": "False",
+      "calmar_gt_3": "False",
+      "maxdd_gt_neg25": "True",
+      "annret_gt_0": "False"
+    }
+  },
+  "gate35_fail_count_per_window": {
+    "L12M": 2,
+    "L6M": 3,
+    "L3M": 3
+  },
+  "gate35_verdict": "KILL",
+  "comparison_vs_gate3": {
+    "full_sharpe": {
+      "gate3": 1.0568604714051137,
+      "gate35": 0.41183157033785084
+    },
+    "full_trades": {
+      "gate3": 69,
+      "gate35": 348
+    },
+    "l12m_sharpe": {
+      "gate3": 0.9963489503622572,
+      "gate35": 1.1372507357759327
+    },
+    "l12m_trades": {
+      "gate3": 25.0,
+      "gate35": 93
+    },
+    "regressed": "True"
+  }
+}
