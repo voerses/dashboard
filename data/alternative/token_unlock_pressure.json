@@ -1,0 +1,2279 @@
+[
+  {
+    "symbol": "HOT",
+    "slug": "holochain",
+    "genesis": "2018-04-28",
+    "end": "2018-04-28",
+    "vesting_months": 1,
+    "monthly_rate_pct": 100.0,
+    "category": "Compute Networks"
+  },
+  {
+    "symbol": "ENJ",
+    "slug": "enjin-coin",
+    "genesis": "2017-11-01",
+    "end": "2017-11-01",
+    "vesting_months": 1,
+    "monthly_rate_pct": 100.0,
+    "category": "Entertainment"
+  },
+  {
+    "symbol": "FLOKI",
+    "slug": "floki",
+    "genesis": "2021-06-21",
+    "end": "2021-06-21",
+    "vesting_months": 1,
+    "monthly_rate_pct": 100.0,
+    "category": "Cryptocurrency"
+  },
+  {
+    "symbol": "PEPE",
+    "slug": "pepe-0",
+    "genesis": "2023-04-17",
+    "end": "2023-04-17",
+    "vesting_months": 1,
+    "monthly_rate_pct": 100.0,
+    "category": "Cryptocurrency"
+  },
+  {
+    "symbol": "VIRTUAL",
+    "slug": "virtuals-protocol",
+    "genesis": "2023-12-24",
+    "end": "2023-12-24",
+    "vesting_months": 1,
+    "monthly_rate_pct": 100.0,
+    "category": "Developer Tooling"
+  },
+  {
+    "symbol": "UNIBOT",
+    "slug": "unibot-0",
+    "genesis": "2023-05-01",
+    "end": "2023-05-01",
+    "vesting_months": 1,
+    "monthly_rate_pct": 100.0,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "FWOG",
+    "slug": "fwog",
+    "genesis": "2024-07-29",
+    "end": "2024-07-29",
+    "vesting_months": 1,
+    "monthly_rate_pct": 100.0,
+    "category": "Cryptocurrency"
+  },
+  {
+    "symbol": "CHZ",
+    "slug": "chiliz",
+    "genesis": "2018-10-26",
+    "end": "2018-10-26",
+    "vesting_months": 1,
+    "monthly_rate_pct": 100.0,
+    "category": "Entertainment"
+  },
+  {
+    "symbol": "RLB",
+    "slug": "rollbit-coin",
+    "genesis": "2021-11-10",
+    "end": "2021-12-09",
+    "vesting_months": 1,
+    "monthly_rate_pct": 100.0,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "FARTCOIN",
+    "slug": "fartcoin",
+    "genesis": "2024-10-20",
+    "end": "2024-10-20",
+    "vesting_months": 1,
+    "monthly_rate_pct": 100.0,
+    "category": "Cryptocurrency"
+  },
+  {
+    "symbol": "BAT",
+    "slug": "basic-attention-token",
+    "genesis": "2017-05-31",
+    "end": "2017-05-31",
+    "vesting_months": 1,
+    "monthly_rate_pct": 100.0,
+    "category": "Consumer Infrastructure"
+  },
+  {
+    "symbol": "FRIEND",
+    "slug": "friend-tech",
+    "genesis": "2024-05-02",
+    "end": "2024-05-02",
+    "vesting_months": 1,
+    "monthly_rate_pct": 100.0,
+    "category": "Consumer Infrastructure"
+  },
+  {
+    "symbol": "TRX",
+    "slug": "tron",
+    "genesis": "2017-09-13",
+    "end": "2017-09-13",
+    "vesting_months": 1,
+    "monthly_rate_pct": 100.0,
+    "category": "Networks"
+  },
+  {
+    "symbol": "MVI",
+    "slug": "metaverse-index",
+    "genesis": "2021-04-07",
+    "end": "2021-04-07",
+    "vesting_months": 1,
+    "monthly_rate_pct": 100.0,
+    "category": "Synthetic Assets"
+  },
+  {
+    "symbol": "GLM",
+    "slug": "golem",
+    "genesis": "2016-12-02",
+    "end": "2017-06-02",
+    "vesting_months": 6.0,
+    "monthly_rate_pct": 16.73,
+    "category": "Compute Networks"
+  },
+  {
+    "symbol": "YFI",
+    "slug": "yearn-finance",
+    "genesis": "2020-07-17",
+    "end": "2021-02-02",
+    "vesting_months": 6.6,
+    "monthly_rate_pct": 15.22,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "ZKID",
+    "slug": "zksync-id-0",
+    "genesis": "2023-08-12",
+    "end": "2024-08-12",
+    "vesting_months": 12.0,
+    "monthly_rate_pct": 8.32,
+    "category": ""
+  },
+  {
+    "symbol": "MELANIA",
+    "slug": "melania-meme",
+    "genesis": "2025-01-19",
+    "end": "2026-02-18",
+    "vesting_months": 13.0,
+    "monthly_rate_pct": 7.71,
+    "category": "Cryptocurrency"
+  },
+  {
+    "symbol": "AIOZ",
+    "slug": "aioz-network",
+    "genesis": "2021-04-02",
+    "end": "2022-10-02",
+    "vesting_months": 18.0,
+    "monthly_rate_pct": 5.55,
+    "category": "Networking and Web Services"
+  },
+  {
+    "symbol": "GTC",
+    "slug": "gitcoin",
+    "genesis": "2021-05-24",
+    "end": "2023-04-24",
+    "vesting_months": 23.0,
+    "monthly_rate_pct": 4.35,
+    "category": "HR and Community Tools"
+  },
+  {
+    "symbol": "VVV",
+    "slug": "venice-token",
+    "genesis": "2025-01-27",
+    "end": "2026-12-27",
+    "vesting_months": 23.0,
+    "monthly_rate_pct": 4.35,
+    "category": "Developer Tooling"
+  },
+  {
+    "symbol": "ATOM",
+    "slug": "cosmos",
+    "genesis": "2017-04-06",
+    "end": "2019-03-06",
+    "vesting_months": 23.0,
+    "monthly_rate_pct": 4.35,
+    "category": "Networks"
+  },
+  {
+    "symbol": "NEON",
+    "slug": "neon-0",
+    "genesis": "2023-07-17",
+    "end": "2025-06-17",
+    "vesting_months": 23.0,
+    "monthly_rate_pct": 4.34,
+    "category": "Networks"
+  },
+  {
+    "symbol": "KUJI",
+    "slug": "kujira",
+    "genesis": "2021-11-09",
+    "end": "2023-11-08",
+    "vesting_months": 23.9,
+    "monthly_rate_pct": 4.18,
+    "category": "Networks"
+  },
+  {
+    "symbol": "LDO",
+    "slug": "lido-dao",
+    "genesis": "2020-12-17",
+    "end": "2022-12-16",
+    "vesting_months": 23.9,
+    "monthly_rate_pct": 4.18,
+    "category": "Mining and Validation"
+  },
+  {
+    "symbol": "RAIN",
+    "slug": "rain",
+    "genesis": "2025-09-10",
+    "end": "2027-09-10",
+    "vesting_months": 24.0,
+    "monthly_rate_pct": 4.17,
+    "category": "Metaverse and Gaming"
+  },
+  {
+    "symbol": "GMX",
+    "slug": "gmx",
+    "genesis": "2021-07-22",
+    "end": "2023-07-22",
+    "vesting_months": 24.0,
+    "monthly_rate_pct": 4.17,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "JASMY",
+    "slug": "jasmy",
+    "genesis": "2021-10-01",
+    "end": "2023-10-01",
+    "vesting_months": 24.0,
+    "monthly_rate_pct": 4.17,
+    "category": "Physical Infrastructure Networks"
+  },
+  {
+    "symbol": "LOOKS",
+    "slug": "looksrare",
+    "genesis": "2022-01-10",
+    "end": "2024-01-10",
+    "vesting_months": 24.0,
+    "monthly_rate_pct": 4.17,
+    "category": "Entertainment"
+  },
+  {
+    "symbol": "AERO",
+    "slug": "aerodrome-finance",
+    "genesis": "2023-08-28",
+    "end": "2025-08-28",
+    "vesting_months": 24.0,
+    "monthly_rate_pct": 4.16,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "ZEUS",
+    "slug": "zeus-network",
+    "genesis": "2024-04-04",
+    "end": "2026-09-04",
+    "vesting_months": 29.0,
+    "monthly_rate_pct": 3.45,
+    "category": "Cross-Chain Interoperability"
+  },
+  {
+    "symbol": "RSTK",
+    "slug": "restake-finance",
+    "genesis": "2023-12-20",
+    "end": "2026-06-19",
+    "vesting_months": 30.0,
+    "monthly_rate_pct": 3.34,
+    "category": "Mining and Validation"
+  },
+  {
+    "symbol": "AKT",
+    "slug": "akash-network",
+    "genesis": "2020-09-25",
+    "end": "2023-03-25",
+    "vesting_months": 29.9,
+    "monthly_rate_pct": 3.34,
+    "category": "Compute Networks"
+  },
+  {
+    "symbol": "LBR",
+    "slug": "lybra-finance-0",
+    "genesis": "2023-04-24",
+    "end": "2025-10-23",
+    "vesting_months": 30.0,
+    "monthly_rate_pct": 3.33,
+    "category": ""
+  },
+  {
+    "symbol": "JOE",
+    "slug": "trader-joe",
+    "genesis": "2021-07-03",
+    "end": "2024-02-02",
+    "vesting_months": 31.0,
+    "monthly_rate_pct": 3.22,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "CLEAR",
+    "slug": "everclear",
+    "genesis": "2023-09-05",
+    "end": "2026-06-07",
+    "vesting_months": 33.0,
+    "monthly_rate_pct": 3.03,
+    "category": "Cross-Chain Interoperability"
+  },
+  {
+    "symbol": "AAVE",
+    "slug": "aave",
+    "genesis": "2017-12-10",
+    "end": "2020-09-24",
+    "vesting_months": 33.5,
+    "monthly_rate_pct": 2.99,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "KMNO",
+    "slug": "kamino-finance",
+    "genesis": "2024-04-30",
+    "end": "2027-03-28",
+    "vesting_months": 34.9,
+    "monthly_rate_pct": 2.87,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "HYPE",
+    "slug": "hyperliquid",
+    "genesis": "2024-11-29",
+    "end": "2027-10-28",
+    "vesting_months": 34.9,
+    "monthly_rate_pct": 2.86,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "DRIFT",
+    "slug": "driftprotocol",
+    "genesis": "2024-05-16",
+    "end": "2027-04-16",
+    "vesting_months": 35.0,
+    "monthly_rate_pct": 2.86,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "HONEY",
+    "slug": "hivemapper-0",
+    "genesis": "2022-11-01",
+    "end": "2025-10-01",
+    "vesting_months": 35.0,
+    "monthly_rate_pct": 2.86,
+    "category": "Physical Infrastructure Networks"
+  },
+  {
+    "symbol": "SLND",
+    "slug": "solend",
+    "genesis": "2021-11-01",
+    "end": "2024-10-01",
+    "vesting_months": 35.0,
+    "monthly_rate_pct": 2.86,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "ACA",
+    "slug": "acala",
+    "genesis": "2021-12-18",
+    "end": "2024-11-18",
+    "vesting_months": 35.0,
+    "monthly_rate_pct": 2.86,
+    "category": "Networks"
+  },
+  {
+    "symbol": "NAVX",
+    "slug": "navi",
+    "genesis": "2024-02-08",
+    "end": "2027-02-04",
+    "vesting_months": 35.9,
+    "monthly_rate_pct": 2.79,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "BERA",
+    "slug": "berachain-bera",
+    "genesis": "2025-02-06",
+    "end": "2028-02-06",
+    "vesting_months": 36.0,
+    "monthly_rate_pct": 2.78,
+    "category": "Networks"
+  },
+  {
+    "symbol": "REZ",
+    "slug": "renzo",
+    "genesis": "2024-04-23",
+    "end": "2027-04-23",
+    "vesting_months": 36.0,
+    "monthly_rate_pct": 2.78,
+    "category": "Synthetic Assets"
+  },
+  {
+    "symbol": "HOP",
+    "slug": "hop-protocol",
+    "genesis": "2022-06-08",
+    "end": "2025-06-07",
+    "vesting_months": 36.0,
+    "monthly_rate_pct": 2.78,
+    "category": "Cross-Chain Interoperability"
+  },
+  {
+    "symbol": "ZRO",
+    "slug": "layerzero",
+    "genesis": "2024-06-20",
+    "end": "2027-06-20",
+    "vesting_months": 36.0,
+    "monthly_rate_pct": 2.78,
+    "category": "Cross-Chain Interoperability"
+  },
+  {
+    "symbol": "JUP",
+    "slug": "jupiter-exchange-solana",
+    "genesis": "2024-01-31",
+    "end": "2027-01-31",
+    "vesting_months": 36.0,
+    "monthly_rate_pct": 2.78,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "PRCL",
+    "slug": "parcl",
+    "genesis": "2024-04-16",
+    "end": "2027-04-15",
+    "vesting_months": 35.9,
+    "monthly_rate_pct": 2.78,
+    "category": "Synthetic Assets"
+  },
+  {
+    "symbol": "TRUMP",
+    "slug": "official-trump",
+    "genesis": "2025-01-17",
+    "end": "2028-01-16",
+    "vesting_months": 35.9,
+    "monthly_rate_pct": 2.78,
+    "category": "Cryptocurrency"
+  },
+  {
+    "symbol": "XPL",
+    "slug": "plasma",
+    "genesis": "2025-09-25",
+    "end": "2028-09-25",
+    "vesting_months": 36.0,
+    "monthly_rate_pct": 2.78,
+    "category": ""
+  },
+  {
+    "symbol": "RAY",
+    "slug": "raydium",
+    "genesis": "2021-02-21",
+    "end": "2024-02-20",
+    "vesting_months": 35.9,
+    "monthly_rate_pct": 2.78,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "STG",
+    "slug": "stargate-finance",
+    "genesis": "2022-03-17",
+    "end": "2025-03-16",
+    "vesting_months": 36.0,
+    "monthly_rate_pct": 2.78,
+    "category": "Cross-Chain Interoperability"
+  },
+  {
+    "symbol": "MPLX",
+    "slug": "metaplex",
+    "genesis": "2022-09-19",
+    "end": "2025-09-18",
+    "vesting_months": 36.0,
+    "monthly_rate_pct": 2.78,
+    "category": "Developer Tooling"
+  },
+  {
+    "symbol": "SUPER",
+    "slug": "superverse",
+    "genesis": "2021-02-21",
+    "end": "2024-02-20",
+    "vesting_months": 35.9,
+    "monthly_rate_pct": 2.78,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "CLOUD",
+    "slug": "sanctum-2",
+    "genesis": "2024-07-17",
+    "end": "2027-07-17",
+    "vesting_months": 36.0,
+    "monthly_rate_pct": 2.78,
+    "category": "Mining and Validation"
+  },
+  {
+    "symbol": "MASK",
+    "slug": "masknetwork",
+    "genesis": "2021-02-24",
+    "end": "2024-02-23",
+    "vesting_months": 35.9,
+    "monthly_rate_pct": 2.78,
+    "category": "Consumer Infrastructure"
+  },
+  {
+    "symbol": "QI",
+    "slug": "qi-dao",
+    "genesis": "2022-06-26",
+    "end": "2025-06-25",
+    "vesting_months": 36.0,
+    "monthly_rate_pct": 2.78,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "IKA",
+    "slug": "ika",
+    "genesis": "2025-07-29",
+    "end": "2028-07-28",
+    "vesting_months": 36.0,
+    "monthly_rate_pct": 2.78,
+    "category": "Networks"
+  },
+  {
+    "symbol": "RARE",
+    "slug": "superrare",
+    "genesis": "2021-08-16",
+    "end": "2024-08-16",
+    "vesting_months": 36.0,
+    "monthly_rate_pct": 2.78,
+    "category": "Entertainment"
+  },
+  {
+    "symbol": "SNX",
+    "slug": "synthetix",
+    "genesis": "2018-03-13",
+    "end": "2021-03-13",
+    "vesting_months": 36.0,
+    "monthly_rate_pct": 2.78,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "DYM",
+    "slug": "dymension",
+    "genesis": "2024-02-06",
+    "end": "2027-02-05",
+    "vesting_months": 36.0,
+    "monthly_rate_pct": 2.78,
+    "category": "Networks"
+  },
+  {
+    "symbol": "BONK",
+    "slug": "bonk-0",
+    "genesis": "2022-12-25",
+    "end": "2025-12-31",
+    "vesting_months": 36.2,
+    "monthly_rate_pct": 2.76,
+    "category": "Cryptocurrency"
+  },
+  {
+    "symbol": "OMNI",
+    "slug": "omni-network",
+    "genesis": "2024-04-17",
+    "end": "2027-05-03",
+    "vesting_months": 36.5,
+    "monthly_rate_pct": 2.74,
+    "category": "Networks"
+  },
+  {
+    "symbol": "INJ",
+    "slug": "injective-protocol",
+    "genesis": "2020-10-20",
+    "end": "2024-01-20",
+    "vesting_months": 39.0,
+    "monthly_rate_pct": 2.56,
+    "category": "Networks"
+  },
+  {
+    "symbol": "RESOLV",
+    "slug": "resolv",
+    "genesis": "2025-06-10",
+    "end": "2028-11-10",
+    "vesting_months": 41.0,
+    "monthly_rate_pct": 2.44,
+    "category": ""
+  },
+  {
+    "symbol": "API3",
+    "slug": "api3",
+    "genesis": "2020-11-30",
+    "end": "2024-04-28",
+    "vesting_months": 40.9,
+    "monthly_rate_pct": 2.44,
+    "category": "Data"
+  },
+  {
+    "symbol": "ANKR",
+    "slug": "ankr-network",
+    "genesis": "2019-02-21",
+    "end": "2022-07-21",
+    "vesting_months": 40.9,
+    "monthly_rate_pct": 2.44,
+    "category": "Node Tooling"
+  },
+  {
+    "symbol": "AVNT",
+    "slug": "avantis",
+    "genesis": "2025-04-23",
+    "end": "2028-10-22",
+    "vesting_months": 42.0,
+    "monthly_rate_pct": 2.38,
+    "category": ""
+  },
+  {
+    "symbol": "DOPE",
+    "slug": "dopamine",
+    "genesis": "2024-04-03",
+    "end": "2027-11-03",
+    "vesting_months": 43.0,
+    "monthly_rate_pct": 2.33,
+    "category": "Investment Management"
+  },
+  {
+    "symbol": "FOGO",
+    "slug": "fogo",
+    "genesis": "2026-01-13",
+    "end": "2029-08-26",
+    "vesting_months": 43.4,
+    "monthly_rate_pct": 2.3,
+    "category": ""
+  },
+  {
+    "symbol": "PEAQ",
+    "slug": "peaq-network",
+    "genesis": "2024-11-12",
+    "end": "2028-07-12",
+    "vesting_months": 44.0,
+    "monthly_rate_pct": 2.28,
+    "category": "Networks"
+  },
+  {
+    "symbol": "RON",
+    "slug": "ronin-1",
+    "genesis": "2022-01-27",
+    "end": "2025-09-26",
+    "vesting_months": 44.0,
+    "monthly_rate_pct": 2.28,
+    "category": "Networks"
+  },
+  {
+    "symbol": "PRIME",
+    "slug": "echelon-prime-0",
+    "genesis": "2023-03-01",
+    "end": "2026-12-28",
+    "vesting_months": 45.9,
+    "monthly_rate_pct": 2.18,
+    "category": "Metaverse and Gaming"
+  },
+  {
+    "symbol": "FORT",
+    "slug": "forta",
+    "genesis": "2021-09-01",
+    "end": "2025-08-01",
+    "vesting_months": 47.0,
+    "monthly_rate_pct": 2.13,
+    "category": "Security"
+  },
+  {
+    "symbol": "KAITO",
+    "slug": "kaito",
+    "genesis": "2025-02-20",
+    "end": "2029-01-20",
+    "vesting_months": 47.0,
+    "monthly_rate_pct": 2.13,
+    "category": "Data"
+  },
+  {
+    "symbol": "KITE",
+    "slug": "go-kite-ai",
+    "genesis": "2025-11-03",
+    "end": "2029-10-03",
+    "vesting_months": 47.0,
+    "monthly_rate_pct": 2.13,
+    "category": ""
+  },
+  {
+    "symbol": "AZUR",
+    "slug": "azuro-protocol",
+    "genesis": "2024-06-18",
+    "end": "2028-05-18",
+    "vesting_months": 47.0,
+    "monthly_rate_pct": 2.13,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "FF",
+    "slug": "falcon-finance-ff",
+    "genesis": "2025-09-29",
+    "end": "2029-08-28",
+    "vesting_months": 46.9,
+    "monthly_rate_pct": 2.13,
+    "category": ""
+  },
+  {
+    "symbol": "PENGU",
+    "slug": "pudgy-penguins",
+    "genesis": "2024-12-17",
+    "end": "2028-11-17",
+    "vesting_months": 47.0,
+    "monthly_rate_pct": 2.13,
+    "category": "Entertainment"
+  },
+  {
+    "symbol": "SXT",
+    "slug": "space-and-time",
+    "genesis": "2025-05-08",
+    "end": "2029-04-08",
+    "vesting_months": 47.0,
+    "monthly_rate_pct": 2.13,
+    "category": ""
+  },
+  {
+    "symbol": "AVAIL",
+    "slug": "avail",
+    "genesis": "2024-07-22",
+    "end": "2028-06-22",
+    "vesting_months": 47.0,
+    "monthly_rate_pct": 2.13,
+    "category": "Networks"
+  },
+  {
+    "symbol": "BTRST",
+    "slug": "braintrust",
+    "genesis": "2021-09-01",
+    "end": "2025-08-01",
+    "vesting_months": 47.0,
+    "monthly_rate_pct": 2.13,
+    "category": "HR and Community Tools"
+  },
+  {
+    "symbol": "MOCA",
+    "slug": "mocaverse",
+    "genesis": "2024-07-11",
+    "end": "2028-06-11",
+    "vesting_months": 47.0,
+    "monthly_rate_pct": 2.13,
+    "category": "Consumer Infrastructure"
+  },
+  {
+    "symbol": "LIT",
+    "slug": "lighter",
+    "genesis": "2025-12-30",
+    "end": "2029-11-28",
+    "vesting_months": 46.9,
+    "monthly_rate_pct": 2.13,
+    "category": ""
+  },
+  {
+    "symbol": "SEND",
+    "slug": "suilend",
+    "genesis": "2024-12-11",
+    "end": "2028-11-11",
+    "vesting_months": 47.0,
+    "monthly_rate_pct": 2.13,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "DELABS",
+    "slug": "delabs-games",
+    "genesis": "2025-07-28",
+    "end": "2029-06-28",
+    "vesting_months": 47.0,
+    "monthly_rate_pct": 2.13,
+    "category": ""
+  },
+  {
+    "symbol": "SWISE",
+    "slug": "stakewise",
+    "genesis": "2021-04-01",
+    "end": "2025-03-01",
+    "vesting_months": 47.0,
+    "monthly_rate_pct": 2.13,
+    "category": "Mining and Validation"
+  },
+  {
+    "symbol": "BORNE",
+    "slug": "borne",
+    "genesis": "2025-08-28",
+    "end": "2029-07-28",
+    "vesting_months": 47.0,
+    "monthly_rate_pct": 2.13,
+    "category": ""
+  },
+  {
+    "symbol": "COOKIE",
+    "slug": "cookie-dao",
+    "genesis": "2024-06-14",
+    "end": "2028-05-14",
+    "vesting_months": 47.0,
+    "monthly_rate_pct": 2.13,
+    "category": "Developer Tooling"
+  },
+  {
+    "symbol": "COW",
+    "slug": "cow-protocol",
+    "genesis": "2024-02-08",
+    "end": "2028-01-08",
+    "vesting_months": 47.0,
+    "monthly_rate_pct": 2.13,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "NIL",
+    "slug": "nillion",
+    "genesis": "2025-03-24",
+    "end": "2029-02-24",
+    "vesting_months": 47.1,
+    "monthly_rate_pct": 2.12,
+    "category": "Compute Networks"
+  },
+  {
+    "symbol": "BICO",
+    "slug": "biconomy",
+    "genesis": "2021-11-23",
+    "end": "2025-10-31",
+    "vesting_months": 47.2,
+    "monthly_rate_pct": 2.12,
+    "category": "Wallet"
+  },
+  {
+    "symbol": "HVLO",
+    "slug": "hivello",
+    "genesis": "2025-01-31",
+    "end": "2029-01-15",
+    "vesting_months": 47.5,
+    "monthly_rate_pct": 2.11,
+    "category": "Mining and Validation"
+  },
+  {
+    "symbol": "RED",
+    "slug": "redstone-oracles",
+    "genesis": "2025-02-28",
+    "end": "2029-02-26",
+    "vesting_months": 47.9,
+    "monthly_rate_pct": 2.09,
+    "category": "Data"
+  },
+  {
+    "symbol": "ZBCN",
+    "slug": "zebec-network",
+    "genesis": "2024-04-14",
+    "end": "2028-04-14",
+    "vesting_months": 48.0,
+    "monthly_rate_pct": 2.08,
+    "category": "Financial Services"
+  },
+  {
+    "symbol": "GEL",
+    "slug": "gelato",
+    "genesis": "2021-09-13",
+    "end": "2025-09-12",
+    "vesting_months": 48.0,
+    "monthly_rate_pct": 2.08,
+    "category": "Developer Tooling"
+  },
+  {
+    "symbol": "DOLO",
+    "slug": "dolomite",
+    "genesis": "2025-04-24",
+    "end": "2029-04-23",
+    "vesting_months": 48.0,
+    "monthly_rate_pct": 2.08,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "IN",
+    "slug": "infinit",
+    "genesis": "2025-08-06",
+    "end": "2029-08-06",
+    "vesting_months": 48.0,
+    "monthly_rate_pct": 2.08,
+    "category": ""
+  },
+  {
+    "symbol": "H",
+    "slug": "humanity",
+    "genesis": "2025-06-25",
+    "end": "2029-06-25",
+    "vesting_months": 48.0,
+    "monthly_rate_pct": 2.08,
+    "category": ""
+  },
+  {
+    "symbol": "NEXO",
+    "slug": "nexo",
+    "genesis": "2018-05-01",
+    "end": "2022-05-01",
+    "vesting_months": 48.0,
+    "monthly_rate_pct": 2.08,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "TNSR",
+    "slug": "tensor",
+    "genesis": "2024-04-08",
+    "end": "2028-04-07",
+    "vesting_months": 48.0,
+    "monthly_rate_pct": 2.08,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "BLUR",
+    "slug": "blur-0",
+    "genesis": "2023-02-14",
+    "end": "2027-02-13",
+    "vesting_months": 48.0,
+    "monthly_rate_pct": 2.08,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "SANTOS",
+    "slug": "santos-fc-fan-token",
+    "genesis": "2021-11-27",
+    "end": "2025-11-27",
+    "vesting_months": 48.0,
+    "monthly_rate_pct": 2.08,
+    "category": "Consumer Infrastructure"
+  },
+  {
+    "symbol": "SUDO",
+    "slug": "sudoswap",
+    "genesis": "2023-01-30",
+    "end": "2027-01-29",
+    "vesting_months": 48.0,
+    "monthly_rate_pct": 2.08,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "NOS",
+    "slug": "nosana",
+    "genesis": "2022-01-17",
+    "end": "2026-01-17",
+    "vesting_months": 48.0,
+    "monthly_rate_pct": 2.08,
+    "category": "Compute Networks"
+  },
+  {
+    "symbol": "JTO",
+    "slug": "jito-governance-token",
+    "genesis": "2023-12-07",
+    "end": "2027-12-07",
+    "vesting_months": 48.0,
+    "monthly_rate_pct": 2.08,
+    "category": "Governance"
+  },
+  {
+    "symbol": "SAHARA",
+    "slug": "sahara-ai",
+    "genesis": "2025-06-26",
+    "end": "2029-06-26",
+    "vesting_months": 48.0,
+    "monthly_rate_pct": 2.08,
+    "category": "Compute Networks"
+  },
+  {
+    "symbol": "UNI",
+    "slug": "uniswap",
+    "genesis": "2020-09-18",
+    "end": "2024-09-18",
+    "vesting_months": 48.0,
+    "monthly_rate_pct": 2.08,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "ENA",
+    "slug": "ethena",
+    "genesis": "2024-03-06",
+    "end": "2028-03-06",
+    "vesting_months": 48.0,
+    "monthly_rate_pct": 2.08,
+    "category": "Cryptocurrency"
+  },
+  {
+    "symbol": "BAY",
+    "slug": "marina-protocol",
+    "genesis": "2025-11-01",
+    "end": "2029-11-01",
+    "vesting_months": 48.0,
+    "monthly_rate_pct": 2.08,
+    "category": ""
+  },
+  {
+    "symbol": "IMX",
+    "slug": "immutable-x",
+    "genesis": "2021-11-05",
+    "end": "2025-11-05",
+    "vesting_months": 48.0,
+    "monthly_rate_pct": 2.08,
+    "category": "Metaverse and Gaming"
+  },
+  {
+    "symbol": "MERL",
+    "slug": "merlin-chain",
+    "genesis": "2024-04-19",
+    "end": "2028-04-19",
+    "vesting_months": 48.0,
+    "monthly_rate_pct": 2.08,
+    "category": "Networks"
+  },
+  {
+    "symbol": "BEAT",
+    "slug": "audiera",
+    "genesis": "2025-11-01",
+    "end": "2029-11-01",
+    "vesting_months": 48.0,
+    "monthly_rate_pct": 2.08,
+    "category": ""
+  },
+  {
+    "symbol": "BNB",
+    "slug": "binance-coin",
+    "genesis": "2017-07-28",
+    "end": "2021-07-28",
+    "vesting_months": 48.0,
+    "monthly_rate_pct": 2.08,
+    "category": "Networks"
+  },
+  {
+    "symbol": "APE",
+    "slug": "apecoin",
+    "genesis": "2022-03-17",
+    "end": "2026-03-17",
+    "vesting_months": 48.0,
+    "monthly_rate_pct": 2.08,
+    "category": "Entertainment"
+  },
+  {
+    "symbol": "XVS",
+    "slug": "venus",
+    "genesis": "2020-09-27",
+    "end": "2024-09-26",
+    "vesting_months": 48.0,
+    "monthly_rate_pct": 2.08,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "TREE",
+    "slug": "treehouse-finance",
+    "genesis": "2025-07-29",
+    "end": "2029-07-29",
+    "vesting_months": 48.0,
+    "monthly_rate_pct": 2.08,
+    "category": "Data"
+  },
+  {
+    "symbol": "W",
+    "slug": "wormhole",
+    "genesis": "2024-04-03",
+    "end": "2028-04-03",
+    "vesting_months": 48.0,
+    "monthly_rate_pct": 2.08,
+    "category": "Cross-Chain Interoperability"
+  },
+  {
+    "symbol": "IP",
+    "slug": "story-protocol",
+    "genesis": "2025-02-13",
+    "end": "2029-02-13",
+    "vesting_months": 48.0,
+    "monthly_rate_pct": 2.08,
+    "category": "Networks"
+  },
+  {
+    "symbol": "ZETA",
+    "slug": "zetachain",
+    "genesis": "2023-02-01",
+    "end": "2027-02-01",
+    "vesting_months": 48.0,
+    "monthly_rate_pct": 2.08,
+    "category": "Networks"
+  },
+  {
+    "symbol": "PUMP",
+    "slug": "pump-fun",
+    "genesis": "2025-07-14",
+    "end": "2029-07-14",
+    "vesting_months": 48.0,
+    "monthly_rate_pct": 2.08,
+    "category": ""
+  },
+  {
+    "symbol": "B3",
+    "slug": "b3",
+    "genesis": "2025-02-09",
+    "end": "2029-02-09",
+    "vesting_months": 48.0,
+    "monthly_rate_pct": 2.08,
+    "category": "Networks"
+  },
+  {
+    "symbol": "ALT",
+    "slug": "altlayer",
+    "genesis": "2024-01-25",
+    "end": "2028-01-25",
+    "vesting_months": 48.0,
+    "monthly_rate_pct": 2.08,
+    "category": "Networks"
+  },
+  {
+    "symbol": "CTSI",
+    "slug": "cartesi",
+    "genesis": "2020-04-21",
+    "end": "2024-04-23",
+    "vesting_months": 48.1,
+    "monthly_rate_pct": 2.08,
+    "category": "Developer Tooling"
+  },
+  {
+    "symbol": "ENS",
+    "slug": "ethereum-name-service",
+    "genesis": "2021-11-01",
+    "end": "2025-10-31",
+    "vesting_months": 48.0,
+    "monthly_rate_pct": 2.08,
+    "category": "Networking and Web Services"
+  },
+  {
+    "symbol": "RBN",
+    "slug": "ribbon-finance",
+    "genesis": "2021-05-24",
+    "end": "2025-05-23",
+    "vesting_months": 48.0,
+    "monthly_rate_pct": 2.08,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "ICP",
+    "slug": "internet-computer",
+    "genesis": "2021-05-10",
+    "end": "2025-05-10",
+    "vesting_months": 48.0,
+    "monthly_rate_pct": 2.08,
+    "category": "Networks"
+  },
+  {
+    "symbol": "TIA",
+    "slug": "celestia",
+    "genesis": "2023-10-31",
+    "end": "2027-10-30",
+    "vesting_months": 48.0,
+    "monthly_rate_pct": 2.08,
+    "category": "Networks"
+  },
+  {
+    "symbol": "ARB",
+    "slug": "arbitrum",
+    "genesis": "2023-03-16",
+    "end": "2027-04-16",
+    "vesting_months": 49.0,
+    "monthly_rate_pct": 2.04,
+    "category": "Networks"
+  },
+  {
+    "symbol": "MON",
+    "slug": "monad",
+    "genesis": "2025-11-24",
+    "end": "2029-12-30",
+    "vesting_months": 49.2,
+    "monthly_rate_pct": 2.03,
+    "category": "Networks"
+  },
+  {
+    "symbol": "WBT",
+    "slug": "whitebit",
+    "genesis": "2022-08-25",
+    "end": "2026-10-12",
+    "vesting_months": 49.6,
+    "monthly_rate_pct": 2.02,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "WOO",
+    "slug": "woo-network",
+    "genesis": "2020-10-29",
+    "end": "2024-12-26",
+    "vesting_months": 49.9,
+    "monthly_rate_pct": 2.0,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "IOTX",
+    "slug": "iotex",
+    "genesis": "2018-05-22",
+    "end": "2022-07-22",
+    "vesting_months": 50.0,
+    "monthly_rate_pct": 2.0,
+    "category": "Networks"
+  },
+  {
+    "symbol": "AXL",
+    "slug": "axelar",
+    "genesis": "2022-09-27",
+    "end": "2026-12-26",
+    "vesting_months": 51.0,
+    "monthly_rate_pct": 1.96,
+    "category": "Cross-Chain Interoperability"
+  },
+  {
+    "symbol": "EUL",
+    "slug": "euler",
+    "genesis": "2021-12-30",
+    "end": "2026-04-06",
+    "vesting_months": 51.2,
+    "monthly_rate_pct": 1.95,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "NYM",
+    "slug": "nym",
+    "genesis": "2022-04-20",
+    "end": "2026-08-01",
+    "vesting_months": 51.4,
+    "monthly_rate_pct": 1.95,
+    "category": "Networks"
+  },
+  {
+    "symbol": "OM",
+    "slug": "mantra-dao",
+    "genesis": "2024-10-23",
+    "end": "2029-03-23",
+    "vesting_months": 53.0,
+    "monthly_rate_pct": 1.89,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "GEOD",
+    "slug": "geodnet",
+    "genesis": "2023-06-28",
+    "end": "2027-11-28",
+    "vesting_months": 53.0,
+    "monthly_rate_pct": 1.89,
+    "category": "Physical Infrastructure Networks"
+  },
+  {
+    "symbol": "JCT",
+    "slug": "janction",
+    "genesis": "2025-11-10",
+    "end": "2030-04-10",
+    "vesting_months": 53.0,
+    "monthly_rate_pct": 1.89,
+    "category": ""
+  },
+  {
+    "symbol": "ZORA",
+    "slug": "zora-1",
+    "genesis": "2025-04-23",
+    "end": "2029-09-23",
+    "vesting_months": 53.0,
+    "monthly_rate_pct": 1.89,
+    "category": "Entertainment"
+  },
+  {
+    "symbol": "UDS",
+    "slug": "undeads-games",
+    "genesis": "2024-05-01",
+    "end": "2028-10-01",
+    "vesting_months": 53.0,
+    "monthly_rate_pct": 1.89,
+    "category": "Metaverse and Gaming"
+  },
+  {
+    "symbol": "F",
+    "slug": "synfutures-1",
+    "genesis": "2024-12-05",
+    "end": "2029-05-05",
+    "vesting_months": 53.0,
+    "monthly_rate_pct": 1.89,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "ATH",
+    "slug": "aethir",
+    "genesis": "2024-06-12",
+    "end": "2028-11-12",
+    "vesting_months": 53.0,
+    "monthly_rate_pct": 1.89,
+    "category": "Compute Networks"
+  },
+  {
+    "symbol": "CQT",
+    "slug": "covalent",
+    "genesis": "2021-06-22",
+    "end": "2025-12-22",
+    "vesting_months": 54.0,
+    "monthly_rate_pct": 1.85,
+    "category": "Data"
+  },
+  {
+    "symbol": "MC",
+    "slug": "merit-circle",
+    "genesis": "2021-11-06",
+    "end": "2026-05-05",
+    "vesting_months": 53.9,
+    "monthly_rate_pct": 1.85,
+    "category": "Metaverse and Gaming"
+  },
+  {
+    "symbol": "PYTH",
+    "slug": "pyth-network",
+    "genesis": "2023-11-20",
+    "end": "2028-05-20",
+    "vesting_months": 54.0,
+    "monthly_rate_pct": 1.85,
+    "category": "Data"
+  },
+  {
+    "symbol": "ZK",
+    "slug": "zksync",
+    "genesis": "2024-06-17",
+    "end": "2029-05-01",
+    "vesting_months": 58.4,
+    "monthly_rate_pct": 1.71,
+    "category": "Networks"
+  },
+  {
+    "symbol": "RIVER",
+    "slug": "river",
+    "genesis": "2025-09-22",
+    "end": "2030-08-22",
+    "vesting_months": 59.0,
+    "monthly_rate_pct": 1.7,
+    "category": "Cross-Chain Interoperability"
+  },
+  {
+    "symbol": "MORPHO",
+    "slug": "morpho-0",
+    "genesis": "2022-12-24",
+    "end": "2027-11-20",
+    "vesting_months": 58.9,
+    "monthly_rate_pct": 1.7,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "BDCA",
+    "slug": "bitdca",
+    "genesis": "2025-02-25",
+    "end": "2030-01-25",
+    "vesting_months": 59.0,
+    "monthly_rate_pct": 1.7,
+    "category": "Financial Services"
+  },
+  {
+    "symbol": "RNBW",
+    "slug": "rainbow-wallet",
+    "genesis": "2026-02-05",
+    "end": "2031-01-05",
+    "vesting_months": 59.0,
+    "monthly_rate_pct": 1.7,
+    "category": ""
+  },
+  {
+    "symbol": "SOMI",
+    "slug": "somnia",
+    "genesis": "2025-09-02",
+    "end": "2030-08-02",
+    "vesting_months": 59.0,
+    "monthly_rate_pct": 1.7,
+    "category": ""
+  },
+  {
+    "symbol": "TORN",
+    "slug": "tornado-cash",
+    "genesis": "2021-02-07",
+    "end": "2026-01-07",
+    "vesting_months": 59.0,
+    "monthly_rate_pct": 1.7,
+    "category": "Financial Services"
+  },
+  {
+    "symbol": "SAROS",
+    "slug": "saros-finance",
+    "genesis": "2024-01-19",
+    "end": "2028-12-19",
+    "vesting_months": 59.0,
+    "monthly_rate_pct": 1.69,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "C98",
+    "slug": "coin98",
+    "genesis": "2021-07-23",
+    "end": "2026-06-23",
+    "vesting_months": 59.0,
+    "monthly_rate_pct": 1.69,
+    "category": "Wallet"
+  },
+  {
+    "symbol": "STABLE",
+    "slug": "stable-l1",
+    "genesis": "2025-12-08",
+    "end": "2030-11-08",
+    "vesting_months": 59.0,
+    "monthly_rate_pct": 1.69,
+    "category": ""
+  },
+  {
+    "symbol": "EDU",
+    "slug": "open-campus",
+    "genesis": "2023-04-28",
+    "end": "2028-03-28",
+    "vesting_months": 59.0,
+    "monthly_rate_pct": 1.69,
+    "category": "News and Information"
+  },
+  {
+    "symbol": "LION",
+    "slug": "loaded-lions",
+    "genesis": "2025-03-02",
+    "end": "2030-02-02",
+    "vesting_months": 59.1,
+    "monthly_rate_pct": 1.69,
+    "category": ""
+  },
+  {
+    "symbol": "FET",
+    "slug": "fetch-ai",
+    "genesis": "2019-02-28",
+    "end": "2024-02-27",
+    "vesting_months": 60.0,
+    "monthly_rate_pct": 1.67,
+    "category": "Compute Networks"
+  },
+  {
+    "symbol": "CYBER",
+    "slug": "cyberconnect",
+    "genesis": "2023-08-01",
+    "end": "2028-08-01",
+    "vesting_months": 60.0,
+    "monthly_rate_pct": 1.67,
+    "category": "Metaverse and Gaming"
+  },
+  {
+    "symbol": "NEAR",
+    "slug": "near-protocol",
+    "genesis": "2020-10-13",
+    "end": "2025-10-12",
+    "vesting_months": 60.0,
+    "monthly_rate_pct": 1.67,
+    "category": "Networks"
+  },
+  {
+    "symbol": "DYDX",
+    "slug": "dydx",
+    "genesis": "2021-08-03",
+    "end": "2026-08-03",
+    "vesting_months": 60.0,
+    "monthly_rate_pct": 1.67,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "SOSO",
+    "slug": "sosovalue",
+    "genesis": "2025-01-23",
+    "end": "2030-01-23",
+    "vesting_months": 60.0,
+    "monthly_rate_pct": 1.67,
+    "category": "Data"
+  },
+  {
+    "symbol": "WLFI",
+    "slug": "world-liberty-financial",
+    "genesis": "2025-09-01",
+    "end": "2030-09-01",
+    "vesting_months": 60.0,
+    "monthly_rate_pct": 1.67,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "SHELL",
+    "slug": "myshell",
+    "genesis": "2025-02-12",
+    "end": "2030-02-12",
+    "vesting_months": 60.0,
+    "monthly_rate_pct": 1.67,
+    "category": "Consumer Infrastructure"
+  },
+  {
+    "symbol": "PIXEL",
+    "slug": "pixels",
+    "genesis": "2024-02-19",
+    "end": "2029-02-18",
+    "vesting_months": 60.0,
+    "monthly_rate_pct": 1.67,
+    "category": "Metaverse and Gaming"
+  },
+  {
+    "symbol": "ONDO",
+    "slug": "ondo-finance",
+    "genesis": "2024-01-18",
+    "end": "2029-01-18",
+    "vesting_months": 60.0,
+    "monthly_rate_pct": 1.67,
+    "category": "Synthetic Assets"
+  },
+  {
+    "symbol": "CELA",
+    "slug": "cellula",
+    "genesis": "2024-08-30",
+    "end": "2029-08-29",
+    "vesting_months": 60.0,
+    "monthly_rate_pct": 1.67,
+    "category": ""
+  },
+  {
+    "symbol": "RADAR",
+    "slug": "dappradar",
+    "genesis": "2021-12-14",
+    "end": "2026-12-12",
+    "vesting_months": 59.9,
+    "monthly_rate_pct": 1.67,
+    "category": "Data"
+  },
+  {
+    "symbol": "SAND",
+    "slug": "thesandbox",
+    "genesis": "2020-08-13",
+    "end": "2025-08-12",
+    "vesting_months": 60.0,
+    "monthly_rate_pct": 1.67,
+    "category": "Metaverse and Gaming"
+  },
+  {
+    "symbol": "COMP",
+    "slug": "compound",
+    "genesis": "2020-04-17",
+    "end": "2025-05-16",
+    "vesting_months": 60.9,
+    "monthly_rate_pct": 1.64,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "INFRA",
+    "slug": "bware-infra-0",
+    "genesis": "2023-05-30",
+    "end": "2028-06-29",
+    "vesting_months": 61.0,
+    "monthly_rate_pct": 1.64,
+    "category": ""
+  },
+  {
+    "symbol": "AXS",
+    "slug": "axie-infinity",
+    "genesis": "2020-11-04",
+    "end": "2026-01-07",
+    "vesting_months": 62.1,
+    "monthly_rate_pct": 1.61,
+    "category": "Metaverse and Gaming"
+  },
+  {
+    "symbol": "SIGN",
+    "slug": "sign",
+    "genesis": "2025-04-28",
+    "end": "2030-06-28",
+    "vesting_months": 62.0,
+    "monthly_rate_pct": 1.61,
+    "category": ""
+  },
+  {
+    "symbol": "RDNT",
+    "slug": "radiant-capital",
+    "genesis": "2022-07-24",
+    "end": "2027-10-24",
+    "vesting_months": 63.0,
+    "monthly_rate_pct": 1.59,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "CSPR",
+    "slug": "casper",
+    "genesis": "2021-04-23",
+    "end": "2026-08-23",
+    "vesting_months": 64.0,
+    "monthly_rate_pct": 1.56,
+    "category": "Networks"
+  },
+  {
+    "symbol": "GRND",
+    "slug": "superwalk",
+    "genesis": "2022-09-06",
+    "end": "2028-02-05",
+    "vesting_months": 65.0,
+    "monthly_rate_pct": 1.54,
+    "category": "Metaverse and Gaming"
+  },
+  {
+    "symbol": "ID",
+    "slug": "space-id-0",
+    "genesis": "2023-03-22",
+    "end": "2028-12-22",
+    "vesting_months": 69.1,
+    "monthly_rate_pct": 1.45,
+    "category": "Consumer Infrastructure"
+  },
+  {
+    "symbol": "SONIC",
+    "slug": "sonic-svm",
+    "genesis": "2025-01-07",
+    "end": "2030-10-06",
+    "vesting_months": 68.9,
+    "monthly_rate_pct": 1.45,
+    "category": "Networks"
+  },
+  {
+    "symbol": "VANA",
+    "slug": "vana",
+    "genesis": "2024-01-16",
+    "end": "2029-11-16",
+    "vesting_months": 70.0,
+    "monthly_rate_pct": 1.43,
+    "category": "Data"
+  },
+  {
+    "symbol": "LIKE",
+    "slug": "only1",
+    "genesis": "2021-08-01",
+    "end": "2027-07-01",
+    "vesting_months": 71.0,
+    "monthly_rate_pct": 1.41,
+    "category": "Consumer Infrastructure"
+  },
+  {
+    "symbol": "NFP",
+    "slug": "nfprompt-token",
+    "genesis": "2023-12-20",
+    "end": "2029-11-20",
+    "vesting_months": 71.0,
+    "monthly_rate_pct": 1.41,
+    "category": "Entertainment"
+  },
+  {
+    "symbol": "ZKJ",
+    "slug": "polyhedra-network",
+    "genesis": "2024-03-19",
+    "end": "2030-02-19",
+    "vesting_months": 71.1,
+    "monthly_rate_pct": 1.41,
+    "category": "Networks"
+  },
+  {
+    "symbol": "GRASS",
+    "slug": "get-grass",
+    "genesis": "2024-10-27",
+    "end": "2030-09-27",
+    "vesting_months": 71.0,
+    "monthly_rate_pct": 1.41,
+    "category": "Compute Networks"
+  },
+  {
+    "symbol": "HOPR",
+    "slug": "hopr",
+    "genesis": "2021-02-27",
+    "end": "2027-02-26",
+    "vesting_months": 71.9,
+    "monthly_rate_pct": 1.39,
+    "category": "Cryptocurrency"
+  },
+  {
+    "symbol": "ETH",
+    "slug": "ethereum",
+    "genesis": "2015-08-07",
+    "end": "2021-08-04",
+    "vesting_months": 71.9,
+    "monthly_rate_pct": 1.39,
+    "category": "Networks"
+  },
+  {
+    "symbol": "ONE",
+    "slug": "harmony",
+    "genesis": "2019-06-01",
+    "end": "2025-05-31",
+    "vesting_months": 72.0,
+    "monthly_rate_pct": 1.39,
+    "category": "Networks"
+  },
+  {
+    "symbol": "MANTA",
+    "slug": "manta-network",
+    "genesis": "2024-01-18",
+    "end": "2030-01-16",
+    "vesting_months": 71.9,
+    "monthly_rate_pct": 1.39,
+    "category": "Networks"
+  },
+  {
+    "symbol": "OAS",
+    "slug": "oasys",
+    "genesis": "2022-12-12",
+    "end": "2028-12-11",
+    "vesting_months": 72.0,
+    "monthly_rate_pct": 1.39,
+    "category": "Metaverse and Gaming"
+  },
+  {
+    "symbol": "AURY",
+    "slug": "aurory",
+    "genesis": "2021-10-24",
+    "end": "2027-11-24",
+    "vesting_months": 73.0,
+    "monthly_rate_pct": 1.37,
+    "category": "Entertainment"
+  },
+  {
+    "symbol": "YGG",
+    "slug": "yield-guild-games",
+    "genesis": "2021-01-01",
+    "end": "2027-01-31",
+    "vesting_months": 73.0,
+    "monthly_rate_pct": 1.37,
+    "category": "Metaverse and Gaming"
+  },
+  {
+    "symbol": "PORTAL",
+    "slug": "portal",
+    "genesis": "2024-02-29",
+    "end": "2030-04-30",
+    "vesting_months": 74.0,
+    "monthly_rate_pct": 1.35,
+    "category": "Metaverse and Gaming"
+  },
+  {
+    "symbol": "GAL",
+    "slug": "project-galaxy",
+    "genesis": "2022-05-05",
+    "end": "2028-09-05",
+    "vesting_months": 76.1,
+    "monthly_rate_pct": 1.31,
+    "category": "Consumer Infrastructure"
+  },
+  {
+    "symbol": "ACS",
+    "slug": "access-protocol-0",
+    "genesis": "2023-02-14",
+    "end": "2029-07-14",
+    "vesting_months": 76.9,
+    "monthly_rate_pct": 1.3,
+    "category": "HR and Community Tools"
+  },
+  {
+    "symbol": "1INCH",
+    "slug": "1inch",
+    "genesis": "2020-12-25",
+    "end": "2027-08-20",
+    "vesting_months": 79.8,
+    "monthly_rate_pct": 1.25,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "ASTER",
+    "slug": "aster-dex",
+    "genesis": "2025-09-17",
+    "end": "2032-05-17",
+    "vesting_months": 80.0,
+    "monthly_rate_pct": 1.25,
+    "category": ""
+  },
+  {
+    "symbol": "DICE",
+    "slug": "klaydice",
+    "genesis": "2022-07-03",
+    "end": "2029-04-03",
+    "vesting_months": 81.0,
+    "monthly_rate_pct": 1.23,
+    "category": "Metaverse and Gaming"
+  },
+  {
+    "symbol": "MAVIA",
+    "slug": "heroes-of-mavia",
+    "genesis": "2024-02-06",
+    "end": "2030-11-06",
+    "vesting_months": 81.0,
+    "monthly_rate_pct": 1.23,
+    "category": "Metaverse and Gaming"
+  },
+  {
+    "symbol": "WHITE",
+    "slug": "whiterock",
+    "genesis": "2024-12-05",
+    "end": "2031-11-05",
+    "vesting_months": 83.0,
+    "monthly_rate_pct": 1.21,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "SKL",
+    "slug": "skale-network",
+    "genesis": "2020-10-01",
+    "end": "2027-10-01",
+    "vesting_months": 84.0,
+    "monthly_rate_pct": 1.19,
+    "category": "Networks"
+  },
+  {
+    "symbol": "ARKM",
+    "slug": "arkham",
+    "genesis": "2023-07-17",
+    "end": "2030-07-16",
+    "vesting_months": 84.0,
+    "monthly_rate_pct": 1.19,
+    "category": "Data"
+  },
+  {
+    "symbol": "SUI",
+    "slug": "sui",
+    "genesis": "2023-04-30",
+    "end": "2030-04-28",
+    "vesting_months": 83.9,
+    "monthly_rate_pct": 1.19,
+    "category": "Networks"
+  },
+  {
+    "symbol": "STRK",
+    "slug": "starknet",
+    "genesis": "2024-02-19",
+    "end": "2031-03-15",
+    "vesting_months": 84.8,
+    "monthly_rate_pct": 1.18,
+    "category": "Networks"
+  },
+  {
+    "symbol": "ILV",
+    "slug": "illuvium",
+    "genesis": "2021-03-29",
+    "end": "2028-07-28",
+    "vesting_months": 88.0,
+    "monthly_rate_pct": 1.14,
+    "category": "Metaverse and Gaming"
+  },
+  {
+    "symbol": "XLM",
+    "slug": "stellar",
+    "genesis": "2015-11-24",
+    "end": "2023-04-05",
+    "vesting_months": 88.3,
+    "monthly_rate_pct": 1.13,
+    "category": "Financial Services"
+  },
+  {
+    "symbol": "POOL",
+    "slug": "pooltogether",
+    "genesis": "2021-02-17",
+    "end": "2028-08-08",
+    "vesting_months": 89.7,
+    "monthly_rate_pct": 1.12,
+    "category": "Financial Services"
+  },
+  {
+    "symbol": "VENOM",
+    "slug": "venom-0",
+    "genesis": "2024-03-24",
+    "end": "2032-02-24",
+    "vesting_months": 95.0,
+    "monthly_rate_pct": 1.05,
+    "category": "Networks"
+  },
+  {
+    "symbol": "TRUF",
+    "slug": "truflation",
+    "genesis": "2024-04-05",
+    "end": "2032-03-05",
+    "vesting_months": 95.0,
+    "monthly_rate_pct": 1.05,
+    "category": "Data"
+  },
+  {
+    "symbol": "SAFE",
+    "slug": "gnosis-safe",
+    "genesis": "2022-04-20",
+    "end": "2030-03-20",
+    "vesting_months": 95.0,
+    "monthly_rate_pct": 1.05,
+    "category": "Wallet"
+  },
+  {
+    "symbol": "BANANA",
+    "slug": "banana-gun",
+    "genesis": "2023-09-14",
+    "end": "2031-09-14",
+    "vesting_months": 96.0,
+    "monthly_rate_pct": 1.04,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "WAL",
+    "slug": "walrus-2",
+    "genesis": "2025-03-26",
+    "end": "2033-03-25",
+    "vesting_months": 96.0,
+    "monthly_rate_pct": 1.04,
+    "category": "Physical Infrastructure Networks"
+  },
+  {
+    "symbol": "OKT",
+    "slug": "okexchain-coin",
+    "genesis": "2021-01-01",
+    "end": "2029-03-17",
+    "vesting_months": 98.5,
+    "monthly_rate_pct": 1.02,
+    "category": ""
+  },
+  {
+    "symbol": "MAV",
+    "slug": "maverick-protocol",
+    "genesis": "2023-07-09",
+    "end": "2032-04-09",
+    "vesting_months": 105.0,
+    "monthly_rate_pct": 0.95,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "SOL",
+    "slug": "solana",
+    "genesis": "2020-04-07",
+    "end": "2029-03-01",
+    "vesting_months": 106.8,
+    "monthly_rate_pct": 0.94,
+    "category": "Networks"
+  },
+  {
+    "symbol": "ALGO",
+    "slug": "algorand",
+    "genesis": "2019-06-16",
+    "end": "2028-06-16",
+    "vesting_months": 108.0,
+    "monthly_rate_pct": 0.93,
+    "category": "Networks"
+  },
+  {
+    "symbol": "METIS",
+    "slug": "metis-token",
+    "genesis": "2021-05-13",
+    "end": "2030-05-12",
+    "vesting_months": 108.0,
+    "monthly_rate_pct": 0.93,
+    "category": "Networks"
+  },
+  {
+    "symbol": "SEI",
+    "slug": "sei-network",
+    "genesis": "2023-08-15",
+    "end": "2032-07-15",
+    "vesting_months": 107.0,
+    "monthly_rate_pct": 0.93,
+    "category": "Networks"
+  },
+  {
+    "symbol": "PENDLE",
+    "slug": "pendle",
+    "genesis": "2021-04-27",
+    "end": "2030-08-07",
+    "vesting_months": 111.3,
+    "monthly_rate_pct": 0.9,
+    "category": "Financial Services"
+  },
+  {
+    "symbol": "AVAX",
+    "slug": "avalanche",
+    "genesis": "2020-09-21",
+    "end": "2030-07-20",
+    "vesting_months": 117.9,
+    "monthly_rate_pct": 0.85,
+    "category": "Networks"
+  },
+  {
+    "symbol": "PNIC",
+    "slug": "phoenic-token",
+    "genesis": "2024-05-07",
+    "end": "2034-04-07",
+    "vesting_months": 119.0,
+    "monthly_rate_pct": 0.84,
+    "category": ""
+  },
+  {
+    "symbol": "GRT",
+    "slug": "the-graph",
+    "genesis": "2020-12-17",
+    "end": "2030-12-16",
+    "vesting_months": 119.9,
+    "monthly_rate_pct": 0.83,
+    "category": "Data"
+  },
+  {
+    "symbol": "XAI",
+    "slug": "xai-blockchain",
+    "genesis": "2024-01-26",
+    "end": "2034-01-25",
+    "vesting_months": 120.0,
+    "monthly_rate_pct": 0.83,
+    "category": "Metaverse and Gaming"
+  },
+  {
+    "symbol": "CHIRP",
+    "slug": "chirp-token",
+    "genesis": "2025-01-19",
+    "end": "2035-01-19",
+    "vesting_months": 120.0,
+    "monthly_rate_pct": 0.83,
+    "category": ""
+  },
+  {
+    "symbol": "CC",
+    "slug": "canton-network",
+    "genesis": "2024-07-01",
+    "end": "2034-06-30",
+    "vesting_months": 119.9,
+    "monthly_rate_pct": 0.83,
+    "category": ""
+  },
+  {
+    "symbol": "XRP",
+    "slug": "xrp",
+    "genesis": "2012-06-01",
+    "end": "2022-06-01",
+    "vesting_months": 120.0,
+    "monthly_rate_pct": 0.83,
+    "category": "Financial Services"
+  },
+  {
+    "symbol": "EGLD",
+    "slug": "elrond",
+    "genesis": "2019-07-04",
+    "end": "2029-07-04",
+    "vesting_months": 120.0,
+    "monthly_rate_pct": 0.83,
+    "category": "Networks"
+  },
+  {
+    "symbol": "SWAN",
+    "slug": "swan-chain",
+    "genesis": "2024-12-16",
+    "end": "2034-12-15",
+    "vesting_months": 119.9,
+    "monthly_rate_pct": 0.83,
+    "category": "Networking and Web Services"
+  },
+  {
+    "symbol": "APT",
+    "slug": "aptos",
+    "genesis": "2022-10-12",
+    "end": "2032-10-12",
+    "vesting_months": 120.0,
+    "monthly_rate_pct": 0.83,
+    "category": "Networks"
+  },
+  {
+    "symbol": "MYRIA",
+    "slug": "myria-0",
+    "genesis": "2023-04-06",
+    "end": "2033-04-05",
+    "vesting_months": 120.0,
+    "monthly_rate_pct": 0.83,
+    "category": "Networks"
+  },
+  {
+    "symbol": "VRTX",
+    "slug": "vertex-protocol",
+    "genesis": "2023-11-21",
+    "end": "2034-01-08",
+    "vesting_months": 121.6,
+    "monthly_rate_pct": 0.82,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "SOPH",
+    "slug": "sophon",
+    "genesis": "2025-05-27",
+    "end": "2035-08-26",
+    "vesting_months": 123.0,
+    "monthly_rate_pct": 0.81,
+    "category": "Networks"
+  },
+  {
+    "symbol": "AZERO",
+    "slug": "aleph-zero",
+    "genesis": "2021-11-10",
+    "end": "2032-04-26",
+    "vesting_months": 125.5,
+    "monthly_rate_pct": 0.8,
+    "category": "Networks"
+  },
+  {
+    "symbol": "LMR",
+    "slug": "lumerin",
+    "genesis": "2022-03-28",
+    "end": "2032-09-27",
+    "vesting_months": 126.0,
+    "monthly_rate_pct": 0.79,
+    "category": "Mining and Validation"
+  },
+  {
+    "symbol": "ALOT",
+    "slug": "dexalot",
+    "genesis": "2022-03-08",
+    "end": "2032-09-07",
+    "vesting_months": 126.0,
+    "monthly_rate_pct": 0.79,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "GT",
+    "slug": "gatechain-token",
+    "genesis": "2019-04-21",
+    "end": "2030-03-21",
+    "vesting_months": 131.0,
+    "monthly_rate_pct": 0.76,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "ROSE",
+    "slug": "oasis",
+    "genesis": "2020-11-18",
+    "end": "2031-11-17",
+    "vesting_months": 131.9,
+    "monthly_rate_pct": 0.76,
+    "category": "Networks"
+  },
+  {
+    "symbol": "OWN",
+    "slug": "otherworld",
+    "genesis": "2024-06-27",
+    "end": "2035-05-27",
+    "vesting_months": 130.9,
+    "monthly_rate_pct": 0.76,
+    "category": ""
+  },
+  {
+    "symbol": "GMT",
+    "slug": "stepn",
+    "genesis": "2022-03-04",
+    "end": "2036-05-01",
+    "vesting_months": 169.9,
+    "monthly_rate_pct": 0.59,
+    "category": "Entertainment"
+  },
+  {
+    "symbol": "WLD",
+    "slug": "world-network",
+    "genesis": "2023-07-24",
+    "end": "2038-07-24",
+    "vesting_months": 180.0,
+    "monthly_rate_pct": 0.56,
+    "category": "Consumer Infrastructure"
+  },
+  {
+    "symbol": "CELO",
+    "slug": "celo",
+    "genesis": "2020-04-22",
+    "end": "2050-03-31",
+    "vesting_months": 359.2,
+    "monthly_rate_pct": 0.28,
+    "category": "Networks"
+  },
+  {
+    "symbol": "LQTY",
+    "slug": "liquity",
+    "genesis": "2021-04-05",
+    "end": "2053-04-04",
+    "vesting_months": 383.9,
+    "monthly_rate_pct": 0.26,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "FXS",
+    "slug": "frax-share",
+    "genesis": "2020-12-19",
+    "end": "2052-12-19",
+    "vesting_months": 384.0,
+    "monthly_rate_pct": 0.26,
+    "category": "Cryptocurrency"
+  },
+  {
+    "symbol": "AGIX",
+    "slug": "singularitynet",
+    "genesis": "2021-05-28",
+    "end": "2059-06-28",
+    "vesting_months": 457.0,
+    "monthly_rate_pct": 0.22,
+    "category": "Compute Networks"
+  },
+  {
+    "symbol": "ZEC",
+    "slug": "zcash",
+    "genesis": "2016-10-28",
+    "end": "2056-11-19",
+    "vesting_months": 480.7,
+    "monthly_rate_pct": 0.21,
+    "category": "Cryptocurrency"
+  },
+  {
+    "symbol": "CESS",
+    "slug": "cumulus-encrypted-storage-system",
+    "genesis": "2025-03-03",
+    "end": "2075-03-02",
+    "vesting_months": 599.9,
+    "monthly_rate_pct": 0.17,
+    "category": "Networking and Web Services"
+  },
+  {
+    "symbol": "TAO",
+    "slug": "bittensor-0",
+    "genesis": "2021-01-03",
+    "end": "2075-08-03",
+    "vesting_months": 654.9,
+    "monthly_rate_pct": 0.15,
+    "category": "Compute Networks"
+  },
+  {
+    "symbol": "CORE",
+    "slug": "core-dao",
+    "genesis": "2023-01-08",
+    "end": "2112-06-08",
+    "vesting_months": 1072.9,
+    "monthly_rate_pct": 0.09,
+    "category": "Networks"
+  },
+  {
+    "symbol": "BAL",
+    "slug": "balancer",
+    "genesis": "2020-06-20",
+    "end": "2119-04-07",
+    "vesting_months": 1185.4,
+    "monthly_rate_pct": 0.08,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "CRV",
+    "slug": "curve",
+    "genesis": "2020-08-13",
+    "end": "2140-08-12",
+    "vesting_months": 1439.8,
+    "monthly_rate_pct": 0.07,
+    "category": "Marketplaces"
+  },
+  {
+    "symbol": "BTC",
+    "slug": "bitcoin",
+    "genesis": "2009-01-03",
+    "end": "2139-12-31",
+    "vesting_months": 1571.7,
+    "monthly_rate_pct": 0.06,
+    "category": "Cryptocurrency"
+  },
+  {
+    "symbol": "FIL",
+    "slug": "filecoin",
+    "genesis": "2020-10-15",
+    "end": "2188-10-14",
+    "vesting_months": 2015.8,
+    "monthly_rate_pct": 0.05,
+    "category": "Physical Infrastructure Networks"
+  }
+]

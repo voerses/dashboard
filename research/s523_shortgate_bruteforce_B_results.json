@@ -1,0 +1,272 @@
+{
+  "G01_btc_eth_ratio_30d_5pct": {
+    "2022": {
+      "return_pct": -57.3,
+      "max_dd": -73.1
+    },
+    "2023": {
+      "return_pct": 23.9,
+      "max_dd": -72.2
+    },
+    "2024": {
+      "return_pct": -65.0,
+      "max_dd": -90.3
+    },
+    "2025": {
+      "return_pct": -37.0,
+      "max_dd": -48.9
+    }
+  },
+  "G02_btc_eth_ratio_30d_10pct": {
+    "2022": {
+      "return_pct": -60.9,
+      "max_dd": -73.6
+    },
+    "2023": {
+      "return_pct": 25.2,
+      "max_dd": -82.7
+    },
+    "2024": {
+      "return_pct": -55.8,
+      "max_dd": -87.2
+    },
+    "2025": {
+      "return_pct": -67.1,
+      "max_dd": -75.9
+    }
+  },
+  "G03_btc_eth_ratio_30d_15pct": {
+    "2022": {
+      "return_pct": -64.0,
+      "max_dd": -74.8
+    },
+    "2023": {
+      "return_pct": 102.7,
+      "max_dd": -81.6
+    },
+    "2024": {
+      "return_pct": -15.6,
+      "max_dd": -87.8
+    },
+    "2025": {
+      "return_pct": -68.5,
+      "max_dd": -76.5
+    }
+  },
+  "G04_btc_eth_ratio_60d_10pct": {
+    "2022": {
+      "return_pct": -72.5,
+      "max_dd": -80.8
+    },
+    "2023": {
+      "return_pct": 28.2,
+      "max_dd": -71.7
+    },
+    "2024": {
+      "return_pct": -71.8,
+      "max_dd": -88.3
+    },
+    "2025": {
+      "return_pct": -68.9,
+      "max_dd": -76.6
+    }
+  },
+  "G05_1mo_red_OR_btceth_10pct": {
+    "2022": {
+      "return_pct": 74.7,
+      "max_dd": -28.5
+    },
+    "2023": {
+      "return_pct": 261.3,
+      "max_dd": -49.9
+    },
+    "2024": {
+      "return_pct": 253.7,
+      "max_dd": -52.8
+    },
+    "2025": {
+      "return_pct": 56.7,
+      "max_dd": -28.7
+    }
+  },
+  "G06_1mo_red_OR_btceth_5pct": {
+    "2022": {
+      "return_pct": 56.0,
+      "max_dd": -25.2
+    },
+    "2023": {
+      "return_pct": 83.4,
+      "max_dd": -58.1
+    },
+    "2024": {
+      "return_pct": 42.2,
+      "max_dd": -68.4
+    },
+    "2025": {
+      "return_pct": 56.8,
+      "max_dd": -28.7
+    }
+  },
+  "G07_eth_underperf_30d_5pct": {
+    "2022": {
+      "return_pct": -55.1,
+      "max_dd": -71.7
+    },
+    "2023": {
+      "return_pct": 59.5,
+      "max_dd": -68.1
+    },
+    "2024": {
+      "return_pct": -71.6,
+      "max_dd": -90.9
+    },
+    "2025": {
+      "return_pct": -35.0,
+      "max_dd": -38.3
+    }
+  },
+  "G08_eth_underperf_60d_10pct": {
+    "2022": {
+      "return_pct": -65.8,
+      "max_dd": -76.5
+    },
+    "2023": {
+      "return_pct": 1.2,
+      "max_dd": -75.2
+    },
+    "2024": {
+      "return_pct": -76.7,
+      "max_dd": -89.1
+    },
+    "2025": {
+      "return_pct": -75.0,
+      "max_dd": -78.6
+    }
+  },
+  "G09_1mo_red_OR_eth_underperf_30d": {
+    "2022": {
+      "return_pct": 65.6,
+      "max_dd": -24.1
+    },
+    "2023": {
+      "return_pct": 97.3,
+      "max_dd": -57.4
+    },
+    "2024": {
+      "return_pct": 28.9,
+      "max_dd": -72.6
+    },
+    "2025": {
+      "return_pct": 56.8,
+      "max_dd": -28.7
+    }
+  },
+  "G10_btc_90d_rvol_50pct": {
+    "2022": {
+      "return_pct": 11.3,
+      "max_dd": -36.7
+    },
+    "2023": {
+      "return_pct": 231.9,
+      "max_dd": -66.9
+    },
+    "2024": {
+      "return_pct": 183.7,
+      "max_dd": -67.1
+    },
+    "2025": {
+      "return_pct": -64.5,
+      "max_dd": -77.6
+    }
+  },
+  "G11_1mo_red_OR_high_vol": {
+    "2022": {
+      "return_pct": 11.1,
+      "max_dd": -36.6
+    },
+    "2023": {
+      "return_pct": 629.5,
+      "max_dd": -45.5
+    },
+    "2024": {
+      "return_pct": 360.5,
+      "max_dd": -65.2
+    },
+    "2025": {
+      "return_pct": 59.7,
+      "max_dd": -28.6
+    }
+  },
+  "G12_btc_dd_6m_15pct": {
+    "2022": {
+      "return_pct": 18.2,
+      "max_dd": -34.1
+    },
+    "2023": {
+      "return_pct": 4.5,
+      "max_dd": -79.9
+    },
+    "2024": {
+      "return_pct": -65.5,
+      "max_dd": -95.2
+    },
+    "2025": {
+      "return_pct": 59.9,
+      "max_dd": -28.6
+    }
+  },
+  "G13_btc_dd_6m_20pct": {
+    "2022": {
+      "return_pct": 18.2,
+      "max_dd": -34.1
+    },
+    "2023": {
+      "return_pct": 19.8,
+      "max_dd": -81.5
+    },
+    "2024": {
+      "return_pct": -55.8,
+      "max_dd": -94.2
+    },
+    "2025": {
+      "return_pct": 59.9,
+      "max_dd": -28.6
+    }
+  },
+  "G14_1mo_red_OR_dd_15pct": {
+    "2022": {
+      "return_pct": 14.7,
+      "max_dd": -36.6
+    },
+    "2023": {
+      "return_pct": 87.4,
+      "max_dd": -63.6
+    },
+    "2024": {
+      "return_pct": 201.1,
+      "max_dd": -74.7
+    },
+    "2025": {
+      "return_pct": 59.7,
+      "max_dd": -28.6
+    }
+  },
+  "G15_1mo_red_AND_NOT_ath90": {
+    "2022": {
+      "return_pct": 98.0,
+      "max_dd": -29.0
+    },
+    "2023": {
+      "return_pct": 264.1,
+      "max_dd": -66.0
+    },
+    "2024": {
+      "return_pct": 611.2,
+      "max_dd": -56.2
+    },
+    "2025": {
+      "return_pct": 56.8,
+      "max_dd": -28.7
+    }
+  }
+}
