@@ -657,6 +657,10 @@ These modules are built, tested, and have results. They expand what's possible b
 | **15-min data** | `tools/fetch_binance_15m.py` | Bulk 15m candle download for all spot tokens. Enables sub-hourly analysis and defensive stops. |
 | **ETF flow data** | `tools/fetch_etf_flows.py` | Daily BTC/ETH ETF inflows from SoSoValue + Farside. Enables ETF flow overlay strategies. |
 | **Progressive trailing stops** | `v3/engine.py` (`trail_schedule`) | Dynamic trail tightening by profit level. Strategies define schedule as [[atr_profit, trail_mult], ...]. |
+| **Orderbook depth curves** | `tools/fetch_binance_vision_bookdepth.py` | 10-level ±1/2/3/4/5% depth snapshots at ~33s cadence from Binance Vision. BTC/ETH/SOL × 365d on disk. Enables liquidity wall detection, slippage modeling, depth-to-move-X% curves. |
+| **1-second trade bars with taker flag** | `tools/fetch_binance_vision_aggtrades.py` | 1s OHLCV + buy/sell vol/notional + vwap + num_trades, resampled from aggTrades with maker/taker flag preserved. BTC/ETH/SOL × 365d on disk. Enables true VPIN, OFI, microstructure features. |
+| **Microstructure signal library** | `tools/build_microstructure_signals.py` | DtM + OFI-T + OFI-M + VDV at 1min cadence. 32 columns × 520K rows/symbol. OFI-M validated as leading indicator for cascades (~60 min lead, z=-0.43 at T-1h then snaps to neutral at T=0). Full spec: `research/mission_a_orderbook_signals.md` |
+| **s523c basket regime cache** | `research/s523c_universe_basket.parquet` | Daily regime features over s523c's 89-token traded universe (139 whitelist − 50 blacklist): basket return/vol/drawdown, alts_vs_btc spread, breadth. Use this for any s523c regime filter research — BTC-based features underperform. |
 
 ---
 

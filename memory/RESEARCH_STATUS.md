@@ -1,8 +1,46 @@
 # Research Status — Active Signal Discovery
 
-> **Last updated:** 2026-04-05T18:00Z
-> 
-> **Session summary (2026-04-04 to 2026-04-05):**
+> **Last updated:** 2026-04-08T12:00Z
+>
+> **Session summary (2026-04-08 — Mission P deployed live + Mission J alpha found):**
+> - **🚀 DEPLOYED: Mission P** — breadth direction cull LIVE on s523c paper runner in EXECUTE mode. Daily 01:30 UTC cadence (aligned with 01:00 UTC entries). Position Management CLI Phase 1 shipped (`v4/run_paper_multi.py --positions / --close`, new file `v4/position_commands.py`). Runner restarted on new code (PID 323846) with full state preservation. Pre-execute state backups to persistent `state/backups/breadth_cull_pre_execute/` (corrected from ephemeral /tmp). Sidecar loop (PID 332240) armed with EXECUTE_MODE=1. First real fire expected 2026-04-09 01:30 UTC on short basket (5 positions currently 80% underwater).
+> - **Mission P honest expected value:** +6.5% Calmar mean, 60% positive across 80 bootstrap trials (NOT the +66% single-window headline). Modest edge, disaster insurance for alt-cascade regimes.
+> - **🎯 Mission J Gate 1 NEEDS_TUNING** — cascade recovery strategy via Mission H signals shows REAL ALPHA. **Alpha t-stat vs BTC beta = +3.54** at trigger 0.75, +2.37 at 0.80, on 153-279 events. Sharpe +1.94-1.96, Calmar 3.3-5.1. 4/5 Gate 1 checks pass — only MaxDD fails (clustering drawdown at lower triggers) or alpha_t threshold (at higher triggers where events are thinner).
+> - **Mission J exit rule bug discovery:** 3 tautologies killed my initial fix attempts. Exit rules mechanically tied to entry signal lookback (vdv_30min ≈ vdv_5min at +60 bars, vdv_4h at +240 bars) all truncate trades before bounce plays out. Concurrency cap = 1 also destroys alpha (skips 70% of events). Only PURE 48h time stop works. Clustering MaxDD needs position-sized approach, not event skipping.
+> - **🔄 Mission F Phase 2 RUNNING:** fetching top-10 alt perp orderbook (BNB/XRP/DOGE/ADA/AVAX/LINK/DOT/NEAR/ATOM/LTC × 365 days). All bookdepth complete (~1.5 GB). trades_1s in progress (2/10 complete, ETA ~3h). Unlocks Mission J Gate 2 with 12-symbol basket.
+> - **🔄 Mission D Gate 0 RUNNING:** IC testing 4 Tier 1 novel indicators from /workspace/novel-indicators-contrarian-math.jsx (HV, FIF, WRD, SRI) on BTC/ETH/SOL 1h. Catalog at research/mission_d_gate0_catalog.md. These transfer math from statistical mechanics / optimal transport / information geometry / random matrix theory — orthogonal to all current portfolio signals if any pass.
+> - **Meta-lessons added this session:**
+>   1. Exit rules mechanically tied to entry signal lookback create tautologies
+>   2. Concurrency cap destroys alpha when clustering IS the signal — use position sizing instead
+>   3. Composite signal sign conventions matter (CPI < -0.3 = BULLISH for longs, not bearish as first implied)
+>   4. /tmp is tmpfs ephemeral on this container — use /workspace/state/backups/ for persistent state
+>   5. Single-window historical headline can be ~10× the bootstrap-honest expected edge
+>   6. Always verify subprocess imports work (v4.position_commands missing sys.path was a silent bug that would have crashed live execution)
+>   7. tick_counter drifts from wall-clock on paper runners — use entry_timestamp not bars_held for age checks
+> - **Current live deployment state:**
+>   - Paper runner PID 323846: 12 positions, equity $148K, new code
+>   - Breadth cull sidecar PID 332240: EXECUTE mode, daily 01:30 UTC
+>   - Daily metrics loop PID 85290: unchanged
+>   - 3 parallel research agents running (Mission F Phase 2, Mission D Gate 0, earlier Mission J complete)
+
+**Previous session summary (2026-04-07 — 6 missions, 2 ships, 3 kills, 1 park):**
+> - **✅ SHIPPED: Mission F** — Binance Vision orderbook pipeline. BTC/ETH/SOL × 365d (3.06 GB). `tools/fetch_binance_vision_{bookdepth,aggtrades}.py`. Data at `data/perp/binance/{SYMBOL}/{bookdepth,trades_1s}/{YYYY-MM-DD}.parquet`. NOTE: Binance Vision has no USDT-margined liquidation archive — only coin-margined and it stopped updating Oct 2024.
+> - **✅ SHIPPED: Mission H Phase 1+2** — Microstructure signal library (DtM, OFI-T, OFI-M, VDV). 32 columns × 520K rows per symbol at 1min cadence. `tools/build_microstructure_signals.py`. OFI-M is the clearest leading indicator for cascades: -0.43σ at T-1h then snaps to +0.11σ at T=0 (the ONLY signal where T-1h is more extreme than T=0). VDV_5min also leads (-0.74σ at T-1h) and flips to +1.92σ at T+1h (bounce signature).
+> - **❌ KILLED: Mission B** — Composite Fragility Index regime overlay. Wrong framing: index as designed measures funding-long euphoria not crash risk. Funding flips negative during crashes and 168h z-score normalizes it away.
+> - **❌ KILLED: Mission G** — Profit lock-in exit overlay on s523c. FOUR sequential methodology bugs unwound: optimistic intrabar fill → 1y window masking regime sensitivity → premature action narrowing → autopsy recompute shortcut. Final validation with correct walk-forward stop semantics: all variants fail at 0 bps. Root cause: s523c's velocity trigger fires on continuation moves whose right tails are load-bearing for Calmar. Correlation of overlay delta with s523c in-window DD is -0.25 (wrong sign).
+> - **❌ KILLED: Mission I** — s523c regime filter (alts_vs_btc < -10%). Gate 1 +104% Calmar claim on 60-month backtest was a baseline-degradation artifact (thin-universe early years, 1002/1513 trades missing OHLC). On clean 12-month backtest (baseline Calmar 19.44), F3 improved only +7% while cutting return 41% and worsening Sharpe. Composite filters with trajectory confirmation cut both April false positives and December true positives.
+> - **⏸ PARKED: Mission A** — Cascade recovery strategy. Data-bound: hourly Coinalyze capped at ~120 days. BUT unblocked by Mission H signals — next session should reframe Mission A around OFI-M/VDV triggers instead of Coinalyze.
+> - **META-LESSONS (critical, recorded):**
+>   1. Always test overlays/filters on clean 12-month backtest (`--end-date 2026-04-05T16:00:00`), NEVER the synthetic 60-month (degraded baseline fools Gate 1).
+>   2. Always test multi-year rolling windows before engine code; 1y verification masks regime sensitivity.
+>   3. When stdev >> mean, trust median not mean. Mission G's mean was +13% but median was -8.5%.
+>   4. Never prematurely narrow the action grid between gates. Mission G's Gate 2 tested only A-FULL and missed (correctly, as it turned out) that A-HALFLOCK rescue was itself buggy.
+>   5. Always re-verify "rescue" implementations against the original simulation semantics — recompute shortcuts hide bugs.
+>   6. s523c excludes BTC — always use basket regime features from `research/s523c_universe_basket.parquet` (daily, 89-token basket), NEVER BTC alone.
+> - **CONCRETE DIAGNOSTIC — s523c current drawdown state:** Biggest ever DD in abs dollars is Nov 16 2025 → Jan 17 2026: peak $387K, trough $237K, loss $151K (-38.9%) over 62 days. December 2025 alone = -30.3%. 9/10 top DDs are alt-cascade events. This is happening in the live paper runner. No overlay tested this session improves on it without destroying equivalent upside.
+> - **SESSION META:** ZERO strategies advanced to Gate 3. This is healthy — the pipeline killed 3 flawed hypotheses and shipped 2 pieces of infrastructure that enable a different class of research (microstructure cascade detection) which is now the clearest next-session path.
+
+**Previous session summary (2026-04-04 to 2026-04-05):**
 > - Acquired Coinalyze cross-exchange data: 233 tokens × 7 exchanges, OI + liquidations (334 files, 32 MB)
 > - Full 227-token signal scan: 64,725 significant signals (no look-ahead, D+1 entry). OI mean|IC|=0.27, positioning=0.25
 > - Built s520→s521→s522→s523 progression. **s523 positioning + RSI timing at various leverage levels.**
