@@ -457,6 +457,40 @@ Full Period (context only — DO NOT use for deployment decisions):
 
 Any carry strategy projecting >10%/yr should justify why future funding will exceed the 2025-2026 baseline.
 
+### Rule 14: NO Intra-Bar Entries — Signal Must Execute on a FUTURE Bar (Non-Negotiable)
+
+> Last updated: 2026-04-03. Added after s501/s502/s503 were KILLED for look-ahead bias.
+
+**A signal computed from a completed bar must NEVER fill at a price within that same bar. This is time travel — you cannot go back in time to enter at a better price within a bar that has already closed.**
+
+**The rule:** Signal fires at bar T close → earliest valid entry is bar T+1 open. The timeframe of the bar doesn't matter (1m, 1h, 4h, 1d) — the principle is the same. The fastest valid execution is: detect signal at 1-minute bar close → enter at the NEXT 1-minute bar open.
+
+**What killed s501/s502:**
+- Strategy detected a Bollinger Band cross at the 1H bar close
+- Then retroactively filled at the best 1-minute price WITHIN that already-completed 1H bar
+- This inflated returns by 51 percentage points (finding #137)
+- The entire R160 BB breakout edge was this fill-timing artifact — forward-only prediction is random (AUC 0.52)
+
+**How to check your strategy:**
+1. Does `entry_limit_price` reference any price from the CURRENT bar? → **BIAS**
+2. Does the strategy detect a signal at bar close then fill at a sub-bar price within that bar? → **BIAS**
+3. Does `_resolve_minute_entries()` fill within the signal bar, not the next bar? → **BIAS**
+4. Are all signal inputs shifted by at least 1 bar (`shift(1)`, `np.roll(..., 1)`)? → **CLEAN**
+5. Does entry_mask fire on bar T but position opens at bar T+1? → **CLEAN**
+
+**Valid entry patterns:**
+- Signal at daily close → enter at next daily open (standard)
+- Signal at 1H close → enter at next 1H open (standard)
+- Signal at 1H close → monitor 1m bars of the NEXT hour and enter on first crossing (valid sub-bar)
+- Signal at weekly rebalance → place market order at next bar (R162/s400 pattern)
+
+**Invalid entry patterns (all killed):**
+- Signal at 4H close → fill retroactively at best 1m price within that same 4H bar (s501/s502)
+- Signal at 1H close → enter at the close price of that same 1H bar (uses bar-close as entry)
+- Any mechanism that "looks back" into a completed bar for fill timing
+
+**This is the single most dangerous bias in backtesting** because it looks legitimate (you're using real prices from real candles) but the timing is physically impossible in live trading.
+
 ---
 
 ## Quick Reference: Where to Change Things
