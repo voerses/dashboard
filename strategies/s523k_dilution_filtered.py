@@ -380,16 +380,17 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
         btc_aligned = _get_composite_aligned._btc_close_cache.reindex(ctx.idx_1h, method="ffill")
 
         # Layer 1: Monthly body size RELATIVE to trailing 12mo median
+        # CAUSAL: rolling 30d return (no calendar-month look-ahead)
+        _m_ret_1mo_h = (btc_aligned / btc_aligned.shift(30 * 24) - 1).values
+        _m_ret_1mo_h = np.nan_to_num(_m_ret_1mo_h, nan=0)
+        # Monthly body: use completed months only (shift by 1)
         _m = btc_aligned.resample('MS').agg(['first', 'last'])
         _m.columns = ['open', 'close']
         _m['body'] = ((_m['close'] - _m['open']) / _m['open']).abs() * 100
-        _m['ret'] = _m['close'].pct_change()
         _m_body_6mo = _m['body'].rolling(6, min_periods=3).mean()
         _m_body_12mo_med = _m['body'].rolling(12, min_periods=6).median()
         _m_body_relative = _m_body_6mo / _m_body_12mo_med.replace(0, np.nan)
-        _m_ret_1mo = _m['ret']
-        _m_body_rel_h = _m_body_relative.reindex(ctx.idx_1h, method='ffill').values
-        _m_ret_1mo_h = _m_ret_1mo.reindex(ctx.idx_1h, method='ffill').values
+        _m_body_rel_h = _m_body_relative.shift(1).reindex(ctx.idx_1h, method='ffill').values
 
         # Relative regime
         _is_trending = np.nan_to_num(_m_body_rel_h, nan=1.0) > 1.2
