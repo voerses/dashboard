@@ -356,8 +356,8 @@ def _compute_reversal_regime(idx_1h: pd.DatetimeIndex, btc_1h: pd.Series) -> np.
         ath_dd = (close - ath) / (ath + 1e-10)
 
         within_5pct = (close >= ath * 0.95)
-        near_ath_120d = pd.Series(within_5pct.astype(float), index=idx_d).rolling(
-            120, min_periods=1).max().values > 0
+        near_ath_365d = pd.Series(within_5pct.astype(float), index=idx_d).rolling(
+            365, min_periods=1).max().values > 0
 
         ab50_shift30 = np.full(nd, np.nan)
         ab50_shift30[30:] = ab50[:-30]
@@ -394,7 +394,7 @@ def _compute_reversal_regime(idx_1h: pd.DatetimeIndex, btc_1h: pd.Series) -> np.
             elif state == "BULL" and days >= BULL_TO_BEAR_HOLD:
                 # REQUIRED: ATH drawdown < -25%
                 # REQUIRED: was near ATH within last 120 days
-                if (not np.isnan(ath_dd[i]) and ath_dd[i] < -0.25 and near_ath_120d[i]):
+                if (not np.isnan(ath_dd[i]) and ath_dd[i] < -0.25 and near_ath_365d[i]):
                     sc = 3
                     if not np.isnan(ab50[i]) and ab50[i] < 0.20: sc += 2
                     if not np.isnan(ret_30d[i]) and ret_30d[i] < -0.10: sc += 1
@@ -920,10 +920,24 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
     # Stronger signals get more capital through higher conviction_score.
     base_edge = min(0.5, float(np.nanmean(abs_composite[entry])) * 0.1) if entry.any() else 0.30
 
-    # ==== SIZING ====
-    # Default 1.0. For optimal performance at $150K capital, use --adv-cap 0.005
-    # (caps each position at 0.5% of token's daily volume instead of default 5%)
+    # ==== REGIME-GATED SIZING (reversal SM with 365d ATH window) ====
     _size_mult = np.ones(n, dtype=np.float64)
+    _token_type = cfg.get("direction", "contrarian")
+    _is_short = direction == -1
+    _is_long = direction == 1
+    _bear_entry = entry & _bear_regime
+    if np.any(_bear_entry):
+        _hc = conviction > 0.66
+        _lc = conviction < 0.33
+        _size_mult[_bear_entry & _is_short & _hc] = 1.3
+        _size_mult[_bear_entry & _lc] = 0.7
+        if _token_type == "contrarian":
+            _size_mult[_bear_entry & _is_short] *= 1.15
+        elif _token_type == "momentum":
+            _size_mult[_bear_entry & _is_short] *= 0.85
+        _btc_declining = np.nan_to_num(_m_ret_1mo_h, nan=0) < 0
+        _size_mult[_bear_entry & _is_long & _btc_declining] = 0.5
+    _size_mult = np.maximum(_size_mult, 0.1)
 
     # ---- Breakeven ratchet timing ----
     # We want breakeven only after 50% of max_hold has passed.
