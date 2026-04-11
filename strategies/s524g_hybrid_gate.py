@@ -585,6 +585,9 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
             edge=0.0,
             name='s524g_hybrid_gate',
             breakeven_atr=BREAKEVEN_ATR,
+        partial_tp_atr=20.0,
+        partial_tp_pct=0.35,
+        partial_tp_trail=999.0,
         )
 
     cfg = _token_configs[ticker]
@@ -961,6 +964,9 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
         edge=base_edge,
         name='s524g_hybrid_gate',
         breakeven_atr=BREAKEVEN_ATR,
+        partial_tp_atr=20.0,
+        partial_tp_pct=0.35,
+        partial_tp_trail=999.0,
         conviction_score=conviction,
         size_multiplier=_size_mult,
         exit_regimes={CRISIS},  # tested: removing HURTS (+528% → +306%, DD -46% → -54%)
