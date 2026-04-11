@@ -816,6 +816,10 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
     long_signal=long_signal&day_change&rsi_long_window&_dol&_doa
     short_signal=short_signal&day_change&rsi_short_window&_sof&_doa
 
+    # NOTE: Delayed shorts tested but path dependence prevents combining within one strategy.
+    # s524i_delayed_short runs as a separate pool: +280% in 2024, +341% in 2026.
+    # s524g keeps immediate shorts: +458% in 2025, +80% in 2022.
+
     # M) Rotation filter: block mean-reverting entries in bear regime
     # Past-14d winners revert, losers revert — avoid entering against the bounce.
     # Only active in reversal BEAR regime (where mean-reversion dominates).
