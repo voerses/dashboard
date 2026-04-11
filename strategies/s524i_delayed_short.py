@@ -1,26 +1,14 @@
 """
-# BACKTEST CLI (reproduce this strategy's results):
-#   /workspace/venv/bin/python v4/portfolio_backtest.py \
-#       --strategy s524b_total2_regime --months 12 --capital 100000 \
-#       --market perp --conviction-mode ranked \
-#       --max-portfolio-positions 40 --concentration 0.30 --skip-wf \
-#       --end-date 2026-04-05T16:00:00
-#
-S524b — TOTAL2/TOTAL3 Regime Integration
-==========================================
+S524i — Delayed Contrarian Shorts
+====================================
 
-Based on s523z_reversal with TOTAL2/TOTAL3 altcoin market cap signals integrated:
+Exploits the temporal structure of the contrarian short signal:
+- When crowd is heavily long (composite < -threshold), the token goes UP
+  for ~48h (momentum phase) then REVERSES down for 480-720h.
+- This strategy DELAYS short entries by 48 hours to skip the momentum phase.
+- Long entries remain immediate (crowd shorts get squeezed right away).
 
-1. TOTAL2 SMA200 short gating override: when TOTAL2 < SMA200, ungate shorts
-   regardless of halving cycle (catches 2024 Jul-Oct alt bleed).
-2. TOTAL2 momentum conviction modulation: boost long/short conviction based
-   on TOTAL2 30d returns.
-3. BTC dominance detection: reduce long conviction when BTC outperforms alts.
-4. Adaptive deep bear threshold: less restrictive when TOTAL2 above SMA200.
-5. August long suppression preserved from s523z.
-
-Reversal state machine uses TOTAL2 above SMA200 as additional BEAR->BULL signal
-and TOTAL2 30d return < -15% as additional BULL->BEAR signal.
+Designed to run alongside s524h_momentum which captures the initial 48h up-move.
 
 Status: RESEARCH (Gate 3 backtest)
 """
@@ -72,7 +60,7 @@ STOP_MULT = 5.0
 TRAIL_MULT = 999.0            # effectively no trail — MR trades need room to breathe
 MIN_HOLD = 48                 # minimum 48h hold before exit allowed
 NO_STOP_BARS = 72             # 72h stop protection after entry
-BREAKEVEN_ATR = 3.0
+BREAKEVEN_ATR = 4.0           # breakeven ratchet (activated after 50% of max_hold)
 
 # -- Token blacklist: 50 value-destroying tokens from L12M optimization sweep --
 # Tokens with negative PnL over 3+ trades at 2.5x leverage.
@@ -119,9 +107,9 @@ _token_configs: dict = {}
 if os.path.exists(_CONFIG_PATH):
     with open(_CONFIG_PATH) as _f:
         _token_configs = json.load(_f)
-    print(f"  [s524b] Loaded per-token configs for {len(_token_configs)} tokens")
+    print(f"  [s524i] Loaded per-token configs for {len(_token_configs)} tokens")
 else:
-    print(f"  [s524b] WARNING: Config not found at {_CONFIG_PATH}")
+    print(f"  [s524i] WARNING: Config not found at {_CONFIG_PATH}")
 
 
 # ======================================================================
@@ -200,7 +188,7 @@ ENABLE_ROTATION_FILTER = True
 ROTATION_FILTER_THRESHOLD = 0.10
 
 # -- Conviction-driven sizing --
-ENABLE_CONVICTION_SIZING = False             # scale size_multiplier by conviction
+ENABLE_CONVICTION_SIZING = False            # scale size_multiplier by conviction
 CONV_SIZE_FLOOR = 1.0                  # size_mult at conviction=0 (no reduction)
 CONV_SIZE_CEIL = 1.3                   # size_mult at conviction=1 (boost only)
 
@@ -237,7 +225,7 @@ def _load_total2_signals(idx_1h: pd.DatetimeIndex, btc_1h_series: pd.Series) -> 
 
     try:
         if not os.path.exists(_TOTAL2_PATH):
-            print("  [s524b] WARNING: TOTAL2 data not found, using fallback")
+            print("  [s524i] WARNING: TOTAL2 data not found, using fallback")
             _total2_cache[cache_key] = fallback
             return fallback
 
@@ -294,7 +282,7 @@ def _load_total2_signals(idx_1h: pd.DatetimeIndex, btc_1h_series: pd.Series) -> 
         }
 
     except Exception as exc:
-        print(f"  [s524b] WARNING: TOTAL2 load failed ({exc}), using fallback")
+        print(f"  [s524i] WARNING: TOTAL2 load failed ({exc}), using fallback")
         result = fallback
 
     _total2_cache[cache_key] = result
@@ -411,7 +399,7 @@ def _compute_reversal_regime(idx_1h: pd.DatetimeIndex, btc_1h: pd.Series) -> np.
         result = regime_1h.values.astype(bool)
 
     except Exception as exc:
-        print(f"  [s524b] WARNING: Reversal regime failed ({exc}), falling back to all-BULL")
+        print(f"  [s524i] WARNING: Reversal regime failed ({exc}), falling back to all-BULL")
         result = np.zeros(n, dtype=bool)
 
     _reversal_regime_cache[cache_key] = result
@@ -469,7 +457,7 @@ def _load_daily_signals(symbol: str, ticker: str):
                       "sum_taker_long_short_vol_ratio"],
         )
     except Exception as exc:
-        print(f"  [s524b] WARNING: Failed to load {parquet_path}: {exc}")
+        print(f"  [s524i] WARNING: Failed to load {parquet_path}: {exc}")
         return
 
     df["create_time"] = pd.to_datetime(df["create_time"])
@@ -581,7 +569,7 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
             min_hold=MIN_HOLD,
             max_hold=720,
             edge=0.0,
-            name='s524g_hybrid_gate',
+            name='s524i_delayed_short',
             breakeven_atr=BREAKEVEN_ATR,
         )
 
@@ -762,6 +750,12 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
     short_prev[0] = False
     short_signal = short_level & (~short_prev | day_change)
 
+    # === DELAYED SHORTS: shift short entries forward by 48 hours ===
+    # Skip the initial 48h momentum phase where price continues up
+    short_signal_delayed = np.zeros(n, dtype=bool)
+    if n > 48:
+        short_signal_delayed[48:] = short_signal[:-48]
+    short_signal = short_signal_delayed
 
     _dol=np.ones(n,dtype=bool);_doa=np.ones(n,dtype=bool)
     try:
@@ -915,11 +909,29 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
     # Stronger signals get more capital through higher conviction_score.
     base_edge = min(0.5, float(np.nanmean(abs_composite[entry])) * 0.1) if entry.any() else 0.30
 
-    # ==== SIZING: default 1.0 (no smart sizing) ====
-    # Smart sizing tested: IC quartile + regime gave +1,027% total but 2024 drops to +8%.
-    # The proven approach (BE=3.0 + rotation) gives +865% with better balance.
-    # Smart sizing parameters preserved but disabled for stability.
+    # ==== CONVICTION-DRIVEN SIZING (per-bar size_multiplier) ====
+    # Scale position size by conviction strength via size_multiplier.
+    # Kelly formula: kelly_frac = kelly_mult * edge * size_multiplier
+    # conviction 0.0 → size_mult 0.5 (half size)
+    # conviction 0.5 → size_mult 1.0 (normal)
+    # conviction 1.0 → size_mult 1.5 (1.5x size)
     _size_mult = np.ones(n, dtype=np.float64)
+    if ENABLE_CONVICTION_SIZING:
+        _size_mult[entry] = CONV_SIZE_FLOOR + conviction[entry] * (CONV_SIZE_CEIL - CONV_SIZE_FLOOR)
+
+    # ==== REGIME-AWARE SIZING ====
+    # In bear regime (reversal SM = BEAR + TOTAL2 < SMA200):
+    #   shorts get boosted, longs get suppressed
+    # In bull regime: longs get mild boost, shorts get mild suppression
+    if ENABLE_REGIME_SIZING:
+        _double_bear_sz = _bear_regime & _total2_bear  # both agree → strong bear
+        # Bear regime: boost shorts, suppress longs
+        _size_mult[entry & (_sm) & _double_bear_sz] *= REGIME_BEAR_SHORT_MULT
+        _size_mult[entry & (_lm) & _double_bear_sz] *= REGIME_BEAR_LONG_MULT
+        # Bull regime (reversal=BULL AND TOTAL2 > SMA200): boost longs, suppress shorts
+        _double_bull_sz = (~_bear_regime) & _total2_above
+        _size_mult[entry & (_lm) & _double_bull_sz] *= REGIME_BULL_LONG_MULT
+        _size_mult[entry & (_sm) & _double_bull_sz] *= REGIME_BULL_SHORT_MULT
 
     # ---- Breakeven ratchet timing ----
     # We want breakeven only after 50% of max_hold has passed.
@@ -940,7 +952,7 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
         min_hold=MIN_HOLD,
         max_hold=token_max_hold,
         edge=base_edge,
-        name='s524g_hybrid_gate',
+        name='s524i_delayed_short',
         breakeven_atr=BREAKEVEN_ATR,
         conviction_score=conviction,
         size_multiplier=_size_mult,

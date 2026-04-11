@@ -1,26 +1,15 @@
 """
-# BACKTEST CLI (reproduce this strategy's results):
-#   /workspace/venv/bin/python v4/portfolio_backtest.py \
-#       --strategy s524b_total2_regime --months 12 --capital 100000 \
-#       --market perp --conviction-mode ranked \
-#       --max-portfolio-positions 40 --concentration 0.30 --skip-wf \
-#       --end-date 2026-04-05T16:00:00
-#
-S524b — TOTAL2/TOTAL3 Regime Integration
-==========================================
+S524h — Momentum Phase of Contrarian Short Signal
+====================================================
 
-Based on s523z_reversal with TOTAL2/TOTAL3 altcoin market cap signals integrated:
+When the contrarian short signal fires (crowd heavily long), the token
+typically goes UP for ~48h (crowd momentum continues) before reversing.
 
-1. TOTAL2 SMA200 short gating override: when TOTAL2 < SMA200, ungate shorts
-   regardless of halving cycle (catches 2024 Jul-Oct alt bleed).
-2. TOTAL2 momentum conviction modulation: boost long/short conviction based
-   on TOTAL2 30d returns.
-3. BTC dominance detection: reduce long conviction when BTC outperforms alts.
-4. Adaptive deep bear threshold: less restrictive when TOTAL2 above SMA200.
-5. August long suppression preserved from s523z.
+This strategy FLIPS the short signal to LONG and rides that initial
+momentum phase with a fast 48h max_hold and tight 3ATR stop.
 
-Reversal state machine uses TOTAL2 above SMA200 as additional BEAR->BULL signal
-and TOTAL2 30d return < -15% as additional BULL->BEAR signal.
+Only takes these "flipped momentum" longs — ignores regular long signals.
+Designed to run alongside s524i_delayed_short for the full temporal exploit.
 
 Status: RESEARCH (Gate 3 backtest)
 """
@@ -68,11 +57,11 @@ RSI_RESAMPLE = 4              # resample 1H close to 4H for RSI computation
 
 # -- Trade management --
 LEVERAGE = 2.6
-STOP_MULT = 5.0
-TRAIL_MULT = 999.0            # effectively no trail — MR trades need room to breathe
-MIN_HOLD = 48                 # minimum 48h hold before exit allowed
-NO_STOP_BARS = 72             # 72h stop protection after entry
-BREAKEVEN_ATR = 3.0
+STOP_MULT = 3.0               # tight stop for fast momentum trades
+TRAIL_MULT = 999.0            # no trail
+MIN_HOLD = 6                  # quick in/out
+NO_STOP_BARS = 6              # minimal stop protection for fast trades
+BREAKEVEN_ATR = 999.0         # no breakeven ratchet for momentum trades
 
 # -- Token blacklist: 50 value-destroying tokens from L12M optimization sweep --
 # Tokens with negative PnL over 3+ trades at 2.5x leverage.
@@ -119,9 +108,9 @@ _token_configs: dict = {}
 if os.path.exists(_CONFIG_PATH):
     with open(_CONFIG_PATH) as _f:
         _token_configs = json.load(_f)
-    print(f"  [s524b] Loaded per-token configs for {len(_token_configs)} tokens")
+    print(f"  [s524h] Loaded per-token configs for {len(_token_configs)} tokens")
 else:
-    print(f"  [s524b] WARNING: Config not found at {_CONFIG_PATH}")
+    print(f"  [s524h] WARNING: Config not found at {_CONFIG_PATH}")
 
 
 # ======================================================================
@@ -200,7 +189,7 @@ ENABLE_ROTATION_FILTER = True
 ROTATION_FILTER_THRESHOLD = 0.10
 
 # -- Conviction-driven sizing --
-ENABLE_CONVICTION_SIZING = False             # scale size_multiplier by conviction
+ENABLE_CONVICTION_SIZING = False            # scale size_multiplier by conviction
 CONV_SIZE_FLOOR = 1.0                  # size_mult at conviction=0 (no reduction)
 CONV_SIZE_CEIL = 1.3                   # size_mult at conviction=1 (boost only)
 
@@ -237,7 +226,7 @@ def _load_total2_signals(idx_1h: pd.DatetimeIndex, btc_1h_series: pd.Series) -> 
 
     try:
         if not os.path.exists(_TOTAL2_PATH):
-            print("  [s524b] WARNING: TOTAL2 data not found, using fallback")
+            print("  [s524h] WARNING: TOTAL2 data not found, using fallback")
             _total2_cache[cache_key] = fallback
             return fallback
 
@@ -294,7 +283,7 @@ def _load_total2_signals(idx_1h: pd.DatetimeIndex, btc_1h_series: pd.Series) -> 
         }
 
     except Exception as exc:
-        print(f"  [s524b] WARNING: TOTAL2 load failed ({exc}), using fallback")
+        print(f"  [s524h] WARNING: TOTAL2 load failed ({exc}), using fallback")
         result = fallback
 
     _total2_cache[cache_key] = result
@@ -411,7 +400,7 @@ def _compute_reversal_regime(idx_1h: pd.DatetimeIndex, btc_1h: pd.Series) -> np.
         result = regime_1h.values.astype(bool)
 
     except Exception as exc:
-        print(f"  [s524b] WARNING: Reversal regime failed ({exc}), falling back to all-BULL")
+        print(f"  [s524h] WARNING: Reversal regime failed ({exc}), falling back to all-BULL")
         result = np.zeros(n, dtype=bool)
 
     _reversal_regime_cache[cache_key] = result
@@ -469,7 +458,7 @@ def _load_daily_signals(symbol: str, ticker: str):
                       "sum_taker_long_short_vol_ratio"],
         )
     except Exception as exc:
-        print(f"  [s524b] WARNING: Failed to load {parquet_path}: {exc}")
+        print(f"  [s524h] WARNING: Failed to load {parquet_path}: {exc}")
         return
 
     df["create_time"] = pd.to_datetime(df["create_time"])
@@ -574,15 +563,15 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
             direction=np.zeros(n, dtype=np.int8),
             market_type=MARKET,
             leverage=LEVERAGE,
-            stop_mult=STOP_MULT,
-            trail_mult=TRAIL_MULT,
-            target_mult=999,
+            stop_mult=1.1,
+            trail_mult=0.5,
+            target_mult=2.8,
             no_stop_bars=NO_STOP_BARS,
-            min_hold=MIN_HOLD,
+            min_hold=6,
             max_hold=720,
             edge=0.0,
-            name='s524g_hybrid_gate',
-            breakeven_atr=BREAKEVEN_ATR,
+            name='s524h_momentum',
+            breakeven_atr=999.0,
         )
 
     cfg = _token_configs[ticker]
@@ -813,47 +802,15 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
     _bear_regime_long_boost = np.where((~_bear_regime) & (~_suppress), 1.2, 1.0)
     _bear_regime_short_boost = np.ones(n, dtype=np.float64)
 
-    long_signal=long_signal&day_change&rsi_long_window&_dol&_doa
-    short_signal=short_signal&day_change&rsi_short_window&_sof&_doa
+    # === MOMENTUM FLIP: short signal triggers become LONG entries ===
+    # When composite < -THRESHOLD (crowd heavily long), go LONG to ride momentum
+    # Apply the same filters that shorts normally use (_sof gate, RSI short window, etc.)
+    long_signal_momentum = short_signal & day_change & rsi_short_window & _sof & _doa
 
-    # M) Rotation filter: block mean-reverting entries in bear regime
-    # Past-14d winners revert, losers revert — avoid entering against the bounce.
-    # Only active in reversal BEAR regime (where mean-reversion dominates).
-    if ENABLE_ROTATION_FILTER:
-        try:
-            _btc_vals = btc_aligned.values if hasattr(btc_aligned, 'values') else btc_aligned
-            _btc_14d_ret = np.nan_to_num(_btc_vals / np.roll(_btc_vals, 14 * 24) - 1, nan=0.0)
-            _tok_14d_ret = np.nan_to_num(close / np.roll(close, 14 * 24) - 1, nan=0.0)
-            # Zero out warmup to avoid roll wraparound artifacts
-            _btc_14d_ret[:14 * 24 + 1] = 0.0
-            _tok_14d_ret[:14 * 24 + 1] = 0.0
-            _rel_perf_14d = _tok_14d_ret - _btc_14d_ret  # positive = outperformed BTC
-
-            # Block shorts on tokens that underperformed BTC (they'll bounce)
-            _underperf = _rel_perf_14d < -ROTATION_FILTER_THRESHOLD
-            short_signal = short_signal & ~(_bear_regime & _underperf)
-
-            # Block longs on tokens that outperformed BTC (they'll fade)
-            _outperf = _rel_perf_14d > ROTATION_FILTER_THRESHOLD
-            long_signal = long_signal & ~(_bear_regime & _outperf)
-        except Exception:
-            pass
-
-    # E) Deep bear long suppression
-    try:
-        _btc_ret = np.nan_to_num(_m_ret_1mo_h, nan=0)
-        if ENABLE_ADAPTIVE_DEEP_BEAR:
-            _deep_bear_threshold = np.where(_total2_above, DEEP_BEAR_BULL, DEEP_BEAR_BEAR)
-        else:
-            _deep_bear_threshold = DEEP_BEAR_BEAR  # static -10%
-        _deep_bear = _btc_ret < _deep_bear_threshold
-        long_signal = long_signal & ~_deep_bear
-    except: pass
-
-    # Compose entry mask (both directions, shorts conditionally gated)
-    entry = long_signal | short_signal
-    direction = np.where(long_signal, 1,
-                         np.where(short_signal, -1, 0)).astype(np.int8)
+    # DO NOT take regular long signals — only momentum longs from short signals
+    entry = long_signal_momentum
+    direction = np.ones(n, dtype=np.int8)  # all longs
+    direction[~entry] = 0
 
     # Warmup guard
     entry[:WARMUP] = False
@@ -915,34 +872,45 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
     # Stronger signals get more capital through higher conviction_score.
     base_edge = min(0.5, float(np.nanmean(abs_composite[entry])) * 0.1) if entry.any() else 0.30
 
-    # ==== SIZING: default 1.0 (no smart sizing) ====
-    # Smart sizing tested: IC quartile + regime gave +1,027% total but 2024 drops to +8%.
-    # The proven approach (BE=3.0 + rotation) gives +865% with better balance.
-    # Smart sizing parameters preserved but disabled for stability.
+    # ==== CONVICTION-DRIVEN SIZING (per-bar size_multiplier) ====
+    # Scale position size by conviction strength via size_multiplier.
+    # Kelly formula: kelly_frac = kelly_mult * edge * size_multiplier
+    # conviction 0.0 → size_mult 0.5 (half size)
+    # conviction 0.5 → size_mult 1.0 (normal)
+    # conviction 1.0 → size_mult 1.5 (1.5x size)
     _size_mult = np.ones(n, dtype=np.float64)
+    if ENABLE_CONVICTION_SIZING:
+        _size_mult[entry] = CONV_SIZE_FLOOR + conviction[entry] * (CONV_SIZE_CEIL - CONV_SIZE_FLOOR)
 
-    # ---- Breakeven ratchet timing ----
-    # We want breakeven only after 50% of max_hold has passed.
-    # Since breakeven_atr is a scalar applied from entry, we set it to 1.0 ATR
-    # and rely on no_stop_bars to provide initial protection.
-    # Set no_stop_bars to 50% of max_hold to delay breakeven activation.
-    token_no_stop = max(NO_STOP_BARS, token_max_hold // 2)
+    # ==== REGIME-AWARE SIZING ====
+    # In bear regime (reversal SM = BEAR + TOTAL2 < SMA200):
+    #   shorts get boosted, longs get suppressed
+    # In bull regime: longs get mild boost, shorts get mild suppression
+    if ENABLE_REGIME_SIZING:
+        _double_bear_sz = _bear_regime & _total2_bear  # both agree → strong bear
+        # Bear regime: boost shorts, suppress longs
+        _size_mult[entry & (_sm) & _double_bear_sz] *= REGIME_BEAR_SHORT_MULT
+        _size_mult[entry & (_lm) & _double_bear_sz] *= REGIME_BEAR_LONG_MULT
+        # Bull regime (reversal=BULL AND TOTAL2 > SMA200): boost longs, suppress shorts
+        _double_bull_sz = (~_bear_regime) & _total2_above
+        _size_mult[entry & (_lm) & _double_bull_sz] *= REGIME_BULL_LONG_MULT
+        _size_mult[entry & (_sm) & _double_bull_sz] *= REGIME_BULL_SHORT_MULT
 
     return StrategyResult(
         entry_mask=entry,
         direction=direction,
         market_type=MARKET,
         leverage=LEVERAGE,
-        stop_mult=STOP_MULT,
-        trail_mult=TRAIL_MULT,
-        target_mult=999,
-        no_stop_bars=token_no_stop,
-        min_hold=MIN_HOLD,
-        max_hold=token_max_hold,
+        stop_mult=1.1,
+        trail_mult=0.5,
+        target_mult=2.8,
+        no_stop_bars=NO_STOP_BARS,
+        min_hold=6,
+        max_hold=48,              # fast exit: 48h momentum window
         edge=base_edge,
-        name='s524g_hybrid_gate',
-        breakeven_atr=BREAKEVEN_ATR,
+        name='s524h_momentum',
+        breakeven_atr=999.0,
         conviction_score=conviction,
         size_multiplier=_size_mult,
-        exit_regimes={CRISIS},  # tested: removing HURTS (+528% → +306%, DD -46% → -54%)
+        exit_regimes={CRISIS},
     )
