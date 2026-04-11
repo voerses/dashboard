@@ -818,7 +818,12 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
     _bear_regime_long_boost = np.where((~_bear_regime) & (~_suppress), 1.2, 1.0)
     _bear_regime_short_boost = np.ones(n, dtype=np.float64)
 
-    long_signal=long_signal&day_change&rsi_long_window&_dol&_doa
+    # Kill longs in post-halving years when BTC declining
+    # Post-halving [2022,2025,2026]: longs are toxic (15% WR, -$296K from freed capital)
+    # Pre-halving [2023,2024]: longs contribute +175pp in recovery — DON'T KILL
+    _btc_declining = np.nan_to_num(_m_ret_1mo_h, nan=0) < 0
+    _kill_longs = _post_halving & _btc_declining
+    long_signal=long_signal&day_change&rsi_long_window&_dol&_doa&(~_kill_longs)
     short_signal=short_signal&day_change&rsi_short_window&_sof&_doa
 
     # NOTE: Delayed shorts tested but path dependence prevents combining within one strategy.
