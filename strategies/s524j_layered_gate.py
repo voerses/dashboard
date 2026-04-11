@@ -1,49 +1,42 @@
 """
-S524g — Hybrid BTC Gate + Reversal SM (BEST BASELINE)
-======================================================
+S524j — Layered Gate (experimental, based on s524g baseline)
+=============================================================
 
-BACKTEST CLI — Per-year at $100K (annual sum ~865%):
+BACKTEST CLI — Compounded at $150K:
   /workspace/venv/bin/python v4/portfolio_backtest.py \\
-      --strategy s524g_hybrid_gate --months 12 --capital 100000 \\
-      --market perp --conviction-mode ranked \\
-      --max-portfolio-positions 40 --concentration 0.30 --skip-wf \\
-      --end-date 2023-01-01   # change per year: 2024-01-01, 2025-01-01, 2026-01-01
-
-  Q1 2026 (3 months):
-  /workspace/venv/bin/python v4/portfolio_backtest.py \\
-      --strategy s524g_hybrid_gate --months 3 --capital 100000 \\
+      --strategy s524j_layered_gate --months 51 --capital 150000 \\
       --market perp --conviction-mode ranked \\
       --max-portfolio-positions 40 --concentration 0.30 --skip-wf \\
       --end-date 2026-04-05T16:00:00
 
-  Full compounded (51 months):
+  Per-year at $150K:
   /workspace/venv/bin/python v4/portfolio_backtest.py \\
-      --strategy s524g_hybrid_gate --months 51 --capital 100000 \\
+      --strategy s524j_layered_gate --months 12 --capital 150000 \\
       --market perp --conviction-mode ranked \\
       --max-portfolio-positions 40 --concentration 0.30 --skip-wf \\
-      --end-date 2026-04-05T16:00:00
+      --end-date 2023-01-01   # change per year
 
-VERIFIED RESULTS (2026-04-11, per-year independent at $100K):
-  2022: +80.2%  (DD -21.3%, 173 trades)
-  2023: +210.1% (DD -62.8%, 279 trades)
-  2024: +33.6%  (DD -82.4%, 345 trades)
-  2025: +458.4% (DD -42.4%, 542 trades)
-  Q1 26: +82.4% (DD -15.1%, 114 trades)
-  SUM:   865%
-  Compounded 51mo $100K: +1,094% ($100K → $1.19M)
+RESULTS (2026-04-11, per-year at $150K):
+  2022: +104.6% | 2023: +189.2% | 2024: +7.9% | 2025: +188.2% | Q1 26: +34.6%
+  SUM: 524.5%  (WORSE than s524g baseline at 748%)
+  Compounded 51mo $150K: +1,096% ($150K → $1.79M)
 
-KEY PARAMS: --concentration 0.30 is CRITICAL (default 0.10 chokes the strategy)
+  NOTE: Compounding looks good but per-year sum is WORSE than s524g baseline.
+  The additions help compounding but hurt independent per-year returns.
 
-Features:
-  - Hybrid G14/G45 BTC gate + reversal state machine (120d ATH window)
-  - TOTAL2 1.6x short boost in bear regime
-  - Dilution block >50% remaining supply
-  - BE=3.0 breakeven ratchet (dead zone fix)
-  - Rotation filter 10% (block mean-reversion in bear rotation)
-  - SHORT-ALPHA: shorts drive 80%+ of returns
+Additional layers on top of s524g baseline:
+  1. Post-halving long kill: blocks longs when BTC declining in [2022,2025,2026]
+  2. Partial TP: partial_tp_atr=20.0, close 35%, no trail on remainder
+  3. Regime-gated sizing: bear regime shorts 1.3x (high conv), 0.7x (low conv)
+  4. max_sizing_equity=500K: caps Kelly sizing equity for compounding
+  5. 365d ATH window (extended from 120d) for reversal state machine
+  6. Contrarian/momentum token type sizing adjustment (1.15x/0.85x)
 
-See s524j_layered_gate.py for experimental version with additional layers
-(partial TP, regime sizing, long kill, 365d ATH, max_sizing_equity).
+WARNING: Each layer was individually validated but combined they degrade
+per-year returns via path dependence. The freed capital from long kill
+fills marginal shorts that lose money. Use s524g for production.
+
+Status: EXPERIMENTAL — preserved for research reference
 """
 
 import os
@@ -93,7 +86,7 @@ STOP_MULT = 5.0
 TRAIL_MULT = 999.0            # effectively no trail — MR trades need room to breathe
 MIN_HOLD = 48                 # minimum 48h hold before exit allowed
 NO_STOP_BARS = 72             # 72h stop protection after entry
-BREAKEVEN_ATR = 3.0           # breakeven ratchet (activated after 50% of max_hold)
+BREAKEVEN_ATR = 3.0
 
 # -- Token blacklist: 50 value-destroying tokens from L12M optimization sweep --
 # Tokens with negative PnL over 3+ trades at 2.5x leverage.
@@ -124,7 +117,9 @@ MARKET = MarketType.PERP
 PORTFOLIO_CONFIG = {
     "conviction_mode": "ranked",
     "max_positions": 50,
+    "max_sizing_equity": 500000,
 }
+
 
 
 # ======================================================================
@@ -376,8 +371,8 @@ def _compute_reversal_regime(idx_1h: pd.DatetimeIndex, btc_1h: pd.Series) -> np.
         ath_dd = (close - ath) / (ath + 1e-10)
 
         within_5pct = (close >= ath * 0.95)
-        near_ath_120d = pd.Series(within_5pct.astype(float), index=idx_d).rolling(
-            120, min_periods=1).max().values > 0
+        near_ath_365d = pd.Series(within_5pct.astype(float), index=idx_d).rolling(
+            365, min_periods=1).max().values > 0
 
         ab50_shift30 = np.full(nd, np.nan)
         ab50_shift30[30:] = ab50[:-30]
@@ -414,7 +409,7 @@ def _compute_reversal_regime(idx_1h: pd.DatetimeIndex, btc_1h: pd.Series) -> np.
             elif state == "BULL" and days >= BULL_TO_BEAR_HOLD:
                 # REQUIRED: ATH drawdown < -25%
                 # REQUIRED: was near ATH within last 120 days
-                if (not np.isnan(ath_dd[i]) and ath_dd[i] < -0.25 and near_ath_120d[i]):
+                if (not np.isnan(ath_dd[i]) and ath_dd[i] < -0.25 and near_ath_365d[i]):
                     sc = 3
                     if not np.isnan(ab50[i]) and ab50[i] < 0.20: sc += 2
                     if not np.isnan(ret_30d[i]) and ret_30d[i] < -0.10: sc += 1
@@ -602,8 +597,11 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
             min_hold=MIN_HOLD,
             max_hold=720,
             edge=0.0,
-            name='s524g_hybrid_gate',
+            name='s524j_layered_gate',
             breakeven_atr=BREAKEVEN_ATR,
+        partial_tp_atr=20.0,
+        partial_tp_pct=0.35,
+        partial_tp_trail=999.0,
         )
 
     cfg = _token_configs[ticker]
@@ -834,8 +832,17 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
     _bear_regime_long_boost = np.where((~_bear_regime) & (~_suppress), 1.2, 1.0)
     _bear_regime_short_boost = np.ones(n, dtype=np.float64)
 
-    long_signal=long_signal&day_change&rsi_long_window&_dol&_doa
+    # Kill longs in post-halving years when BTC declining
+    # Post-halving [2022,2025,2026]: longs are toxic (15% WR, -$296K from freed capital)
+    # Pre-halving [2023,2024]: longs contribute +175pp in recovery — DON'T KILL
+    _btc_declining = np.nan_to_num(_m_ret_1mo_h, nan=0) < 0
+    _kill_longs = _post_halving & _btc_declining
+    long_signal=long_signal&day_change&rsi_long_window&_dol&_doa&(~_kill_longs)
     short_signal=short_signal&day_change&rsi_short_window&_sof&_doa
+
+    # NOTE: Delayed shorts tested but path dependence prevents combining within one strategy.
+    # s524i_delayed_short runs as a separate pool: +280% in 2024, +341% in 2026.
+    # s524g keeps immediate shorts: +458% in 2025, +80% in 2022.
 
     # M) Rotation filter: block mean-reverting entries in bear regime
     # Past-14d winners revert, losers revert — avoid entering against the bounce.
@@ -936,29 +943,24 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
     # Stronger signals get more capital through higher conviction_score.
     base_edge = min(0.5, float(np.nanmean(abs_composite[entry])) * 0.1) if entry.any() else 0.30
 
-    # ==== CONVICTION-DRIVEN SIZING (per-bar size_multiplier) ====
-    # Scale position size by conviction strength via size_multiplier.
-    # Kelly formula: kelly_frac = kelly_mult * edge * size_multiplier
-    # conviction 0.0 → size_mult 0.5 (half size)
-    # conviction 0.5 → size_mult 1.0 (normal)
-    # conviction 1.0 → size_mult 1.5 (1.5x size)
+    # ==== REGIME-GATED SIZING (reversal SM with 365d ATH window) ====
     _size_mult = np.ones(n, dtype=np.float64)
-    if ENABLE_CONVICTION_SIZING:
-        _size_mult[entry] = CONV_SIZE_FLOOR + conviction[entry] * (CONV_SIZE_CEIL - CONV_SIZE_FLOOR)
-
-    # ==== REGIME-AWARE SIZING ====
-    # In bear regime (reversal SM = BEAR + TOTAL2 < SMA200):
-    #   shorts get boosted, longs get suppressed
-    # In bull regime: longs get mild boost, shorts get mild suppression
-    if ENABLE_REGIME_SIZING:
-        _double_bear_sz = _bear_regime & _total2_bear  # both agree → strong bear
-        # Bear regime: boost shorts, suppress longs
-        _size_mult[entry & (_sm) & _double_bear_sz] *= REGIME_BEAR_SHORT_MULT
-        _size_mult[entry & (_lm) & _double_bear_sz] *= REGIME_BEAR_LONG_MULT
-        # Bull regime (reversal=BULL AND TOTAL2 > SMA200): boost longs, suppress shorts
-        _double_bull_sz = (~_bear_regime) & _total2_above
-        _size_mult[entry & (_lm) & _double_bull_sz] *= REGIME_BULL_LONG_MULT
-        _size_mult[entry & (_sm) & _double_bull_sz] *= REGIME_BULL_SHORT_MULT
+    _token_type = cfg.get("direction", "contrarian")
+    _is_short = direction == -1
+    _is_long = direction == 1
+    _bear_entry = entry & _bear_regime
+    if np.any(_bear_entry):
+        _hc = conviction > 0.66
+        _lc = conviction < 0.33
+        _size_mult[_bear_entry & _is_short & _hc] = 1.3
+        _size_mult[_bear_entry & _lc] = 0.7
+        if _token_type == "contrarian":
+            _size_mult[_bear_entry & _is_short] *= 1.15
+        elif _token_type == "momentum":
+            _size_mult[_bear_entry & _is_short] *= 0.85
+        _btc_declining = np.nan_to_num(_m_ret_1mo_h, nan=0) < 0
+        _size_mult[_bear_entry & _is_long & _btc_declining] = 0.5
+    _size_mult = np.maximum(_size_mult, 0.1)
 
     # ---- Breakeven ratchet timing ----
     # We want breakeven only after 50% of max_hold has passed.
@@ -979,8 +981,11 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
         min_hold=MIN_HOLD,
         max_hold=token_max_hold,
         edge=base_edge,
-        name='s524g_hybrid_gate',
+        name='s524j_layered_gate',
         breakeven_atr=BREAKEVEN_ATR,
+        partial_tp_atr=20.0,
+        partial_tp_pct=0.35,
+        partial_tp_trail=999.0,
         conviction_score=conviction,
         size_multiplier=_size_mult,
         exit_regimes={CRISIS},  # tested: removing HURTS (+528% → +306%, DD -46% → -54%)
