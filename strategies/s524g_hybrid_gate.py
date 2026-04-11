@@ -72,7 +72,7 @@ STOP_MULT = 5.0
 TRAIL_MULT = 999.0            # effectively no trail — MR trades need room to breathe
 MIN_HOLD = 48                 # minimum 48h hold before exit allowed
 NO_STOP_BARS = 72             # 72h stop protection after entry
-BREAKEVEN_ATR = 1.0           # breakeven ratchet (activated after 50% of max_hold)
+BREAKEVEN_ATR = 3.0           # breakeven ratchet (activated after 50% of max_hold)
 
 # -- Token blacklist: 50 value-destroying tokens from L12M optimization sweep --
 # Tokens with negative PnL over 3+ trades at 2.5x leverage.
@@ -196,6 +196,20 @@ TOTAL2_LONG_THRESHOLD_MULT = 1.5     # multiplier on THRESHOLD for longs in TOTA
 ENABLE_TOTAL2_BULL_BOOST = False    # K) boost long conviction when TOTAL2 > SMA200 + momentum
 TOTAL2_BULL_BOOST_FACTOR = 1.3      # conviction multiplier for longs in TOTAL2 bull + momentum
 ENABLE_TOTAL2_BOOST_SUPPRESS = False  # L) suppress long boost when TOTAL2 weak
+ENABLE_ROTATION_FILTER = True
+ROTATION_FILTER_THRESHOLD = 0.10
+
+# -- Conviction-driven sizing --
+ENABLE_CONVICTION_SIZING = False             # scale size_multiplier by conviction
+CONV_SIZE_FLOOR = 1.0                  # size_mult at conviction=0 (no reduction)
+CONV_SIZE_CEIL = 1.3                   # size_mult at conviction=1 (boost only)
+
+# -- Regime-aware sizing --
+ENABLE_REGIME_SIZING = False              # scale size by regime
+REGIME_BEAR_SHORT_MULT = 1.2            # shorts in double-bear get 1.2x
+REGIME_BEAR_LONG_MULT = 0.8             # longs in double-bear get 0.8x (mild suppress)
+REGIME_BULL_LONG_MULT = 1.1             # longs in double-bull get 1.1x (mild boost)
+REGIME_BULL_SHORT_MULT = 0.9            # shorts in double-bull get 0.9x (mild suppress)
 
 
 def _load_total2_signals(idx_1h: pd.DatetimeIndex, btc_1h_series: pd.Series) -> dict:
@@ -802,6 +816,29 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
     long_signal=long_signal&day_change&rsi_long_window&_dol&_doa
     short_signal=short_signal&day_change&rsi_short_window&_sof&_doa
 
+    # M) Rotation filter: block mean-reverting entries in bear regime
+    # Past-14d winners revert, losers revert — avoid entering against the bounce.
+    # Only active in reversal BEAR regime (where mean-reversion dominates).
+    if ENABLE_ROTATION_FILTER:
+        try:
+            _btc_vals = btc_aligned.values if hasattr(btc_aligned, 'values') else btc_aligned
+            _btc_14d_ret = np.nan_to_num(_btc_vals / np.roll(_btc_vals, 14 * 24) - 1, nan=0.0)
+            _tok_14d_ret = np.nan_to_num(close / np.roll(close, 14 * 24) - 1, nan=0.0)
+            # Zero out warmup to avoid roll wraparound artifacts
+            _btc_14d_ret[:14 * 24 + 1] = 0.0
+            _tok_14d_ret[:14 * 24 + 1] = 0.0
+            _rel_perf_14d = _tok_14d_ret - _btc_14d_ret  # positive = outperformed BTC
+
+            # Block shorts on tokens that underperformed BTC (they'll bounce)
+            _underperf = _rel_perf_14d < -ROTATION_FILTER_THRESHOLD
+            short_signal = short_signal & ~(_bear_regime & _underperf)
+
+            # Block longs on tokens that outperformed BTC (they'll fade)
+            _outperf = _rel_perf_14d > ROTATION_FILTER_THRESHOLD
+            long_signal = long_signal & ~(_bear_regime & _outperf)
+        except Exception:
+            pass
+
     # E) Deep bear long suppression
     try:
         _btc_ret = np.nan_to_num(_m_ret_1mo_h, nan=0)
@@ -878,6 +915,30 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
     # Stronger signals get more capital through higher conviction_score.
     base_edge = min(0.5, float(np.nanmean(abs_composite[entry])) * 0.1) if entry.any() else 0.30
 
+    # ==== CONVICTION-DRIVEN SIZING (per-bar size_multiplier) ====
+    # Scale position size by conviction strength via size_multiplier.
+    # Kelly formula: kelly_frac = kelly_mult * edge * size_multiplier
+    # conviction 0.0 → size_mult 0.5 (half size)
+    # conviction 0.5 → size_mult 1.0 (normal)
+    # conviction 1.0 → size_mult 1.5 (1.5x size)
+    _size_mult = np.ones(n, dtype=np.float64)
+    if ENABLE_CONVICTION_SIZING:
+        _size_mult[entry] = CONV_SIZE_FLOOR + conviction[entry] * (CONV_SIZE_CEIL - CONV_SIZE_FLOOR)
+
+    # ==== REGIME-AWARE SIZING ====
+    # In bear regime (reversal SM = BEAR + TOTAL2 < SMA200):
+    #   shorts get boosted, longs get suppressed
+    # In bull regime: longs get mild boost, shorts get mild suppression
+    if ENABLE_REGIME_SIZING:
+        _double_bear_sz = _bear_regime & _total2_bear  # both agree → strong bear
+        # Bear regime: boost shorts, suppress longs
+        _size_mult[entry & (_sm) & _double_bear_sz] *= REGIME_BEAR_SHORT_MULT
+        _size_mult[entry & (_lm) & _double_bear_sz] *= REGIME_BEAR_LONG_MULT
+        # Bull regime (reversal=BULL AND TOTAL2 > SMA200): boost longs, suppress shorts
+        _double_bull_sz = (~_bear_regime) & _total2_above
+        _size_mult[entry & (_lm) & _double_bull_sz] *= REGIME_BULL_LONG_MULT
+        _size_mult[entry & (_sm) & _double_bull_sz] *= REGIME_BULL_SHORT_MULT
+
     # ---- Breakeven ratchet timing ----
     # We want breakeven only after 50% of max_hold has passed.
     # Since breakeven_atr is a scalar applied from entry, we set it to 1.0 ATR
@@ -900,5 +961,6 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
         name='s524g_hybrid_gate',
         breakeven_atr=BREAKEVEN_ATR,
         conviction_score=conviction,
+        size_multiplier=_size_mult,
         exit_regimes={CRISIS},  # tested: removing HURTS (+528% → +306%, DD -46% → -54%)
     )
