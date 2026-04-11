@@ -103,6 +103,7 @@ MARKET = MarketType.PERP
 PORTFOLIO_CONFIG = {
     "conviction_mode": "ranked",
     "max_positions": 50,
+    "max_sizing_equity": 500000,
 }
 
 

@@ -36,7 +36,7 @@ def _detect_strategy_type(strategy_id: str) -> str:
     import importlib.util
     strategies_dir = os.path.join(str(PROJECT_ROOT), "strategies")
     for fname in os.listdir(strategies_dir):
-        if fname.startswith(strategy_id + "_") and fname.endswith(".py"):
+        if (fname == strategy_id + ".py" or fname.startswith(strategy_id + "_")) and fname.endswith(".py"):
             fpath = os.path.join(strategies_dir, fname)
             spec = importlib.util.spec_from_file_location(f"_detect_{strategy_id}", fpath)
             mod = importlib.util.module_from_spec(spec)
@@ -54,7 +54,7 @@ def _load_strategy_module_attrs(strategy_id: str) -> dict:
     result = {}
     strategies_dir = os.path.join(str(PROJECT_ROOT), "strategies")
     for fname in os.listdir(strategies_dir):
-        if fname.startswith(strategy_id + "_") and fname.endswith(".py"):
+        if (fname == strategy_id + ".py" or fname.startswith(strategy_id + "_")) and fname.endswith(".py"):
             fpath = os.path.join(strategies_dir, fname)
             spec = importlib.util.spec_from_file_location(f"_attrs_{strategy_id}", fpath)
             mod = importlib.util.module_from_spec(spec)
@@ -318,6 +318,7 @@ def main():
         seed=args.seed,
         raw_mode=args.raw,
         skip_walk_forward=args.skip_wf,
+        max_sizing_equity=merged_portfolio.get('max_sizing_equity', None),
     )
 
     # Print which config came from the strategy module
