@@ -920,10 +920,9 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
     # Stronger signals get more capital through higher conviction_score.
     base_edge = min(0.5, float(np.nanmean(abs_composite[entry])) * 0.1) if entry.any() else 0.30
 
-    # ==== SIZING: default 1.0 (no smart sizing) ====
-    # Smart sizing tested: IC quartile + regime gave +1,027% total but 2024 drops to +8%.
-    # The proven approach (BE=3.0 + rotation) gives +865% with better balance.
-    # Smart sizing parameters preserved but disabled for stability.
+    # ==== SIZING ====
+    # Default 1.0. For optimal performance at $150K capital, use --adv-cap 0.005
+    # (caps each position at 0.5% of token's daily volume instead of default 5%)
     _size_mult = np.ones(n, dtype=np.float64)
 
     # ---- Breakeven ratchet timing ----
