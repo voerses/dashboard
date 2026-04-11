@@ -917,7 +917,7 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
     # Scalar edge: base edge for sizing. Ranked conviction mode modulates
     # actual allocation via conviction_score, so we use a moderate base edge.
     # Stronger signals get more capital through higher conviction_score.
-    base_edge = min(0.5, float(np.nanmean(abs_composite[entry])) * 0.1) if entry.any() else 0.30
+    base_edge = min(0.5, float(np.nanmean(abs_composite[entry])) * 0.05) if entry.any() else 0.30
 
     # ==== SIZING: default 1.0 (no smart sizing) ====
     # Smart sizing tested: IC quartile + regime gave +1,027% total but 2024 drops to +8%.
