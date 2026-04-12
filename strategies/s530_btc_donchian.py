@@ -35,9 +35,9 @@ PORTFOLIO_CONFIG = {
     "conviction_mode": "ranked",
     "max_positions": 1,
     "sizing_overrides": {
-        "kelly_mult_override": 0.5,
-        "cap_pct_override": 0.30,
-        "target_vol": 0.05,
+        "kelly_mult_override": 0.8,
+        "cap_pct_override": 0.90,
+        "target_vol": 0.10,
     },
 }
 
@@ -65,7 +65,7 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
             entry_mask=np.zeros(n, dtype=bool),
             direction=np.zeros(n, dtype=np.int8),
             conviction_score=np.zeros(n, dtype=np.float64),
-            size_multiplier=np.full(n, 8.0, dtype=np.float64),
+            size_multiplier=np.ones(n, dtype=np.float64),
             leverage=LEVERAGE,
             stop_mult=STOP_MULT,
             trail_mult=TRAIL_MULT,
@@ -121,6 +121,13 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
     entry = entry_daily_1h & day_change
     entry[:WARMUP] = False
 
+    # REGIME GATE: only active in pre-halving years (2023/2024, 2027/2028, etc.)
+    # Post-halving years are bear — s524l handles those with alt shorts
+    # The Donchian signal itself avoids entering in downtrends (no breakouts)
+    _bar_years = np.array([t.year for t in idx])
+    _post_halving = np.isin(_bar_years, [2021, 2022, 2025, 2026, 2029, 2030])
+    entry = entry & ~_post_halving
+
     direction = np.where(entry, 1, 0).astype(np.int8)
     conviction = np.where(entry, 1.0, 0.0).astype(np.float64)
 
@@ -128,7 +135,8 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
         entry_mask=entry,
         direction=direction,
         conviction_score=conviction,
-        size_multiplier=np.full(n, 8.0, dtype=np.float64),
+        size_multiplier=np.ones(n, dtype=np.float64),
+        cap_multiplier=np.full(n, 8.0, dtype=np.float64),
         leverage=LEVERAGE,
         stop_mult=STOP_MULT,
         trail_mult=TRAIL_MULT,
