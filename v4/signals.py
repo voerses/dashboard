@@ -642,6 +642,8 @@ def precompute_strategy_signals(
                     armed_lvl = armed_lvl[s:]
                 if armed_dir is not None:
                     armed_dir = armed_dir[s:]
+                if sr_entry_delay is not None:
+                    sr_entry_delay = sr_entry_delay[s:]
                 if max_trail is not None:
                     max_trail = max_trail[s:]
                 if sec_entry is not None:
