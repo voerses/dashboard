@@ -1,12 +1,13 @@
 {
     "_meta": {
-        "description": "Multi-strategy paper trading: s513 + s523c as separate capital pools",
+        "description": "Multi-strategy paper trading: s513 + s523c + s524m as separate capital pools",
         "created": "2026-04-05",
+        "updated": "2026-04-13",
         "strategies": {
-            "s513": "Triple-Trigger Swing (3x, MACD+RSI+Donchian, ultra-liquid). Unchanged from paper_s513.json.",
-            "s523c": "Per-token Composite Positioning + RSI timing (2.6x, daily OI/L-S/taker z-scores, 50-token BL). Needs daily 5-min metrics update via tools/run_daily_metrics_loop.sh."
-        },
-        "correlation": "r = 0.012 (uncorrelated — technical vs positioning signals)"
+            "s513": "Triple-Trigger Swing (3x, MACD+RSI+Donchian, ultra-liquid).",
+            "s523c": "Per-token Composite Positioning + RSI timing (2.6x). Legacy, kept for comparison.",
+            "s524m": "Portfolio-Ranked Composite Positioning (1,094% backtest). Best strategy. Needs midnight metrics fetch at 23:50 UTC."
+        }
     },
     "shared": {
         "exchange": "binance",
@@ -62,6 +63,26 @@
             ],
             "max_portfolio_positions": 30,
             "state_dir": "state/v4_paper_s523c/"
+        },
+        {
+            "pool_name": "s524m",
+            "initial_capital": 150000.0,
+            "mode": "pool",
+            "conviction_mode": "ranked",
+            "adv_cap_pct": 0.005,
+            "strategies": [
+                {
+                    "strategy_id": "s524m_portfolio_rank",
+                    "strategy_type": "portfolio",
+                    "weight": 1.0,
+                    "market": "perp",
+                    "max_positions": 50,
+                    "exit_resolution": 0,
+                    "sizing_overrides": {}
+                }
+            ],
+            "max_portfolio_positions": 50,
+            "state_dir": "state/v4_paper_s524m/"
         }
     ]
 }
