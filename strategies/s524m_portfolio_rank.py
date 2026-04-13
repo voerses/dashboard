@@ -441,18 +441,18 @@ def _compute_reversal_regime(idx_1h: pd.DatetimeIndex, btc_1h: pd.Series) -> np.
 
 
 def _check_new_day():
-    """Clear caches after 08:05 UTC so fresh data from the daily updater is loaded.
+    """Clear caches when new day's data is available.
 
-    The daily updater (tools/run_daily_metrics_loop.sh) fetches new 5-min
-    metrics from data.binance.vision at 08:00 UTC. We reload at 08:05 to
-    give it time to finish writing.
+    Midnight fetcher (tools/fetch_midnight_metrics.py) writes fresh data at ~00:07 UTC.
+    We reload after 00:10 UTC to give it time to finish.
+    Fallback: also reload at 08:10 if midnight fetch was missed.
     """
     global _last_load_date
     from datetime import datetime, timezone
     now = datetime.now(timezone.utc)
     today = now.strftime("%Y-%m-%d")
-    # Reload after 08:05 UTC, once per day
-    if now.hour >= 8 and today != _last_load_date:
+    # Reload on new UTC day (midnight fetch writes data by 23:59 previous day)
+    if today != _last_load_date:
         _composite_cache.clear()
         _daily_loaded.clear()
         _aligned_cache.clear()
