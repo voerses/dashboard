@@ -672,9 +672,10 @@ def _process_pending_entries(
         sig.direction[local_bar] = pe.direction
         if sig.conviction_score is not None and local_bar < len(sig.conviction_score):
             sig.conviction_score[local_bar] = pe.conviction
-        # Prevent re-arming: clear delay so _process_entries enters immediately
+        # Prevent re-arming: clear delay on THIS bar so _process_entries enters immediately.
+        # Preserve config.entry_delay_bars for future organic signals on this token.
         if sig.entry_delay is None:
-            sig.entry_delay = np.zeros(sig.n_bars, dtype=int)
+            sig.entry_delay = np.full(sig.n_bars, config.entry_delay_bars, dtype=int)
         if local_bar < len(sig.entry_delay):
             sig.entry_delay[local_bar] = 0
         if sig.armed_levels is not None and local_bar < len(sig.armed_levels):
