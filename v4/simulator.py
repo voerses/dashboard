@@ -89,14 +89,21 @@ class PendingEntry:
     """A signal that has been armed but not yet executed.
 
     Reserves a slot in max_positions during the delay period.
-    Converts to a real position at entry_bar using that bar's price.
+    Converts to a real position when the trigger condition is met.
+
+    Trigger can be any combination of:
+      - Time delay: entry_bar > 0 means enter at that global bar
+      - Price level: checked via armed_levels on TokenSignals
+      - Custom function: trigger_fn(close, high, low, atr, bars_held) -> bool
     """
     strategy_id: str
     token: str
     signal_bar: int       # global bar when signal fired
-    entry_bar: int        # global bar when to actually enter
+    entry_bar: int        # global bar when to enter (0 = no time trigger, use other conditions)
     direction: int        # 1=long, -1=short
     conviction: float     # frozen from signal bar
+    trigger_fn: object = None  # Optional[Callable[[float, float, float, float, int], bool]]
+                               # Args: (close, high, low, atr, bars_since_signal) -> should_enter
 
 
 @dataclass
@@ -596,6 +603,9 @@ def _process_pending_entries(
     TokenSignals. The normal _process_entries() will then pick it up and open
     the position at today's price with the original conviction.
 
+    Pending entries convert when ANY trigger condition is met:
+      1. Time delay expired: global_bar >= entry_bar
+      2. Price level hit: armed_levels crossed (if set by strategy)
     Pending entries that exceed max_pending_bars are expired and removed.
     """
     if not state.pending_entries:
@@ -607,32 +617,68 @@ def _process_pending_entries(
         if global_bar > pe.signal_bar + config.max_pending_bars:
             continue  # drop expired pending
 
-        # Not yet mature?
-        if global_bar < pe.entry_bar:
-            still_pending.append(pe)
-            continue
-
-        # Mature — inject entry signal at current bar
-        # DEBUG: uncomment to trace
-        # DEBUG: import sys; print(f"PENDING CONVERT: {pe.token} dir={pe.direction} signal_bar={pe.signal_bar} entry_bar={pe.entry_bar} global={global_bar}", file=sys.stderr)
         sig = all_signals.get(pe.strategy_id, {}).get(pe.token)
         if sig is None:
+            still_pending.append(pe)
             continue
 
         bm = bar_maps.get(pe.token)
         if bm is None:
+            still_pending.append(pe)
             continue
 
         local_bar = int(bm[global_bar])
         if local_bar == -1 or local_bar >= sig.n_bars:
-            still_pending.append(pe)  # token not available yet, keep waiting
+            still_pending.append(pe)
             continue
 
-        # Inject the entry signal for this bar
+        # Check trigger conditions (any one sufficient)
+        triggered = False
+
+        # Trigger 1: time delay expired
+        if pe.entry_bar > 0 and global_bar >= pe.entry_bar:
+            triggered = True
+
+        # Trigger 2: custom trigger function
+        if not triggered and pe.trigger_fn is not None:
+            close_val = float(sig.close[local_bar])
+            high_val = float(sig.high[local_bar]) if sig.high is not None else close_val
+            low_val = float(sig.low[local_bar]) if sig.low is not None else close_val
+            atr_val = float(sig.atr[local_bar]) if sig.atr is not None else close_val * 0.02
+            bars_since = global_bar - pe.signal_bar
+            try:
+                triggered = bool(pe.trigger_fn(close_val, high_val, low_val, atr_val, bars_since))
+            except Exception:
+                pass  # trigger failed, keep pending
+
+        # Trigger 3: armed price level crossed
+        if not triggered and sig.armed_levels is not None and local_bar < len(sig.armed_levels):
+            level = float(sig.armed_levels[local_bar])
+            if not np.isnan(level) and level > 0:
+                close_val = float(sig.close[local_bar])
+                high_val = float(sig.high[local_bar]) if sig.high is not None else close_val
+                low_val = float(sig.low[local_bar]) if sig.low is not None else close_val
+                if pe.direction == 1 and low_val <= level:  # long: price dipped to target
+                    triggered = True
+                elif pe.direction == -1 and high_val >= level:  # short: price rose to target
+                    triggered = True
+
+        if not triggered:
+            still_pending.append(pe)
+            continue
+
+        # Triggered — inject entry signal at current bar's price
         sig.entry_mask[local_bar] = True
         sig.direction[local_bar] = pe.direction
         if sig.conviction_score is not None and local_bar < len(sig.conviction_score):
             sig.conviction_score[local_bar] = pe.conviction
+        # Prevent re-arming: clear delay so _process_entries enters immediately
+        if sig.entry_delay is None:
+            sig.entry_delay = np.zeros(sig.n_bars, dtype=int)
+        if local_bar < len(sig.entry_delay):
+            sig.entry_delay[local_bar] = 0
+        if sig.armed_levels is not None and local_bar < len(sig.armed_levels):
+            sig.armed_levels[local_bar] = np.nan
 
     state.pending_entries = still_pending
 
@@ -979,13 +1025,18 @@ def _process_entries(
                                for pe in state.pending_entries)
 
         # Armed/delayed entry: per-bar delay from strategy, or global config fallback
+        # Also check armed_levels for price-triggered pending entries
         _delay = 0
         if sig.entry_delay is not None and 0 <= local_bar < len(sig.entry_delay):
             _delay = int(sig.entry_delay[local_bar])
         elif config.entry_delay_bars > 0:
             _delay = config.entry_delay_bars
 
-        if _delay > 0 and not _already_pending:
+        _has_armed_level = (sig.armed_levels is not None and 0 <= local_bar < len(sig.armed_levels)
+                            and not np.isnan(float(sig.armed_levels[local_bar]))
+                            and float(sig.armed_levels[local_bar]) > 0)
+
+        if (_delay > 0 or _has_armed_level) and not _already_pending:
             conv = 1.0
             if sig.conviction_score is not None and 0 <= local_bar < len(sig.conviction_score):
                 conv = float(sig.conviction_score[local_bar])
