@@ -79,12 +79,12 @@ def fetch_metric(symbol: str, endpoint: str, field: str,
 def fetch_token_daily_close(symbol: str, target_date: datetime) -> dict | None:
     """Fetch the daily close (last 5min bar) for one token.
 
-    OI + L/S: use the 23:55 bar (timestamp matches parquet directly)
-    Taker: use the 23:50 bar (1-bar offset: API 23:50 = parquet 23:55)
+    OI + L/S: use the 23:50 bar (timestamp matches parquet directly)
+    Taker: use the 23:45 bar (1-bar offset: API 23:45 = parquet 23:50)
     """
     # Time window: 23:45 to 00:05 of next day
     day_end = target_date.replace(hour=0, minute=5, second=0, microsecond=0) + timedelta(days=1)
-    day_start = target_date.replace(hour=23, minute=45, second=0, microsecond=0)
+    day_start = target_date.replace(hour=23, minute=40, second=0, microsecond=0)
     start_ms = int(day_start.timestamp() * 1000)
     end_ms = int(day_end.timestamp() * 1000)
 
@@ -98,7 +98,7 @@ def fetch_token_daily_close(symbol: str, target_date: datetime) -> dict | None:
         if r.ok and r.json():
             for row in r.json():
                 dt = datetime.fromtimestamp(int(row["timestamp"]) / 1000, tz=timezone.utc)
-                if dt.hour == 23 and dt.minute == 55:
+                if dt.hour == 23 and dt.minute == 50:
                     oi_val = float(row["sumOpenInterest"])
                     oi_value = float(row["sumOpenInterestValue"])
                     oi_ts = row["timestamp"]
@@ -123,7 +123,7 @@ def fetch_token_daily_close(symbol: str, target_date: datetime) -> dict | None:
         if r.ok and r.json():
             for row in r.json():
                 dt = datetime.fromtimestamp(int(row["timestamp"]) / 1000, tz=timezone.utc)
-                if dt.hour == 23 and dt.minute == 55:
+                if dt.hour == 23 and dt.minute == 50:
                     ls_val = float(row["longShortRatio"])
                     ls_count = float(row["longAccount"]) + float(row["shortAccount"])
                     break
@@ -146,7 +146,7 @@ def fetch_token_daily_close(symbol: str, target_date: datetime) -> dict | None:
         if r.ok and r.json():
             for row in r.json():
                 dt = datetime.fromtimestamp(int(row["timestamp"]) / 1000, tz=timezone.utc)
-                if dt.hour == 23 and dt.minute == 50:  # offset: API 23:50 = parquet 23:55
+                if dt.hour == 23 and dt.minute == 45:  # offset: API 23:50 = parquet 23:55
                     taker_val = float(row["buySellRatio"])
                     break
             if taker_val is None:  # fallback: second-to-last bar
