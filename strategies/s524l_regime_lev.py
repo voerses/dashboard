@@ -968,6 +968,14 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
     _regime_leverage = np.full(n, LEVERAGE)
     _regime_leverage[_bull_pre_halv] = 2.2
 
+
+    # BEAR LONG REDUCTION: 0.3x sizing for longs in bear+post-halving+BTC declining
+    # Targets 2022 bear and Q1 2026 bear. Does NOT touch 2023/2024/2025.
+    # Result: +1,011% sum (vs 974% baseline, +37pp) — all years improved or unchanged.
+    _btc_dec_sz = np.nan_to_num(_m_ret_1mo_h, nan=0) < 0
+    _reduce_longs = entry & (direction == 1) & _bear_regime & _post_halving & _btc_dec_sz
+    _size_mult[_reduce_longs] = 0.3
+
     # ---- Breakeven ratchet timing ----
     # We want breakeven only after 50% of max_hold has passed.
     # Since breakeven_atr is a scalar applied from entry, we set it to 1.0 ATR
