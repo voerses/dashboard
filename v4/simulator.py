@@ -667,11 +667,18 @@ def _process_pending_entries(
             still_pending.append(pe)
             continue
 
-        # Triggered — inject entry signal at current bar's price
+        # Triggered — inject entry signal
         sig.entry_mask[local_bar] = True
         sig.direction[local_bar] = pe.direction
         if sig.conviction_score is not None and local_bar < len(sig.conviction_score):
             sig.conviction_score[local_bar] = pe.conviction
+        # Set entry_limit_price to armed level for precise fill at target price
+        if sig.armed_levels is not None and local_bar < len(sig.armed_levels):
+            armed_price = float(sig.armed_levels[local_bar])
+            if not np.isnan(armed_price) and armed_price > 0:
+                if sig.entry_limit_price is None:
+                    sig.entry_limit_price = np.full(sig.n_bars, np.nan)
+                sig.entry_limit_price[local_bar] = armed_price
         # Prevent re-arming: clear delay on THIS bar so _process_entries enters immediately.
         # Preserve config.entry_delay_bars for future organic signals on this token.
         if sig.entry_delay is None:
