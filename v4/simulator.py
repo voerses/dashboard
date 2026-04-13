@@ -613,6 +613,8 @@ def _process_pending_entries(
             continue
 
         # Mature — inject entry signal at current bar
+        # DEBUG: uncomment to trace
+        # DEBUG: import sys; print(f"PENDING CONVERT: {pe.token} dir={pe.direction} signal_bar={pe.signal_bar} entry_bar={pe.entry_bar} global={global_bar}", file=sys.stderr)
         sig = all_signals.get(pe.strategy_id, {}).get(pe.token)
         if sig is None:
             continue
@@ -996,6 +998,7 @@ def _process_entries(
                 conviction=conv,
             ))
             continue  # slot reserved, skip immediate entry
+        # (debug: arming happened above if _delay > 0)
 
         # Compute sizing
         portfolio_eq = state.portfolio_equity
@@ -1619,7 +1622,7 @@ def simulate_portfolio(
     for global_bar in range(n_bars):
         _process_exits(state, all_signals, bar_maps, global_bar, config, strategy_specs=strategy_specs)
         _process_margin_calls(state, all_signals, bar_maps, global_bar, config)
-        if config.entry_delay_bars > 0:
+        if state.pending_entries:  # process pending whether from config or per-bar delay
             _process_pending_entries(state, all_signals, bar_maps, global_bar, config)
         _process_entries(state, all_signals, strategy_specs, bar_maps, global_bar, config, rng)
         _record_equity_snapshot(state, all_signals, bar_maps, global_bar, unified_ts[global_bar])
