@@ -96,6 +96,8 @@ class TokenSignals:
     # Unlike entry_limit_price (set on cross bars), armed_levels are set on PRE-cross bars
     armed_levels: Optional[np.ndarray] = None     # float64, NaN = not armed
     armed_direction: Optional[np.ndarray] = None  # int8, 0 = not armed, 1 = long, -1 = short
+    # Per-bar entry delay (None = use config default, 0 = immediate)
+    entry_delay: Optional[np.ndarray] = None      # int, bars to wait before entering
     # Combined strategy (spot+perp)
     is_combined: bool = False
     secondary_entry_mask: Optional[np.ndarray] = None
@@ -567,6 +569,9 @@ def precompute_strategy_signals(
             sr_breakeven_atr = float(getattr(sr, 'breakeven_atr', 0.0))
             sr_chandelier_lookback = int(getattr(sr, 'chandelier_lookback', 0))
             sr_regime_exit_min_bars = int(getattr(sr, 'regime_exit_min_bars', 6))
+            sr_entry_delay = getattr(sr, 'entry_delay', None)
+            if sr_entry_delay is not None:
+                sr_entry_delay = sr_entry_delay[:n_safe].copy()
             sr_convex_bar_thresholds = tuple(getattr(sr, 'convex_bar_thresholds', (48, 12)))
             sr_convex_multipliers = tuple(getattr(sr, 'convex_multipliers', (2.0, 1.5, 0.3)))
             sr_bear_target_mult = float(getattr(sr, 'bear_target_mult', 0.0))
@@ -730,6 +735,7 @@ def precompute_strategy_signals(
                 entry_limit_price=entry_limit,
                 armed_levels=armed_lvl,
                 armed_direction=armed_dir,
+                entry_delay=sr_entry_delay,
                 is_combined=ts_is_combined,
                 secondary_entry_mask=sec_entry,
                 secondary_direction=sec_dir,

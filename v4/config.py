@@ -296,6 +296,12 @@ class PortfolioConfig:
     raw_max_positions: int = 500
     # Maximum rows to keep in hist_cache per token (0 = unlimited for backtest)
     cache_max_rows: int = 0
+    # Delayed/armed entry: signal fires on bar B, actual entry on bar B + entry_delay_bars.
+    # Slot is reserved (counts toward max_positions) during the delay.
+    # 0 = current behavior (enter immediately). Typical: 24-168 (1-7 days).
+    entry_delay_bars: int = 0
+    # Maximum bars a pending entry can wait before expiring (safety valve).
+    max_pending_bars: int = 240  # 10 days default
 
     def __post_init__(self):
         if self.true_walk_forward and self.skip_walk_forward:

@@ -112,6 +112,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--end-date", type=str, default=None,
                         help="Pin backtest end date (e.g. 2026-04-05) for reproducibility. "
                              "Default: use latest available data.")
+    parser.add_argument("--entry-delay", type=int, default=0,
+                        help="Armed entry delay in bars (0=immediate, 120=5d). "
+                             "Signal reserves slot, entry at delayed bar's price.")
     return parser.parse_args()
 
 
@@ -319,6 +322,7 @@ def main():
         raw_mode=args.raw,
         skip_walk_forward=args.skip_wf,
         max_sizing_equity=merged_portfolio.get('max_sizing_equity', None),
+        entry_delay_bars=args.entry_delay,
     )
 
     # Print which config came from the strategy module

@@ -85,6 +85,21 @@ class SignalDiagnostics:
 
 
 @dataclass
+class PendingEntry:
+    """A signal that has been armed but not yet executed.
+
+    Reserves a slot in max_positions during the delay period.
+    Converts to a real position at entry_bar using that bar's price.
+    """
+    strategy_id: str
+    token: str
+    signal_bar: int       # global bar when signal fired
+    entry_bar: int        # global bar when to actually enter
+    direction: int        # 1=long, -1=short
+    conviction: float     # frozen from signal bar
+
+
+@dataclass
 class SimulationState:
     """Mutable state for the simulation loop."""
     initial_capital: float
@@ -101,6 +116,17 @@ class SimulationState:
     last_known_atrs: dict = field(default_factory=dict)    # token -> last ATR value
     _slippage_models: dict = field(default_factory=dict)   # strategy_id -> SlippageModel
     max_equity_watermark: float = 0.0                      # peak MTM equity for DD scaling
+    pending_entries: list = field(default_factory=list)     # list[PendingEntry] — armed, slot-reserving
+
+    @property
+    def n_pending(self) -> int:
+        """Slots reserved by pending entries."""
+        return len(self.pending_entries)
+
+    @property
+    def effective_open(self) -> int:
+        """Open positions + pending entries = total slots consumed."""
+        return self.position_manager.total_open() + self.n_pending
 
     @property
     def portfolio_equity(self) -> float:
@@ -556,6 +582,59 @@ def _dd_size_mult(state: SimulationState, dd_scaling: tuple, total_unrealized: f
     return mult
 
 
+def _process_pending_entries(
+    state: SimulationState,
+    all_signals: dict[str, dict[str, TokenSignals]],
+    bar_maps: dict[str, np.ndarray],
+    global_bar: int,
+    config: PortfolioConfig,
+):
+    """Convert mature pending entries into real entry signals at current bar's price.
+
+    When a pending entry's delay expires (global_bar >= entry_bar), inject it as
+    an entry signal on this bar by setting entry_mask/direction/conviction on the
+    TokenSignals. The normal _process_entries() will then pick it up and open
+    the position at today's price with the original conviction.
+
+    Pending entries that exceed max_pending_bars are expired and removed.
+    """
+    if not state.pending_entries:
+        return
+
+    still_pending = []
+    for pe in state.pending_entries:
+        # Expired?
+        if global_bar > pe.signal_bar + config.max_pending_bars:
+            continue  # drop expired pending
+
+        # Not yet mature?
+        if global_bar < pe.entry_bar:
+            still_pending.append(pe)
+            continue
+
+        # Mature — inject entry signal at current bar
+        sig = all_signals.get(pe.strategy_id, {}).get(pe.token)
+        if sig is None:
+            continue
+
+        bm = bar_maps.get(pe.token)
+        if bm is None:
+            continue
+
+        local_bar = int(bm[global_bar])
+        if local_bar == -1 or local_bar >= sig.n_bars:
+            still_pending.append(pe)  # token not available yet, keep waiting
+            continue
+
+        # Inject the entry signal for this bar
+        sig.entry_mask[local_bar] = True
+        sig.direction[local_bar] = pe.direction
+        if sig.conviction_score is not None and local_bar < len(sig.conviction_score):
+            sig.conviction_score[local_bar] = pe.conviction
+
+    state.pending_entries = still_pending
+
+
 def _process_entries(
     state: SimulationState,
     all_signals: dict[str, dict[str, TokenSignals]],
@@ -882,15 +961,41 @@ def _process_entries(
                     state.rejections.pump_funding += 1
                     continue
 
-        # Constraint 1: portfolio position limit
-        if state.position_manager.total_open() >= config.max_portfolio_positions:
+        # Constraint 1: portfolio position limit (includes pending/armed entries)
+        if state.effective_open >= config.max_portfolio_positions:
             state.rejections.portfolio_limit += 1
             continue
 
-        # Constraint 2: per-strategy position limit
-        if state.position_manager.count_for_strategy(strategy_id) >= spec.max_positions:
+        # Constraint 2: per-strategy position limit (includes pending for this strategy)
+        n_pending_for_strat = sum(1 for pe in state.pending_entries if pe.strategy_id == strategy_id)
+        if state.position_manager.count_for_strategy(strategy_id) + n_pending_for_strat >= spec.max_positions:
             state.rejections.strategy_limit += 1
             continue
+
+        # Check if already pending for this token+strategy (prevent double-arming)
+        _already_pending = any(pe.strategy_id == strategy_id and pe.token == token
+                               for pe in state.pending_entries)
+
+        # Armed/delayed entry: per-bar delay from strategy, or global config fallback
+        _delay = 0
+        if sig.entry_delay is not None and 0 <= local_bar < len(sig.entry_delay):
+            _delay = int(sig.entry_delay[local_bar])
+        elif config.entry_delay_bars > 0:
+            _delay = config.entry_delay_bars
+
+        if _delay > 0 and not _already_pending:
+            conv = 1.0
+            if sig.conviction_score is not None and 0 <= local_bar < len(sig.conviction_score):
+                conv = float(sig.conviction_score[local_bar])
+            state.pending_entries.append(PendingEntry(
+                strategy_id=strategy_id,
+                token=token,
+                signal_bar=global_bar,
+                entry_bar=global_bar + _delay,
+                direction=int(sig.direction[local_bar]),
+                conviction=conv,
+            ))
+            continue  # slot reserved, skip immediate entry
 
         # Compute sizing
         portfolio_eq = state.portfolio_equity
@@ -1514,6 +1619,8 @@ def simulate_portfolio(
     for global_bar in range(n_bars):
         _process_exits(state, all_signals, bar_maps, global_bar, config, strategy_specs=strategy_specs)
         _process_margin_calls(state, all_signals, bar_maps, global_bar, config)
+        if config.entry_delay_bars > 0:
+            _process_pending_entries(state, all_signals, bar_maps, global_bar, config)
         _process_entries(state, all_signals, strategy_specs, bar_maps, global_bar, config, rng)
         _record_equity_snapshot(state, all_signals, bar_maps, global_bar, unified_ts[global_bar])
 

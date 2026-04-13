@@ -471,6 +471,12 @@ class StrategyResult:
     armed_levels: Optional[np.ndarray] = None     # float64, NaN = not armed
     armed_direction: Optional[np.ndarray] = None  # int8, 0 = not armed, 1 = long, -1 = short
 
+    # Per-bar entry delay: how many bars to wait before entering (0 = immediate).
+    # Strategy sets this per-bar to control which trades are delayed.
+    # e.g., delay longs by 120 bars (5d) but enter shorts immediately.
+    # None = use config.entry_delay_bars for all entries (backwards compatible).
+    entry_delay: Optional[np.ndarray] = None      # int, 0 = immediate entry
+
     # Regime-conditional target: tighter TP in DOWNTREND regime.
     bear_target_mult: float = 0.0
     # Regime-conditional max hold: shorter hold in DOWNTREND (0 = use max_hold)
