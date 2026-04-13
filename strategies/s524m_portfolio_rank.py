@@ -322,12 +322,41 @@ def _compute_reversal_regime(idx_1h: pd.DatetimeIndex, btc_1h: pd.Series) -> np.
         idx_d = btc_daily.index
         nd = len(close)
 
-        # Load alt breadth
-        regime_df = pd.read_parquet(_REGIME_SIGNALS_PATH)
-        if regime_df.index.tz is not None:
-            regime_df.index = regime_df.index.tz_localize(None)
-        ab50 = regime_df["alt_breadth_50d"].reindex(idx_d, method="ffill").values
-        ab20 = regime_df["alt_breadth_20d"].reindex(idx_d, method="ffill").values
+        # Compute alt breadth LIVE from token contexts (no external parquet needed)
+        # alt_breadth_50d = % of tokens with price > 50-day SMA
+        # alt_breadth_20d = % of tokens with price > 20-day SMA
+        if not hasattr(_compute_reversal_regime, '_ab_cache'):
+            _compute_reversal_regime._ab_cache = {}
+        _ab_key = (len(idx_d), str(idx_d[0]), str(idx_d[-1]))
+        if _ab_key not in _compute_reversal_regime._ab_cache:
+            _ab50_count = np.zeros(nd, dtype=np.float64)
+            _ab20_count = np.zeros(nd, dtype=np.float64)
+            _ab_total = np.zeros(nd, dtype=np.float64)
+            for _tok, _tok_ctx_pair in _all_contexts.items():
+                if _tok == 'BTC':
+                    continue  # exclude BTC from alt breadth
+                _tok_ctx = _tok_ctx_pair[1] if isinstance(_tok_ctx_pair, tuple) and _tok_ctx_pair[1] else (_tok_ctx_pair if not isinstance(_tok_ctx_pair, tuple) else _tok_ctx_pair[0])
+                if _tok_ctx is None:
+                    continue
+                try:
+                    _tc = _tok_ctx.ind_1h['close']
+                    _td = pd.Series(_tc, index=_tok_ctx.idx_1h).resample('1D').last().reindex(idx_d, method='ffill')
+                    _tv = _td.values
+                    _sma50 = pd.Series(_tv).rolling(50, min_periods=25).mean().values
+                    _sma20 = pd.Series(_tv).rolling(20, min_periods=10).mean().values
+                    for _di in range(nd):
+                        if not np.isnan(_tv[_di]) and _tv[_di] > 0:
+                            _ab_total[_di] += 1
+                            if not np.isnan(_sma50[_di]) and _tv[_di] > _sma50[_di]:
+                                _ab50_count[_di] += 1
+                            if not np.isnan(_sma20[_di]) and _tv[_di] > _sma20[_di]:
+                                _ab20_count[_di] += 1
+                except:
+                    continue
+            _ab50_pct = np.where(_ab_total > 0, _ab50_count / _ab_total, 0.5)
+            _ab20_pct = np.where(_ab_total > 0, _ab20_count / _ab_total, 0.5)
+            _compute_reversal_regime._ab_cache[_ab_key] = (_ab50_pct, _ab20_pct)
+        ab50, ab20 = _compute_reversal_regime._ab_cache[_ab_key]
 
         # === Daily signals ===
         low_365d = pd.Series(close, index=idx_d).rolling(365, min_periods=90).min().values
@@ -988,12 +1017,18 @@ def _compute_token_signal(ctx) -> StrategyResult:
 
 MAX_ENTRIES_PER_BAR = 5  # max new entries per day_change bar
 
+# Module-level ref for all contexts (set by portfolio wrapper, used by _compute_reversal_regime)
+_all_contexts = {}
+
 def strategy(contexts: dict) -> dict:
     """Portfolio strategy: compute all token signals, then rank and filter.
-    
+
     Instead of letting the engine rank by conviction (path-dependent),
     this function sees ALL tokens and selects the best trades per bar.
     """
+    global _all_contexts
+    _all_contexts = contexts  # make available to _compute_reversal_regime for alt breadth
+
     # Step 1: Compute per-token signals using the existing logic
     token_results = {}
     for token in sorted(contexts.keys()):
