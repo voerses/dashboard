@@ -1029,6 +1029,11 @@ def strategy(contexts: dict) -> dict:
     global _all_contexts
     _all_contexts = contexts  # make available to _compute_reversal_regime for alt breadth
 
+    # Track tokens with recent extreme moves (proxy for liquidation events)
+    if not hasattr(strategy, '_liq_history'):
+        strategy._liq_history = {}
+    _liq_history = strategy._liq_history
+    
     # Step 1: Compute per-token signals using the existing logic
     token_results = {}
     for token in sorted(contexts.keys()):
@@ -1077,12 +1082,27 @@ def strategy(contexts: dict) -> dict:
     # Step 3: For each day_change bar, collect all tokens signaling entry,
     # rank them, and keep only top-N
     for bar in day_change_bars:
-        # Collect candidates at this bar
+        # Detect tokens with extreme recent moves (>35% in 7d = likely liq event)
+        for token in token_results:
+            ctx_pair = contexts.get(token)
+            ctx_t = ctx_pair[1] if isinstance(ctx_pair, tuple) and ctx_pair[1] else (ctx_pair if not isinstance(ctx_pair, tuple) else ctx_pair[0])
+            if ctx_t is not None and bar >= 168:
+                _tc = ctx_t.ind_1h['close']
+                if bar < len(_tc) and _tc[bar] > 0 and _tc[bar-168] > 0:
+                    if abs(_tc[bar] / _tc[bar-168] - 1) > 0.35:
+                        _liq_history[token] = bar
+
+        # Collect candidates with anti-liq penalty
         candidates = []
         for token, sr in token_results.items():
             if bar < len(sr.entry_mask) and sr.entry_mask[bar]:
                 direction = int(sr.direction[bar])
                 conviction = float(sr.conviction_score[bar]) if sr.conviction_score is not None and bar < len(sr.conviction_score) else 0.5
+                
+                # Penalize re-entry on tokens with recent extreme moves
+                if token in _liq_history and (bar - _liq_history[token]) < 30 * 24:
+                    conviction *= 0.1
+                
                 candidates.append((token, direction, conviction, bar))
         
         if len(candidates) <= MAX_ENTRIES_PER_BAR:
