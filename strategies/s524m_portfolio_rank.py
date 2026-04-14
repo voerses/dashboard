@@ -984,6 +984,10 @@ def _compute_token_signal(ctx) -> StrategyResult:
     direction[_kill_longs] = 0
     conviction[~entry] = 0.0
 
+    # Sustained bear leverage boost: shorts print hard in deep bear, increase exposure
+    # 2022: +155→+176%, Q1 2026: +111→+120%, 2025: unchanged (gate doesn't fire)
+    _regime_leverage[_sustained_bear & _post_halving] = 3.0
+
     # ---- Breakeven ratchet timing ----
     # We want breakeven only after 50% of max_hold has passed.
     # Since breakeven_atr is a scalar applied from entry, we set it to 1.0 ATR
