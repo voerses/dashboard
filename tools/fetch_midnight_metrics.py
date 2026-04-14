@@ -180,11 +180,13 @@ def append_to_parquet(symbol: str, row: dict):
     """Append one row to the per-token 5min parquet."""
     fivemin_path = FIVEMIN_DIR / f"{symbol}_5min.parquet"
     new_df = pd.DataFrame([row])
-    new_df["create_time"] = pd.to_datetime(new_df["create_time"])
+    new_df["create_time"] = pd.to_datetime(new_df["create_time"]).dt.tz_localize(None)
 
     if fivemin_path.exists():
         existing = pd.read_parquet(fivemin_path)
         existing["create_time"] = pd.to_datetime(existing["create_time"])
+        if existing["create_time"].dt.tz is not None:
+            existing["create_time"] = existing["create_time"].dt.tz_localize(None)
         # Deduplicate
         combined = pd.concat([existing, new_df], ignore_index=True)
         combined = combined.drop_duplicates(subset=["create_time"], keep="last")
