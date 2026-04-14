@@ -213,6 +213,11 @@ class StrategySpec:
     # Example: ((0.05, 0.75), (0.10, 0.50), (0.15, 0.25), (0.20, 0.0))
     # Empty tuple = disabled (default, no behavior change).
     dd_scaling: tuple = ()
+    # Optional entry filter: strategy-defined function called before each entry.
+    # Receives (token, direction, closed_trades_for_token) and returns conviction
+    # multiplier (1.0=allow, 0.0=block, 0.5=demote). None=disabled (default).
+    # Signature: Callable[[str, int, list[ClosedTrade]], float]
+    entry_filter_fn: object = None
 
     def __post_init__(self):
         if isinstance(self.max_concurrent_per_token, bool):

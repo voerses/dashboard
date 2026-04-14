@@ -163,6 +163,7 @@ def run_backtest(
             max_concurrent_per_token=mod_attrs.get('max_concurrent_per_token', 1),
             dd_scaling=mod_attrs.get('dd_scaling', []),
             entry_resolution=pconf.get('entry_resolution', 0),
+            entry_filter_fn=pconf.get('entry_filter_fn', None),
         )
         # Cap per-strategy positions at portfolio max
         spec.max_positions = min(spec.max_positions, config.max_portfolio_positions)

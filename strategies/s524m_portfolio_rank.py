@@ -93,9 +93,36 @@ STRATEGY_TYPE = 'portfolio'
 MARKET = MarketType.PERP
 
 # -- Portfolio config for v4 backtest harness --
+def _liq_filter(token: str, direction: int, closed_trades: list) -> float:
+    """Block re-entry after 2+ consecutive liquidations on same token+direction.
+    
+    Returns conviction multiplier: 1.0=allow, 0.0=block.
+    """
+    # Get recent trades for this token+direction (last 30 days = ~720 bars)
+    same_dir = [t for t in closed_trades if t.direction == direction]
+    if len(same_dir) < 2:
+        return 1.0  # not enough history
+    
+    # Check last N trades: how many consecutive liquidations?
+    recent = same_dir[-5:]  # last 5 same-direction trades
+    streak = 0
+    for t in reversed(recent):
+        if t.exit_reason == 'liquidation':
+            streak += 1
+        else:
+            break
+    
+    if streak >= 3:
+        return 0.0   # 3+ consecutive liqs: block completely
+    elif streak >= 2:
+        return 0.1   # 2 consecutive liqs: strong demotion
+    return 1.0
+
+
 PORTFOLIO_CONFIG = {
     "conviction_mode": "ranked",
     "max_positions": 50,
+    "entry_filter_fn": _liq_filter,
 }
 
 

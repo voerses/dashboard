@@ -990,6 +990,20 @@ def _process_entries(
         # END RAW MODE — normal path below
         # =====================================================================
 
+        # Strategy-defined entry filter: conviction adjustment based on trade history
+        if spec.entry_filter_fn is not None:
+            _token_trades = [t for t in state.position_manager.closed_trades
+                             if t.token == token]
+            _direction = int(sig.direction[local_bar])
+            try:
+                _mult = float(spec.entry_filter_fn(token, _direction, _token_trades))
+                if _mult <= 0.0:
+                    continue  # strategy says block
+                if _mult < 1.0 and sig.conviction_score is not None and local_bar < len(sig.conviction_score):
+                    sig.conviction_score[local_bar] *= _mult
+            except Exception:
+                pass  # filter error, allow entry
+
         # Constraint 0: minimum conviction threshold
         if config.min_conviction_threshold > 0:
             conv = 1.0
