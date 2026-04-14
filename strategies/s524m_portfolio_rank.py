@@ -93,36 +93,36 @@ STRATEGY_TYPE = 'portfolio'
 MARKET = MarketType.PERP
 
 # -- Portfolio config for v4 backtest harness --
-def _liq_filter(token: str, direction: int, closed_trades: list) -> float:
-    """Block re-entry after 2+ consecutive liquidations on same token+direction.
+# Module-level bear regime flag (set by strategy() wrapper, read by filter)
+_bear_regime_bars = None
+
+def _grace_period_filter(token: str, direction: int, closed_trades: list, current_bar: int = 0) -> float:
+    """Block re-entry within 7d of liquidation — BEAR REGIME ONLY.
     
-    Returns conviction multiplier: 1.0=allow, 0.0=block.
+    In bear regimes, serial liquidations cluster (STRK 4x, PIPPIN 5x).
+    In bull, liquidation then re-entry is often correct (recovery trade).
+    
+    Uses module-level _bear_regime_bars set by the portfolio wrapper.
     """
-    # Get recent trades for this token+direction (last 30 days = ~720 bars)
-    same_dir = [t for t in closed_trades if t.direction == direction]
-    if len(same_dir) < 2:
-        return 1.0  # not enough history
+    if not closed_trades:
+        return 1.0
     
-    # Check last N trades: how many consecutive liquidations?
-    recent = same_dir[-5:]  # last 5 same-direction trades
-    streak = 0
-    for t in reversed(recent):
-        if t.exit_reason == 'liquidation':
-            streak += 1
-        else:
-            break
+    # Only apply in bear regime
+    global _bear_regime_bars
+    if _bear_regime_bars is not None and current_bar < len(_bear_regime_bars):
+        if not _bear_regime_bars[current_bar]:
+            return 1.0  # bull regime: allow all re-entries
     
-    if streak >= 3:
-        return 0.0   # 3+ consecutive liqs: block completely
-    elif streak >= 2:
-        return 0.1   # 2 consecutive liqs: strong demotion
+    last = closed_trades[-1]
+    if last.hold_bars < 168 and last.pnl < 0 and last.exit_reason == 'liquidation':
+        return 0.0
     return 1.0
 
 
 PORTFOLIO_CONFIG = {
     "conviction_mode": "ranked",
     "max_positions": 50,
-    "entry_filter_fn": _liq_filter,
+    "entry_filter_fn": _grace_period_filter,
 }
 
 
@@ -1064,6 +1064,21 @@ def strategy(contexts: dict) -> dict:
     if not hasattr(strategy, '_liq_history'):
         strategy._liq_history = {}
     _liq_history = strategy._liq_history
+    
+    # Compute bear regime for the filter function
+    global _bear_regime_bars
+    _btc_ctx = None
+    for _tok in contexts:
+        _pair = contexts[_tok]
+        _ctx = _pair[1] if isinstance(_pair, tuple) and _pair[1] else (_pair if not isinstance(_pair, tuple) else _pair[0])
+        if _ctx is not None and hasattr(_ctx, 'ticker') and _ctx.ticker == 'BTC':
+            _btc_ctx = _ctx
+            break
+    if _btc_ctx is not None:
+        import pandas as _pd
+        _btc_c = _btc_ctx.ind_1h['close']
+        _sma200 = _pd.Series(_btc_c, index=_btc_ctx.idx_1h).rolling(200*24, min_periods=100*24).mean().values
+        _bear_regime_bars = _btc_c < _sma200
     
     # Step 1: Compute per-token signals using the existing logic
     token_results = {}
