@@ -1,15 +1,13 @@
 """
-S524m — Portfolio-Ranked Signal (based on s524l)
-=================================================
+S524n — Mask Without Replace (based on s524m)
+==============================================
 
-Same signal computation as s524l but with PORTFOLIO-LEVEL trade selection.
-The strategy sees ALL tokens simultaneously and only emits entry=True for
-the top-N trades per day_change bar. This eliminates engine-level ranking
-and its associated path dependence.
+Identical to s524m except entry_filter_fn returns -1.0 instead of 0.0.
+Engine interprets < 0 as "skip AND don't fill this slot with next candidate."
 
 BACKTEST CLI:
   /workspace/venv/bin/python v4/portfolio_backtest.py \
-      --strategy s524m_portfolio_rank --months 12 --capital 100000 \
+      --strategy s524n_mask_no_replace --months 12 --capital 100000 \
       --market perp --conviction-mode ranked \
       --max-portfolio-positions 40 --concentration 0.30 \
       --skip-wf --adv-cap 0.005 --end-date 2026-04-05T16:00:00
@@ -91,12 +89,38 @@ WARMUP = 400                  # skip first 400 bars (~17 days, covers 30d z-scor
 # -- Market --
 STRATEGY_TYPE = 'portfolio'
 MARKET = MarketType.PERP
-REQUIRED_PLUGINS = []  # strategy computes its own positioning from 5min parquets
 
 # -- Portfolio config for v4 backtest harness --
+# Module-level bear regime flag (set by strategy() wrapper, read by filter)
+_bear_regime_bars = None
+
+def _grace_period_filter(token: str, direction: int, closed_trades: list, current_bar: int = 0) -> float:
+    """Block re-entry within 7d of liquidation — BEAR REGIME ONLY.
+    
+    In bear regimes, serial liquidations cluster (STRK 4x, PIPPIN 5x).
+    In bull, liquidation then re-entry is often correct (recovery trade).
+    
+    Uses module-level _bear_regime_bars set by the portfolio wrapper.
+    """
+    if not closed_trades:
+        return 1.0
+    
+    # Only apply in bear regime
+    global _bear_regime_bars
+    if _bear_regime_bars is not None and current_bar < len(_bear_regime_bars):
+        if not _bear_regime_bars[current_bar]:
+            return 1.0  # bull regime: allow all re-entries
+    
+    last = closed_trades[-1]
+    if last.hold_bars < 168 and last.pnl < 0 and last.exit_reason == 'liquidation':
+        return -1.0  # mask without replacement (engine skips AND holds slot empty)
+    return 1.0
+
+
 PORTFOLIO_CONFIG = {
     "conviction_mode": "ranked",
     "max_positions": 50,
+    "entry_filter_fn": _grace_period_filter,
 }
 
 
@@ -1034,6 +1058,26 @@ def strategy(contexts: dict) -> dict:
     global _all_contexts
     _all_contexts = contexts  # make available to _compute_reversal_regime for alt breadth
 
+    # Track tokens with recent extreme moves (proxy for liquidation events)
+    if not hasattr(strategy, '_liq_history'):
+        strategy._liq_history = {}
+    _liq_history = strategy._liq_history
+    
+    # Compute bear regime for the filter function
+    global _bear_regime_bars
+    _btc_ctx = None
+    for _tok in contexts:
+        _pair = contexts[_tok]
+        _ctx = _pair[1] if isinstance(_pair, tuple) and _pair[1] else (_pair if not isinstance(_pair, tuple) else _pair[0])
+        if _ctx is not None and hasattr(_ctx, 'ticker') and _ctx.ticker == 'BTC':
+            _btc_ctx = _ctx
+            break
+    if _btc_ctx is not None:
+        import pandas as _pd
+        _btc_c = _btc_ctx.ind_1h['close']
+        _sma200 = _pd.Series(_btc_c, index=_btc_ctx.idx_1h).rolling(200*24, min_periods=100*24).mean().values
+        _bear_regime_bars = _btc_c < _sma200
+    
     # Step 1: Compute per-token signals using the existing logic
     token_results = {}
     for token in sorted(contexts.keys()):
@@ -1082,12 +1126,27 @@ def strategy(contexts: dict) -> dict:
     # Step 3: For each day_change bar, collect all tokens signaling entry,
     # rank them, and keep only top-N
     for bar in day_change_bars:
-        # Collect candidates
+        # Detect tokens with extreme recent moves (>35% in 7d = likely liq event)
+        for token in token_results:
+            ctx_pair = contexts.get(token)
+            ctx_t = ctx_pair[1] if isinstance(ctx_pair, tuple) and ctx_pair[1] else (ctx_pair if not isinstance(ctx_pair, tuple) else ctx_pair[0])
+            if ctx_t is not None and bar >= 168:
+                _tc = ctx_t.ind_1h['close']
+                if bar < len(_tc) and _tc[bar] > 0 and _tc[bar-168] > 0:
+                    if abs(_tc[bar] / _tc[bar-168] - 1) > 0.35:
+                        _liq_history[token] = bar
+
+        # Collect candidates with anti-liq penalty
         candidates = []
         for token, sr in token_results.items():
             if bar < len(sr.entry_mask) and sr.entry_mask[bar]:
                 direction = int(sr.direction[bar])
                 conviction = float(sr.conviction_score[bar]) if sr.conviction_score is not None and bar < len(sr.conviction_score) else 0.5
+                
+                # Penalize re-entry on tokens with recent extreme moves
+                if token in _liq_history and (bar - _liq_history[token]) < 30 * 24:
+                    conviction *= 0.1
+                
                 candidates.append((token, direction, conviction, bar))
         
         if len(candidates) <= MAX_ENTRIES_PER_BAR:

@@ -1,5 +1,5 @@
 """
-S524m — Portfolio-Ranked Signal (based on s524l)
+S524o — Grace Replace (6 candidates + filter) (no liq filter, no conviction penalty)
 =================================================
 
 Same signal computation as s524l but with PORTFOLIO-LEVEL trade selection.
@@ -9,7 +9,7 @@ and its associated path dependence.
 
 BACKTEST CLI:
   /workspace/venv/bin/python v4/portfolio_backtest.py \
-      --strategy s524m_portfolio_rank --months 12 --capital 100000 \
+      --strategy s524q_clean_baseline --months 12 --capital 100000 \
       --market perp --conviction-mode ranked \
       --max-portfolio-positions 40 --concentration 0.30 \
       --skip-wf --adv-cap 0.005 --end-date 2026-04-05T16:00:00
@@ -93,10 +93,26 @@ STRATEGY_TYPE = 'portfolio'
 MARKET = MarketType.PERP
 REQUIRED_PLUGINS = []  # strategy computes its own positioning from 5min parquets
 
+# -- Grace period filter --
+GRACE_PERIOD_BARS = 7 * 24  # 7 days
+
+def _grace_period_filter(token: str, direction: int, closed_trades: list, current_bar: int = 0) -> float:
+    """Block re-entry after liquidation — slot available for next candidate."""
+    if not closed_trades:
+        return 1.0
+    last = closed_trades[-1]
+    bars_since_exit = current_bar - last.exit_bar if last.exit_bar > 0 else GRACE_PERIOD_BARS + 1
+    if (bars_since_exit < GRACE_PERIOD_BARS
+            and last.pnl < 0
+            and last.exit_reason == 'liquidation'):
+        return 0.0  # block, let next candidate fill the slot
+    return 1.0
+
 # -- Portfolio config for v4 backtest harness --
 PORTFOLIO_CONFIG = {
     "conviction_mode": "ranked",
     "max_positions": 50,
+    "entry_filter_fn": _grace_period_filter,
 }
 
 
@@ -604,7 +620,7 @@ def _compute_token_signal(ctx) -> StrategyResult:
             min_hold=MIN_HOLD,
             max_hold=720,
             edge=0.0,
-            name='s524m_portfolio_rank',
+            name='s524q_clean_baseline',
             breakeven_atr=BREAKEVEN_ATR,
         )
 
@@ -1008,7 +1024,7 @@ def _compute_token_signal(ctx) -> StrategyResult:
         min_hold=MIN_HOLD,
         max_hold=token_max_hold,
         edge=base_edge,
-        name='s524m_portfolio_rank',
+        name='s524q_clean_baseline',
         breakeven_atr=BREAKEVEN_ATR,
         conviction_score=conviction,
         size_multiplier=_size_mult,
@@ -1020,7 +1036,7 @@ def _compute_token_signal(ctx) -> StrategyResult:
 # PORTFOLIO-LEVEL TRADE SELECTION
 # ======================================================================
 
-MAX_ENTRIES_PER_BAR = 5  # max new entries per day_change bar
+MAX_ENTRIES_PER_BAR = 6  # send 6 so engine can filter 1 and still fill 5  # max new entries per day_change bar
 
 # Module-level ref for all contexts (set by portfolio wrapper, used by _compute_reversal_regime)
 _all_contexts = {}

@@ -111,6 +111,7 @@ WARMUP = 400                  # skip first 400 bars (~17 days, covers 30d z-scor
 
 # -- Market --
 MARKET = MarketType.PERP
+REQUIRED_PLUGINS = []  # strategy computes its own positioning from 5min parquets
 
 # -- Portfolio config for v4 backtest harness --
 PORTFOLIO_CONFIG = {

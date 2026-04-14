@@ -781,6 +781,9 @@ def _process_entries(
     _resolved_sizing_cache: dict = {}
     _sizing_model_cache: dict = {}
 
+    # Slots masked by entry_filter_fn returning < 0 ("skip and don't replace")
+    _masked_slots = 0
+
     for idx in indices:
         strategy_id, token, sig = candidates[idx]
         spec = strategy_specs.get(strategy_id)
@@ -991,14 +994,18 @@ def _process_entries(
         # =====================================================================
 
         # Strategy-defined entry filter: conviction adjustment based on trade history
+        # Return values: >0 = allow (multiply conviction), 0 = block, <0 = mask without replace
         if spec.entry_filter_fn is not None:
             _token_trades = [t for t in state.position_manager.closed_trades
                              if t.token == token]
             _direction = int(sig.direction[local_bar])
             try:
                 _mult = float(spec.entry_filter_fn(token, _direction, _token_trades, global_bar))
-                if _mult <= 0.0:
-                    continue  # strategy says block
+                if _mult < 0.0:
+                    _masked_slots += 1  # consume a slot so next candidate can't fill it
+                    continue
+                if _mult == 0.0:
+                    continue  # strategy says block (slot available for next candidate)
                 if _mult < 1.0 and sig.conviction_score is not None and local_bar < len(sig.conviction_score):
                     sig.conviction_score[local_bar] *= _mult
             except Exception:
@@ -1031,8 +1038,8 @@ def _process_entries(
                     state.rejections.pump_funding += 1
                     continue
 
-        # Constraint 1: portfolio position limit (includes pending/armed entries)
-        if state.effective_open >= config.max_portfolio_positions:
+        # Constraint 1: portfolio position limit (includes pending/armed entries + masked slots)
+        if state.effective_open + _masked_slots >= config.max_portfolio_positions:
             state.rejections.portfolio_limit += 1
             continue
 

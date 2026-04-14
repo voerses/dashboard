@@ -1,17 +1,19 @@
 """
-S524m — Portfolio-Ranked Signal (based on s524l)
-=================================================
+S524p — Grace Period Mask (based on s524o)
+==========================================
 
-Same signal computation as s524l but with PORTFOLIO-LEVEL trade selection.
-The strategy sees ALL tokens simultaneously and only emits entry=True for
-the top-N trades per day_change bar. This eliminates engine-level ranking
-and its associated path dependence.
+Same as s524o but with engine-level grace period filter via entry_filter_fn.
+When a token's last trade was a liquidation (bear regime only, hold < 7d),
+returns -1.0 to the engine = "skip AND hold slot empty" (no replacement).
+
+This prevents serial liquidation chains (STRK 4x, PIPPIN 5x) without
+letting worse trades fill the blocked slot.
 
 BACKTEST CLI:
   /workspace/venv/bin/python v4/portfolio_backtest.py \
-      --strategy s524m_portfolio_rank --months 12 --capital 100000 \
+      --strategy s524p_grace_mask --months 12 --capital 100000 \
       --market perp --conviction-mode ranked \
-      --max-portfolio-positions 40 --concentration 0.30 \
+      --max-portfolio-positions 50 --concentration 0.30 \
       --skip-wf --adv-cap 0.005 --end-date 2026-04-05T16:00:00
 
 Status: RESEARCH
@@ -93,10 +95,36 @@ STRATEGY_TYPE = 'portfolio'
 MARKET = MarketType.PERP
 REQUIRED_PLUGINS = []  # strategy computes its own positioning from 5min parquets
 
+# -- Grace period filter: block re-entry after liquidation --
+GRACE_PERIOD_BARS = 7 * 24  # 7 days
+
+def _grace_period_filter(token: str, direction: int, closed_trades: list, current_bar: int = 0) -> float:
+    """Block re-entry after liquidation — mask without replacement.
+
+    Returns -1.0 so the engine holds the slot empty (no replacement trade).
+    No separate regime check — the strategy's own regime gating already controls
+    which signals fire. This only prevents serial liquidation chains.
+
+    Filter signature: (token, direction, closed_trades_for_token, global_bar) -> float
+    Engine contract: < 0 = mask without replace, 0 = block with replace, > 0 = allow
+    """
+    if not closed_trades:
+        return 1.0
+
+    last = closed_trades[-1]
+    bars_since_exit = current_bar - last.exit_bar if last.exit_bar > 0 else GRACE_PERIOD_BARS + 1
+    if (bars_since_exit < GRACE_PERIOD_BARS
+            and last.pnl < 0
+            and last.exit_reason == 'liquidation'):
+        return -1.0  # mask without replacement
+    return 1.0
+
+
 # -- Portfolio config for v4 backtest harness --
 PORTFOLIO_CONFIG = {
     "conviction_mode": "ranked",
     "max_positions": 50,
+    "entry_filter_fn": _grace_period_filter,
 }
 
 
@@ -604,7 +632,7 @@ def _compute_token_signal(ctx) -> StrategyResult:
             min_hold=MIN_HOLD,
             max_hold=720,
             edge=0.0,
-            name='s524m_portfolio_rank',
+            name='s524o_clean_baseline',
             breakeven_atr=BREAKEVEN_ATR,
         )
 
@@ -1008,7 +1036,7 @@ def _compute_token_signal(ctx) -> StrategyResult:
         min_hold=MIN_HOLD,
         max_hold=token_max_hold,
         edge=base_edge,
-        name='s524m_portfolio_rank',
+        name='s524o_clean_baseline',
         breakeven_atr=BREAKEVEN_ATR,
         conviction_score=conviction,
         size_multiplier=_size_mult,
@@ -1034,6 +1062,7 @@ def strategy(contexts: dict) -> dict:
     global _all_contexts
     _all_contexts = contexts  # make available to _compute_reversal_regime for alt breadth
 
+    # Compute bear regime for the grace period filter
     # Step 1: Compute per-token signals using the existing logic
     token_results = {}
     for token in sorted(contexts.keys()):

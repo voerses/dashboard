@@ -1,5 +1,5 @@
 """
-S524m — Portfolio-Ranked Signal (based on s524l)
+S524o — Clean Baseline (no liq filter, no conviction penalty)
 =================================================
 
 Same signal computation as s524l but with PORTFOLIO-LEVEL trade selection.
@@ -9,7 +9,7 @@ and its associated path dependence.
 
 BACKTEST CLI:
   /workspace/venv/bin/python v4/portfolio_backtest.py \
-      --strategy s524m_portfolio_rank --months 12 --capital 100000 \
+      --strategy s524o_clean_baseline --months 12 --capital 100000 \
       --market perp --conviction-mode ranked \
       --max-portfolio-positions 40 --concentration 0.30 \
       --skip-wf --adv-cap 0.005 --end-date 2026-04-05T16:00:00
@@ -604,7 +604,7 @@ def _compute_token_signal(ctx) -> StrategyResult:
             min_hold=MIN_HOLD,
             max_hold=720,
             edge=0.0,
-            name='s524m_portfolio_rank',
+            name='s524o_clean_baseline',
             breakeven_atr=BREAKEVEN_ATR,
         )
 
@@ -1008,7 +1008,7 @@ def _compute_token_signal(ctx) -> StrategyResult:
         min_hold=MIN_HOLD,
         max_hold=token_max_hold,
         edge=base_edge,
-        name='s524m_portfolio_rank',
+        name='s524o_clean_baseline',
         breakeven_atr=BREAKEVEN_ATR,
         conviction_score=conviction,
         size_multiplier=_size_mult,
