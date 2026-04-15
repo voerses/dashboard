@@ -431,6 +431,25 @@ class FundingCeilingHandler:
         return _NO_EXIT
 
 
+class CustomExitHandler:
+    """Strategy-defined exit callback. Runs before built-in exit checks."""
+
+    def __init__(self, exit_fn):
+        self._exit_fn = exit_fn
+
+    def update_state(self, pos: Position, bar: BarContext) -> None:
+        pass
+
+    def check_exit(self, pos: Position, bar: BarContext) -> ExitCheck:
+        try:
+            result = self._exit_fn(pos, bar)
+            if result is not None and getattr(result, 'should_exit', False):
+                return result
+        except Exception:
+            pass  # callback error, skip
+        return _NO_EXIT
+
+
 # ---------------------------------------------------------------------------
 # Factory: build the handler chain for a position
 # ---------------------------------------------------------------------------
@@ -471,12 +490,15 @@ def build_exit_chain(
     if pos.partial_tp_atr > 0.0 and state is not None and config is not None:
         handlers.append(PartialTPHandler(state, config))
 
+    # --- Custom exit check (strategy-defined, runs before built-in checks) ---
+    exit_fn = getattr(spec, 'exit_check_fn', None) if spec else None
+    if exit_fn is not None:
+        handlers.append(CustomExitHandler(exit_fn))
+
     # --- Exit check handlers (order = priority) ---
     cb_r = spec.circuit_breaker_r if spec else 0.0
     if cb_r > 0:
         handlers.append(CircuitBreakerHandler(cb_r))
-
-    handlers.append(StopLossHandler())
     handlers.append(TakeProfitHandler(sig))
     handlers.append(RegimeExitHandler())
 

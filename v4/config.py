@@ -218,6 +218,12 @@ class StrategySpec:
     # multiplier (1.0=allow, 0.0=block, 0.5=demote). None=disabled (default).
     # Signature: Callable[[str, int, list[ClosedTrade]], float]
     entry_filter_fn: object = None
+    # Optional custom exit check: strategy-defined function called each bar per open position.
+    # Receives (position, bar_context) and returns ExitCheck or None.
+    # None = no opinion (continue to next handler). ExitCheck(should_exit=True) = close.
+    # Runs AFTER state-mutating handlers (breakeven, trail) but BEFORE built-in exit checks.
+    # Signature: Callable[[Position, BarContext], Optional[ExitCheck]]
+    exit_check_fn: object = None
 
     def __post_init__(self):
         if isinstance(self.max_concurrent_per_token, bool):

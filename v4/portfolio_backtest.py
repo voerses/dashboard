@@ -164,6 +164,7 @@ def run_backtest(
             dd_scaling=mod_attrs.get('dd_scaling', []),
             entry_resolution=pconf.get('entry_resolution', 0),
             entry_filter_fn=pconf.get('entry_filter_fn', None),
+            exit_check_fn=pconf.get('exit_check_fn', None),
         )
         # Cap per-strategy positions at portfolio max
         spec.max_positions = min(spec.max_positions, config.max_portfolio_positions)
