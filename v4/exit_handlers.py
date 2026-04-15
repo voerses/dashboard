@@ -499,6 +499,8 @@ def build_exit_chain(
     cb_r = spec.circuit_breaker_r if spec else 0.0
     if cb_r > 0:
         handlers.append(CircuitBreakerHandler(cb_r))
+
+    handlers.append(StopLossHandler())
     handlers.append(TakeProfitHandler(sig))
     handlers.append(RegimeExitHandler())
 
