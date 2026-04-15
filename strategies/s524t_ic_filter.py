@@ -1,5 +1,5 @@
 """
-S524r — Time-Conditional Stop Tightening
+S524t — IC Filter (block high-IC overfitting tokens)
 =================================================
 
 Same signal computation as s524l but with PORTFOLIO-LEVEL trade selection.
@@ -9,7 +9,7 @@ and its associated path dependence.
 
 BACKTEST CLI:
   /workspace/venv/bin/python v4/portfolio_backtest.py \
-      --strategy s524r_time_stops --months 12 --capital 100000 \
+      --strategy s524t_ic_filter --months 12 --capital 100000 \
       --market perp --conviction-mode ranked \
       --max-portfolio-positions 40 --concentration 0.30 \
       --skip-wf --adv-cap 0.005 --end-date 2026-04-05T16:00:00
@@ -60,17 +60,20 @@ RSI_RESAMPLE = 4              # resample 1H close to 4H for RSI computation
 
 # -- Trade management --
 LEVERAGE = 2.6
-STOP_MULT = 5.0               # initial stop (wide, gives MR room)
-STOP_MULT_BEAR_LONG = 3.5     # tighter stop for longs in bear (MAE analysis: winners < 8%)
+STOP_MULT = 5.0
 TRAIL_MULT = 999.0            # effectively no trail — MR trades need room to breathe
 MIN_HOLD = 48                 # minimum 48h hold before exit allowed
 NO_STOP_BARS = 72             # 72h stop protection after entry
 BREAKEVEN_ATR = 3.0           # breakeven ratchet (activated after 50% of max_hold)
 
-# -- Token blacklist: 50 value-destroying tokens from L12M optimization sweep --
-# Tokens with negative PnL over 3+ trades at 2.5x leverage.
-# Includes large-caps where positioning signal is weak (BTC, SOL, DOT, etc.)
-TOKEN_BLACKLIST = set()  # v2: empty blacklist (proven: removing 50-token static BL adds +126pp in 2023)
+# -- Token blacklist --
+TOKEN_BLACKLIST = set()  # v2: empty blacklist
+
+# -- IC overfitting filter --
+# Serial liquidation tokens (STRK 5x/-$138K, PIPPIN 7x/-$90K, DEGO 4x/-$47K, BAN 4x/-$46K)
+# all have best_ic > 0.60. High IC on young tokens = overfitting to single volatility regime.
+# 0-liq tokens avg IC=0.467, 3+ liq tokens avg IC=0.625.
+IC_FILTER_THRESHOLD = 0.60
 _LEGACY_BLACKLIST = {
     "EIGEN", "BAN", "CETUS", "ONT", "BANANA", "DOT",
     "STRK", "SOL", "PIPPIN", "DEGO", "SUI", "NEIRO",
@@ -591,8 +594,12 @@ def _compute_token_signal(ctx) -> StrategyResult:
     ticker = ctx.ticker  # e.g. "BTC"
     symbol = ticker + "USDT"  # e.g. "BTCUSDT"
 
-    # Skip blacklisted tokens and tokens not in config
-    if ticker in TOKEN_BLACKLIST or ticker not in _token_configs:
+    # Skip blacklisted tokens, tokens not in config, and high-IC overfitting tokens
+    _skip = (ticker in TOKEN_BLACKLIST
+             or ticker not in _token_configs
+             or (IC_FILTER_THRESHOLD > 0
+                 and _token_configs.get(ticker, {}).get('best_ic', 0) > IC_FILTER_THRESHOLD))
+    if _skip:
         return StrategyResult(
             entry_mask=np.zeros(n, dtype=bool),
             direction=np.zeros(n, dtype=np.int8),
@@ -605,7 +612,7 @@ def _compute_token_signal(ctx) -> StrategyResult:
             min_hold=MIN_HOLD,
             max_hold=720,
             edge=0.0,
-            name='s524r_time_stops',
+            name='s524t_ic_filter',
             breakeven_atr=BREAKEVEN_ATR,
         )
 
@@ -997,28 +1004,23 @@ def _compute_token_signal(ctx) -> StrategyResult:
     # Set no_stop_bars to 50% of max_hold to delay breakeven activation.
     token_no_stop = max(NO_STOP_BARS, token_max_hold // 2)
 
-    # Regime-dependent stops: tighter for longs in bear (winners MAE 4.4% vs losers 9.4%)
-    _stop_mult = np.full(n, STOP_MULT)
-    _bear_long = _bear_regime & (direction == 1) & entry
-    _stop_mult[_bear_long] = STOP_MULT_BEAR_LONG
-
     return StrategyResult(
         entry_mask=entry,
         direction=direction,
         market_type=MARKET,
         leverage=_regime_leverage,
-        stop_mult=_stop_mult,
+        stop_mult=STOP_MULT,
         trail_mult=TRAIL_MULT,
         target_mult=999,
         no_stop_bars=token_no_stop,
         min_hold=MIN_HOLD,
         max_hold=token_max_hold,
         edge=base_edge,
-        name='s524r_time_stops',
+        name='s524t_ic_filter',
         breakeven_atr=BREAKEVEN_ATR,
         conviction_score=conviction,
         size_multiplier=_size_mult,
-        exit_regimes={CRISIS},
+        exit_regimes={CRISIS},  # tested: removing HURTS (+528% → +306%, DD -46% → -54%)
     )
 
 
