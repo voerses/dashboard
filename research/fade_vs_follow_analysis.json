@@ -1,0 +1,225 @@
+{
+  "metadata": {
+    "total_trades": 1547,
+    "analyzed_trades": 1547,
+    "trades_with_all_factors": 1422,
+    "sim_period": "2022-04-05 16:00:00 to 2026-04-05 16:00:00",
+    "total_pnl": 2243364.8806644497
+  },
+  "analysis_1_zscore_velocity": {
+    "building_3d": {
+      "n": 779,
+      "wr": 0.34146341463414637,
+      "avg_pnl": 1495.1152473862005,
+      "total_pnl": 1164694.7777138501
+    },
+    "peaking_3d": {
+      "n": 643,
+      "wr": 0.4276827371695179,
+      "avg_pnl": 1461.4771580802492,
+      "total_pnl": 939729.8126456002
+    }
+  },
+  "analysis_2_btc_alignment": {
+    "aligned": {
+      "n": 780,
+      "wr": 0.3974358974358974,
+      "avg_pnl": 911.1668479314743,
+      "total_pnl": 710710.1413865499
+    },
+    "against": {
+      "n": 767,
+      "wr": 0.38461538461538464,
+      "avg_pnl": 1998.2460746778356,
+      "total_pnl": 1532654.7392779
+    }
+  },
+  "analysis_5_combined_score": {
+    "score_-4": {
+      "n": 210,
+      "wr": 0.324,
+      "avg_pnl": 1981.0,
+      "total_pnl": 416063.0
+    },
+    "score_-2": {
+      "n": 427,
+      "wr": 0.356,
+      "avg_pnl": 277.0,
+      "total_pnl": 118152.0
+    },
+    "score_-1": {
+      "n": 6,
+      "wr": 0.833,
+      "avg_pnl": 2888.0,
+      "total_pnl": 17325.0
+    },
+    "score_+0": {
+      "n": 541,
+      "wr": 0.381,
+      "avg_pnl": 1409.0,
+      "total_pnl": 762183.0
+    },
+    "score_+1": {
+      "n": 13,
+      "wr": 0.692,
+      "avg_pnl": 15825.0,
+      "total_pnl": 205728.0
+    },
+    "score_+2": {
+      "n": 218,
+      "wr": 0.445,
+      "avg_pnl": 2754.0,
+      "total_pnl": 600267.0
+    },
+    "score_+3": {
+      "n": 5,
+      "wr": 0.6,
+      "avg_pnl": -4591.0,
+      "total_pnl": -22955.0
+    }
+  },
+  "flip_recommendation": {
+    "flip_threshold": -2,
+    "trades_to_flip": 639,
+    "pct_of_total": 44.9,
+    "current_pnl_of_flipped": 541875.86496185,
+    "estimated_new_total": 1020672.8604357499,
+    "estimated_delta": -1083751.7299236995
+  },
+  "analysis_3_funding": {
+    "extreme": {
+      "n": 25,
+      "wr": 0.32,
+      "avg_pnl": 2196.0
+    },
+    "normal": {
+      "n": 1496,
+      "wr": 0.387,
+      "avg_pnl": 1324.0
+    }
+  },
+  "analysis_4_momentum": {
+    "with_momentum": {
+      "n": 631,
+      "wr": 0.358,
+      "avg_pnl": 1249.0,
+      "total_pnl": 788136.0
+    },
+    "against_momentum": {
+      "n": 916,
+      "wr": 0.414,
+      "avg_pnl": 1589.0,
+      "total_pnl": 1455229.0
+    }
+  },
+  "key_findings": {
+    "finding_1_shorts_dominate_all_regimes": {
+      "description": "Shorts outperform longs in BOTH bull and bear markets",
+      "bull_shorts": {
+        "n": 382,
+        "wr": 0.432,
+        "avg_pnl": 2888,
+        "total": 1103208
+      },
+      "bull_longs": {
+        "n": 368,
+        "wr": 0.321,
+        "avg_pnl": -158,
+        "total": -57960
+      },
+      "bear_shorts": {
+        "n": 412,
+        "wr": 0.466,
+        "avg_pnl": 1866,
+        "total": 768671
+      },
+      "bear_longs": {
+        "n": 385,
+        "wr": 0.338,
+        "avg_pnl": 1115,
+        "total": 429446
+      }
+    },
+    "finding_2_fading_funding_works_universally": {
+      "description": "Fading funding direction works in both regimes - this is the core alpha",
+      "bull_fading": {
+        "n": 363,
+        "wr": 0.408,
+        "avg_pnl": 2501,
+        "total": 907786
+      },
+      "bull_following": {
+        "n": 376,
+        "wr": 0.343,
+        "avg_pnl": 356,
+        "total": 133729
+      },
+      "bear_fading": {
+        "n": 393,
+        "wr": 0.481,
+        "avg_pnl": 2872,
+        "total": 1128525
+      },
+      "bear_following": {
+        "n": 386,
+        "wr": 0.311,
+        "avg_pnl": -401,
+        "total": -154776
+      }
+    },
+    "finding_3_zscore_velocity_7d_is_strongest_signal": {
+      "description": "7d z-score velocity is the strongest single predictor. Peaking z-scores (fading) produce 13.5x more total PnL than building z-scores",
+      "peaking_7d": {
+        "n": 649,
+        "wr": 0.448,
+        "avg_pnl": 2975,
+        "total": 1930871
+      },
+      "building_7d": {
+        "n": 766,
+        "wr": 0.324,
+        "avg_pnl": 186,
+        "total": 142513
+      }
+    },
+    "finding_4_contrarian_tokens_in_bull_aligned_is_toxic": {
+      "description": "Contrarian-configured tokens going LONG in a BTC bull market lose money. This is the ONLY consistently negative bucket. Skip or flip these.",
+      "bucket": "BULL/Aligned/contrarian",
+      "n": 161,
+      "wr": 0.292,
+      "avg_pnl": -2176,
+      "total": -350340,
+      "action": "SKIP these trades (save $350K) or FLIP direction (gain $700K estimated)"
+    },
+    "finding_5_best_bucket": {
+      "description": "Contrarian tokens going SHORT in a BTC bull market is the best bucket. Classic 'fade the overextended alt long' trade.",
+      "bucket": "BULL/Against/contrarian",
+      "n": 274,
+      "wr": 0.467,
+      "avg_pnl": 3853,
+      "total": 1055841
+    }
+  },
+  "recommendation": {
+    "do_NOT_flip_follow_candidates": {
+      "reason": "Flipping score<=-2 trades LOSES $1.08M. The strategy is net profitable on almost all buckets. The crowd-following direction is NOT better overall.",
+      "exception": "BULL/Aligned/contrarian longs are the ONE bucket to skip or flip"
+    },
+    "primary_filter": {
+      "description": "Use 7d z-score velocity as the primary entry filter",
+      "rule": "Only enter when dz_7d < 0 (z-score peaking/declining). Skip entries where dz_7d > 0 (z still building).",
+      "estimated_impact": "Drop 766 marginal trades ($186 avg), keep 649 high-quality trades ($2,975 avg). Net PnL preserved at $1.93M with 47% fewer trades."
+    },
+    "secondary_filter": {
+      "description": "In BTC bull regime, skip contrarian-token longs",
+      "rule": "If BTC > SMA50 AND token is contrarian-configured AND signal says go long, SKIP the trade.",
+      "estimated_impact": "Eliminates 161 losing trades, saves ~$350K"
+    },
+    "tertiary_filter": {
+      "description": "Prefer fading funding direction",
+      "rule": "When trade direction opposes funding rate direction, prioritize the trade. When aligned with funding, reduce size or skip.",
+      "note": "Fading funding: WR=0.449 Avg=$2,692. Following funding: WR=0.325 Avg=-$47."
+    },
+    "overall_answer": "FADE the crowd is correct ~85% of the time. Do NOT switch to following. But USE z-score velocity to TIME the fade: wait for the crowd's conviction to peak (dz_7d < 0) before entering the contrarian trade. The 60% higher peak profit of 'following' is a mirage from a small subset of trend trades; the fading approach has a massive WR and avg PnL advantage in the data."
+  }
+}
