@@ -1,17 +1,20 @@
 """
-S524r — Best Strategy (bear-long stop 3.5 ATR + 24h Sharpe exit)
+S524w — Z-Score Velocity Filter (only enter when z-score is peaking)
+=================================================
 
-Combined: bear-long tighter stop (MAE analysis) + 24h Sharpe exit (intratrade dynamics).
-1,149% annual sum = +28pp vs s524o baseline.
+Same signal computation as s524l but with PORTFOLIO-LEVEL trade selection.
+The strategy sees ALL tokens simultaneously and only emits entry=True for
+the top-N trades per day_change bar. This eliminates engine-level ranking
+and its associated path dependence.
 
 BACKTEST CLI:
-  /workspace/venv/bin/python v4/portfolio_backtest.py \\
-      --strategy s524r_time_stops --months 12 --capital 100000 \\
-      --market perp --conviction-mode ranked \\
-      --max-portfolio-positions 50 --concentration 0.30 \\
+  /workspace/venv/bin/python v4/portfolio_backtest.py \
+      --strategy s524w_zscore_velocity --months 12 --capital 100000 \
+      --market perp --conviction-mode ranked \
+      --max-portfolio-positions 40 --concentration 0.30 \
       --skip-wf --adv-cap 0.005 --end-date 2026-04-05T16:00:00
 
-Status: BEST
+Status: RESEARCH
 """
 
 import os
@@ -58,7 +61,6 @@ RSI_RESAMPLE = 4              # resample 1H close to 4H for RSI computation
 # -- Trade management --
 LEVERAGE = 2.6
 STOP_MULT = 5.0
-STOP_MULT_BEAR_LONG = 3.5
 TRAIL_MULT = 999.0            # effectively no trail — MR trades need room to breathe
 MIN_HOLD = 48                 # minimum 48h hold before exit allowed
 NO_STOP_BARS = 72             # 72h stop protection after entry
@@ -92,30 +94,9 @@ MARKET = MarketType.PERP
 REQUIRED_PLUGINS = []  # strategy computes its own positioning from 5min parquets
 
 # -- Portfolio config for v4 backtest harness --
-
-from v4.exit_handlers import ExitCheck
-_pos_closes: dict = {}
-def _sharpe_exit(pos, bar):
-    pid = pos.position_id
-    if pid not in _pos_closes:
-        _pos_closes[pid] = []
-    _pos_closes[pid].append(bar.close)
-    closes = _pos_closes[pid]
-    if bar.bars_held == 24 and len(closes) >= 24:
-        import numpy as _np
-        c = _np.array(closes[-24:])
-        rets = _np.diff(c) / c[:-1] * pos.direction
-        mean_r = _np.mean(rets)
-        std_r = _np.std(rets)
-        sharpe = mean_r / std_r if std_r > 1e-10 else 0.0
-        if sharpe < -0.50:
-            return ExitCheck(should_exit=True, reason="sharpe24")
-    return None
-
 PORTFOLIO_CONFIG = {
     "conviction_mode": "ranked",
     "max_positions": 50,
-    "exit_check_fn": _sharpe_exit,
 }
 
 
@@ -148,11 +129,13 @@ _DATA_DIR = os.path.join(
 
 # {symbol: pd.Series with DatetimeIndex -> daily composite z-score}
 _composite_cache: dict = {}
+_zscore_velocity_cache: dict = {}  # symbol -> pd.Series of 7d z-score change
 _daily_loaded: set = set()
 _last_load_date: str = ""  # tracks which date we loaded for
 
 # Per-call alignment cache: {(symbol, n_bars, first_ts, last_ts): np.ndarray}
 _aligned_cache: dict = {}
+_velocity_aligned_cache: dict = {}
 
 
 # ======================================================================
@@ -474,8 +457,10 @@ def _check_new_day():
     # Reload on new UTC day (midnight fetch writes data by 23:59 previous day)
     if today != _last_load_date:
         _composite_cache.clear()
+        _zscore_velocity_cache.clear()
         _daily_loaded.clear()
         _aligned_cache.clear()
+        _velocity_aligned_cache.clear()
         _last_load_date = today
 
 
@@ -570,6 +555,16 @@ def _load_daily_signals(symbol: str, ticker: str):
         composite_shifted, index=daily.index, dtype=np.float64,
     )
 
+    # Z-score velocity: 7-day change of the shifted composite
+    # dz < 0 means positioning extreme is peaking/unwinding (good for contrarian entry)
+    # dz > 0 means positioning still building (crowd may be right, bad entry)
+    dz_7d = np.empty_like(composite_shifted)
+    dz_7d[:7] = 0.0
+    dz_7d[7:] = composite_shifted[7:] - composite_shifted[:-7]
+    _zscore_velocity_cache[symbol] = pd.Series(
+        dz_7d, index=daily.index, dtype=np.float64,
+    )
+
 
 def _get_composite_aligned(symbol: str, ticker: str,
                            idx_1h: pd.DatetimeIndex) -> np.ndarray:
@@ -598,6 +593,27 @@ def _get_composite_aligned(symbol: str, ticker: str,
     return result
 
 
+def _get_velocity_aligned(symbol: str, ticker: str,
+                          idx_1h: pd.DatetimeIndex) -> np.ndarray:
+    """Get 7-day z-score velocity forward-filled to 1H index."""
+    cache_key = (symbol, len(idx_1h), idx_1h[0], idx_1h[-1])
+    if cache_key in _velocity_aligned_cache:
+        return _velocity_aligned_cache[cache_key]
+
+    n = len(idx_1h)
+    if symbol not in _zscore_velocity_cache:
+        result = np.zeros(n, dtype=np.float64)
+        _velocity_aligned_cache[cache_key] = result
+        return result
+
+    series = _zscore_velocity_cache[symbol]
+    aligned = series.reindex(idx_1h.normalize(), method="ffill")
+    aligned.index = idx_1h
+    result = np.nan_to_num(aligned.values.astype(np.float64), nan=0.0)
+    _velocity_aligned_cache[cache_key] = result
+    return result
+
+
 # ======================================================================
 #  STRATEGY FUNCTION
 # ======================================================================
@@ -623,7 +639,7 @@ def _compute_token_signal(ctx) -> StrategyResult:
             min_hold=MIN_HOLD,
             max_hold=720,
             edge=0.0,
-            name='s524r_time_stops',
+            name='s524w_zscore_velocity',
             breakeven_atr=BREAKEVEN_ATR,
         )
 
@@ -900,6 +916,14 @@ def _compute_token_signal(ctx) -> StrategyResult:
     # Warmup guard
     entry[:WARMUP] = False
 
+    # Z-SCORE VELOCITY FILTER: only enter when z-score is peaking (dz_7d < 0)
+    # Analysis showed: peaking entries have 44.8% WR / $2,975 avg (13.5x more PnL)
+    # vs building entries at 32.4% WR / $186 avg
+    _velocity = _get_velocity_aligned(symbol, ticker, ctx.idx_1h)
+    _zscore_building = _velocity > 0  # crowd still piling on, bad time to fade
+    entry[_zscore_building] = False
+    direction[_zscore_building] = 0
+
     # ---- Continuous conviction scoring: proportional to |composite| ----
     # conviction_score in [0, 1] — ranked mode uses this for entry prioritization
     # and v4 sizes proportionally to conviction within the ranked pool.
@@ -1015,23 +1039,19 @@ def _compute_token_signal(ctx) -> StrategyResult:
     # Set no_stop_bars to 50% of max_hold to delay breakeven activation.
     token_no_stop = max(NO_STOP_BARS, token_max_hold // 2)
 
-    _stop_mult = np.full(n, STOP_MULT)
-    _bear_long = _bear_regime & (direction == 1) & entry
-    _stop_mult[_bear_long] = STOP_MULT_BEAR_LONG
-
     return StrategyResult(
         entry_mask=entry,
         direction=direction,
         market_type=MARKET,
         leverage=_regime_leverage,
-        stop_mult=_stop_mult,
+        stop_mult=STOP_MULT,
         trail_mult=TRAIL_MULT,
         target_mult=999,
         no_stop_bars=token_no_stop,
         min_hold=MIN_HOLD,
         max_hold=token_max_hold,
         edge=base_edge,
-        name='s524r_time_stops',
+        name='s524w_zscore_velocity',
         breakeven_atr=BREAKEVEN_ATR,
         conviction_score=conviction,
         size_multiplier=_size_mult,
