@@ -112,6 +112,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--end-date", type=str, default=None,
                         help="Pin backtest end date (e.g. 2026-04-05) for reproducibility. "
                              "Default: use latest available data.")
+    parser.add_argument("--start-date", type=str, default=None,
+                        help="Pin backtest start date (e.g. 2026-01-01). "
+                             "Overrides --months for the simulation start. "
+                             "--months is still used for signal warmup if larger.")
     parser.add_argument("--entry-delay", type=int, default=0,
                         help="Armed entry delay in bars (0=immediate, 120=5d). "
                              "Signal reserves slot, entry at delayed bar's price.")
@@ -126,6 +130,7 @@ def run_backtest(
     market: str,
     precomputed_signals: dict | None = None,
     end_date: pd.Timestamp | None = None,
+    start_date: pd.Timestamp | None = None,
     per_strategy_max_positions: int | None = None,
 ) -> tuple:
     """Run a single backtest with given parameters.
@@ -177,7 +182,7 @@ def run_backtest(
             tokens = discover_tokens(spec.market)
             print(f"\n  Precomputing signals for {sid} ({len(tokens)} tokens, {spec.market})...")
             t0 = time.time()
-            signals = precompute_strategy_signals(spec, tokens, config, months, end_date=end_date)
+            signals = precompute_strategy_signals(spec, tokens, config, months, end_date=end_date, start_date=start_date)
             print(f"  Done: {len(signals)} tokens with signals ({time.time()-t0:.1f}s)")
             precomputed_signals[sid] = signals
 
@@ -411,6 +416,11 @@ def main():
         data_end = infer_data_end_date(market)
         print(f"  Data End:   {data_end.strftime('%Y-%m-%d %H:%M')} (from data)")
 
+    data_start = None
+    if args.start_date:
+        data_start = pd.Timestamp(args.start_date)
+        print(f"  Data Start: {data_start.strftime('%Y-%m-%d %H:%M')} (pinned via --start-date)")
+
     # Run simulation(s) via run_backtest()
     all_results = []
     shared_signals = None
@@ -423,6 +433,7 @@ def main():
             market=market,
             precomputed_signals=shared_signals,
             end_date=data_end,
+            start_date=data_start,
             per_strategy_max_positions=per_strategy_max,
         )
         all_results.append((capital, metrics, extra_info, trades, eq_daily))

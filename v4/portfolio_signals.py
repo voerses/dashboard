@@ -47,6 +47,7 @@ def _load_all_contexts(
     config: PortfolioConfig,
     months: int,
     end_date: Optional[pd.Timestamp] = None,
+    start_date: Optional[pd.Timestamp] = None,
     hist_cache: dict | None = None,
 ) -> tuple[dict, pd.Timestamp, pd.Timestamp]:
     """Load contexts for ALL tokens at once.
@@ -74,7 +75,7 @@ def _load_all_contexts(
 
     WARMUP_DAYS = 180
     anchor = end_date if end_date is not None else pd.Timestamp.now("UTC").tz_localize(None)
-    trade_start = anchor - pd.DateOffset(months=months)
+    trade_start = start_date if start_date is not None else anchor - pd.DateOffset(months=months)
     if config.skip_walk_forward:
         cutoff = trade_start
     else:
@@ -569,6 +570,7 @@ def precompute_portfolio_signals(
     config: PortfolioConfig,
     months: int,
     end_date: Optional[pd.Timestamp] = None,
+    start_date: Optional[pd.Timestamp] = None,
     live_bar: int = -1,
     hist_cache: dict | None = None,
 ) -> dict[str, TokenSignals]:
@@ -596,7 +598,7 @@ def precompute_portfolio_signals(
     print(f"  Loading contexts for {len(tokens)} tokens ({strategy_spec.market})...")
     contexts, cutoff, anchor = _load_all_contexts(
         tokens, strategy_spec, config, months, end_date,
-        hist_cache=hist_cache,
+        start_date=start_date, hist_cache=hist_cache,
     )
     print(f"  Loaded {len(contexts)} token contexts")
 

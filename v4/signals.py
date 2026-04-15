@@ -219,6 +219,7 @@ def precompute_strategy_signals(
     config: PortfolioConfig,
     months: int,
     end_date: Optional[pd.Timestamp] = None,
+    start_date: Optional[pd.Timestamp] = None,
     live_bar: int = -1,
     hist_cache: dict | None = None,
     eng_spot: Optional[Engine] = None,
@@ -242,7 +243,7 @@ def precompute_strategy_signals(
     # Dispatch to portfolio adapter for Class B strategies
     if strategy_spec.strategy_type == "portfolio":
         from .portfolio_signals import precompute_portfolio_signals
-        return precompute_portfolio_signals(strategy_spec, tokens, config, months, end_date, live_bar=live_bar, hist_cache=hist_cache)
+        return precompute_portfolio_signals(strategy_spec, tokens, config, months, end_date, start_date=start_date, live_bar=live_bar, hist_cache=hist_cache)
 
     strategy_fn = _load_strategy_fn(strategy_spec.strategy_id)
     is_single_ctx = len(inspect.signature(strategy_fn).parameters) == 1
@@ -322,7 +323,7 @@ def precompute_strategy_signals(
             anchor = end_date if end_date is not None else pd.Timestamp.now("UTC").tz_localize(None)
             # Trading should start at anchor - months. Cutoff must be
             # train_bars hours earlier so walk-forward mask aligns exactly.
-            trade_start = anchor - pd.DateOffset(months=months)
+            trade_start = start_date if start_date is not None else anchor - pd.DateOffset(months=months)
             if config.skip_walk_forward:
                 cutoff = trade_start  # no training window needed
             else:
