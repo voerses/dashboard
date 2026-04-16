@@ -96,6 +96,10 @@ REQUIRED_PLUGINS = []  # strategy computes its own positioning from 5min parquet
 from v4.exit_handlers import ExitCheck
 _pos_closes: dict = {}
 def _sharpe_exit(pos, bar):
+    # CRISIS exit (replaces engine's exit_regimes={CRISIS})
+    if bar.bars_held > 6 and bar.regime == 0:
+        return ExitCheck(should_exit=True, reason="crisis")
+    # 24h Sharpe exit
     pid = pos.position_id
     if pid not in _pos_closes:
         _pos_closes[pid] = []
@@ -1035,7 +1039,7 @@ def _compute_token_signal(ctx) -> StrategyResult:
         breakeven_atr=BREAKEVEN_ATR,
         conviction_score=conviction,
         size_multiplier=_size_mult,
-        exit_regimes={CRISIS},  # tested: removing HURTS (+528% → +306%, DD -46% → -54%)
+        # exit_regimes replaced by exit_check_fn
     )
 
 

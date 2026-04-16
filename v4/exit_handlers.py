@@ -296,30 +296,8 @@ class TakeProfitHandler:
         return _NO_EXIT
 
 
-class RegimeExitHandler:
-    """Exit when regime enters exit_regimes set (direction-aware).
-
-    Checks exit_regimes_long for long positions and exit_regimes_short for shorts.
-    Falls back to exit_regimes (both directions) for backward compatibility.
-    """
-
-    def update_state(self, pos: Position, bar: BarContext) -> None:
-        pass
-
-    def check_exit(self, pos: Position, bar: BarContext) -> ExitCheck:
-        if bar.bars_held <= pos.regime_exit_min_bars:
-            return _NO_EXIT
-        # Direction-aware: check the appropriate set
-        if pos.direction == 1 and pos.exit_regimes_long:
-            if bar.regime in pos.exit_regimes_long:
-                return ExitCheck(should_exit=True, reason="regime")
-        elif pos.direction == -1 and pos.exit_regimes_short:
-            if bar.regime in pos.exit_regimes_short:
-                return ExitCheck(should_exit=True, reason="regime")
-        # Backward compat: fall back to exit_regimes (applies to both directions)
-        elif pos.exit_regimes and bar.regime in pos.exit_regimes:
-            return ExitCheck(should_exit=True, reason="regime")
-        return _NO_EXIT
+# RegimeExitHandler removed — strategies use exit_check_fn with bar.regime instead.
+# See strategies/s538_strategy_crisis.py for migration pattern.
 
 
 class RSIExitHandler:
@@ -399,7 +377,7 @@ class SMATrailExitHandler:
 
 
 class MaxHoldHandler:
-    """Max hold exit, regime-conditional (shorter hold in DOWNTREND)."""
+    """Max hold exit — forces exit after N bars held."""
 
     def __init__(self, sig: TokenSignals):
         self._sig = sig
@@ -408,11 +386,7 @@ class MaxHoldHandler:
         pass
 
     def check_exit(self, pos: Position, bar: BarContext) -> ExitCheck:
-        eff_max_hold = pos.max_hold
-        if self._sig.bear_max_hold > 0:
-            if bar.regime == 4:  # DOWNTREND
-                eff_max_hold = self._sig.bear_max_hold
-        if bar.bars_held >= eff_max_hold:
+        if bar.bars_held >= pos.max_hold:
             return ExitCheck(should_exit=True, reason="max_hold")
         return _NO_EXIT
 
@@ -502,7 +476,7 @@ def build_exit_chain(
 
     handlers.append(StopLossHandler())
     handlers.append(TakeProfitHandler(sig))
-    handlers.append(RegimeExitHandler())
+    # RegimeExitHandler removed — strategies use exit_check_fn with bar.regime instead
 
     if pos.rsi_exit_level < 999.0 and sig.rsi is not None:
         handlers.append(RSIExitHandler(sig))
