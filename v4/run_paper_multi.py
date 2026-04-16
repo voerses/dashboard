@@ -78,15 +78,19 @@ def load_multi_config(path: str) -> list[PaperConfig]:
             if "strategy_id" not in s:
                 raise ValueError(f"Portfolio {i}, strategy {j} missing 'strategy_id'")
             spec = StrategySpec.from_dict(s)
-            # Load exit_check_fn and entry_filter_fn from strategy module's PORTFOLIO_CONFIG
+            # Load exit_check_fn and entry_filter_fn from strategy module's PORTFOLIO_CONFIG.
+            # Use engine's loader (handles prefix matching like "s513" → "s513_*.py")
             try:
-                import importlib
-                mod = importlib.import_module(f"strategies.{spec.strategy_id}")
-                pconf = getattr(mod, "PORTFOLIO_CONFIG", {})
-                if spec.exit_check_fn is None and pconf.get("exit_check_fn") is not None:
-                    spec.exit_check_fn = pconf["exit_check_fn"]
-                if spec.entry_filter_fn is None and pconf.get("entry_filter_fn") is not None:
-                    spec.entry_filter_fn = pconf["entry_filter_fn"]
+                from v4.engine import _load_strategy_fn, _STRATEGY_MODULE_CACHE, _STRATEGY_MODULE_LOCK
+                _load_strategy_fn(spec.strategy_id)  # populates cache
+                with _STRATEGY_MODULE_LOCK:
+                    mod = _STRATEGY_MODULE_CACHE.get(spec.strategy_id)
+                if mod is not None:
+                    pconf = getattr(mod, "PORTFOLIO_CONFIG", {})
+                    if spec.exit_check_fn is None and pconf.get("exit_check_fn") is not None:
+                        spec.exit_check_fn = pconf["exit_check_fn"]
+                    if spec.entry_filter_fn is None and pconf.get("entry_filter_fn") is not None:
+                        spec.entry_filter_fn = pconf["entry_filter_fn"]
             except Exception as e:
                 print(f"  WARN: could not load PORTFOLIO_CONFIG for {spec.strategy_id}: {e}")
             strategy_list.append(spec)
