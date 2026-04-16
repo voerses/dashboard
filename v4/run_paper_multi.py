@@ -77,7 +77,19 @@ def load_multi_config(path: str) -> list[PaperConfig]:
         for j, s in enumerate(merged["strategies"]):
             if "strategy_id" not in s:
                 raise ValueError(f"Portfolio {i}, strategy {j} missing 'strategy_id'")
-            strategy_list.append(StrategySpec.from_dict(s))
+            spec = StrategySpec.from_dict(s)
+            # Load exit_check_fn and entry_filter_fn from strategy module's PORTFOLIO_CONFIG
+            try:
+                import importlib
+                mod = importlib.import_module(f"strategies.{spec.strategy_id}")
+                pconf = getattr(mod, "PORTFOLIO_CONFIG", {})
+                if spec.exit_check_fn is None and pconf.get("exit_check_fn") is not None:
+                    spec.exit_check_fn = pconf["exit_check_fn"]
+                if spec.entry_filter_fn is None and pconf.get("entry_filter_fn") is not None:
+                    spec.entry_filter_fn = pconf["entry_filter_fn"]
+            except Exception as e:
+                print(f"  WARN: could not load PORTFOLIO_CONFIG for {spec.strategy_id}: {e}")
+            strategy_list.append(spec)
 
         # Per-portfolio sizing_defaults can override shared
         pf_sd_raw = pf.get("sizing_defaults", {})

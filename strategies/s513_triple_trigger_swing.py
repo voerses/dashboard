@@ -46,6 +46,18 @@ from engine import (StrategyContext, StrategyResult, MarketType,
 
 REQUIRED_PLUGINS = []  # uses only built-in indicators (macd, rsi, adx, ema, bb)
 
+# Strategy-level CRISIS exit (replaces engine's exit_regimes={CRISIS})
+from v4.exit_handlers import ExitCheck as _ExitCheck
+
+def _crisis_exit(pos, bar):
+    if bar.bars_held > 6 and bar.regime == 0:
+        return _ExitCheck(should_exit=True, reason="crisis")
+    return None
+
+PORTFOLIO_CONFIG = {
+    "exit_check_fn": _crisis_exit,
+}
+
 # ── Configuration ────────────────────────────────────────────────
 LEVERAGE = 3.0
 WARMUP = 200
@@ -169,7 +181,7 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
         min_hold=MIN_HOLD,
         max_hold=MAX_HOLD,
         edge=EDGE,
-        exit_regimes={CRISIS},
+        # CRISIS exit moved to PORTFOLIO_CONFIG exit_check_fn
         breakeven_atr=BREAKEVEN_ATR,
         exchange='binance',
         name='s513_triple_trigger_swing',

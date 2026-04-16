@@ -114,9 +114,19 @@ MARKET = MarketType.PERP
 REQUIRED_PLUGINS = []  # strategy computes its own positioning from 5min parquets
 
 # -- Portfolio config for v4 backtest harness --
+# Strategy-level CRISIS exit (replaces engine's exit_regimes={CRISIS})
+# Reads engine-computed bar.regime directly via the exit_check_fn hook.
+from v4.exit_handlers import ExitCheck as _ExitCheck
+
+def _crisis_exit(pos, bar):
+    if bar.bars_held > 6 and bar.regime == 0:
+        return _ExitCheck(should_exit=True, reason="crisis")
+    return None
+
 PORTFOLIO_CONFIG = {
     "conviction_mode": "ranked",
     "max_positions": 50,
+    "exit_check_fn": _crisis_exit,
 }
 
 
@@ -457,5 +467,5 @@ def strategy(ctx: StrategyContext) -> StrategyResult:
         name='s523c_growth',
         breakeven_atr=BREAKEVEN_ATR,
         conviction_score=conviction,
-        exit_regimes={CRISIS},  # tested: removing HURTS (+528% → +306%, DD -46% → -54%)
+        # CRISIS exit moved to PORTFOLIO_CONFIG exit_check_fn
     )
