@@ -1,0 +1,124 @@
+{
+  "config": {
+    "leverage": 2.6,
+    "round_trip_cost": 0.0008,
+    "leverage_source": "s523c default",
+    "cost_source": "0.04% binance fee per side + 8bps slippage"
+  },
+  "by_offset": {
+    "+3d": {
+      "offset_days": 3,
+      "n_total_valid": 583,
+      "n_underwater_at_offset": 278,
+      "n_eventually_lost": 196,
+      "n_eventually_won": 82,
+      "loser_rate_among_underwater": 0.7050359712230215,
+      "n_helped_by_rule": 128,
+      "n_hurt_by_rule": 150,
+      "median_improvement_dollars": -55.31161003475526,
+      "saved_dollars_total": 236101.47458832085,
+      "given_back_dollars_total": -426606.3410257418,
+      "saved_vs_given_back_ratio": 0.5534410811162187,
+      "total_orig_pnl_dollars": 437445.67292329896,
+      "total_new_pnl_dollars": 246940.80648587795,
+      "total_improvement_dollars": -190504.866437421,
+      "improvement_pct_of_baseline": -0.4354937726651689,
+      "mean_recovered_pnl": 3816.969652141463,
+      "mean_deepened_pnl": -2795.54248172449
+    },
+    "+5d": {
+      "offset_days": 5,
+      "n_total_valid": 551,
+      "n_underwater_at_offset": 253,
+      "n_eventually_lost": 198,
+      "n_eventually_won": 55,
+      "loser_rate_among_underwater": 0.782608695652174,
+      "n_helped_by_rule": 139,
+      "n_hurt_by_rule": 114,
+      "median_improvement_dollars": 70.18638052839952,
+      "saved_dollars_total": 211605.95283725765,
+      "given_back_dollars_total": -323638.76298107347,
+      "saved_vs_given_back_ratio": 0.6538337709863032,
+      "total_orig_pnl_dollars": 453922.89796329895,
+      "total_new_pnl_dollars": 341890.08781948325,
+      "total_improvement_dollars": -112032.8101438157,
+      "improvement_pct_of_baseline": -0.24681021963530445,
+      "mean_recovered_pnl": 4303.3208301018,
+      "mean_deepened_pnl": -2933.1676759242423
+    },
+    "+7d": {
+      "offset_days": 7,
+      "n_total_valid": 501,
+      "n_underwater_at_offset": 211,
+      "n_eventually_lost": 173,
+      "n_eventually_won": 38,
+      "loser_rate_among_underwater": 0.8199052132701422,
+      "n_helped_by_rule": 118,
+      "n_hurt_by_rule": 93,
+      "median_improvement_dollars": 50.229414291331636,
+      "saved_dollars_total": 158542.44684243842,
+      "given_back_dollars_total": -263720.8375867443,
+      "saved_vs_given_back_ratio": 0.6011752741771492,
+      "total_orig_pnl_dollars": 490512.267193299,
+      "total_new_pnl_dollars": 385333.8764489931,
+      "total_improvement_dollars": -105178.39074430591,
+      "improvement_pct_of_baseline": -0.21442560722514542,
+      "mean_recovered_pnl": 5062.774822678947,
+      "mean_deepened_pnl": -2850.9428417283234
+    },
+    "+14d": {
+      "offset_days": 14,
+      "n_total_valid": 378,
+      "n_underwater_at_offset": 130,
+      "n_eventually_lost": 121,
+      "n_eventually_won": 9,
+      "loser_rate_among_underwater": 0.9307692307692308,
+      "n_helped_by_rule": 70,
+      "n_hurt_by_rule": 60,
+      "median_improvement_dollars": 38.0073165393668,
+      "saved_dollars_total": 36480.14127559179,
+      "given_back_dollars_total": -27610.98501376341,
+      "saved_vs_given_back_ratio": 1.3212183939619437,
+      "total_orig_pnl_dollars": 554313.5888689,
+      "total_new_pnl_dollars": 563182.7451307283,
+      "total_improvement_dollars": 8869.156261828379,
+      "improvement_pct_of_baseline": 0.016000250471806515,
+      "mean_recovered_pnl": 2228.105166111111,
+      "mean_deepened_pnl": -2906.444372115702
+    }
+  },
+  "cost_sensitivity": {
+    "5bps": {
+      "+3d": -189868.290098238,
+      "+5d": -111418.38838816073,
+      "+7d": -104684.2301114439
+    },
+    "10bps": {
+      "+3d": -190929.25066354297,
+      "+5d": -112442.42464758572,
+      "+7d": -105507.8311662139
+    },
+    "25bps": {
+      "+3d": -194112.13235945793,
+      "+5d": -115514.53342586075,
+      "+7d": -107978.6343305239
+    },
+    "50bps": {
+      "+3d": -199416.935185983,
+      "+5d": -120634.7147229857,
+      "+7d": -112096.6396043739
+    },
+    "100bps": {
+      "+3d": -210026.54083903297,
+      "+5d": -130875.07731723576,
+      "+7d": -120332.65015207394
+    }
+  },
+  "verdict": "MARGINAL",
+  "verdict_reasons": [
+    "Best offset +14d: improvement 1.6% < 5% threshold",
+    "Best offset +14d: saved/given_back ratio 1.32x < 2.0 threshold",
+    "MARGINAL: edge exists (improvement 1.6%, ratio 1.32x) but below PASS thresholds"
+  ],
+  "survives_50bps_slippage": false
+}

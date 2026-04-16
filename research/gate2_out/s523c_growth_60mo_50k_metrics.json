@@ -1,0 +1,59 @@
+{
+  "total_return_pct": 351.48515625,
+  "annualized_return_pct": 42.0963525743844,
+  "sharpe_ratio": 0.8016447927012882,
+  "sortino_ratio": 0.9173558625718643,
+  "calmar_ratio": 0.6502224180555031,
+  "max_drawdown_pct": -64.7414660052386,
+  "max_drawdown_duration_days": 989,
+  "recovery_factor": 1.189085070016028,
+  "total_trades": 1513,
+  "win_rate_pct": 40.97818902842036,
+  "payoff_ratio": "1.7620586",
+  "profit_factor": "1.2233781",
+  "avg_trade_pnl": "116.6214",
+  "avg_hold_hours": 408.7243886318572,
+  "beta": -0.17936402009415336,
+  "alpha_annualized": 49.203412323984544,
+  "correlation": -0.17684183196270362,
+  "skewness": 2.4914512741055526,
+  "kurtosis": 27.650593113987362,
+  "tail_ratio": 1.2326382972376453,
+  "total_funding_cost": "-8415.743",
+  "avg_funding_per_trade": "-5.595574",
+  "funding_drag_pct": "-0.87087256",
+  "walk_forward_efficiency": null,
+  "rejections": {
+    "portfolio_limit": 170,
+    "strategy_limit": 0,
+    "min_size": 0,
+    "adv_cap": 0,
+    "concentration": 0,
+    "capital": 1578,
+    "conviction": 0,
+    "pump_range": 0,
+    "pump_funding": 0,
+    "direction_zero": 0,
+    "dd_scaling": 0,
+    "raw_combined_skip": 0,
+    "total": 1748
+  },
+  "partial_fills": 284,
+  "strategy_attribution": {
+    "s523c_growth": {
+      "trades": 1513,
+      "pnl": "176448.17",
+      "funding": "-8415.743"
+    }
+  },
+  "exposure": {
+    "spot_long": 0,
+    "spot_short": 0,
+    "perp_long": 664,
+    "perp_short": 849
+  },
+  "total_funding": "-8415.838",
+  "total_fees": "23325.152",
+  "final_equity": "221397.98",
+  "margin_calls": 0
+}

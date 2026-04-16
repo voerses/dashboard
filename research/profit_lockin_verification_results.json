@@ -1,0 +1,89 @@
+{
+  "baseline_full": {
+    "total_return_pct": 662.2046991205982,
+    "sharpe": 2.8936222965913116,
+    "max_dd_pct": -35.609037443720695,
+    "calmar": 18.59653466250522
+  },
+  "baseline_oos_only": {
+    "total_return_pct": 158.977905498,
+    "sharpe": 0.1998907177102235,
+    "max_dd_pct": -140.38407484754717,
+    "calmar": 1.132449714617881
+  },
+  "full_sample_threshold": 0.013298629281319675,
+  "in_sample_threshold": 0.009106844519266683,
+  "oos_observed_threshold": 0.02228912380108594,
+  "A_replicate": {
+    "n_fired": 148,
+    "total_return_pct": 927.8935513299496,
+    "sharpe": 3.5436143821190185,
+    "max_dd_pct": -18.721279443231808,
+    "calmar": 49.56357572374176
+  },
+  "B_oos_optimistic": {
+    "n_fired": 107,
+    "total_return_pct": 326.91806060672786,
+    "sharpe": 2.4213823124566196,
+    "max_dd_pct": -67.05438561251836,
+    "calmar": 4.875416538686407
+  },
+  "B_oos_limit": {
+    "n_fired": 107,
+    "total_return_pct": 133.9603972741061,
+    "sharpe": 2.6135248858620663,
+    "max_dd_pct": -150.1456303191968,
+    "calmar": 0.8922031030095096
+  },
+  "B_oos_midpoint": {
+    "n_fired": 107,
+    "total_return_pct": 236.7907972073616,
+    "sharpe": 2.1478712260110946,
+    "max_dd_pct": -89.2941959084337,
+    "calmar": 2.6518050226934973
+  },
+  "C_walkforward_optimistic": {
+    "n_fired": 179,
+    "total_return_pct": 842.7320681465972,
+    "sharpe": 3.5175456255693844,
+    "max_dd_pct": -21.239517068914214,
+    "calmar": 39.67755318599052
+  },
+  "C_walkforward_limit": {
+    "n_fired": 179,
+    "total_return_pct": 718.7645378238844,
+    "sharpe": 3.2046396748932464,
+    "max_dd_pct": -25.598632179618985,
+    "calmar": 28.07823999268787
+  },
+  "C_walkforward_midpoint": {
+    "n_fired": 179,
+    "total_return_pct": 732.5045885379732,
+    "sharpe": 3.2490692783867865,
+    "max_dd_pct": -24.751151786639547,
+    "calmar": 29.594767744641796
+  },
+  "D_full_midpoint": {
+    "n_fired": 148,
+    "total_return_pct": 799.7319006391623,
+    "sharpe": 3.283391672282973,
+    "max_dd_pct": -22.021381404307682,
+    "calmar": 36.316155011180356
+  },
+  "D_full_limit": {
+    "n_fired": 148,
+    "total_return_pct": 752.5798484817651,
+    "sharpe": 3.215738926733854,
+    "max_dd_pct": -23.51435877892999,
+    "calmar": 32.00511889595362
+  },
+  "D_full_close": {
+    "n_fired": 148,
+    "total_return_pct": 670.8794885685206,
+    "sharpe": 2.98187034997819,
+    "max_dd_pct": -26.268500911314298,
+    "calmar": 25.539313828127938
+  },
+  "n_trades_total": 575,
+  "n_trades_oos": 288
+}

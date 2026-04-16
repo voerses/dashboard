@@ -1,0 +1,63 @@
+{
+  "baseline": {
+    "final_equity": 423597.6843942989,
+    "total_return_pct": 747.1953687885976,
+    "max_drawdown_pct": -37.271341928509074,
+    "sharpe": 2.8824569652126013,
+    "calmar": 20.047450135329402
+  },
+  "configs": [
+    {
+      "final_equity": 112445.68192399901,
+      "total_return_pct": 124.89136384799804,
+      "max_drawdown_pct": -50.624009732944565,
+      "sharpe": 1.1628560807357575,
+      "calmar": 2.46703816048618,
+      "threshold": 0.0,
+      "mode": "directional_sign",
+      "n_trades_kept": 219,
+      "n_trades_dropped": 415,
+      "skipped_no_z": 15,
+      "skipped_wrong_dir": 415
+    },
+    {
+      "final_equity": 26632.136817799,
+      "total_return_pct": -46.735726364402,
+      "max_drawdown_pct": -76.60121386512719,
+      "sharpe": -0.014448644822156883,
+      "calmar": -0.6101173076276603,
+      "threshold": 0.5,
+      "mode": "moderate",
+      "n_trades_kept": 134,
+      "n_trades_dropped": 500,
+      "skipped_no_z": 15,
+      "skipped_wrong_dir": 500
+    },
+    {
+      "final_equity": 41784.098831799,
+      "total_return_pct": -16.431802336402,
+      "max_drawdown_pct": -51.90399681908799,
+      "sharpe": -0.012862450001222391,
+      "calmar": -0.31658067477298996,
+      "threshold": 1.0,
+      "mode": "strict",
+      "n_trades_kept": 69,
+      "n_trades_dropped": 565,
+      "skipped_no_z": 15,
+      "skipped_wrong_dir": 565
+    },
+    {
+      "final_equity": 71088.280111,
+      "total_return_pct": 42.176560222000006,
+      "max_drawdown_pct": -15.667526771631533,
+      "sharpe": 0.873911659522648,
+      "calmar": 2.691973075059119,
+      "threshold": 1.5,
+      "mode": "very_strict",
+      "n_trades_kept": 41,
+      "n_trades_dropped": 593,
+      "skipped_no_z": 15,
+      "skipped_wrong_dir": 593
+    }
+  ]
+}

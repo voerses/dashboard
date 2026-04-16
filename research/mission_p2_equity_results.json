@@ -1,0 +1,44 @@
+{
+  "baseline": {
+    "total_return_pct": 487.7012367010598,
+    "final_equity": 293850.6183505299,
+    "maxdd_pct": -45.2657578561975,
+    "sharpe": 1.7159313798801847,
+    "calmar": 10.774175884791617
+  },
+  "mission_p_close_100": {
+    "total_return_pct": 578.6522936346613,
+    "final_equity": 339326.1468173307,
+    "maxdd_pct": -32.2317136593552,
+    "sharpe": 1.988513017644595,
+    "calmar": 17.95288639475452
+  },
+  "variant_b_lever_50": {
+    "total_return_pct": 564.7312839171876,
+    "final_equity": 332365.6419585938,
+    "maxdd_pct": -44.866951635676706,
+    "sharpe": 1.5894686937232156,
+    "calmar": 12.58679859739194
+  },
+  "variant_b_lever_100": {
+    "total_return_pct": 641.7613311333154,
+    "final_equity": 370880.66556665767,
+    "maxdd_pct": -54.0273960987534,
+    "sharpe": 1.44844185683947,
+    "calmar": 11.878442743386683
+  },
+  "variant_c_combined_50": {
+    "total_return_pct": 665.9876715676014,
+    "final_equity": 382993.8357838007,
+    "maxdd_pct": -44.64436016505531,
+    "sharpe": 1.7390785194511156,
+    "calmar": 14.91762160114668
+  },
+  "variant_c_combined_100": {
+    "total_return_pct": 750.0382754543514,
+    "final_equity": 425019.1377271757,
+    "maxdd_pct": -53.67973957220784,
+    "sharpe": 1.5601214194724085,
+    "calmar": 13.972464870948746
+  }
+}

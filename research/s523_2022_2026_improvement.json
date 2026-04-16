@@ -1,0 +1,146 @@
+{
+  "description": "s523r bear market improvement sweep — find variants that improve 2022/2026Q1 without hurting bull years",
+  "baseline_target": {
+    "2022": "+27%",
+    "2026Q1": "+36%",
+    "s523c_reference": {"2022": "+3%", "2026Q1": "+179%"}
+  },
+  "results": {
+    "baseline": {
+      "2022": {"return_pct": 25.5, "max_dd_pct": -31.5, "trades": 267},
+      "2026Q1": {"return_pct": 27.6, "max_dd_pct": -32.5, "trades": 170},
+      "2024": {"return_pct": 718.2, "max_dd_pct": -58.3, "trades": 377},
+      "2025": {"return_pct": 267.1, "max_dd_pct": -26.7}
+    },
+    "A3_short_only_bear": {
+      "note": "No longs at all when _bear_years=True",
+      "2022": {"return_pct": 145.9, "max_dd_pct": -46.0, "trades": 177},
+      "2026Q1": {"return_pct": 42.1, "max_dd_pct": -38.5, "trades": 130},
+      "2024": {"return_pct": 717.8, "max_dd_pct": -58.3, "trades": 376},
+      "2025": {"return_pct": 85.4, "max_dd_pct": -76.9},
+      "REJECTED": "Destroys 2025 (-182pp, DD -76.9%)"
+    },
+    "A1_tighter_dilution_40": {
+      "note": "No longs >40% remaining in bear years",
+      "2022": {"return_pct": 38.5, "max_dd_pct": -29.3, "trades": 250},
+      "2026Q1": {"return_pct": 19.5, "max_dd_pct": -36.1, "trades": 169},
+      "2024": {"return_pct": 718.1, "max_dd_pct": -58.3, "trades": 377},
+      "verdict": "Marginal, not worth complexity"
+    },
+    "A2_tighter_dilution_30": {
+      "note": "No longs >30% remaining in bear years",
+      "2022": {"return_pct": 33.9, "max_dd_pct": -28.2, "trades": 249},
+      "2026Q1": {"return_pct": 23.3, "max_dd_pct": -34.7, "trades": 173},
+      "2024": {"return_pct": 718.1, "max_dd_pct": -58.3, "trades": 377},
+      "verdict": "Marginal, not worth complexity"
+    },
+    "B1_zw30": {
+      "note": "ZSCORE_WINDOW_DAYS=30 (global, all years)",
+      "2022": {"return_pct": 64.8, "max_dd_pct": -25.3, "trades": 254},
+      "2026Q1": {"return_pct": 56.2, "max_dd_pct": -20.9, "trades": 163},
+      "2024": {"return_pct": 722.5, "max_dd_pct": -55.9, "trades": 349},
+      "2025": {"return_pct": 168.2, "max_dd_pct": -33.8},
+      "verdict": "Good bear improvement but -99pp in 2025"
+    },
+    "B2_zw26": {
+      "note": "ZSCORE_WINDOW_DAYS=26 (compromise)",
+      "2022": {"return_pct": 38.1, "max_dd_pct": -35.9},
+      "2026Q1": {"return_pct": 54.4, "max_dd_pct": -28.0},
+      "2024": {"return_pct": 732.3, "max_dd_pct": -59.3},
+      "2025": {"return_pct": 128.3, "max_dd_pct": -32.5},
+      "verdict": "Moderate improvement, still hurts 2025 significantly"
+    },
+    "C1_bear_blacklist": {
+      "note": "Apply legacy 50-token blacklist in bear years only",
+      "2022": {"return_pct": -47.7, "max_dd_pct": -59.1, "trades": 138},
+      "2026Q1": {"return_pct": 48.2, "max_dd_pct": -20.3, "trades": 161},
+      "2024": {"return_pct": 719.6, "max_dd_pct": -58.3, "trades": 375},
+      "REJECTED": "Destroys 2022 (-73pp)"
+    },
+    "A3_C1_short_only_bear_blacklist": {
+      "note": "Short-only in bear + blacklist shorts",
+      "2022": {"return_pct": 23.2, "max_dd_pct": -27.3, "trades": 81},
+      "2026Q1": {"return_pct": 81.7, "max_dd_pct": -27.5, "trades": 117},
+      "2024": {"return_pct": 719.1, "max_dd_pct": -58.3, "trades": 375},
+      "verdict": "Good 2026Q1 but neutral 2022, would kill 2025"
+    },
+    "B1_A3_zw30_short_only_bear": {
+      "note": "zw=30 + short-only in bear years",
+      "2022": {"return_pct": 117.5, "max_dd_pct": -40.8, "trades": 167},
+      "2026Q1": {"return_pct": 48.7, "max_dd_pct": -36.1, "trades": 129},
+      "2024": {"return_pct": 724.9, "max_dd_pct": -56.0, "trades": 354},
+      "REJECTED": "Would destroy 2025 (both components hurt 2025)"
+    },
+    "A4_no_longs_deep_bear": {
+      "note": "BEST VARIANT: No longs when BTC 1mo return < -5% (regime-based, not calendar)",
+      "2022": {"return_pct": 171.6, "max_dd_pct": -34.2},
+      "2026Q1": {"return_pct": 43.8, "max_dd_pct": -24.5},
+      "2024": {"return_pct": 1258.0, "max_dd_pct": -57.3},
+      "2025": {"return_pct": 376.2, "max_dd_pct": -33.4},
+      "verdict": "WINNER: +146pp in 2022, +16pp in 2026Q1, +540pp in 2024, +109pp in 2025"
+    },
+    "A5_no_longs_very_deep_bear": {
+      "note": "No longs when BTC 1mo return < -10%",
+      "2022": {"return_pct": 171.2, "max_dd_pct": -34.2},
+      "2026Q1": {"return_pct": 44.0, "max_dd_pct": -24.6},
+      "2024": {"return_pct": 1023.0, "max_dd_pct": -59.5},
+      "2025": {"return_pct": 470.1, "max_dd_pct": -17.7},
+      "verdict": "Also excellent, slightly weaker 2024 but better 2025 DD"
+    },
+    "A4_B1_no_longs_deep_bear_zw30": {
+      "note": "A4 (no longs at 1mo<-5%) + zw=30",
+      "2022": {"return_pct": 158.8, "max_dd_pct": -30.9},
+      "2026Q1": {"return_pct": 44.2, "max_dd_pct": -23.1},
+      "2024": {"return_pct": 1197.8, "max_dd_pct": -63.9},
+      "2025": {"return_pct": 284.1, "max_dd_pct": -33.2},
+      "verdict": "Good but zw=30 hurts 2025 vs A4-alone"
+    }
+  },
+  "ranked_by_total_improvement": [
+    {
+      "variant": "A4_no_longs_deep_bear",
+      "description": "No longs when BTC 1mo return < -5%",
+      "delta_2022": "+146.1pp",
+      "delta_2026Q1": "+16.2pp",
+      "delta_2024": "+539.8pp",
+      "delta_2025": "+109.1pp",
+      "total_improvement": "+811.2pp across 4 periods",
+      "implementation": "Add: _deep_bear = np.nan_to_num(_m_ret_1mo_h, nan=0) < -0.05; long_signal[_deep_bear] = False"
+    },
+    {
+      "variant": "A5_no_longs_very_deep_bear",
+      "description": "No longs when BTC 1mo return < -10%",
+      "delta_2022": "+145.7pp",
+      "delta_2026Q1": "+16.4pp",
+      "delta_2024": "+304.8pp",
+      "delta_2025": "+203.0pp",
+      "total_improvement": "+669.9pp across 4 periods"
+    },
+    {
+      "variant": "A4_B1_no_longs_deep_bear_zw30",
+      "description": "No longs at 1mo<-5% + zw=30",
+      "delta_2022": "+133.3pp",
+      "delta_2026Q1": "+16.6pp",
+      "delta_2024": "+479.6pp",
+      "delta_2025": "+17.0pp",
+      "total_improvement": "+646.5pp across 4 periods"
+    },
+    {
+      "variant": "B1_zw30",
+      "description": "ZSCORE_WINDOW_DAYS=30 global",
+      "delta_2022": "+39.3pp",
+      "delta_2026Q1": "+28.6pp",
+      "delta_2024": "+4.3pp",
+      "delta_2025": "-98.9pp",
+      "total_improvement": "-26.7pp across 4 periods",
+      "note": "Helps bear years but hurts 2025 too much"
+    }
+  ],
+  "key_finding": "Calendar-based bear year detection (_bear_years) is too coarse. BTC 1mo return is a much better regime signal. When BTC monthly return is < -5%, suppressing longs avoids losers across ALL years, not just bear years. This is a universal improvement, not just a bear market fix.",
+  "recommended_implementation": {
+    "code_change": "After the BTC regime block (~line 409), add: _deep_bear = np.nan_to_num(_m_ret_1mo_h, nan=0) < -0.05; long_signal[_deep_bear] = False",
+    "mechanism": "Uses existing _m_ret_1mo_h (BTC monthly return) already computed for the short gate. When BTC had a >5% down month, longs are suppressed. This is NOT a calendar check — it fires dynamically based on actual regime.",
+    "why_it_works": "Longs entered after BTC drops >5% in a month are statistically losers across all market phases. The positioning signal (contrarian OI/flow) suggests buying the dip, but in real bear months these dips keep dipping.",
+    "variant_choice": "A4 (-5% threshold) for max total return, A5 (-10%) for lower drawdown. Both are strong."
+  }
+}

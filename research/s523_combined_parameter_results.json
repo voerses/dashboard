@@ -1,0 +1,470 @@
+{
+  "started": "2026-04-09T18:33:37.329455",
+  "phase1": {
+    "V2_BASE": {
+      "15": {
+        "total_return_pct": 7.865648437499995,
+        "sharpe_ratio": 0.1892068450569296,
+        "max_drawdown_pct": -22.79502600732014,
+        "total_trades": 263,
+        "per_year": {
+          "2022": -6.46,
+          "2023": 3.42,
+          "2024": 22.78,
+          "2025": -1.87,
+          "2026": -7.45
+        },
+        "elapsed_sec": 14.2
+      },
+      "18": {
+        "total_return_pct": 162.70225,
+        "sharpe_ratio": 0.8600568396603373,
+        "max_drawdown_pct": -32.364101838365265,
+        "total_trades": 451,
+        "per_year": {
+          "2022": -2.37,
+          "2023": 26.07,
+          "2024": 112.01,
+          "2025": -6.83,
+          "2026": 8.05
+        },
+        "elapsed_sec": 14.6
+      },
+      "20": {
+        "total_return_pct": 213.08656,
+        "sharpe_ratio": 0.9328386668168568,
+        "max_drawdown_pct": -33.81921052932739,
+        "total_trades": 506,
+        "per_year": {
+          "2022": 3.76,
+          "2023": 59.58,
+          "2024": 95.09,
+          "2025": -18.55,
+          "2026": 20.13
+        },
+        "elapsed_sec": 14.5
+      },
+      "22": {
+        "total_return_pct": 304.3813,
+        "sharpe_ratio": 1.0162659114287826,
+        "max_drawdown_pct": -40.1582807302475,
+        "total_trades": 592,
+        "per_year": {
+          "2022": 25.58,
+          "2023": 64.57,
+          "2024": 127.48,
+          "2025": -27.71,
+          "2026": 20.13
+        },
+        "elapsed_sec": 15.1
+      },
+      "25": {
+        "total_return_pct": 324.98438,
+        "sharpe_ratio": 1.1533399377641171,
+        "max_drawdown_pct": -30.664634704589844,
+        "total_trades": 521,
+        "per_year": {
+          "2022": 1.45,
+          "2023": 47.75,
+          "2024": 123.13,
+          "2025": 23.03,
+          "2026": 2.22
+        },
+        "elapsed_sec": 15.6
+      },
+      "30": {
+        "total_return_pct": 143.35298,
+        "sharpe_ratio": 0.7007668911932999,
+        "max_drawdown_pct": -50.18041729927063,
+        "total_trades": 862,
+        "per_year": {
+          "2022": -6.44,
+          "2023": 34.14,
+          "2024": 167.84,
+          "2025": -23.57,
+          "2026": -6.27
+        },
+        "elapsed_sec": 15.8
+      },
+      "35": {
+        "total_return_pct": 290.98636,
+        "sharpe_ratio": 0.8792117419618186,
+        "max_drawdown_pct": -54.76577281951904,
+        "total_trades": 908,
+        "per_year": {
+          "2022": 2.05,
+          "2023": 115.19,
+          "2024": 229.55,
+          "2025": -26.97,
+          "2026": -26.81
+        },
+        "elapsed_sec": 17.2
+      },
+      "19": {
+        "total_return_pct": 183.6,
+        "sharpe_ratio": 0.94,
+        "max_drawdown_pct": -32.4,
+        "per_year": {
+          "2022": -2.35,
+          "2023": 25.36,
+          "2024": 103.77,
+          "2025": -9.8,
+          "2026": 26.02
+        }
+      },
+      "21": {
+        "total_return_pct": 253.1,
+        "sharpe_ratio": 1.02,
+        "max_drawdown_pct": -32.6,
+        "per_year": {
+          "2022": 8.97,
+          "2023": 48.4,
+          "2024": 123.15,
+          "2025": -9.96,
+          "2026": 9.7
+        }
+      },
+      "23": {
+        "total_return_pct": 388.0,
+        "sharpe_ratio": 1.22,
+        "max_drawdown_pct": -29.0,
+        "per_year": {
+          "2022": 9.26,
+          "2023": 45.2,
+          "2024": 133.44,
+          "2025": 18.02,
+          "2026": 10.51
+        },
+        "all_years_positive": true
+      },
+      "24": {
+        "total_return_pct": 290.6,
+        "sharpe_ratio": 1.09,
+        "max_drawdown_pct": -34.8,
+        "per_year": {
+          "2022": 15.57,
+          "2023": 51.35,
+          "2024": 112.51,
+          "2025": 2.51,
+          "2026": 1.46
+        },
+        "all_years_positive": true
+      },
+      "26": {
+        "total_return_pct": 228.0,
+        "sharpe_ratio": 0.92,
+        "max_drawdown_pct": -45.1,
+        "per_year": {
+          "2022": -12.48,
+          "2023": 52.15,
+          "2024": 137.63,
+          "2025": 0.67,
+          "2026": 1.91
+        }
+      },
+      "27": {
+        "total_return_pct": 176.6,
+        "sharpe_ratio": 0.78,
+        "max_drawdown_pct": -49.7,
+        "per_year": {
+          "2022": -16.55,
+          "2023": 32.01,
+          "2024": 147.41,
+          "2025": 1.33,
+          "2026": -0.9
+        }
+      },
+      "28": {
+        "total_return_pct": 225.4,
+        "sharpe_ratio": 0.88,
+        "max_drawdown_pct": -46.2,
+        "per_year": {
+          "2022": -7.44,
+          "2023": 33.07,
+          "2024": 139.95,
+          "2025": 4.81,
+          "2026": 3.95
+        }
+      }
+    },
+    "SHORT_HEAVY": {
+      "15": {
+        "total_return_pct": -16.45335,
+        "sharpe_ratio": 0.102779969157433,
+        "max_drawdown_pct": -74.75875616073608,
+        "total_trades": 917,
+        "per_year": {
+          "2022": 15.09,
+          "2023": -57.45,
+          "2024": 1.48,
+          "2025": 90.61,
+          "2026": -13.15
+        },
+        "elapsed_sec": 17.3
+      },
+      "18": {
+        "total_return_pct": -72.40703,
+        "sharpe_ratio": -0.34035697257217495,
+        "max_drawdown_pct": -89.49690461158752,
+        "total_trades": 1195,
+        "per_year": {
+          "2022": -26.6,
+          "2023": -54.96,
+          "2024": -63.56,
+          "2025": 241.75,
+          "2026": -32.3
+        },
+        "elapsed_sec": 17.7
+      },
+      "20": {
+        "total_return_pct": -63.667023,
+        "sharpe_ratio": -0.17929914093075913,
+        "max_drawdown_pct": -89.86576199531555,
+        "total_trades": 1249,
+        "per_year": {
+          "2022": -30.68,
+          "2023": -46.22,
+          "2024": -62.49,
+          "2025": 204.6,
+          "2026": -13.83
+        },
+        "elapsed_sec": 19.0
+      },
+      "22": {
+        "total_return_pct": -76.090256,
+        "sharpe_ratio": -0.44591281093609647,
+        "max_drawdown_pct": -83.99336338043213,
+        "total_trades": 1340,
+        "per_year": {
+          "2022": -14.81,
+          "2023": -64.87,
+          "2024": -24.84,
+          "2025": 35.63,
+          "2026": -20.8
+        },
+        "elapsed_sec": 18.3
+      },
+      "25": {
+        "total_return_pct": -46.34986,
+        "sharpe_ratio": -0.03713442117258439,
+        "max_drawdown_pct": -73.12842607498169,
+        "total_trades": 1391,
+        "per_year": {
+          "2022": -17.14,
+          "2023": -48.95,
+          "2024": 6.43,
+          "2025": 60.27,
+          "2026": -24.51
+        },
+        "elapsed_sec": 19.5
+      },
+      "30": {
+        "total_return_pct": 32.27626,
+        "sharpe_ratio": 0.408879680254027,
+        "max_drawdown_pct": -67.74939894676208,
+        "total_trades": 1530,
+        "per_year": {
+          "2022": -21.93,
+          "2023": -32.96,
+          "2024": 31.3,
+          "2025": 116.08,
+          "2026": -8.17
+        },
+        "elapsed_sec": 19.5
+      },
+      "35": {
+        "total_return_pct": -58.786488,
+        "sharpe_ratio": -0.032114888200405554,
+        "max_drawdown_pct": -83.71027112007141,
+        "total_trades": 1537,
+        "per_year": {
+          "2022": -39.51,
+          "2023": -58.73,
+          "2024": 19.51,
+          "2025": 35.31,
+          "2026": 3.18
+        },
+        "elapsed_sec": 19.5
+      }
+    }
+  },
+  "phase2": {
+    "_optimal_zw": {
+      "bull": 35,
+      "bear": 18
+    },
+    "thresh_5pct": {
+      "total_return_pct": 41.8501,
+      "sharpe_ratio": 0.40478354281563117,
+      "max_drawdown_pct": -51.772719621658325,
+      "total_trades": 780,
+      "per_year": {
+        "2022": -18.78,
+        "2023": -20.0,
+        "2024": 153.31,
+        "2025": -6.2,
+        "2026": -9.08
+      },
+      "elapsed_sec": 15.6
+    },
+    "thresh_10pct": {
+      "total_return_pct": 105.84507,
+      "sharpe_ratio": 0.6035564177558632,
+      "max_drawdown_pct": -46.30292356014252,
+      "total_trades": 857,
+      "per_year": {
+        "2022": -22.88,
+        "2023": 14.54,
+        "2024": 213.86,
+        "2025": -15.62,
+        "2026": -12.92
+      },
+      "elapsed_sec": 16.7
+    },
+    "thresh_15pct": {
+      "total_return_pct": 179.89215,
+      "sharpe_ratio": 0.7279941451358892,
+      "max_drawdown_pct": -56.83634877204895,
+      "total_trades": 930,
+      "per_year": {
+        "2022": -11.54,
+        "2023": 116.05,
+        "2024": 164.04,
+        "2025": -26.72,
+        "2026": -25.1
+      },
+      "elapsed_sec": 16.5
+    },
+    "thresh_10pct_bearzw35": {
+      "total_return_pct": 105.84507,
+      "sharpe_ratio": 0.6035564177558632,
+      "max_drawdown_pct": -46.30292356014252,
+      "total_trades": 857,
+      "per_year": {
+        "2022": -22.88,
+        "2023": 14.54,
+        "2024": 213.86,
+        "2025": -15.62,
+        "2026": -12.92
+      },
+      "elapsed_sec": 15.8
+    },
+    "thresh_15pct_bearzw35": {
+      "total_return_pct": 179.89215,
+      "sharpe_ratio": 0.7279941451358892,
+      "max_drawdown_pct": -56.83634877204895,
+      "total_trades": 930,
+      "per_year": {
+        "2022": -11.54,
+        "2023": 116.05,
+        "2024": 164.04,
+        "2025": -26.72,
+        "2026": -25.1
+      },
+      "elapsed_sec": 16.0
+    },
+    "thresh_10pct_bearzw22": {
+      "total_return_pct": 105.84507,
+      "sharpe_ratio": 0.6035564177558632,
+      "max_drawdown_pct": -46.30292356014252,
+      "total_trades": 857,
+      "per_year": {
+        "2022": -22.88,
+        "2023": 14.54,
+        "2024": 213.86,
+        "2025": -15.62,
+        "2026": -12.92
+      },
+      "elapsed_sec": 17.0
+    },
+    "thresh_15pct_bearzw22": {
+      "total_return_pct": 179.89215,
+      "sharpe_ratio": 0.7279941451358892,
+      "max_drawdown_pct": -56.83634877204895,
+      "total_trades": 930,
+      "per_year": {
+        "2022": -11.54,
+        "2023": 116.05,
+        "2024": 164.04,
+        "2025": -26.72,
+        "2026": -25.1
+      },
+      "elapsed_sec": 16.4
+    }
+  },
+  "phase3": {
+    "static": {
+      "total_return_pct": 33.800484375,
+      "sharpe_ratio": 0.38225069448000415,
+      "max_drawdown_pct": -35.78509784393011,
+      "total_trades": 474,
+      "per_year": {
+        "2022": -11.22,
+        "2023": 4.84,
+        "2024": 90.54,
+        "2025": -17.09,
+        "2026": -9.0
+      }
+    },
+    "_best_key": "thresh_15pct",
+    "_threshold": -0.15,
+    "_bull_zw": 35,
+    "_bear_zw": 18
+  },
+  "completed": "2026-04-09T18:39:41.741152",
+  "phase2b": {
+    "note": "Combined regime with bull_zw=25 and bull_zw=22. bear_zw has NO effect (zscore window is module-level constant). None achieved ALL YEARS POSITIVE.",
+    "best_combined_bull25": {
+      "config": "bull25_thresh20",
+      "total": 223.5,
+      "sharpe": 0.96,
+      "maxdd": -46.0,
+      "per_year": {
+        "2022": -1.36,
+        "2023": 47.79,
+        "2024": 73.59,
+        "2025": 22.82,
+        "2026": 3.0
+      }
+    },
+    "best_combined_bull22": {
+      "config": "bull22_thresh10",
+      "total": 140.4,
+      "sharpe": 0.87,
+      "maxdd": -31.7,
+      "per_year": {
+        "2022": 2.07,
+        "2023": 16.88,
+        "2024": 77.36,
+        "2025": -10.68,
+        "2026": 27.18
+      }
+    }
+  },
+  "BEST_CONFIG": {
+    "mode": "V2_BASE",
+    "zscore_window_days": 23,
+    "blacklist": "none (empty)",
+    "rsi_window_1h": 99999,
+    "regime_flip": false,
+    "short_gate": "1mo_red (shorts only when last BTC monthly return < 0)",
+    "total_return_51mo": "+388.0%",
+    "sharpe_ratio": 1.22,
+    "max_drawdown": "-29.0%",
+    "per_year_returns": {
+      "2022": "+9.3%",
+      "2023": "+45.2%",
+      "2024": "+133.4%",
+      "2025": "+18.0%",
+      "2026_Q1": "+10.5%"
+    },
+    "all_years_positive": true,
+    "notes": [
+      "V2_BASE with zw=23 beats all combined regime configs",
+      "Combined regime approach hurt: bear_zw cannot be dynamic (module-level constant)",
+      "The 1mo_red short gate provides sufficient regime adaptation",
+      "zw=23 is the Goldilocks value: fast enough to catch 2025 shorts, slow enough for bull stability",
+      "No blacklist outperforms static blacklist (broader universe = more opportunities)"
+    ]
+  }
+}

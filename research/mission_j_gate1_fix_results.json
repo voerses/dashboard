@@ -1,0 +1,260 @@
+[
+  {
+    "n_events_with_entry": 279,
+    "n_trade_legs": 558,
+    "days_span": 345,
+    "events_per_year": 295.17391304347825,
+    "mean_pnl_pct": 0.005809996755158424,
+    "median_pnl_pct": 0.008378796795280257,
+    "stdev_pnl_pct": 0.05144002277490653,
+    "wins": 152,
+    "win_rate": 0.5448028673835126,
+    "sharpe_event_annualised": 1.9405003435738613,
+    "total_return": 2.486357388056304,
+    "cagr": 2.748122308602451,
+    "max_drawdown": -0.823015447810325,
+    "calmar": 3.339089583207669,
+    "alpha": 0.006304210940223451,
+    "beta_btc": 1.4217880695208434,
+    "alpha_t_stat": 3.5352339503873833,
+    "hold_hours": {
+      "mean": 48.0,
+      "median": 48.0,
+      "p25": 48.0,
+      "p75": 48.0
+    },
+    "exit_reason_counts": {
+      "time_stop": 279
+    },
+    "trigger": 0.75,
+    "concurrency_cap": 0,
+    "exit_mode": "time_48h",
+    "n_events_raw": 297,
+    "n_events_skipped_concurrency": 0,
+    "n_events_fired": 279,
+    "config_label": "time48h no cap",
+    "gate1_checks": {
+      "events_gt_15": true,
+      "sharpe_gt_1.5": true,
+      "calmar_gt_2.5": true,
+      "maxdd_gt_-25": false,
+      "alpha_t_gt_1.5": true
+    },
+    "gate1_pass_count": 4
+  },
+  {
+    "n_events_with_entry": 153,
+    "n_trade_legs": 306,
+    "days_span": 345,
+    "events_per_year": 161.8695652173913,
+    "mean_pnl_pct": 0.007523559096334968,
+    "median_pnl_pct": 0.004483268996810407,
+    "stdev_pnl_pct": 0.04885621335275608,
+    "wins": 84,
+    "win_rate": 0.5490196078431373,
+    "sharpe_event_annualised": 1.95923320777806,
+    "total_return": 1.6290131114238604,
+    "cagr": 1.7805362651625627,
+    "max_drawdown": -0.44493595109881856,
+    "calmar": 4.001781067062195,
+    "alpha": 0.005474209481372198,
+    "beta_btc": 1.390546746366612,
+    "alpha_t_stat": 2.3724048257401784,
+    "hold_hours": {
+      "mean": 48.0,
+      "median": 48.0,
+      "p25": 48.0,
+      "p75": 48.0
+    },
+    "exit_reason_counts": {
+      "time_stop": 153
+    },
+    "trigger": 0.8,
+    "concurrency_cap": 0,
+    "exit_mode": "time_48h",
+    "n_events_raw": 159,
+    "n_events_skipped_concurrency": 0,
+    "n_events_fired": 153,
+    "config_label": "time48h no cap",
+    "gate1_checks": {
+      "events_gt_15": true,
+      "sharpe_gt_1.5": true,
+      "calmar_gt_2.5": true,
+      "maxdd_gt_-25": false,
+      "alpha_t_gt_1.5": true
+    },
+    "gate1_pass_count": 4
+  },
+  {
+    "n_events_with_entry": 64,
+    "n_trade_legs": 128,
+    "days_span": 337,
+    "events_per_year": 69.31750741839762,
+    "mean_pnl_pct": 0.010480134274806431,
+    "median_pnl_pct": 0.010110398286423338,
+    "stdev_pnl_pct": 0.046556702257280765,
+    "wins": 37,
+    "win_rate": 0.578125,
+    "sharpe_event_annualised": 1.8741575869073994,
+    "total_return": 0.8229505553712344,
+    "cagr": 0.9162035730913298,
+    "max_drawdown": -0.17919208960177746,
+    "calmar": 5.11296885441444,
+    "alpha": 0.003523123030585727,
+    "beta_btc": 1.3951979236504155,
+    "alpha_t_stat": 1.0839407404691332,
+    "hold_hours": {
+      "mean": 48.0,
+      "median": 48.0,
+      "p25": 48.0,
+      "p75": 48.0
+    },
+    "exit_reason_counts": {
+      "time_stop": 64
+    },
+    "trigger": 0.85,
+    "concurrency_cap": 0,
+    "exit_mode": "time_48h",
+    "n_events_raw": 67,
+    "n_events_skipped_concurrency": 0,
+    "n_events_fired": 64,
+    "config_label": "time48h no cap",
+    "gate1_checks": {
+      "events_gt_15": true,
+      "sharpe_gt_1.5": true,
+      "calmar_gt_2.5": true,
+      "maxdd_gt_-25": true,
+      "alpha_t_gt_1.5": false
+    },
+    "gate1_pass_count": 4
+  },
+  {
+    "n_events_with_entry": 63,
+    "n_trade_legs": 126,
+    "days_span": 344,
+    "events_per_year": 66.84593023255815,
+    "mean_pnl_pct": -0.003692464925772823,
+    "median_pnl_pct": -0.0037882477544269755,
+    "stdev_pnl_pct": 0.05325229725924951,
+    "wins": 28,
+    "win_rate": 0.4444444444444444,
+    "sharpe_event_annualised": -0.5669118261548551,
+    "total_return": -0.27525064855508286,
+    "cagr": -0.28935485974965414,
+    "max_drawdown": -0.5438251628600083,
+    "calmar": -0.5320733197190068,
+    "alpha": 0.003688014673199022,
+    "beta_btc": 1.4296641956173322,
+    "alpha_t_stat": 1.0729764752649644,
+    "hold_hours": {
+      "mean": 48.0,
+      "median": 48.0,
+      "p25": 48.0,
+      "p75": 48.0
+    },
+    "exit_reason_counts": {
+      "time_stop": 63
+    },
+    "trigger": 0.75,
+    "concurrency_cap": 1,
+    "exit_mode": "time_48h",
+    "n_events_raw": 297,
+    "n_events_skipped_concurrency": 216,
+    "n_events_fired": 63,
+    "config_label": "time48h cap=1",
+    "gate1_checks": {
+      "events_gt_15": true,
+      "sharpe_gt_1.5": false,
+      "calmar_gt_2.5": false,
+      "maxdd_gt_-25": false,
+      "alpha_t_gt_1.5": false
+    },
+    "gate1_pass_count": 1
+  },
+  {
+    "n_events_with_entry": 48,
+    "n_trade_legs": 96,
+    "days_span": 345,
+    "events_per_year": 50.78260869565217,
+    "mean_pnl_pct": -0.009871252786062405,
+    "median_pnl_pct": -0.015137998271489001,
+    "stdev_pnl_pct": 0.05070073159223154,
+    "wins": 20,
+    "win_rate": 0.4166666666666667,
+    "sharpe_event_annualised": -1.3874442802852707,
+    "total_return": -0.41602574808551995,
+    "cagr": -0.43395454876177897,
+    "max_drawdown": -0.5205503861570884,
+    "calmar": -0.8336456187563425,
+    "alpha": -9.402644446395748e-05,
+    "beta_btc": 1.3619476205843328,
+    "alpha_t_stat": -0.023194962261332976,
+    "hold_hours": {
+      "mean": 48.0,
+      "median": 48.0,
+      "p25": 48.0,
+      "p75": 48.0
+    },
+    "exit_reason_counts": {
+      "time_stop": 48
+    },
+    "trigger": 0.8,
+    "concurrency_cap": 1,
+    "exit_mode": "time_48h",
+    "n_events_raw": 159,
+    "n_events_skipped_concurrency": 105,
+    "n_events_fired": 48,
+    "config_label": "time48h cap=1",
+    "gate1_checks": {
+      "events_gt_15": true,
+      "sharpe_gt_1.5": false,
+      "calmar_gt_2.5": false,
+      "maxdd_gt_-25": false,
+      "alpha_t_gt_1.5": false
+    },
+    "gate1_pass_count": 1
+  },
+  {
+    "n_events_with_entry": 27,
+    "n_trade_legs": 54,
+    "days_span": 337,
+    "events_per_year": 29.2433234421365,
+    "mean_pnl_pct": 0.0072503186734470875,
+    "median_pnl_pct": 0.00994450939080677,
+    "stdev_pnl_pct": 0.0553150369428908,
+    "wins": 15,
+    "win_rate": 0.5555555555555556,
+    "sharpe_event_annualised": 0.7088057837017241,
+    "total_return": 0.1686979648565916,
+    "cagr": 0.1839337572102766,
+    "max_drawdown": -0.17378498480979154,
+    "calmar": 1.0583984422566366,
+    "alpha": 0.0009956692102653548,
+    "beta_btc": 1.3967471601409838,
+    "alpha_t_stat": 0.2183352736940697,
+    "hold_hours": {
+      "mean": 48.0,
+      "median": 48.0,
+      "p25": 48.0,
+      "p75": 48.0
+    },
+    "exit_reason_counts": {
+      "time_stop": 27
+    },
+    "trigger": 0.85,
+    "concurrency_cap": 1,
+    "exit_mode": "time_48h",
+    "n_events_raw": 67,
+    "n_events_skipped_concurrency": 37,
+    "n_events_fired": 27,
+    "config_label": "time48h cap=1",
+    "gate1_checks": {
+      "events_gt_15": true,
+      "sharpe_gt_1.5": false,
+      "calmar_gt_2.5": false,
+      "maxdd_gt_-25": true,
+      "alpha_t_gt_1.5": false
+    },
+    "gate1_pass_count": 2
+  }
+]

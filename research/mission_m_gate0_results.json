@@ -1,0 +1,234 @@
+{
+  "verdict": "KILL",
+  "verdict_reasons": [
+    "C1 fail: pearson_r=-0.012, t=-0.29",
+    "C2 fail at +3d: bucket D wr 0.17 vs baseline_uw 0.29 (\u0394=12.8pp), pnl ratio=0.02x",
+    "C2 fail at +5d: bucket D wr 0.17 vs baseline_uw 0.22 (\u0394=4.6pp), pnl ratio=0.38x",
+    "C2 fail at +7d: bucket D wr 0.13 vs baseline_uw 0.18 (\u0394=4.9pp), pnl ratio=1.62x",
+    "C3 fail: flip@+3d \u2192 loser rate 47.83% (n_flipped=69)"
+  ],
+  "trades_total": 634,
+  "trades_enriched": 634,
+  "skipped": 0,
+  "skip_reasons": {},
+  "correlations": [
+    {
+      "metric": "strength_+3d vs eventual_pnl_pct",
+      "n": 583,
+      "pearson_r": -0.011918353911609381,
+      "pearson_p": 0.7739852807518818,
+      "spearman_r": -0.020141717150454323,
+      "spearman_p": 0.6274386252507996,
+      "t_stat": -0.2872997122700947
+    },
+    {
+      "metric": "strength_+5d vs eventual_pnl_pct",
+      "n": 551,
+      "pearson_r": -0.025997958752278633,
+      "pearson_p": 0.5425395147960161,
+      "spearman_r": -0.05956923452149523,
+      "spearman_p": 0.1626071512341845,
+      "t_stat": -0.6093576121002803
+    },
+    {
+      "metric": "strength_+7d vs eventual_pnl_pct",
+      "n": 501,
+      "pearson_r": -0.0039889108434016185,
+      "pearson_p": 0.9290332392546122,
+      "spearman_r": -0.05080592599661236,
+      "spearman_p": 0.25634049322234376,
+      "t_stat": -0.08910622752593501
+    },
+    {
+      "metric": "strength_change_+3d vs eventual_pnl_pct",
+      "n": 583,
+      "pearson_r": -0.03704361534553714,
+      "pearson_p": 0.37195385735896486,
+      "t_stat": -0.8935104015314158
+    },
+    {
+      "metric": "strength_change_+5d vs eventual_pnl_pct",
+      "n": 551,
+      "pearson_r": -0.05506974424593251,
+      "pearson_p": 0.19680165113043618,
+      "t_stat": -1.292286387798896
+    },
+    {
+      "metric": "strength_change_+7d vs eventual_pnl_pct",
+      "n": 501,
+      "pearson_r": -0.03655637155796622,
+      "pearson_p": 0.4142305785085909,
+      "t_stat": -0.8171536753774197
+    },
+    {
+      "metric": "flip_+3d \u2192 eventual_loser",
+      "n": 583,
+      "chi2": 1.4127226618213768,
+      "p": 0.23460494124829123,
+      "loser_rate_if_flipped": 0.4782608695652174,
+      "loser_rate_if_intact": 0.5622568093385214,
+      "n_flipped": 69,
+      "n_intact": 514
+    },
+    {
+      "metric": "flip_+5d \u2192 eventual_loser",
+      "n": 551,
+      "chi2": 0.0,
+      "p": 1.0,
+      "loser_rate_if_flipped": 0.5360824742268041,
+      "loser_rate_if_intact": 0.5418502202643172,
+      "n_flipped": 97,
+      "n_intact": 454
+    },
+    {
+      "metric": "flip_+7d \u2192 eventual_loser",
+      "n": 501,
+      "chi2": 0.0322862045819197,
+      "p": 0.8574009506791428,
+      "loser_rate_if_flipped": 0.512,
+      "loser_rate_if_intact": 0.526595744680851,
+      "n_flipped": 125,
+      "n_intact": 376
+    }
+  ],
+  "bucket_analysis": {
+    "overall": {
+      "n": 634,
+      "win_rate": 0.43533123028391163,
+      "mean_pnl_pct": 0.1178386486104895,
+      "median_pnl_pct": -0.02427170264307974
+    },
+    "+3d": {
+      "buckets": [
+        {
+          "bucket": "A_strong_winning",
+          "n": 193,
+          "win_rate": 0.5595854922279793,
+          "mean_pnl_pct": 0.35012125719919246,
+          "median_pnl_pct": 0.02471966968147857
+        },
+        {
+          "bucket": "B_strong_losing",
+          "n": 204,
+          "win_rate": 0.2990196078431373,
+          "mean_pnl_pct": -0.09652259710733223,
+          "median_pnl_pct": -0.091653820509846
+        },
+        {
+          "bucket": "C_degraded_winning",
+          "n": 51,
+          "win_rate": 0.6470588235294117,
+          "mean_pnl_pct": 0.3350538189087055,
+          "median_pnl_pct": 0.28249964558032975
+        },
+        {
+          "bucket": "D_degraded_losing",
+          "n": 18,
+          "win_rate": 0.16666666666666663,
+          "mean_pnl_pct": -0.001570919562625144,
+          "median_pnl_pct": -0.25864679729354845
+        },
+        {
+          "bucket": "E_neutral",
+          "n": 117,
+          "win_rate": 0.4786324786324786,
+          "mean_pnl_pct": 0.18666644446351371,
+          "median_pnl_pct": -0.0073104184842821655
+        }
+      ],
+      "baseline_underwater": {
+        "n": 278,
+        "win_rate": 0.29496402877697847,
+        "mean_pnl_pct": -0.07915209086613838
+      }
+    },
+    "+5d": {
+      "buckets": [
+        {
+          "bucket": "A_strong_winning",
+          "n": 155,
+          "win_rate": 0.6645161290322581,
+          "mean_pnl_pct": 0.4741707357532061,
+          "median_pnl_pct": 0.17569585722202147
+        },
+        {
+          "bucket": "B_strong_losing",
+          "n": 165,
+          "win_rate": 0.21212121212121215,
+          "mean_pnl_pct": -0.18703161552531364,
+          "median_pnl_pct": -0.17099349554777138
+        },
+        {
+          "bucket": "C_degraded_winning",
+          "n": 62,
+          "win_rate": 0.6290322580645161,
+          "mean_pnl_pct": 0.5129278027887371,
+          "median_pnl_pct": 0.3687974649925364
+        },
+        {
+          "bucket": "D_degraded_losing",
+          "n": 35,
+          "win_rate": 0.17142857142857137,
+          "mean_pnl_pct": -0.06329849834160148,
+          "median_pnl_pct": -0.2784488703841662
+        },
+        {
+          "bucket": "E_neutral",
+          "n": 134,
+          "win_rate": 0.5223880597014925,
+          "mean_pnl_pct": 0.13393494521423716,
+          "median_pnl_pct": 0.004224300106999341
+        }
+      ],
+      "baseline_underwater": {
+        "n": 253,
+        "win_rate": 0.21739130434782605,
+        "mean_pnl_pct": -0.16511599480078976
+      }
+    },
+    "+7d": {
+      "buckets": [
+        {
+          "bucket": "A_strong_winning",
+          "n": 127,
+          "win_rate": 0.7086614173228347,
+          "mean_pnl_pct": 0.5344009546359381,
+          "median_pnl_pct": 0.2743821594470902
+        },
+        {
+          "bucket": "B_strong_losing",
+          "n": 124,
+          "win_rate": 0.16935483870967738,
+          "mean_pnl_pct": -0.17750320658172886,
+          "median_pnl_pct": -0.22237340243992373
+        },
+        {
+          "bucket": "C_degraded_winning",
+          "n": 87,
+          "win_rate": 0.6436781609195402,
+          "mean_pnl_pct": 0.46521652253100765,
+          "median_pnl_pct": 0.3552279921029807
+        },
+        {
+          "bucket": "D_degraded_losing",
+          "n": 38,
+          "win_rate": 0.13157894736842102,
+          "mean_pnl_pct": -0.31732753124907537,
+          "median_pnl_pct": -0.29735008612958136
+        },
+        {
+          "bucket": "E_neutral",
+          "n": 125,
+          "win_rate": 0.536,
+          "mean_pnl_pct": 0.1589221761015797,
+          "median_pnl_pct": 0.0036932822625263652
+        }
+      ],
+      "baseline_underwater": {
+        "n": 211,
+        "win_rate": 0.1800947867298578,
+        "mean_pnl_pct": -0.19545250061411823
+      }
+    }
+  }
+}

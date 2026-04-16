@@ -1,0 +1,84 @@
+{
+  "s513": {
+    "baseline": {
+      "total_return_pct": 220.38479640440002,
+      "annualized_return_pct": 219.36717860116684,
+      "sharpe": 2.772079454335921,
+      "max_drawdown_pct": -13.09538610827246,
+      "calmar": 16.75148611789238,
+      "final_equity": 160192.3982022,
+      "trades": 195
+    },
+    "linear (1-frag)": {
+      "total_return_pct": 112.79097728008551,
+      "annualized_return_pct": 112.35239432343671,
+      "sharpe": 2.9479958813336635,
+      "max_drawdown_pct": -8.458474787453495,
+      "calmar": 13.282819556321156,
+      "final_equity": 106395.48864004275,
+      "trades": 195,
+      "avg_mult": 0.5109608486755574
+    },
+    "threshold (frag>0.7 -> 0)": {
+      "total_return_pct": 218.73199920439998,
+      "annualized_return_pct": 217.7241209720885,
+      "sharpe": 2.739280546317832,
+      "max_drawdown_pct": -13.255385432320422,
+      "calmar": 16.425333090746257,
+      "final_equity": 159365.9996022,
+      "trades": 192,
+      "avg_mult": 0.9846153846153847
+    },
+    "tiered (0.45/0.65)": {
+      "total_return_pct": 137.08951855920003,
+      "annualized_return_pct": 136.53096524162325,
+      "sharpe": 3.029065799207933,
+      "max_drawdown_pct": -9.324323060139323,
+      "calmar": 14.6424533299668,
+      "final_equity": 118544.75927960001,
+      "trades": 188,
+      "avg_mult": 0.6307692307692307
+    }
+  },
+  "s523c": {
+    "baseline": {
+      "total_return_pct": 747.1953687885976,
+      "annualized_return_pct": 742.2637290380266,
+      "sharpe": 2.8823779044595996,
+      "max_drawdown_pct": -37.27134192850908,
+      "calmar": 19.91513293140284,
+      "final_equity": 423597.6843942988,
+      "trades": 634
+    },
+    "linear (1-frag)": {
+      "total_return_pct": 383.982080699772,
+      "annualized_return_pct": 381.9013734314238,
+      "sharpe": 2.7213630670078235,
+      "max_drawdown_pct": -32.516821083287795,
+      "calmar": 11.744732747805541,
+      "final_equity": 241991.04034988597,
+      "trades": 634,
+      "avg_mult": 0.5076187542202752
+    },
+    "threshold (frag>0.7 -> 0)": {
+      "total_return_pct": 730.0245307965977,
+      "annualized_return_pct": 725.2390119962103,
+      "sharpe": 2.715024469532739,
+      "max_drawdown_pct": -38.24539882798647,
+      "calmar": 18.96277811765187,
+      "final_equity": 415012.2653982988,
+      "trades": 618,
+      "avg_mult": 0.9747634069400631
+    },
+    "tiered (0.45/0.65)": {
+      "total_return_pct": 468.9519711694981,
+      "annualized_return_pct": 466.2556629594948,
+      "sharpe": 2.3272719268139324,
+      "max_drawdown_pct": -43.7212636030746,
+      "calmar": 10.664276933814568,
+      "final_equity": 284475.985584749,
+      "trades": 611,
+      "avg_mult": 0.6522082018927445
+    }
+  }
+}

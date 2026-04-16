@@ -1,0 +1,158 @@
+[
+  {
+    "token": "AAVE",
+    "feature": "dvol_eth_z30",
+    "ic": 0.1432070460860838,
+    "wf_quarters": 4
+  },
+  {
+    "token": "ADA",
+    "feature": "pos_x_vol",
+    "ic": -0.12509553733624712,
+    "wf_quarters": 3
+  },
+  {
+    "token": "APT",
+    "feature": "taker_z30",
+    "ic": -0.10052373936669926,
+    "wf_quarters": 3
+  },
+  {
+    "token": "ARB",
+    "feature": "div_z30",
+    "ic": -0.13867519187953828,
+    "wf_quarters": 4
+  },
+  {
+    "token": "ATOM",
+    "feature": "vix_z14",
+    "ic": -0.1263466682270075,
+    "wf_quarters": 4
+  },
+  {
+    "token": "AVAX",
+    "feature": "sp500_roc5",
+    "ic": 0.13083576848950837,
+    "wf_quarters": 4
+  },
+  {
+    "token": "BNB",
+    "feature": "dvol_eth_z14",
+    "ic": 0.18461888623381673,
+    "wf_quarters": 4
+  },
+  {
+    "token": "BTC",
+    "feature": "cs_vol_30d_rank",
+    "ic": 0.15613699469888379,
+    "wf_quarters": 3
+  },
+  {
+    "token": "DOGE",
+    "feature": "vol_30d",
+    "ic": -0.1295247030544666,
+    "wf_quarters": 4
+  },
+  {
+    "token": "DOT",
+    "feature": "sp500_roc5",
+    "ic": 0.08929161462142378,
+    "wf_quarters": 4
+  },
+  {
+    "token": "ETH",
+    "feature": "ca_oi_roc30",
+    "ic": 0.11907900554663613,
+    "wf_quarters": 3
+  },
+  {
+    "token": "FIL",
+    "feature": "sp500_roc5",
+    "ic": 0.0994686226358987,
+    "wf_quarters": 4
+  },
+  {
+    "token": "INJ",
+    "feature": "fp_extreme_short",
+    "ic": 0.08768164408918612,
+    "wf_quarters": 4
+  },
+  {
+    "token": "JUP",
+    "feature": "oi_val_z7",
+    "ic": -0.1895206768555581,
+    "wf_quarters": 4
+  },
+  {
+    "token": "LINK",
+    "feature": "sp500_roc5",
+    "ic": 0.1286205475445556,
+    "wf_quarters": 4
+  },
+  {
+    "token": "LTC",
+    "feature": "dvol_eth_z14",
+    "ic": 0.15204486683439788,
+    "wf_quarters": 4
+  },
+  {
+    "token": "NEAR",
+    "feature": "sp500_z14",
+    "ic": 0.10502747550011729,
+    "wf_quarters": 3
+  },
+  {
+    "token": "OP",
+    "feature": "div_z30",
+    "ic": -0.09432368278921043,
+    "wf_quarters": 4
+  },
+  {
+    "token": "PEPE",
+    "feature": "oil_roc14",
+    "ic": -0.13459687060877623,
+    "wf_quarters": 4
+  },
+  {
+    "token": "SEI",
+    "feature": "oil_roc14",
+    "ic": -0.16713587340502822,
+    "wf_quarters": 4
+  },
+  {
+    "token": "SOL",
+    "feature": "dvol_eth_z14",
+    "ic": 0.11617634600474129,
+    "wf_quarters": 4
+  },
+  {
+    "token": "SUI",
+    "feature": "oil_roc14",
+    "ic": -0.15197002405635693,
+    "wf_quarters": 4
+  },
+  {
+    "token": "TIA",
+    "feature": "fp_fr_pctrank_90d",
+    "ic": -0.13329692208803387,
+    "wf_quarters": 4
+  },
+  {
+    "token": "UNI",
+    "feature": "dvol_eth_z14",
+    "ic": 0.11780966314747152,
+    "wf_quarters": 4
+  },
+  {
+    "token": "WIF",
+    "feature": "cs_ret_7d_rank",
+    "ic": -0.12967888243492412,
+    "wf_quarters": 4
+  },
+  {
+    "token": "XRP",
+    "feature": "oil_roc14",
+    "ic": -0.1439263176056465,
+    "wf_quarters": 4
+  }
+]

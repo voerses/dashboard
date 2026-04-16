@@ -1,0 +1,5494 @@
+{
+  "config": {
+    "date_start": "2022-01-01",
+    "date_end": "2026-03-29",
+    "train_end": "2024-12-31",
+    "lookback_weeks": 26,
+    "pnl_threshold": 200,
+    "forward_days": 7,
+    "image_size": 224
+  },
+  "data": {
+    "total_days": 1549,
+    "train_days": 1096,
+    "val_days": 453,
+    "label_distribution": {
+      "LONG": 370,
+      "SHORT": 581,
+      "FLAT": 598
+    }
+  },
+  "cnn": {
+    "model": "SmallChartCNN",
+    "params": 90371,
+    "val_accuracy": 0.2229580573951435,
+    "val_per_class": {
+      "LONG": 0.0,
+      "SHORT": 0.11570247933884298,
+      "FLAT": 0.8588235294117647
+    },
+    "gated_pnl": 15403.09,
+    "ungated_pnl": 157851.62,
+    "training_epochs": 11,
+    "best_val_loss": 1.1543008406956992
+  },
+  "mlp": {
+    "model": "NumericalMLP",
+    "params": 1155,
+    "val_accuracy": 0.2141280353200883,
+    "val_per_class": {
+      "LONG": 0.7380952380952381,
+      "SHORT": 0.0,
+      "FLAT": 0.047058823529411764
+    },
+    "gated_pnl": -59851.03000000001,
+    "ungated_pnl": 157851.62,
+    "training_epochs": 11,
+    "best_val_loss": 1.1008276025454202
+  },
+  "v1_reference": {
+    "model": "ResNet18 (pretrained)",
+    "params": 11200000,
+    "train_samples": 190,
+    "val_accuracy": 0.45,
+    "notes": "Memorized by epoch 15, random OOS, destroyed value in 2025"
+  },
+  "predictions_2025": [
+    {
+      "date": "2025-01-01",
+      "cnn_pred": "SHORT",
+      "cnn_probs": [
+        0.3246,
+        0.351,
+        0.3244
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -2628.18,
+      "short_pnl": -1503.4
+    },
+    {
+      "date": "2025-01-02",
+      "cnn_pred": "SHORT",
+      "cnn_probs": [
+        0.3239,
+        0.3514,
+        0.3247
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -6992.61,
+      "short_pnl": -1503.4
+    },
+    {
+      "date": "2025-01-03",
+      "cnn_pred": "SHORT",
+      "cnn_probs": [
+        0.3242,
+        0.3513,
+        0.3244
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -6992.61,
+      "short_pnl": -1503.4
+    },
+    {
+      "date": "2025-01-04",
+      "cnn_pred": "SHORT",
+      "cnn_probs": [
+        0.3242,
+        0.3513,
+        0.3244
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -7612.27,
+      "short_pnl": -379.33
+    },
+    {
+      "date": "2025-01-05",
+      "cnn_pred": "SHORT",
+      "cnn_probs": [
+        0.3242,
+        0.3513,
+        0.3244
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -10874.2,
+      "short_pnl": -703.53
+    },
+    {
+      "date": "2025-01-06",
+      "cnn_pred": "SHORT",
+      "cnn_probs": [
+        0.3084,
+        0.356,
+        0.3356
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -15192.55,
+      "short_pnl": 1190.36
+    },
+    {
+      "date": "2025-01-07",
+      "cnn_pred": "SHORT",
+      "cnn_probs": [
+        0.309,
+        0.3555,
+        0.3355
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -13603.59,
+      "short_pnl": 4785.21
+    },
+    {
+      "date": "2025-01-08",
+      "cnn_pred": "SHORT",
+      "cnn_probs": [
+        0.3084,
+        0.3557,
+        0.3359
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -13020.46,
+      "short_pnl": 9527.18
+    },
+    {
+      "date": "2025-01-09",
+      "cnn_pred": "SHORT",
+      "cnn_probs": [
+        0.3092,
+        0.3552,
+        0.3356
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -8656.03,
+      "short_pnl": 9527.18
+    },
+    {
+      "date": "2025-01-10",
+      "cnn_pred": "SHORT",
+      "cnn_probs": [
+        0.3086,
+        0.3557,
+        0.3357
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -8656.03,
+      "short_pnl": 9527.18
+    },
+    {
+      "date": "2025-01-11",
+      "cnn_pred": "SHORT",
+      "cnn_probs": [
+        0.3086,
+        0.3557,
+        0.3357
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -7934.2,
+      "short_pnl": 9159.71
+    },
+    {
+      "date": "2025-01-12",
+      "cnn_pred": "SHORT",
+      "cnn_probs": [
+        0.3086,
+        0.3557,
+        0.3357
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -4672.28,
+      "short_pnl": 9483.91
+    },
+    {
+      "date": "2025-01-13",
+      "cnn_pred": "SHORT",
+      "cnn_probs": [
+        0.3004,
+        0.3599,
+        0.3397
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -353.93,
+      "short_pnl": 7590.01
+    },
+    {
+      "date": "2025-01-14",
+      "cnn_pred": "SHORT",
+      "cnn_probs": [
+        0.3007,
+        0.3596,
+        0.3397
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -2410.86,
+      "short_pnl": 4374.5
+    },
+    {
+      "date": "2025-01-15",
+      "cnn_pred": "SHORT",
+      "cnn_probs": [
+        0.3003,
+        0.36,
+        0.3396
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -6070.2,
+      "short_pnl": -367.47
+    },
+    {
+      "date": "2025-01-16",
+      "cnn_pred": "SHORT",
+      "cnn_probs": [
+        0.3004,
+        0.3599,
+        0.3397
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -6070.2,
+      "short_pnl": -367.47
+    },
+    {
+      "date": "2025-01-17",
+      "cnn_pred": "SHORT",
+      "cnn_probs": [
+        0.3004,
+        0.3602,
+        0.3395
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -6070.2,
+      "short_pnl": 3396.97
+    },
+    {
+      "date": "2025-01-18",
+      "cnn_pred": "SHORT",
+      "cnn_probs": [
+        0.3003,
+        0.3603,
+        0.3395
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -15051.81,
+      "short_pnl": 3932.08
+    },
+    {
+      "date": "2025-01-19",
+      "cnn_pred": "SHORT",
+      "cnn_probs": [
+        0.3006,
+        0.3595,
+        0.3399
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -15051.81,
+      "short_pnl": 3932.08
+    },
+    {
+      "date": "2025-01-20",
+      "cnn_pred": "SHORT",
+      "cnn_probs": [
+        0.2914,
+        0.3615,
+        0.3471
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -17810.07,
+      "short_pnl": 3742.28
+    },
+    {
+      "date": "2025-01-21",
+      "cnn_pred": "SHORT",
+      "cnn_probs": [
+        0.2914,
+        0.3616,
+        0.3471
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -18323.11,
+      "short_pnl": 3742.28
+    },
+    {
+      "date": "2025-01-22",
+      "cnn_pred": "SHORT",
+      "cnn_probs": [
+        0.2912,
+        0.3612,
+        0.3475
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -14663.77,
+      "short_pnl": 6434.98
+    },
+    {
+      "date": "2025-01-23",
+      "cnn_pred": "SHORT",
+      "cnn_probs": [
+        0.2912,
+        0.3612,
+        0.3475
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -14663.77,
+      "short_pnl": 9325.51
+    },
+    {
+      "date": "2025-01-24",
+      "cnn_pred": "SHORT",
+      "cnn_probs": [
+        0.2918,
+        0.361,
+        0.3473
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -14663.77,
+      "short_pnl": 5561.07
+    },
+    {
+      "date": "2025-01-25",
+      "cnn_pred": "SHORT",
+      "cnn_probs": [
+        0.2918,
+        0.361,
+        0.3473
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -5784.33,
+      "short_pnl": 5393.43
+    },
+    {
+      "date": "2025-01-26",
+      "cnn_pred": "SHORT",
+      "cnn_probs": [
+        0.2914,
+        0.3615,
+        0.3471
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -5784.33,
+      "short_pnl": 5393.43
+    },
+    {
+      "date": "2025-01-27",
+      "cnn_pred": "SHORT",
+      "cnn_probs": [
+        0.2829,
+        0.3626,
+        0.3546
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -3026.06,
+      "short_pnl": 5583.23
+    },
+    {
+      "date": "2025-01-28",
+      "cnn_pred": "SHORT",
+      "cnn_probs": [
+        0.2829,
+        0.3625,
+        0.3547
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 0.0,
+      "short_pnl": 5583.23
+    },
+    {
+      "date": "2025-01-29",
+      "cnn_pred": "SHORT",
+      "cnn_probs": [
+        0.282,
+        0.3626,
+        0.3554
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 0.0,
+      "short_pnl": 2890.53
+    },
+    {
+      "date": "2025-01-30",
+      "cnn_pred": "SHORT",
+      "cnn_probs": [
+        0.2831,
+        0.362,
+        0.3548
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": 0.0,
+      "short_pnl": 0.0
+    },
+    {
+      "date": "2025-01-31",
+      "cnn_pred": "SHORT",
+      "cnn_probs": [
+        0.2828,
+        0.3627,
+        0.3545
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": 0.0,
+      "short_pnl": 0.0
+    },
+    {
+      "date": "2025-02-01",
+      "cnn_pred": "SHORT",
+      "cnn_probs": [
+        0.2825,
+        0.3624,
+        0.3551
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": 0.0,
+      "short_pnl": 0.0
+    },
+    {
+      "date": "2025-02-02",
+      "cnn_pred": "SHORT",
+      "cnn_probs": [
+        0.2827,
+        0.3624,
+        0.3549
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -719.59,
+      "short_pnl": 0.0
+    },
+    {
+      "date": "2025-02-03",
+      "cnn_pred": "SHORT",
+      "cnn_probs": [
+        0.2804,
+        0.3629,
+        0.3567
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -719.59,
+      "short_pnl": 0.0
+    },
+    {
+      "date": "2025-02-04",
+      "cnn_pred": "SHORT",
+      "cnn_probs": [
+        0.2807,
+        0.3627,
+        0.3567
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -719.59,
+      "short_pnl": 1604.35
+    },
+    {
+      "date": "2025-02-05",
+      "cnn_pred": "SHORT",
+      "cnn_probs": [
+        0.2816,
+        0.3623,
+        0.3561
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -719.59,
+      "short_pnl": 3150.2
+    },
+    {
+      "date": "2025-02-06",
+      "cnn_pred": "SHORT",
+      "cnn_probs": [
+        0.2816,
+        0.3623,
+        0.3561
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -719.59,
+      "short_pnl": 4389.36
+    },
+    {
+      "date": "2025-02-07",
+      "cnn_pred": "SHORT",
+      "cnn_probs": [
+        0.2816,
+        0.3623,
+        0.3561
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -3087.3,
+      "short_pnl": 6870.07
+    },
+    {
+      "date": "2025-02-08",
+      "cnn_pred": "SHORT",
+      "cnn_probs": [
+        0.2816,
+        0.3626,
+        0.3558
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -3963.72,
+      "short_pnl": 8862.81
+    },
+    {
+      "date": "2025-02-09",
+      "cnn_pred": "SHORT",
+      "cnn_probs": [
+        0.2816,
+        0.3623,
+        0.3561
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -3244.13,
+      "short_pnl": 8862.81
+    },
+    {
+      "date": "2025-02-10",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2644,
+        0.3597,
+        0.3759
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -4711.29,
+      "short_pnl": 8862.81
+    },
+    {
+      "date": "2025-02-11",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2644,
+        0.3596,
+        0.376
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -4711.29,
+      "short_pnl": 7258.46
+    },
+    {
+      "date": "2025-02-12",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2645,
+        0.3596,
+        0.3759
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -4711.29,
+      "short_pnl": 5712.61
+    },
+    {
+      "date": "2025-02-13",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2646,
+        0.3595,
+        0.3759
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -4711.29,
+      "short_pnl": 7038.13
+    },
+    {
+      "date": "2025-02-14",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2644,
+        0.3597,
+        0.3759
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -2343.58,
+      "short_pnl": 4669.14
+    },
+    {
+      "date": "2025-02-15",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2644,
+        0.3597,
+        0.3759
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -1467.16,
+      "short_pnl": 2542.14
+    },
+    {
+      "date": "2025-02-16",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2642,
+        0.3599,
+        0.3759
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -2073.44,
+      "short_pnl": 3534.4
+    },
+    {
+      "date": "2025-02-17",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2629,
+        0.3568,
+        0.3804
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -1973.69,
+      "short_pnl": 3534.4
+    },
+    {
+      "date": "2025-02-18",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2629,
+        0.3568,
+        0.3804
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -1973.69,
+      "short_pnl": 3534.4
+    },
+    {
+      "date": "2025-02-19",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.263,
+        0.3565,
+        0.3805
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -1973.69,
+      "short_pnl": 3534.4
+    },
+    {
+      "date": "2025-02-20",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2633,
+        0.3564,
+        0.3804
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -2963.73,
+      "short_pnl": 3958.54
+    },
+    {
+      "date": "2025-02-21",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2628,
+        0.3569,
+        0.3803
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -2963.73,
+      "short_pnl": 3846.82
+    },
+    {
+      "date": "2025-02-22",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.263,
+        0.3565,
+        0.3805
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -3482.87,
+      "short_pnl": 4022.86
+    },
+    {
+      "date": "2025-02-23",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2628,
+        0.3569,
+        0.3803
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -2876.58,
+      "short_pnl": 3128.87
+    },
+    {
+      "date": "2025-02-24",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2562,
+        0.3546,
+        0.3892
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -2135.51,
+      "short_pnl": 3128.87
+    },
+    {
+      "date": "2025-02-25",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2564,
+        0.3541,
+        0.3894
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -2135.51,
+      "short_pnl": 3393.69
+    },
+    {
+      "date": "2025-02-26",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2562,
+        0.3543,
+        0.3895
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -2135.51,
+      "short_pnl": 3393.69
+    },
+    {
+      "date": "2025-02-27",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2562,
+        0.3541,
+        0.3897
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -1145.47,
+      "short_pnl": 404.88
+    },
+    {
+      "date": "2025-02-28",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2562,
+        0.3543,
+        0.3895
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -1177.3,
+      "short_pnl": 404.88
+    },
+    {
+      "date": "2025-03-01",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.256,
+        0.3539,
+        0.3902
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -658.17,
+      "short_pnl": 363.1
+    },
+    {
+      "date": "2025-03-02",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2558,
+        0.3546,
+        0.3896
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -697.41,
+      "short_pnl": 153.33
+    },
+    {
+      "date": "2025-03-03",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2581,
+        0.3469,
+        0.3949
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -81.38,
+      "short_pnl": 153.33
+    },
+    {
+      "date": "2025-03-04",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2578,
+        0.347,
+        0.3952
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": 59.48,
+      "short_pnl": -111.5
+    },
+    {
+      "date": "2025-03-05",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2578,
+        0.3474,
+        0.3948
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": 59.48,
+      "short_pnl": -111.5
+    },
+    {
+      "date": "2025-03-06",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2581,
+        0.3471,
+        0.3948
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": 59.48,
+      "short_pnl": -111.5
+    },
+    {
+      "date": "2025-03-07",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2582,
+        0.347,
+        0.3948
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 1627.7,
+      "short_pnl": -1118.83
+    },
+    {
+      "date": "2025-03-08",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2581,
+        0.3469,
+        0.3949
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 1627.7,
+      "short_pnl": -1118.83
+    },
+    {
+      "date": "2025-03-09",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2583,
+        0.3471,
+        0.3946
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 471.57,
+      "short_pnl": -1007.33
+    },
+    {
+      "date": "2025-03-10",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2593,
+        0.3427,
+        0.398
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -1487.1,
+      "short_pnl": 1575.11
+    },
+    {
+      "date": "2025-03-11",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.26,
+        0.3431,
+        0.3968
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -1627.96,
+      "short_pnl": 4226.99
+    },
+    {
+      "date": "2025-03-12",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2596,
+        0.3431,
+        0.3973
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -1627.96,
+      "short_pnl": 4922.81
+    },
+    {
+      "date": "2025-03-13",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2593,
+        0.3429,
+        0.3978
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -1627.96,
+      "short_pnl": 4922.81
+    },
+    {
+      "date": "2025-03-14",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.26,
+        0.3429,
+        0.3972
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -3164.34,
+      "short_pnl": 5930.15
+    },
+    {
+      "date": "2025-03-15",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2606,
+        0.3429,
+        0.3965
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -3164.34,
+      "short_pnl": 7000.96
+    },
+    {
+      "date": "2025-03-16",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2599,
+        0.3429,
+        0.3972
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -1968.97,
+      "short_pnl": 7000.96
+    },
+    {
+      "date": "2025-03-17",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2623,
+        0.3319,
+        0.4057
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 0.0,
+      "short_pnl": 5800.42
+    },
+    {
+      "date": "2025-03-18",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2627,
+        0.3322,
+        0.4052
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 0.0,
+      "short_pnl": 4148.11
+    },
+    {
+      "date": "2025-03-19",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2624,
+        0.3322,
+        0.4054
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 0.0,
+      "short_pnl": 3580.1
+    },
+    {
+      "date": "2025-03-20",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2623,
+        0.3319,
+        0.4057
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -1262.66,
+      "short_pnl": 3580.1
+    },
+    {
+      "date": "2025-03-21",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2623,
+        0.3319,
+        0.4057
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -3202.65,
+      "short_pnl": 3580.1
+    },
+    {
+      "date": "2025-03-22",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2626,
+        0.3321,
+        0.4053
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -5325.49,
+      "short_pnl": 2509.29
+    },
+    {
+      "date": "2025-03-23",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2622,
+        0.3319,
+        0.4058
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -7106.04,
+      "short_pnl": 2509.29
+    },
+    {
+      "date": "2025-03-24",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2482,
+        0.3234,
+        0.4284
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -8202.01,
+      "short_pnl": 1131.68
+    },
+    {
+      "date": "2025-03-25",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2477,
+        0.3231,
+        0.4292
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -2968.64,
+      "short_pnl": 132.1
+    },
+    {
+      "date": "2025-03-26",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2472,
+        0.323,
+        0.4298
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -3578.8,
+      "short_pnl": 80.7
+    },
+    {
+      "date": "2025-03-27",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2477,
+        0.3231,
+        0.4292
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -2422.98,
+      "short_pnl": 80.7
+    },
+    {
+      "date": "2025-03-28",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2478,
+        0.3228,
+        0.4294
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -482.99,
+      "short_pnl": 80.7
+    },
+    {
+      "date": "2025-03-29",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.248,
+        0.323,
+        0.429
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 1639.85,
+      "short_pnl": -241.6
+    },
+    {
+      "date": "2025-03-30",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2478,
+        0.3231,
+        0.4291
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 3420.41,
+      "short_pnl": -241.6
+    },
+    {
+      "date": "2025-03-31",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2424,
+        0.3162,
+        0.4414
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 4516.37,
+      "short_pnl": -245.89
+    },
+    {
+      "date": "2025-04-01",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2423,
+        0.3162,
+        0.4415
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -716.99,
+      "short_pnl": -245.89
+    },
+    {
+      "date": "2025-04-02",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2424,
+        0.3162,
+        0.4414
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -106.84,
+      "short_pnl": -424.21
+    },
+    {
+      "date": "2025-04-03",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.242,
+        0.3159,
+        0.4421
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": 0.0,
+      "short_pnl": -424.21
+    },
+    {
+      "date": "2025-04-04",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2418,
+        0.316,
+        0.4422
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": 0.0,
+      "short_pnl": -424.21
+    },
+    {
+      "date": "2025-04-05",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2416,
+        0.3156,
+        0.4428
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 2913.22,
+      "short_pnl": -101.91
+    },
+    {
+      "date": "2025-04-06",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2422,
+        0.3159,
+        0.4419
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 2915.32,
+      "short_pnl": -101.91
+    },
+    {
+      "date": "2025-04-07",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2474,
+        0.3148,
+        0.4378
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 10942.21,
+      "short_pnl": -101.91
+    },
+    {
+      "date": "2025-04-08",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2474,
+        0.3149,
+        0.4377
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 10942.21,
+      "short_pnl": -1362.4
+    },
+    {
+      "date": "2025-04-09",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2471,
+        0.3148,
+        0.4381
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 10942.21,
+      "short_pnl": -5070.12
+    },
+    {
+      "date": "2025-04-10",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2471,
+        0.3147,
+        0.4381
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 10942.21,
+      "short_pnl": -5327.26
+    },
+    {
+      "date": "2025-04-11",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.247,
+        0.3144,
+        0.4386
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 17092.19,
+      "short_pnl": -5327.26
+    },
+    {
+      "date": "2025-04-12",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2474,
+        0.3147,
+        0.4379
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 14178.97,
+      "short_pnl": -6693.07
+    },
+    {
+      "date": "2025-04-13",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2471,
+        0.3148,
+        0.4382
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 14017.64,
+      "short_pnl": -6891.57
+    },
+    {
+      "date": "2025-04-14",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2668,
+        0.3096,
+        0.4236
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 5990.76,
+      "short_pnl": -8978.82
+    },
+    {
+      "date": "2025-04-15",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2663,
+        0.3096,
+        0.4241
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 5990.76,
+      "short_pnl": -7954.07
+    },
+    {
+      "date": "2025-04-16",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2663,
+        0.3095,
+        0.4243
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 5990.76,
+      "short_pnl": -4144.43
+    },
+    {
+      "date": "2025-04-17",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2668,
+        0.3095,
+        0.4237
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 5990.76,
+      "short_pnl": -6624.19
+    },
+    {
+      "date": "2025-04-18",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2668,
+        0.3096,
+        0.4236
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -159.23,
+      "short_pnl": -6624.19
+    },
+    {
+      "date": "2025-04-19",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2666,
+        0.3095,
+        0.4239
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -159.23,
+      "short_pnl": -5258.38
+    },
+    {
+      "date": "2025-04-20",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2666,
+        0.3095,
+        0.4239
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": 0.0,
+      "short_pnl": -6405.8
+    },
+    {
+      "date": "2025-04-21",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2806,
+        0.3041,
+        0.4152
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": 0.0,
+      "short_pnl": -4318.55
+    },
+    {
+      "date": "2025-04-22",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2802,
+        0.3038,
+        0.416
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": 0.0,
+      "short_pnl": -4082.82
+    },
+    {
+      "date": "2025-04-23",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2802,
+        0.3038,
+        0.416
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": 0.0,
+      "short_pnl": -4082.82
+    },
+    {
+      "date": "2025-04-24",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2804,
+        0.3037,
+        0.4159
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -2.17,
+      "short_pnl": -3532.05
+    },
+    {
+      "date": "2025-04-25",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2805,
+        0.304,
+        0.4155
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 1173.08,
+      "short_pnl": -3532.05
+    },
+    {
+      "date": "2025-04-26",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2805,
+        0.304,
+        0.4155
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 1173.08,
+      "short_pnl": -3532.05
+    },
+    {
+      "date": "2025-04-27",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2804,
+        0.3037,
+        0.4159
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 8608.71,
+      "short_pnl": -2186.13
+    },
+    {
+      "date": "2025-04-28",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2836,
+        0.2999,
+        0.4164
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 8608.71,
+      "short_pnl": -2186.13
+    },
+    {
+      "date": "2025-04-29",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2838,
+        0.3001,
+        0.4161
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 13223.84,
+      "short_pnl": -2186.13
+    },
+    {
+      "date": "2025-04-30",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2838,
+        0.3001,
+        0.4161
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 13223.84,
+      "short_pnl": -2350.64
+    },
+    {
+      "date": "2025-05-01",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2836,
+        0.3002,
+        0.4162
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 13226.01,
+      "short_pnl": -164.51
+    },
+    {
+      "date": "2025-05-02",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2833,
+        0.3007,
+        0.4161
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 12050.76,
+      "short_pnl": 859.78
+    },
+    {
+      "date": "2025-05-03",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2828,
+        0.3003,
+        0.417
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 12050.76,
+      "short_pnl": 859.78
+    },
+    {
+      "date": "2025-05-04",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2836,
+        0.3002,
+        0.4162
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 4615.13,
+      "short_pnl": 859.78
+    },
+    {
+      "date": "2025-05-05",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3372,
+        0.2983,
+        0.3645
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 4615.13,
+      "short_pnl": 5000.21
+    },
+    {
+      "date": "2025-05-06",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3367,
+        0.2984,
+        0.3649
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 0.0,
+      "short_pnl": 4953.08
+    },
+    {
+      "date": "2025-05-07",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3365,
+        0.2983,
+        0.3651
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 0.0,
+      "short_pnl": 3240.6
+    },
+    {
+      "date": "2025-05-08",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3367,
+        0.2987,
+        0.3646
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -499.67,
+      "short_pnl": 3240.6
+    },
+    {
+      "date": "2025-05-09",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3364,
+        0.2989,
+        0.3647
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -473.07,
+      "short_pnl": 2216.32
+    },
+    {
+      "date": "2025-05-10",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3365,
+        0.2991,
+        0.3645
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -473.07,
+      "short_pnl": 1339.31
+    },
+    {
+      "date": "2025-05-11",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3363,
+        0.299,
+        0.3646
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -473.07,
+      "short_pnl": 5932.17
+    },
+    {
+      "date": "2025-05-12",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3477,
+        0.3016,
+        0.3507
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -473.07,
+      "short_pnl": 1791.74
+    },
+    {
+      "date": "2025-05-13",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3477,
+        0.3013,
+        0.351
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -473.07,
+      "short_pnl": 1838.87
+    },
+    {
+      "date": "2025-05-14",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3477,
+        0.3016,
+        0.3507
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -473.07,
+      "short_pnl": 5952.87
+    },
+    {
+      "date": "2025-05-15",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3479,
+        0.3013,
+        0.3508
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 26.6,
+      "short_pnl": 6425.46
+    },
+    {
+      "date": "2025-05-16",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3476,
+        0.3016,
+        0.3508
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -801.66,
+      "short_pnl": 6363.93
+    },
+    {
+      "date": "2025-05-17",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3477,
+        0.3018,
+        0.3505
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -1046.71,
+      "short_pnl": 7240.93
+    },
+    {
+      "date": "2025-05-18",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3484,
+        0.3012,
+        0.3504
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -1046.71,
+      "short_pnl": 2648.07
+    },
+    {
+      "date": "2025-05-19",
+      "cnn_pred": "LONG",
+      "cnn_probs": [
+        0.353,
+        0.3037,
+        0.3433
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -1199.39,
+      "short_pnl": 4126.92
+    },
+    {
+      "date": "2025-05-20",
+      "cnn_pred": "LONG",
+      "cnn_probs": [
+        0.3537,
+        0.3038,
+        0.3426
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -1750.52,
+      "short_pnl": 6559.41
+    },
+    {
+      "date": "2025-05-21",
+      "cnn_pred": "LONG",
+      "cnn_probs": [
+        0.3528,
+        0.3038,
+        0.3433
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -2210.72,
+      "short_pnl": 4322.4
+    },
+    {
+      "date": "2025-05-22",
+      "cnn_pred": "LONG",
+      "cnn_probs": [
+        0.3526,
+        0.3044,
+        0.343
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -2210.72,
+      "short_pnl": 3849.8
+    },
+    {
+      "date": "2025-05-23",
+      "cnn_pred": "LONG",
+      "cnn_probs": [
+        0.3534,
+        0.3037,
+        0.343
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -1409.06,
+      "short_pnl": 3911.34
+    },
+    {
+      "date": "2025-05-24",
+      "cnn_pred": "LONG",
+      "cnn_probs": [
+        0.3531,
+        0.3036,
+        0.3433
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -2147.98,
+      "short_pnl": 3911.34
+    },
+    {
+      "date": "2025-05-25",
+      "cnn_pred": "LONG",
+      "cnn_probs": [
+        0.353,
+        0.3039,
+        0.3431
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -2147.98,
+      "short_pnl": 5643.14
+    },
+    {
+      "date": "2025-05-26",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.344,
+        0.3021,
+        0.3539
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -2091.71,
+      "short_pnl": 6415.69
+    },
+    {
+      "date": "2025-05-27",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3444,
+        0.3023,
+        0.3533
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -4017.93,
+      "short_pnl": 3983.19
+    },
+    {
+      "date": "2025-05-28",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3441,
+        0.3019,
+        0.354
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -4234.72,
+      "short_pnl": 3983.19
+    },
+    {
+      "date": "2025-05-29",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.344,
+        0.3021,
+        0.3539
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -5147.89,
+      "short_pnl": 3983.19
+    },
+    {
+      "date": "2025-05-30",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3445,
+        0.302,
+        0.3535
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -5147.89,
+      "short_pnl": 3963.11
+    },
+    {
+      "date": "2025-05-31",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3441,
+        0.3025,
+        0.3534
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -6041.28,
+      "short_pnl": 5411.04
+    },
+    {
+      "date": "2025-06-01",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.344,
+        0.3021,
+        0.3539
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -8425.19,
+      "short_pnl": 5036.86
+    },
+    {
+      "date": "2025-06-02",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3328,
+        0.3099,
+        0.3573
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -8328.78,
+      "short_pnl": 2785.47
+    },
+    {
+      "date": "2025-06-03",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3317,
+        0.3105,
+        0.3578
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -5851.43,
+      "short_pnl": 2766.86
+    },
+    {
+      "date": "2025-06-04",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3323,
+        0.3106,
+        0.3571
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -8676.93,
+      "short_pnl": 2766.86
+    },
+    {
+      "date": "2025-06-05",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3315,
+        0.3105,
+        0.3579
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -9038.85,
+      "short_pnl": 2766.86
+    },
+    {
+      "date": "2025-06-06",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3325,
+        0.3103,
+        0.3572
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -9038.85,
+      "short_pnl": 2786.94
+    },
+    {
+      "date": "2025-06-07",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3314,
+        0.3107,
+        0.3579
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -7161.48,
+      "short_pnl": 1339.0
+    },
+    {
+      "date": "2025-06-08",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3314,
+        0.3107,
+        0.3579
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 9746.36,
+      "short_pnl": -18.61
+    },
+    {
+      "date": "2025-06-09",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3242,
+        0.316,
+        0.3598
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 9746.36,
+      "short_pnl": -18.61
+    },
+    {
+      "date": "2025-06-10",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3242,
+        0.316,
+        0.3598
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 17756.56,
+      "short_pnl": 6.43
+    },
+    {
+      "date": "2025-06-11",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3235,
+        0.3166,
+        0.3599
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 23906.39,
+      "short_pnl": 6.43
+    },
+    {
+      "date": "2025-06-12",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3229,
+        0.3166,
+        0.3605
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 32242.54,
+      "short_pnl": 6.43
+    },
+    {
+      "date": "2025-06-13",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3241,
+        0.3162,
+        0.3597
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 32427.24,
+      "short_pnl": 6.43
+    },
+    {
+      "date": "2025-06-14",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3232,
+        0.3163,
+        0.3604
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 34058.81,
+      "short_pnl": 6.43
+    },
+    {
+      "date": "2025-06-15",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3229,
+        0.3166,
+        0.3605
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 18468.44,
+      "short_pnl": 6.43
+    },
+    {
+      "date": "2025-06-16",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3148,
+        0.3239,
+        0.3613
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 18468.44,
+      "short_pnl": -2892.08
+    },
+    {
+      "date": "2025-06-17",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.315,
+        0.3236,
+        0.3614
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 10458.24,
+      "short_pnl": -2907.29
+    },
+    {
+      "date": "2025-06-18",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3151,
+        0.3232,
+        0.3616
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 7810.89,
+      "short_pnl": -3155.22
+    },
+    {
+      "date": "2025-06-19",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.315,
+        0.3236,
+        0.3614
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 749.83,
+      "short_pnl": -3155.22
+    },
+    {
+      "date": "2025-06-20",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3146,
+        0.3234,
+        0.362
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 12861.32,
+      "short_pnl": -3155.22
+    },
+    {
+      "date": "2025-06-21",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3152,
+        0.3234,
+        0.3615
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 11229.74,
+      "short_pnl": -4107.55
+    },
+    {
+      "date": "2025-06-22",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3151,
+        0.323,
+        0.3619
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 12296.18,
+      "short_pnl": -8971.65
+    },
+    {
+      "date": "2025-06-23",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3164,
+        0.3283,
+        0.3553
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 8070.63,
+      "short_pnl": -6073.14
+    },
+    {
+      "date": "2025-06-24",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.316,
+        0.3285,
+        0.3555
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 8070.63,
+      "short_pnl": -7017.81
+    },
+    {
+      "date": "2025-06-25",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3159,
+        0.3287,
+        0.3554
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 10499.13,
+      "short_pnl": -6769.89
+    },
+    {
+      "date": "2025-06-26",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3161,
+        0.3285,
+        0.3554
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 10595.1,
+      "short_pnl": -6769.89
+    },
+    {
+      "date": "2025-06-27",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3161,
+        0.3285,
+        0.3554
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -1701.08,
+      "short_pnl": -7658.89
+    },
+    {
+      "date": "2025-06-28",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3159,
+        0.3287,
+        0.3554
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 4375.52,
+      "short_pnl": -6706.56
+    },
+    {
+      "date": "2025-06-29",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3159,
+        0.3288,
+        0.3553
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 4276.84,
+      "short_pnl": -1842.46
+    },
+    {
+      "date": "2025-06-30",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3075,
+        0.334,
+        0.3585
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 8502.39,
+      "short_pnl": -3257.97
+    },
+    {
+      "date": "2025-07-01",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3073,
+        0.3338,
+        0.3589
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 8393.45,
+      "short_pnl": -3831.02
+    },
+    {
+      "date": "2025-07-02",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3077,
+        0.3338,
+        0.3585
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 5964.94,
+      "short_pnl": -3942.37
+    },
+    {
+      "date": "2025-07-03",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3077,
+        0.3336,
+        0.3587
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 5868.97,
+      "short_pnl": -3942.37
+    },
+    {
+      "date": "2025-07-04",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3085,
+        0.3328,
+        0.3586
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 5868.97,
+      "short_pnl": -3053.36
+    },
+    {
+      "date": "2025-07-05",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3085,
+        0.3328,
+        0.3586
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -207.63,
+      "short_pnl": -3053.36
+    },
+    {
+      "date": "2025-07-06",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.308,
+        0.3333,
+        0.3587
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -108.95,
+      "short_pnl": -3053.36
+    },
+    {
+      "date": "2025-07-07",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3284,
+        0.3223,
+        0.3493
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -108.95,
+      "short_pnl": -1637.86
+    },
+    {
+      "date": "2025-07-08",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3283,
+        0.3221,
+        0.3496
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": 0.0,
+      "short_pnl": -385.35
+    },
+    {
+      "date": "2025-07-09",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3289,
+        0.3219,
+        0.3492
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": 0.0,
+      "short_pnl": -324.2
+    },
+    {
+      "date": "2025-07-10",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3284,
+        0.3222,
+        0.3494
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": 0.0,
+      "short_pnl": -263.15
+    },
+    {
+      "date": "2025-07-11",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.328,
+        0.3223,
+        0.3497
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 0.0,
+      "short_pnl": 1483.78
+    },
+    {
+      "date": "2025-07-12",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.328,
+        0.3223,
+        0.3497
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -3155.36,
+      "short_pnl": 3982.77
+    },
+    {
+      "date": "2025-07-13",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3283,
+        0.3224,
+        0.3493
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -5013.26,
+      "short_pnl": 3982.77
+    },
+    {
+      "date": "2025-07-14",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3199,
+        0.3281,
+        0.3521
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -5013.26,
+      "short_pnl": 4310.29
+    },
+    {
+      "date": "2025-07-15",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3206,
+        0.328,
+        0.3514
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -5013.26,
+      "short_pnl": 4584.28
+    },
+    {
+      "date": "2025-07-16",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3201,
+        0.3284,
+        0.3516
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -5013.26,
+      "short_pnl": 4528.09
+    },
+    {
+      "date": "2025-07-17",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3203,
+        0.328,
+        0.3517
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -5013.26,
+      "short_pnl": 4469.85
+    },
+    {
+      "date": "2025-07-18",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3206,
+        0.328,
+        0.3514
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -5013.26,
+      "short_pnl": 2722.92
+    },
+    {
+      "date": "2025-07-19",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3206,
+        0.328,
+        0.3514
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -1857.9,
+      "short_pnl": 223.93
+    },
+    {
+      "date": "2025-07-20",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3202,
+        0.3281,
+        0.3518
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": 0.0,
+      "short_pnl": -2674.36
+    },
+    {
+      "date": "2025-07-21",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3196,
+        0.3329,
+        0.3475
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": 0.0,
+      "short_pnl": -4847.2
+    },
+    {
+      "date": "2025-07-22",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3197,
+        0.3328,
+        0.3475
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -1283.76,
+      "short_pnl": -4847.2
+    },
+    {
+      "date": "2025-07-23",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3198,
+        0.333,
+        0.3473
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -2801.72,
+      "short_pnl": -4740.8
+    },
+    {
+      "date": "2025-07-24",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3198,
+        0.3329,
+        0.3473
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -1943.71,
+      "short_pnl": -4743.6
+    },
+    {
+      "date": "2025-07-25",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3201,
+        0.3325,
+        0.3474
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -2271.93,
+      "short_pnl": -4743.6
+    },
+    {
+      "date": "2025-07-26",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3197,
+        0.3328,
+        0.3475
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -1639.71,
+      "short_pnl": -4743.6
+    },
+    {
+      "date": "2025-07-27",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3199,
+        0.3327,
+        0.3474
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -65.69,
+      "short_pnl": -2812.38
+    },
+    {
+      "date": "2025-07-28",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3085,
+        0.3388,
+        0.3527
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -260.68,
+      "short_pnl": -967.06
+    },
+    {
+      "date": "2025-07-29",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3085,
+        0.3388,
+        0.3527
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 1023.08,
+      "short_pnl": -967.06
+    },
+    {
+      "date": "2025-07-30",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3085,
+        0.3388,
+        0.3527
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 2541.04,
+      "short_pnl": -91.82
+    },
+    {
+      "date": "2025-07-31",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3083,
+        0.3389,
+        0.3527
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 1183.34,
+      "short_pnl": 2167.91
+    },
+    {
+      "date": "2025-08-01",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3086,
+        0.3386,
+        0.3528
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 1511.57,
+      "short_pnl": 3680.04
+    },
+    {
+      "date": "2025-08-02",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3081,
+        0.3391,
+        0.3528
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 879.35,
+      "short_pnl": 4660.58
+    },
+    {
+      "date": "2025-08-03",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3085,
+        0.3385,
+        0.3529
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -694.68,
+      "short_pnl": 6363.14
+    },
+    {
+      "date": "2025-08-04",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2977,
+        0.3437,
+        0.3585
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -499.69,
+      "short_pnl": 6609.33
+    },
+    {
+      "date": "2025-08-05",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2976,
+        0.3439,
+        0.3586
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -499.69,
+      "short_pnl": 7360.41
+    },
+    {
+      "date": "2025-08-06",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2977,
+        0.3437,
+        0.3585
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -499.69,
+      "short_pnl": 4068.35
+    },
+    {
+      "date": "2025-08-07",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.298,
+        0.3435,
+        0.3585
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 0.0,
+      "short_pnl": 1808.62
+    },
+    {
+      "date": "2025-08-08",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.298,
+        0.3437,
+        0.3582
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 0.0,
+      "short_pnl": 296.49
+    },
+    {
+      "date": "2025-08-09",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.298,
+        0.3437,
+        0.3582
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -2291.69,
+      "short_pnl": -604.47
+    },
+    {
+      "date": "2025-08-10",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2978,
+        0.3439,
+        0.3583
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -2438.15,
+      "short_pnl": -3247.75
+    },
+    {
+      "date": "2025-08-11",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3003,
+        0.3418,
+        0.3579
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -5171.9,
+      "short_pnl": -5100.59
+    },
+    {
+      "date": "2025-08-12",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3006,
+        0.3418,
+        0.3576
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -6015.34,
+      "short_pnl": -5864.07
+    },
+    {
+      "date": "2025-08-13",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3,
+        0.3423,
+        0.3577
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -6111.84,
+      "short_pnl": -2856.8
+    },
+    {
+      "date": "2025-08-14",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2999,
+        0.342,
+        0.3581
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -6111.84,
+      "short_pnl": -2800.37
+    },
+    {
+      "date": "2025-08-15",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3002,
+        0.3419,
+        0.3579
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -6111.84,
+      "short_pnl": -3053.64
+    },
+    {
+      "date": "2025-08-16",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3,
+        0.3419,
+        0.3581
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -3820.15,
+      "short_pnl": -2359.96
+    },
+    {
+      "date": "2025-08-17",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3,
+        0.3419,
+        0.3581
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -4634.72,
+      "short_pnl": -452.17
+    },
+    {
+      "date": "2025-08-18",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2888,
+        0.345,
+        0.3662
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -2108.03,
+      "short_pnl": 1154.47
+    },
+    {
+      "date": "2025-08-19",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2892,
+        0.3448,
+        0.366
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -1264.59,
+      "short_pnl": 1166.88
+    },
+    {
+      "date": "2025-08-20",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2888,
+        0.345,
+        0.3662
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -1168.09,
+      "short_pnl": 371.76
+    },
+    {
+      "date": "2025-08-21",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2881,
+        0.3455,
+        0.3665
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 13700.34,
+      "short_pnl": 315.33
+    },
+    {
+      "date": "2025-08-22",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2886,
+        0.3455,
+        0.3659
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 13258.34,
+      "short_pnl": 568.6
+    },
+    {
+      "date": "2025-08-23",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2886,
+        0.345,
+        0.3664
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 14620.16,
+      "short_pnl": -204.66
+    },
+    {
+      "date": "2025-08-24",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2888,
+        0.345,
+        0.3661
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 15549.47,
+      "short_pnl": -204.66
+    },
+    {
+      "date": "2025-08-25",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2821,
+        0.3415,
+        0.3764
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 15756.53,
+      "short_pnl": -657.72
+    },
+    {
+      "date": "2025-08-26",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2821,
+        0.3415,
+        0.3764
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 15922.63,
+      "short_pnl": -4636.91
+    },
+    {
+      "date": "2025-08-27",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.282,
+        0.3417,
+        0.3763
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 15922.63,
+      "short_pnl": -4432.24
+    },
+    {
+      "date": "2025-08-28",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2821,
+        0.3415,
+        0.3764
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 1054.21,
+      "short_pnl": -4432.24
+    },
+    {
+      "date": "2025-08-29",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2816,
+        0.3416,
+        0.3767
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 1496.21,
+      "short_pnl": -6366.14
+    },
+    {
+      "date": "2025-08-30",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.282,
+        0.3414,
+        0.3766
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": 134.38,
+      "short_pnl": -5222.59
+    },
+    {
+      "date": "2025-08-31",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2816,
+        0.3416,
+        0.3767
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 166.1,
+      "short_pnl": 3351.21
+    },
+    {
+      "date": "2025-09-01",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2737,
+        0.3431,
+        0.3833
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 166.1,
+      "short_pnl": 10070.22
+    },
+    {
+      "date": "2025-09-02",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2735,
+        0.3436,
+        0.383
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 0.0,
+      "short_pnl": 16906.56
+    },
+    {
+      "date": "2025-09-03",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2738,
+        0.3432,
+        0.383
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 0.0,
+      "short_pnl": 16850.23
+    },
+    {
+      "date": "2025-09-04",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2736,
+        0.3433,
+        0.3831
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 0.0,
+      "short_pnl": 17984.5
+    },
+    {
+      "date": "2025-09-05",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2736,
+        0.3433,
+        0.3831
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 0.0,
+      "short_pnl": 16373.55
+    },
+    {
+      "date": "2025-09-06",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2737,
+        0.343,
+        0.3833
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -1291.18,
+      "short_pnl": 15230.01
+    },
+    {
+      "date": "2025-09-07",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2735,
+        0.3436,
+        0.383
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -1291.18,
+      "short_pnl": 6656.2
+    },
+    {
+      "date": "2025-09-08",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2661,
+        0.339,
+        0.3949
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -1291.18,
+      "short_pnl": 390.25
+    },
+    {
+      "date": "2025-09-09",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2662,
+        0.3391,
+        0.3947
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 1575.57,
+      "short_pnl": -8655.13
+    },
+    {
+      "date": "2025-09-10",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2661,
+        0.3392,
+        0.3947
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 1575.57,
+      "short_pnl": -10804.28
+    },
+    {
+      "date": "2025-09-11",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2658,
+        0.3394,
+        0.3948
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 1575.57,
+      "short_pnl": -11938.56
+    },
+    {
+      "date": "2025-09-12",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2659,
+        0.3394,
+        0.3946
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 1575.57,
+      "short_pnl": -1991.59
+    },
+    {
+      "date": "2025-09-13",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2659,
+        0.3394,
+        0.3946
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 3057.01,
+      "short_pnl": -1991.59
+    },
+    {
+      "date": "2025-09-14",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2658,
+        0.3394,
+        0.3948
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 2975.35,
+      "short_pnl": -1499.11
+    },
+    {
+      "date": "2025-09-15",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2584,
+        0.3376,
+        0.404
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 2975.35,
+      "short_pnl": -1499.11
+    },
+    {
+      "date": "2025-09-16",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2587,
+        0.3382,
+        0.4031
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -1047.41,
+      "short_pnl": 4689.12
+    },
+    {
+      "date": "2025-09-17",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2587,
+        0.338,
+        0.4033
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -1047.41,
+      "short_pnl": 6894.6
+    },
+    {
+      "date": "2025-09-18",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2591,
+        0.3375,
+        0.4033
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -1047.41,
+      "short_pnl": 7685.28
+    },
+    {
+      "date": "2025-09-19",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2594,
+        0.3372,
+        0.4034
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -1047.41,
+      "short_pnl": 8140.59
+    },
+    {
+      "date": "2025-09-20",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2594,
+        0.3372,
+        0.4034
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -1237.67,
+      "short_pnl": 9445.44
+    },
+    {
+      "date": "2025-09-21",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2584,
+        0.3376,
+        0.404
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -1156.01,
+      "short_pnl": 9689.74
+    },
+    {
+      "date": "2025-09-22",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2409,
+        0.3319,
+        0.4272
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -2789.98,
+      "short_pnl": 9269.01
+    },
+    {
+      "date": "2025-09-23",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2409,
+        0.332,
+        0.4271
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -1633.96,
+      "short_pnl": 9257.68
+    },
+    {
+      "date": "2025-09-24",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2413,
+        0.3318,
+        0.4269
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -1633.96,
+      "short_pnl": 11144.53
+    },
+    {
+      "date": "2025-09-25",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.241,
+        0.3321,
+        0.4269
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -1633.96,
+      "short_pnl": 10364.61
+    },
+    {
+      "date": "2025-09-26",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2407,
+        0.3323,
+        0.427
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -1633.96,
+      "short_pnl": 3507.18
+    },
+    {
+      "date": "2025-09-27",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2407,
+        0.3323,
+        0.427
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -562.38,
+      "short_pnl": 4262.26
+    },
+    {
+      "date": "2025-09-28",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2409,
+        0.332,
+        0.4271
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -9210.55,
+      "short_pnl": 4709.4
+    },
+    {
+      "date": "2025-09-29",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2311,
+        0.3245,
+        0.4443
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -7576.58,
+      "short_pnl": 12743.41
+    },
+    {
+      "date": "2025-09-30",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2311,
+        0.3245,
+        0.4443
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -7586.06,
+      "short_pnl": 24635.72
+    },
+    {
+      "date": "2025-10-01",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2314,
+        0.3246,
+        0.4441
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -7823.34,
+      "short_pnl": 22369.17
+    },
+    {
+      "date": "2025-10-02",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.231,
+        0.3246,
+        0.4444
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 7343.59,
+      "short_pnl": 22358.41
+    },
+    {
+      "date": "2025-10-03",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2313,
+        0.3246,
+        0.4441
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 4548.52,
+      "short_pnl": 22358.41
+    },
+    {
+      "date": "2025-10-04",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2311,
+        0.3246,
+        0.4443
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 3927.08,
+      "short_pnl": 20298.49
+    },
+    {
+      "date": "2025-10-05",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.231,
+        0.3247,
+        0.4443
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 12575.24,
+      "short_pnl": 19114.57
+    },
+    {
+      "date": "2025-10-06",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2611,
+        0.3311,
+        0.4078
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 12575.24,
+      "short_pnl": 11501.28
+    },
+    {
+      "date": "2025-10-07",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2605,
+        0.331,
+        0.4085
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 12584.72,
+      "short_pnl": -398.92
+    },
+    {
+      "date": "2025-10-08",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2606,
+        0.3312,
+        0.4082
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 12822.0,
+      "short_pnl": -19.22
+    },
+    {
+      "date": "2025-10-09",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2608,
+        0.3309,
+        0.4083
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -5342.25,
+      "short_pnl": -19.22
+    },
+    {
+      "date": "2025-10-10",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2602,
+        0.3311,
+        0.4087
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -4677.25,
+      "short_pnl": -127.74
+    },
+    {
+      "date": "2025-10-11",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2602,
+        0.3306,
+        0.4092
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -9951.03,
+      "short_pnl": -127.74
+    },
+    {
+      "date": "2025-10-12",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2608,
+        0.3312,
+        0.408
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -10971.23,
+      "short_pnl": 7587.41
+    },
+    {
+      "date": "2025-10-13",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2652,
+        0.3254,
+        0.4093
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -12733.85,
+      "short_pnl": 7587.41
+    },
+    {
+      "date": "2025-10-14",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2654,
+        0.3249,
+        0.4097
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -12733.85,
+      "short_pnl": 12557.25
+    },
+    {
+      "date": "2025-10-15",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2655,
+        0.3249,
+        0.4097
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -12733.85,
+      "short_pnl": 10683.82
+    },
+    {
+      "date": "2025-10-16",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2658,
+        0.3248,
+        0.4094
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -9736.53,
+      "short_pnl": 11900.77
+    },
+    {
+      "date": "2025-10-17",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2653,
+        0.3248,
+        0.4099
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -7606.46,
+      "short_pnl": 12009.29
+    },
+    {
+      "date": "2025-10-18",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2649,
+        0.3248,
+        0.4103
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -2782.82,
+      "short_pnl": 17532.5
+    },
+    {
+      "date": "2025-10-19",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2657,
+        0.3249,
+        0.4094
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -7051.18,
+      "short_pnl": 10531.56
+    },
+    {
+      "date": "2025-10-20",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2838,
+        0.3168,
+        0.3993
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -3149.8,
+      "short_pnl": 10531.56
+    },
+    {
+      "date": "2025-10-21",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2842,
+        0.3168,
+        0.399
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -1070.09,
+      "short_pnl": 5580.94
+    },
+    {
+      "date": "2025-10-22",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2828,
+        0.3167,
+        0.4005
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -10383.15,
+      "short_pnl": 7454.37
+    },
+    {
+      "date": "2025-10-23",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.284,
+        0.3167,
+        0.3993
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -11049.56,
+      "short_pnl": -3785.27
+    },
+    {
+      "date": "2025-10-24",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2833,
+        0.3169,
+        0.3998
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -11606.81,
+      "short_pnl": -2067.76
+    },
+    {
+      "date": "2025-10-25",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2837,
+        0.3167,
+        0.3996
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -11606.81,
+      "short_pnl": -7590.97
+    },
+    {
+      "date": "2025-10-26",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2831,
+        0.3169,
+        0.4
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -6352.44,
+      "short_pnl": -10490.12
+    },
+    {
+      "date": "2025-10-27",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.29,
+        0.3137,
+        0.3963
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -8491.2,
+      "short_pnl": -10550.01
+    },
+    {
+      "date": "2025-10-28",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2899,
+        0.3138,
+        0.3964
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -13086.77,
+      "short_pnl": -13687.85
+    },
+    {
+      "date": "2025-10-29",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2907,
+        0.3139,
+        0.3954
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -3773.7,
+      "short_pnl": -9316.08
+    },
+    {
+      "date": "2025-10-30",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2906,
+        0.3138,
+        0.3955
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -4518.54,
+      "short_pnl": 9092.5
+    },
+    {
+      "date": "2025-10-31",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2891,
+        0.3141,
+        0.3968
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -3961.29,
+      "short_pnl": 7374.98
+    },
+    {
+      "date": "2025-11-01",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2906,
+        0.3141,
+        0.3953
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -3961.29,
+      "short_pnl": 14073.53
+    },
+    {
+      "date": "2025-11-02",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2903,
+        0.3137,
+        0.3961
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -12278.86,
+      "short_pnl": 18644.59
+    },
+    {
+      "date": "2025-11-03",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3054,
+        0.3263,
+        0.3684
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -11567.44,
+      "short_pnl": 18704.48
+    },
+    {
+      "date": "2025-11-04",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3048,
+        0.3264,
+        0.3688
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -9051.58,
+      "short_pnl": 21842.33
+    },
+    {
+      "date": "2025-11-05",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3056,
+        0.3261,
+        0.3683
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -11018.28,
+      "short_pnl": 17470.55
+    },
+    {
+      "date": "2025-11-06",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3051,
+        0.3262,
+        0.3687
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -9607.04,
+      "short_pnl": 9084.67
+    },
+    {
+      "date": "2025-11-07",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3051,
+        0.3264,
+        0.3685
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -15813.94,
+      "short_pnl": 9084.67
+    },
+    {
+      "date": "2025-11-08",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3056,
+        0.3263,
+        0.3681
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -15813.94,
+      "short_pnl": 2386.12
+    },
+    {
+      "date": "2025-11-09",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3046,
+        0.3265,
+        0.369
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -7462.18,
+      "short_pnl": 0.0
+    },
+    {
+      "date": "2025-11-10",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2859,
+        0.3041,
+        0.41
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -9795.69,
+      "short_pnl": 70.98
+    },
+    {
+      "date": "2025-11-11",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2871,
+        0.3043,
+        0.4086
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -20200.34,
+      "short_pnl": 3795.29
+    },
+    {
+      "date": "2025-11-12",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.287,
+        0.3044,
+        0.4086
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -17433.98,
+      "short_pnl": 1644.62
+    },
+    {
+      "date": "2025-11-13",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2875,
+        0.3043,
+        0.4082
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -18424.53,
+      "short_pnl": 1644.62
+    },
+    {
+      "date": "2025-11-14",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.287,
+        0.3044,
+        0.4086
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -12661.35,
+      "short_pnl": 1644.62
+    },
+    {
+      "date": "2025-11-15",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2871,
+        0.3044,
+        0.4084
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -12661.35,
+      "short_pnl": 1644.62
+    },
+    {
+      "date": "2025-11-16",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2871,
+        0.3046,
+        0.4083
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -12810.19,
+      "short_pnl": 1644.62
+    },
+    {
+      "date": "2025-11-17",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2339,
+        0.3031,
+        0.463
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -15018.98,
+      "short_pnl": 4030.29
+    },
+    {
+      "date": "2025-11-18",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.234,
+        0.3031,
+        0.463
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -4614.33,
+      "short_pnl": 4375.19
+    },
+    {
+      "date": "2025-11-19",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2341,
+        0.303,
+        0.4629
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -5413.99,
+      "short_pnl": 6267.55
+    },
+    {
+      "date": "2025-11-20",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2342,
+        0.3032,
+        0.4626
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -4758.51,
+      "short_pnl": 10135.99
+    },
+    {
+      "date": "2025-11-21",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2342,
+        0.3031,
+        0.4626
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -4314.79,
+      "short_pnl": 10135.11
+    },
+    {
+      "date": "2025-11-22",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2345,
+        0.3033,
+        0.4622
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -5512.76,
+      "short_pnl": 10135.11
+    },
+    {
+      "date": "2025-11-23",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2343,
+        0.3032,
+        0.4625
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -7699.41,
+      "short_pnl": 12679.05
+    },
+    {
+      "date": "2025-11-24",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2284,
+        0.304,
+        0.4676
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -5161.97,
+      "short_pnl": 10127.26
+    },
+    {
+      "date": "2025-11-25",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2284,
+        0.3039,
+        0.4677
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -5161.97,
+      "short_pnl": 6058.06
+    },
+    {
+      "date": "2025-11-26",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2286,
+        0.304,
+        0.4674
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -5365.13,
+      "short_pnl": 5649.55
+    },
+    {
+      "date": "2025-11-27",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2288,
+        0.3041,
+        0.4671
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -5295.62,
+      "short_pnl": 1781.12
+    },
+    {
+      "date": "2025-11-28",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2285,
+        0.304,
+        0.4675
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -10546.29,
+      "short_pnl": -3563.2
+    },
+    {
+      "date": "2025-11-29",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2285,
+        0.304,
+        0.4675
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -19020.93,
+      "short_pnl": -3563.2
+    },
+    {
+      "date": "2025-11-30",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2286,
+        0.304,
+        0.4674
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -16685.44,
+      "short_pnl": -4905.84
+    },
+    {
+      "date": "2025-12-01",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2368,
+        0.3023,
+        0.461
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -17832.82,
+      "short_pnl": -9833.88
+    },
+    {
+      "date": "2025-12-02",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2371,
+        0.3025,
+        0.4604
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -19455.74,
+      "short_pnl": -10280.69
+    },
+    {
+      "date": "2025-12-03",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2369,
+        0.3025,
+        0.4606
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -22089.25,
+      "short_pnl": -9477.62
+    },
+    {
+      "date": "2025-12-04",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2369,
+        0.3022,
+        0.4609
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -23402.32,
+      "short_pnl": -9477.62
+    },
+    {
+      "date": "2025-12-05",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.237,
+        0.3024,
+        0.4606
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -18151.65,
+      "short_pnl": -4132.42
+    },
+    {
+      "date": "2025-12-06",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.237,
+        0.3024,
+        0.4606
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -8479.03,
+      "short_pnl": -4132.42
+    },
+    {
+      "date": "2025-12-07",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2367,
+        0.3025,
+        0.4608
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -8466.66,
+      "short_pnl": -4924.38
+    },
+    {
+      "date": "2025-12-08",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2443,
+        0.2965,
+        0.4592
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -532.45,
+      "short_pnl": 98.79
+    },
+    {
+      "date": "2025-12-09",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2446,
+        0.2965,
+        0.4589
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 7501.55,
+      "short_pnl": -644.64
+    },
+    {
+      "date": "2025-12-10",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2441,
+        0.2964,
+        0.4595
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 10338.22,
+      "short_pnl": -2023.07
+    },
+    {
+      "date": "2025-12-11",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2446,
+        0.2965,
+        0.4589
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 11951.39,
+      "short_pnl": -7565.02
+    },
+    {
+      "date": "2025-12-12",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2441,
+        0.2964,
+        0.4595
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 11951.39,
+      "short_pnl": -7565.02
+    },
+    {
+      "date": "2025-12-13",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2441,
+        0.2964,
+        0.4595
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 11951.39,
+      "short_pnl": -8941.66
+    },
+    {
+      "date": "2025-12-14",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.244,
+        0.2964,
+        0.4596
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 13656.65,
+      "short_pnl": -9351.0
+    },
+    {
+      "date": "2025-12-15",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2592,
+        0.293,
+        0.4478
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 8163.26,
+      "short_pnl": -9351.0
+    },
+    {
+      "date": "2025-12-16",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2591,
+        0.2931,
+        0.4478
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 1703.27,
+      "short_pnl": -8160.77
+    },
+    {
+      "date": "2025-12-17",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2594,
+        0.2931,
+        0.4475
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 1703.27,
+      "short_pnl": -6314.38
+    },
+    {
+      "date": "2025-12-18",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2593,
+        0.2934,
+        0.4474
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 1668.73,
+      "short_pnl": -4571.86
+    },
+    {
+      "date": "2025-12-19",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2592,
+        0.293,
+        0.4478
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 1668.73,
+      "short_pnl": -4571.86
+    },
+    {
+      "date": "2025-12-20",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.259,
+        0.2931,
+        0.4479
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 1668.73,
+      "short_pnl": -3195.22
+    },
+    {
+      "date": "2025-12-21",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.259,
+        0.2931,
+        0.4479
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 1081.55,
+      "short_pnl": -3195.22
+    },
+    {
+      "date": "2025-12-22",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.263,
+        0.301,
+        0.4361
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 1081.55,
+      "short_pnl": -5625.86
+    },
+    {
+      "date": "2025-12-23",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.263,
+        0.3014,
+        0.4356
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 2908.77,
+      "short_pnl": -5625.86
+    },
+    {
+      "date": "2025-12-24",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.263,
+        0.3014,
+        0.4356
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 3929.58,
+      "short_pnl": -8682.17
+    },
+    {
+      "date": "2025-12-25",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2629,
+        0.3011,
+        0.436
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 3929.58,
+      "short_pnl": -4882.74
+    },
+    {
+      "date": "2025-12-26",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2628,
+        0.3012,
+        0.4359
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 3929.58,
+      "short_pnl": 5764.88
+    },
+    {
+      "date": "2025-12-27",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2631,
+        0.3012,
+        0.4356
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 3929.58,
+      "short_pnl": 6112.66
+    },
+    {
+      "date": "2025-12-28",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2631,
+        0.3012,
+        0.4356
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 2799.12,
+      "short_pnl": 10804.39
+    },
+    {
+      "date": "2025-12-29",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2834,
+        0.3015,
+        0.4152
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 2799.12,
+      "short_pnl": 22984.21
+    },
+    {
+      "date": "2025-12-30",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2832,
+        0.3011,
+        0.4157
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -1090.37,
+      "short_pnl": 26978.67
+    },
+    {
+      "date": "2025-12-31",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2838,
+        0.3015,
+        0.4147
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -2111.18,
+      "short_pnl": 26398.92
+    },
+    {
+      "date": "2026-01-01",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2834,
+        0.3011,
+        0.4155
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -2111.18,
+      "short_pnl": 26360.48
+    },
+    {
+      "date": "2026-01-02",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2832,
+        0.3011,
+        0.4157
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -2655.12,
+      "short_pnl": 18701.1
+    },
+    {
+      "date": "2026-01-03",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2832,
+        0.3012,
+        0.4156
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -2655.12,
+      "short_pnl": 18353.32
+    },
+    {
+      "date": "2026-01-04",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2836,
+        0.3013,
+        0.4151
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -2655.12,
+      "short_pnl": 15751.65
+    },
+    {
+      "date": "2026-01-05",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2953,
+        0.3075,
+        0.3972
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -2655.12,
+      "short_pnl": 6002.47
+    },
+    {
+      "date": "2026-01-06",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2953,
+        0.3075,
+        0.3972
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -576.3,
+      "short_pnl": 2008.01
+    },
+    {
+      "date": "2026-01-07",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2946,
+        0.3078,
+        0.3975
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -576.3,
+      "short_pnl": 4636.47
+    },
+    {
+      "date": "2026-01-08",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2944,
+        0.3078,
+        0.3978
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -6667.9,
+      "short_pnl": 12119.87
+    },
+    {
+      "date": "2026-01-09",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2951,
+        0.3076,
+        0.3973
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -6434.55,
+      "short_pnl": 9003.2
+    },
+    {
+      "date": "2026-01-10",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2951,
+        0.3076,
+        0.3973
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -6415.48,
+      "short_pnl": 9003.2
+    },
+    {
+      "date": "2026-01-11",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2944,
+        0.3078,
+        0.3978
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -7818.24,
+      "short_pnl": 6913.14
+    },
+    {
+      "date": "2026-01-12",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3002,
+        0.308,
+        0.3918
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -12021.21,
+      "short_pnl": 6877.7
+    },
+    {
+      "date": "2026-01-13",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2999,
+        0.308,
+        0.3921
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -11776.92,
+      "short_pnl": 6877.7
+    },
+    {
+      "date": "2026-01-14",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2999,
+        0.3077,
+        0.3925
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -11776.92,
+      "short_pnl": 16431.36
+    },
+    {
+      "date": "2026-01-15",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3,
+        0.3083,
+        0.3917
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -5685.32,
+      "short_pnl": 8986.4
+    },
+    {
+      "date": "2026-01-16",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3,
+        0.3083,
+        0.3917
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -5374.73,
+      "short_pnl": 12329.75
+    },
+    {
+      "date": "2026-01-17",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3001,
+        0.308,
+        0.3919
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -5393.8,
+      "short_pnl": 16495.15
+    },
+    {
+      "date": "2026-01-18",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3004,
+        0.3081,
+        0.3915
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -3991.04,
+      "short_pnl": 17619.81
+    },
+    {
+      "date": "2026-01-19",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2988,
+        0.3106,
+        0.3906
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -3757.77,
+      "short_pnl": 23491.42
+    },
+    {
+      "date": "2026-01-20",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2987,
+        0.3106,
+        0.3907
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -6467.42,
+      "short_pnl": 23491.42
+    },
+    {
+      "date": "2026-01-21",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2989,
+        0.3104,
+        0.3906
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -6467.42,
+      "short_pnl": 14341.15
+    },
+    {
+      "date": "2026-01-22",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2989,
+        0.3104,
+        0.3906
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -6467.42,
+      "short_pnl": 14341.15
+    },
+    {
+      "date": "2026-01-23",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2989,
+        0.3104,
+        0.3906
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -7461.0,
+      "short_pnl": 11126.23
+    },
+    {
+      "date": "2026-01-24",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2988,
+        0.3105,
+        0.3907
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -7461.0,
+      "short_pnl": 6960.83
+    },
+    {
+      "date": "2026-01-25",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.299,
+        0.3106,
+        0.3904
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -11069.96,
+      "short_pnl": 7477.51
+    },
+    {
+      "date": "2026-01-26",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2839,
+        0.3037,
+        0.4125
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -2867.98,
+      "short_pnl": 1641.35
+    },
+    {
+      "date": "2026-01-27",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.284,
+        0.3037,
+        0.4123
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 1849.51,
+      "short_pnl": 1641.35
+    },
+    {
+      "date": "2026-01-28",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2841,
+        0.3038,
+        0.4122
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 1125.75,
+      "short_pnl": 1641.35
+    },
+    {
+      "date": "2026-01-29",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.284,
+        0.3036,
+        0.4124
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 936.74,
+      "short_pnl": 1641.35
+    },
+    {
+      "date": "2026-01-30",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2843,
+        0.3037,
+        0.4121
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 1930.31,
+      "short_pnl": 1509.32
+    },
+    {
+      "date": "2026-01-31",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2841,
+        0.3036,
+        0.4123
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 1930.31,
+      "short_pnl": 1509.32
+    },
+    {
+      "date": "2026-02-01",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2839,
+        0.3038,
+        0.4124
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 7092.87,
+      "short_pnl": -132.02
+    },
+    {
+      "date": "2026-02-02",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2328,
+        0.2948,
+        0.4724
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 2860.59,
+      "short_pnl": -134.33
+    },
+    {
+      "date": "2026-02-03",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2327,
+        0.2951,
+        0.4722
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 559.64,
+      "short_pnl": -134.33
+    },
+    {
+      "date": "2026-02-04",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2328,
+        0.2951,
+        0.4721
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 539.15,
+      "short_pnl": 1612.57
+    },
+    {
+      "date": "2026-02-05",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2327,
+        0.2951,
+        0.4722
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 728.16,
+      "short_pnl": 1612.57
+    },
+    {
+      "date": "2026-02-06",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2328,
+        0.2952,
+        0.472
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 728.16,
+      "short_pnl": 3108.52
+    },
+    {
+      "date": "2026-02-07",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2333,
+        0.2953,
+        0.4714
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 743.14,
+      "short_pnl": 7092.17
+    },
+    {
+      "date": "2026-02-08",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2328,
+        0.2952,
+        0.472
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -810.45,
+      "short_pnl": 7092.17
+    },
+    {
+      "date": "2026-02-09",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2422,
+        0.2964,
+        0.4614
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -3649.17,
+      "short_pnl": 7094.47
+    },
+    {
+      "date": "2026-02-10",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2421,
+        0.2967,
+        0.4612
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -3567.99,
+      "short_pnl": 7094.47
+    },
+    {
+      "date": "2026-02-11",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2425,
+        0.2967,
+        0.4608
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -3301.76,
+      "short_pnl": 5347.57
+    },
+    {
+      "date": "2026-02-12",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2423,
+        0.2967,
+        0.461
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": -4056.65,
+      "short_pnl": 5347.57
+    },
+    {
+      "date": "2026-02-13",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2421,
+        0.2967,
+        0.4612
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 7759.94,
+      "short_pnl": -4474.43
+    },
+    {
+      "date": "2026-02-14",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2422,
+        0.2964,
+        0.4614
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 7744.96,
+      "short_pnl": -8458.08
+    },
+    {
+      "date": "2026-02-15",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2421,
+        0.2967,
+        0.4612
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 41037.28,
+      "short_pnl": -10136.95
+    },
+    {
+      "date": "2026-02-16",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2552,
+        0.2966,
+        0.4482
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 43876.0,
+      "short_pnl": -11628.4
+    },
+    {
+      "date": "2026-02-17",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2555,
+        0.2964,
+        0.448
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 43759.25,
+      "short_pnl": -15295.74
+    },
+    {
+      "date": "2026-02-18",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2554,
+        0.2965,
+        0.4481
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 51882.63,
+      "short_pnl": -15494.32
+    },
+    {
+      "date": "2026-02-19",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2557,
+        0.2965,
+        0.4478
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 52637.52,
+      "short_pnl": -20128.21
+    },
+    {
+      "date": "2026-02-20",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2554,
+        0.2963,
+        0.4483
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 40820.93,
+      "short_pnl": -11670.13
+    },
+    {
+      "date": "2026-02-21",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2554,
+        0.2963,
+        0.4483
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 40820.93,
+      "short_pnl": -11670.13
+    },
+    {
+      "date": "2026-02-22",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2553,
+        0.2963,
+        0.4484
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 7528.61,
+      "short_pnl": -9991.26
+    },
+    {
+      "date": "2026-02-23",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2719,
+        0.297,
+        0.4311
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 7528.61,
+      "short_pnl": -8499.8
+    },
+    {
+      "date": "2026-02-24",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2716,
+        0.2972,
+        0.4312
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 8906.38,
+      "short_pnl": -3532.08
+    },
+    {
+      "date": "2026-02-25",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2716,
+        0.2968,
+        0.4316
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 1261.02,
+      "short_pnl": -2771.93
+    },
+    {
+      "date": "2026-02-26",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2716,
+        0.2968,
+        0.4316
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 1968.27,
+      "short_pnl": -7395.09
+    },
+    {
+      "date": "2026-02-27",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2718,
+        0.2969,
+        0.4313
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 1832.39,
+      "short_pnl": -7395.09
+    },
+    {
+      "date": "2026-02-28",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2721,
+        0.2969,
+        0.431
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -499.31,
+      "short_pnl": -7395.09
+    },
+    {
+      "date": "2026-03-01",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2718,
+        0.2969,
+        0.4313
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -499.31,
+      "short_pnl": -7395.09
+    },
+    {
+      "date": "2026-03-02",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2804,
+        0.2949,
+        0.4247
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 2718.37,
+      "short_pnl": -7397.68
+    },
+    {
+      "date": "2026-03-03",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2804,
+        0.2946,
+        0.425
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 1329.02,
+      "short_pnl": -8184.89
+    },
+    {
+      "date": "2026-03-04",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2804,
+        0.2946,
+        0.4249
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 2866.83,
+      "short_pnl": -3652.8
+    },
+    {
+      "date": "2026-03-05",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2804,
+        0.2947,
+        0.4249
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 4223.12,
+      "short_pnl": 5604.25
+    },
+    {
+      "date": "2026-03-06",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2805,
+        0.2947,
+        0.4248
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 4359.01,
+      "short_pnl": 8899.92
+    },
+    {
+      "date": "2026-03-07",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2802,
+        0.2945,
+        0.4253
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 3322.38,
+      "short_pnl": 8955.88
+    },
+    {
+      "date": "2026-03-08",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2807,
+        0.2946,
+        0.4248
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 3322.38,
+      "short_pnl": 8955.88
+    },
+    {
+      "date": "2026-03-09",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2892,
+        0.2999,
+        0.4109
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 104.7,
+      "short_pnl": 15584.58
+    },
+    {
+      "date": "2026-03-10",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2891,
+        0.2999,
+        0.411
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 233.03,
+      "short_pnl": 15071.4
+    },
+    {
+      "date": "2026-03-11",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.289,
+        0.3,
+        0.4109
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 5244.13,
+      "short_pnl": 13459.56
+    },
+    {
+      "date": "2026-03-12",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2892,
+        0.3,
+        0.4109
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 3180.58,
+      "short_pnl": 13559.64
+    },
+    {
+      "date": "2026-03-13",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2892,
+        0.3,
+        0.4108
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 4571.9,
+      "short_pnl": 10263.97
+    },
+    {
+      "date": "2026-03-14",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2892,
+        0.3,
+        0.4108
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 7770.91,
+      "short_pnl": 10208.0
+    },
+    {
+      "date": "2026-03-15",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.2893,
+        0.3001,
+        0.4106
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 6158.66,
+      "short_pnl": 10208.0
+    },
+    {
+      "date": "2026-03-16",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3074,
+        0.3005,
+        0.3921
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 5980.42,
+      "short_pnl": 5655.17
+    },
+    {
+      "date": "2026-03-17",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3076,
+        0.3008,
+        0.3915
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 5980.42,
+      "short_pnl": 5686.44
+    },
+    {
+      "date": "2026-03-18",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3072,
+        0.3006,
+        0.3922
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 2067.31,
+      "short_pnl": 2204.62
+    },
+    {
+      "date": "2026-03-19",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3073,
+        0.3005,
+        0.3922
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 1746.42,
+      "short_pnl": 2302.76
+    },
+    {
+      "date": "2026-03-20",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3073,
+        0.3005,
+        0.3922
+      ],
+      "actual_label": "SHORT",
+      "long_pnl": 345.52,
+      "short_pnl": 8312.92
+    },
+    {
+      "date": "2026-03-21",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3072,
+        0.3007,
+        0.3921
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 16066.59,
+      "short_pnl": 8312.92
+    },
+    {
+      "date": "2026-03-22",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3073,
+        0.3004,
+        0.3923
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 19203.96,
+      "short_pnl": 8312.92
+    },
+    {
+      "date": "2026-03-23",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3196,
+        0.3048,
+        0.3756
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 18051.17,
+      "short_pnl": 6587.69
+    },
+    {
+      "date": "2026-03-24",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3192,
+        0.3049,
+        0.3759
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 18051.17,
+      "short_pnl": 6861.12
+    },
+    {
+      "date": "2026-03-25",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3192,
+        0.305,
+        0.3759
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 14225.48,
+      "short_pnl": 6861.12
+    },
+    {
+      "date": "2026-03-26",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3191,
+        0.305,
+        0.3759
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 14448.93,
+      "short_pnl": 4977.14
+    },
+    {
+      "date": "2026-03-27",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3189,
+        0.305,
+        0.3761
+      ],
+      "actual_label": "LONG",
+      "long_pnl": 14458.5,
+      "short_pnl": -1033.01
+    },
+    {
+      "date": "2026-03-28",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3189,
+        0.305,
+        0.3761
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -1093.25,
+      "short_pnl": -1033.01
+    },
+    {
+      "date": "2026-03-29",
+      "cnn_pred": "FLAT",
+      "cnn_probs": [
+        0.3187,
+        0.3049,
+        0.3764
+      ],
+      "actual_label": "FLAT",
+      "long_pnl": -2618.37,
+      "short_pnl": -1033.01
+    }
+  ]
+}

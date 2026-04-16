@@ -1,0 +1,2472 @@
+[
+  {
+    "week": "2021-06-07",
+    "pred": "LONG",
+    "prob_long": 0.9951,
+    "prob_short": 0.0007,
+    "prob_flat": 0.0042,
+    "actual_long_pnl": 0.0,
+    "actual_short_pnl": 0.0,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2021-06-14",
+    "pred": "LONG",
+    "prob_long": 0.9927,
+    "prob_short": 0.0007,
+    "prob_flat": 0.0067,
+    "actual_long_pnl": 0.0,
+    "actual_short_pnl": 0.0,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2021-06-21",
+    "pred": "LONG",
+    "prob_long": 0.9999,
+    "prob_short": 0.0,
+    "prob_flat": 0.0001,
+    "actual_long_pnl": 0.0,
+    "actual_short_pnl": 0.0,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2021-06-28",
+    "pred": "LONG",
+    "prob_long": 0.9999,
+    "prob_short": 0.0,
+    "prob_flat": 0.0001,
+    "actual_long_pnl": 0.0,
+    "actual_short_pnl": 0.0,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2021-07-05",
+    "pred": "LONG",
+    "prob_long": 0.9996,
+    "prob_short": 0.0,
+    "prob_flat": 0.0004,
+    "actual_long_pnl": 0.0,
+    "actual_short_pnl": 0.0,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2021-07-12",
+    "pred": "LONG",
+    "prob_long": 0.9994,
+    "prob_short": 0.0001,
+    "prob_flat": 0.0005,
+    "actual_long_pnl": 0.0,
+    "actual_short_pnl": 0.0,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2021-07-19",
+    "pred": "LONG",
+    "prob_long": 0.9999,
+    "prob_short": 0.0,
+    "prob_flat": 0.0001,
+    "actual_long_pnl": 0.0,
+    "actual_short_pnl": 0.0,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2021-07-26",
+    "pred": "LONG",
+    "prob_long": 0.9998,
+    "prob_short": 0.0,
+    "prob_flat": 0.0002,
+    "actual_long_pnl": 0.0,
+    "actual_short_pnl": 0.0,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2021-08-02",
+    "pred": "LONG",
+    "prob_long": 0.9999,
+    "prob_short": 0.0,
+    "prob_flat": 0.0001,
+    "actual_long_pnl": 0.0,
+    "actual_short_pnl": 0.0,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2021-08-09",
+    "pred": "LONG",
+    "prob_long": 0.9999,
+    "prob_short": 0.0,
+    "prob_flat": 0.0001,
+    "actual_long_pnl": 0.0,
+    "actual_short_pnl": 0.0,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2021-08-16",
+    "pred": "LONG",
+    "prob_long": 0.9998,
+    "prob_short": 0.0,
+    "prob_flat": 0.0002,
+    "actual_long_pnl": 0.0,
+    "actual_short_pnl": 0.0,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2021-08-23",
+    "pred": "LONG",
+    "prob_long": 0.9997,
+    "prob_short": 0.0,
+    "prob_flat": 0.0003,
+    "actual_long_pnl": 0.0,
+    "actual_short_pnl": 0.0,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2021-08-30",
+    "pred": "LONG",
+    "prob_long": 0.9996,
+    "prob_short": 0.0,
+    "prob_flat": 0.0003,
+    "actual_long_pnl": 0.0,
+    "actual_short_pnl": 0.0,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2021-09-06",
+    "pred": "LONG",
+    "prob_long": 0.9997,
+    "prob_short": 0.0,
+    "prob_flat": 0.0003,
+    "actual_long_pnl": 0.0,
+    "actual_short_pnl": 0.0,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2021-09-13",
+    "pred": "LONG",
+    "prob_long": 0.9994,
+    "prob_short": 0.0,
+    "prob_flat": 0.0006,
+    "actual_long_pnl": 0.0,
+    "actual_short_pnl": 0.0,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2021-09-20",
+    "pred": "LONG",
+    "prob_long": 0.9997,
+    "prob_short": 0.0,
+    "prob_flat": 0.0003,
+    "actual_long_pnl": 0.0,
+    "actual_short_pnl": 0.0,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2021-09-27",
+    "pred": "LONG",
+    "prob_long": 0.9984,
+    "prob_short": 0.0,
+    "prob_flat": 0.0016,
+    "actual_long_pnl": 0.0,
+    "actual_short_pnl": 0.0,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2021-10-04",
+    "pred": "LONG",
+    "prob_long": 0.9972,
+    "prob_short": 0.0,
+    "prob_flat": 0.0028,
+    "actual_long_pnl": 0.0,
+    "actual_short_pnl": 0.0,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2021-10-11",
+    "pred": "LONG",
+    "prob_long": 0.9838,
+    "prob_short": 0.0,
+    "prob_flat": 0.0162,
+    "actual_long_pnl": 0.0,
+    "actual_short_pnl": 0.0,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2021-10-18",
+    "pred": "LONG",
+    "prob_long": 0.998,
+    "prob_short": 0.0,
+    "prob_flat": 0.002,
+    "actual_long_pnl": 0.0,
+    "actual_short_pnl": 0.0,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2021-10-25",
+    "pred": "LONG",
+    "prob_long": 0.9966,
+    "prob_short": 0.0,
+    "prob_flat": 0.0034,
+    "actual_long_pnl": 0.0,
+    "actual_short_pnl": 0.0,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2021-11-01",
+    "pred": "LONG",
+    "prob_long": 0.9974,
+    "prob_short": 0.0,
+    "prob_flat": 0.0026,
+    "actual_long_pnl": 0.0,
+    "actual_short_pnl": 0.0,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2021-11-08",
+    "pred": "LONG",
+    "prob_long": 0.9949,
+    "prob_short": 0.0,
+    "prob_flat": 0.0051,
+    "actual_long_pnl": 0.0,
+    "actual_short_pnl": 0.0,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2021-11-15",
+    "pred": "LONG",
+    "prob_long": 0.999,
+    "prob_short": 0.0,
+    "prob_flat": 0.001,
+    "actual_long_pnl": -79.82,
+    "actual_short_pnl": -3383.19,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2021-11-22",
+    "pred": "LONG",
+    "prob_long": 0.9943,
+    "prob_short": 0.0049,
+    "prob_flat": 0.0008,
+    "actual_long_pnl": -2745.13,
+    "actual_short_pnl": 5504.53,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2021-11-29",
+    "pred": "LONG",
+    "prob_long": 0.8199,
+    "prob_short": 0.1795,
+    "prob_flat": 0.0006,
+    "actual_long_pnl": -3676.18,
+    "actual_short_pnl": 5504.53,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2021-12-06",
+    "pred": "LONG",
+    "prob_long": 0.9501,
+    "prob_short": 0.0484,
+    "prob_flat": 0.0015,
+    "actual_long_pnl": -3676.18,
+    "actual_short_pnl": 6250.35,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2021-12-13",
+    "pred": "LONG",
+    "prob_long": 0.9919,
+    "prob_short": 0.0076,
+    "prob_flat": 0.0005,
+    "actual_long_pnl": -3596.36,
+    "actual_short_pnl": 11874.03,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2021-12-20",
+    "pred": "LONG",
+    "prob_long": 0.9921,
+    "prob_short": 0.0076,
+    "prob_flat": 0.0004,
+    "actual_long_pnl": -926.32,
+    "actual_short_pnl": 1217.01,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2021-12-27",
+    "pred": "LONG",
+    "prob_long": 0.9939,
+    "prob_short": 0.0053,
+    "prob_flat": 0.0008,
+    "actual_long_pnl": 4.72,
+    "actual_short_pnl": 1217.01,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2022-01-03",
+    "pred": "LONG",
+    "prob_long": 0.987,
+    "prob_short": 0.0,
+    "prob_flat": 0.013,
+    "actual_long_pnl": -816.3,
+    "actual_short_pnl": 471.19,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2022-01-10",
+    "pred": "LONG",
+    "prob_long": 0.9758,
+    "prob_short": 0.0,
+    "prob_flat": 0.0242,
+    "actual_long_pnl": -816.3,
+    "actual_short_pnl": -1769.3,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2022-01-17",
+    "pred": "LONG",
+    "prob_long": 0.6763,
+    "prob_short": 0.0002,
+    "prob_flat": 0.3235,
+    "actual_long_pnl": -1807.67,
+    "actual_short_pnl": 0.0,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2022-01-24",
+    "pred": "LONG",
+    "prob_long": 0.7368,
+    "prob_short": 0.0,
+    "prob_flat": 0.2631,
+    "actual_long_pnl": -1807.67,
+    "actual_short_pnl": 41.51,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2022-01-31",
+    "pred": "LONG",
+    "prob_long": 0.9996,
+    "prob_short": 0.0,
+    "prob_flat": 0.0004,
+    "actual_long_pnl": 10500.75,
+    "actual_short_pnl": -1315.78,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2022-02-07",
+    "pred": "LONG",
+    "prob_long": 0.9997,
+    "prob_short": 0.0,
+    "prob_flat": 0.0003,
+    "actual_long_pnl": 10500.75,
+    "actual_short_pnl": -1315.78,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2022-02-14",
+    "pred": "LONG",
+    "prob_long": 0.9993,
+    "prob_short": 0.0001,
+    "prob_flat": 0.0006,
+    "actual_long_pnl": 11487.4,
+    "actual_short_pnl": -1315.78,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2022-02-21",
+    "pred": "LONG",
+    "prob_long": 0.9994,
+    "prob_short": 0.0001,
+    "prob_flat": 0.0005,
+    "actual_long_pnl": 10707.7,
+    "actual_short_pnl": -111.05,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2022-02-28",
+    "pred": "LONG",
+    "prob_long": 0.6969,
+    "prob_short": 0.298,
+    "prob_flat": 0.005,
+    "actual_long_pnl": -779.7,
+    "actual_short_pnl": 1246.24,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2022-03-07",
+    "pred": "SHORT",
+    "prob_long": 0.3372,
+    "prob_short": 0.657,
+    "prob_flat": 0.0058,
+    "actual_long_pnl": -779.7,
+    "actual_short_pnl": 7467.32,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2022-03-14",
+    "pred": "LONG",
+    "prob_long": 0.5748,
+    "prob_short": 0.4186,
+    "prob_flat": 0.0066,
+    "actual_long_pnl": -779.7,
+    "actual_short_pnl": 7467.32,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2022-03-21",
+    "pred": "LONG",
+    "prob_long": 0.5015,
+    "prob_short": 0.4934,
+    "prob_flat": 0.005,
+    "actual_long_pnl": -1709.88,
+    "actual_short_pnl": 6221.09,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2022-03-28",
+    "pred": "LONG",
+    "prob_long": 0.5966,
+    "prob_short": 0.398,
+    "prob_flat": 0.0054,
+    "actual_long_pnl": -5873.09,
+    "actual_short_pnl": 7606.96,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2022-04-04",
+    "pred": "SHORT",
+    "prob_long": 0.4459,
+    "prob_short": 0.5478,
+    "prob_flat": 0.0063,
+    "actual_long_pnl": -7955.94,
+    "actual_short_pnl": 1290.06,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2022-04-11",
+    "pred": "SHORT",
+    "prob_long": 0.4328,
+    "prob_short": 0.5585,
+    "prob_flat": 0.0087,
+    "actual_long_pnl": -7955.94,
+    "actual_short_pnl": 1290.06,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2022-04-18",
+    "pred": "LONG",
+    "prob_long": 0.6806,
+    "prob_short": 0.3045,
+    "prob_flat": 0.0148,
+    "actual_long_pnl": -6246.06,
+    "actual_short_pnl": 1290.06,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2022-04-25",
+    "pred": "FLAT",
+    "prob_long": 0.2748,
+    "prob_short": 0.0059,
+    "prob_flat": 0.7193,
+    "actual_long_pnl": -2082.85,
+    "actual_short_pnl": -95.81,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2022-05-02",
+    "pred": "LONG",
+    "prob_long": 0.5574,
+    "prob_short": 0.0073,
+    "prob_flat": 0.4352,
+    "actual_long_pnl": -1858.51,
+    "actual_short_pnl": 0.0,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2022-05-09",
+    "pred": "SHORT",
+    "prob_long": 0.3208,
+    "prob_short": 0.6778,
+    "prob_flat": 0.0013,
+    "actual_long_pnl": -8082.91,
+    "actual_short_pnl": 2524.85,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2022-05-16",
+    "pred": "LONG",
+    "prob_long": 0.7192,
+    "prob_short": 0.0206,
+    "prob_flat": 0.2602,
+    "actual_long_pnl": -8082.91,
+    "actual_short_pnl": -1742.02,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2022-05-23",
+    "pred": "LONG",
+    "prob_long": 0.8535,
+    "prob_short": 0.0204,
+    "prob_flat": 0.1261,
+    "actual_long_pnl": -8111.93,
+    "actual_short_pnl": -1532.55,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2022-05-30",
+    "pred": "LONG",
+    "prob_long": 0.8948,
+    "prob_short": 0.0359,
+    "prob_flat": 0.0693,
+    "actual_long_pnl": -6253.43,
+    "actual_short_pnl": -2004.12,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2022-06-06",
+    "pred": "LONG",
+    "prob_long": 0.997,
+    "prob_short": 0.0024,
+    "prob_flat": 0.0006,
+    "actual_long_pnl": 3359.75,
+    "actual_short_pnl": -4625.42,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2022-06-13",
+    "pred": "LONG",
+    "prob_long": 0.9992,
+    "prob_short": 0.0007,
+    "prob_flat": 0.0,
+    "actual_long_pnl": 4857.88,
+    "actual_short_pnl": -358.55,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2022-06-20",
+    "pred": "LONG",
+    "prob_long": 0.9997,
+    "prob_short": 0.0003,
+    "prob_flat": 0.0,
+    "actual_long_pnl": 4805.84,
+    "actual_short_pnl": -1192.35,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2022-06-27",
+    "pred": "LONG",
+    "prob_long": 0.9997,
+    "prob_short": 0.0003,
+    "prob_flat": 0.0001,
+    "actual_long_pnl": 4638.3,
+    "actual_short_pnl": -2034.46,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2022-07-04",
+    "pred": "LONG",
+    "prob_long": 0.8777,
+    "prob_short": 0.0604,
+    "prob_flat": 0.0618,
+    "actual_long_pnl": -1040.5,
+    "actual_short_pnl": 121.28,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2022-07-11",
+    "pred": "LONG",
+    "prob_long": 0.9295,
+    "prob_short": 0.0401,
+    "prob_flat": 0.0305,
+    "actual_long_pnl": -2538.64,
+    "actual_short_pnl": 119.74,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2022-07-18",
+    "pred": "LONG",
+    "prob_long": 0.909,
+    "prob_short": 0.0535,
+    "prob_flat": 0.0375,
+    "actual_long_pnl": -2457.57,
+    "actual_short_pnl": 0.88,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2022-07-25",
+    "pred": "LONG",
+    "prob_long": 0.9371,
+    "prob_short": 0.026,
+    "prob_flat": 0.0369,
+    "actual_long_pnl": -2290.03,
+    "actual_short_pnl": 465.34,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2022-08-01",
+    "pred": "LONG",
+    "prob_long": 0.9377,
+    "prob_short": 0.0461,
+    "prob_flat": 0.0162,
+    "actual_long_pnl": 0.0,
+    "actual_short_pnl": -1593.94,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2022-08-08",
+    "pred": "SHORT",
+    "prob_long": 0.2658,
+    "prob_short": 0.7341,
+    "prob_flat": 0.0001,
+    "actual_long_pnl": -780.63,
+    "actual_short_pnl": 566.22,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2022-08-15",
+    "pred": "SHORT",
+    "prob_long": 0.1705,
+    "prob_short": 0.8294,
+    "prob_flat": 0.0,
+    "actual_long_pnl": -340.8,
+    "actual_short_pnl": 4711.1,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2022-08-22",
+    "pred": "SHORT",
+    "prob_long": 0.065,
+    "prob_short": 0.9349,
+    "prob_flat": 0.0001,
+    "actual_long_pnl": -701.73,
+    "actual_short_pnl": 6466.07,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2022-08-29",
+    "pred": "SHORT",
+    "prob_long": 0.0156,
+    "prob_short": 0.9824,
+    "prob_flat": 0.002,
+    "actual_long_pnl": -1194.81,
+    "actual_short_pnl": 6466.07,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2022-09-05",
+    "pred": "SHORT",
+    "prob_long": 0.012,
+    "prob_short": 0.9856,
+    "prob_flat": 0.0025,
+    "actual_long_pnl": -4341.92,
+    "actual_short_pnl": 4121.13,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2022-09-12",
+    "pred": "SHORT",
+    "prob_long": 0.0464,
+    "prob_short": 0.9453,
+    "prob_flat": 0.0083,
+    "actual_long_pnl": -4829.43,
+    "actual_short_pnl": 719.26,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2022-09-19",
+    "pred": "FLAT",
+    "prob_long": 0.02,
+    "prob_short": 0.045,
+    "prob_flat": 0.935,
+    "actual_long_pnl": -4620.15,
+    "actual_short_pnl": -186.5,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2022-09-26",
+    "pred": "SHORT",
+    "prob_long": 0.0248,
+    "prob_short": 0.9699,
+    "prob_flat": 0.0053,
+    "actual_long_pnl": -6867.13,
+    "actual_short_pnl": 2422.37,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2022-10-03",
+    "pred": "SHORT",
+    "prob_long": 0.0203,
+    "prob_short": 0.9793,
+    "prob_flat": 0.0004,
+    "actual_long_pnl": -4429.75,
+    "actual_short_pnl": 2683.99,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2022-10-10",
+    "pred": "SHORT",
+    "prob_long": 0.0227,
+    "prob_short": 0.976,
+    "prob_flat": 0.0013,
+    "actual_long_pnl": -5832.38,
+    "actual_short_pnl": 2907.65,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2022-10-17",
+    "pred": "SHORT",
+    "prob_long": 0.0049,
+    "prob_short": 0.991,
+    "prob_flat": 0.004,
+    "actual_long_pnl": -5820.25,
+    "actual_short_pnl": 6387.2,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2022-10-24",
+    "pred": "SHORT",
+    "prob_long": 0.0093,
+    "prob_short": 0.9877,
+    "prob_flat": 0.003,
+    "actual_long_pnl": -2849.74,
+    "actual_short_pnl": 3778.34,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2022-10-31",
+    "pred": "SHORT",
+    "prob_long": 0.0068,
+    "prob_short": 0.9892,
+    "prob_flat": 0.0039,
+    "actual_long_pnl": -1900.89,
+    "actual_short_pnl": 7937.53,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2022-11-07",
+    "pred": "SHORT",
+    "prob_long": 0.0017,
+    "prob_short": 0.9942,
+    "prob_flat": 0.0042,
+    "actual_long_pnl": -2386.88,
+    "actual_short_pnl": 7629.14,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2022-11-14",
+    "pred": "SHORT",
+    "prob_long": 0.003,
+    "prob_short": 0.9876,
+    "prob_flat": 0.0094,
+    "actual_long_pnl": -4050.35,
+    "actual_short_pnl": 3759.83,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2022-11-21",
+    "pred": "FLAT",
+    "prob_long": 0.0076,
+    "prob_short": 0.0038,
+    "prob_flat": 0.9886,
+    "actual_long_pnl": -3850.93,
+    "actual_short_pnl": -5956.27,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2022-11-28",
+    "pred": "LONG",
+    "prob_long": 0.999,
+    "prob_short": 0.0,
+    "prob_flat": 0.001,
+    "actual_long_pnl": 2240.68,
+    "actual_short_pnl": -16477.97,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2022-12-05",
+    "pred": "LONG",
+    "prob_long": 0.9997,
+    "prob_short": 0.0,
+    "prob_flat": 0.0003,
+    "actual_long_pnl": 5528.03,
+    "actual_short_pnl": -19582.28,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2022-12-12",
+    "pred": "LONG",
+    "prob_long": 0.9995,
+    "prob_short": 0.0,
+    "prob_flat": 0.0005,
+    "actual_long_pnl": 8261.44,
+    "actual_short_pnl": -24208.85,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2022-12-19",
+    "pred": "LONG",
+    "prob_long": 0.9948,
+    "prob_short": 0.0,
+    "prob_flat": 0.0052,
+    "actual_long_pnl": 10168.47,
+    "actual_short_pnl": -15412.26,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2022-12-26",
+    "pred": "LONG",
+    "prob_long": 0.9953,
+    "prob_short": 0.0,
+    "prob_flat": 0.0047,
+    "actual_long_pnl": 4618.37,
+    "actual_short_pnl": -8165.39,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2023-01-02",
+    "pred": "LONG",
+    "prob_long": 0.9993,
+    "prob_short": 0.0,
+    "prob_flat": 0.0007,
+    "actual_long_pnl": 2583.41,
+    "actual_short_pnl": -4956.45,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2023-01-09",
+    "pred": "LONG",
+    "prob_long": 0.9985,
+    "prob_short": 0.0,
+    "prob_flat": 0.0015,
+    "actual_long_pnl": 536.97,
+    "actual_short_pnl": -1884.72,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2023-01-16",
+    "pred": "SHORT",
+    "prob_long": 0.0021,
+    "prob_short": 0.8759,
+    "prob_flat": 0.122,
+    "actual_long_pnl": -1799.93,
+    "actual_short_pnl": 1826.25,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2023-01-23",
+    "pred": "SHORT",
+    "prob_long": 0.0016,
+    "prob_short": 0.8967,
+    "prob_flat": 0.1017,
+    "actual_long_pnl": -4474.24,
+    "actual_short_pnl": 1898.9,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2023-01-30",
+    "pred": "SHORT",
+    "prob_long": 0.0032,
+    "prob_short": 0.9439,
+    "prob_flat": 0.0529,
+    "actual_long_pnl": -1972.53,
+    "actual_short_pnl": 2680.18,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2023-02-06",
+    "pred": "SHORT",
+    "prob_long": 0.0006,
+    "prob_short": 0.8527,
+    "prob_flat": 0.1467,
+    "actual_long_pnl": -1132.8,
+    "actual_short_pnl": 4816.3,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2023-02-13",
+    "pred": "SHORT",
+    "prob_long": 0.0045,
+    "prob_short": 0.89,
+    "prob_flat": 0.1055,
+    "actual_long_pnl": -675.27,
+    "actual_short_pnl": 1691.67,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2023-02-20",
+    "pred": "LONG",
+    "prob_long": 0.9906,
+    "prob_short": 0.0,
+    "prob_flat": 0.0094,
+    "actual_long_pnl": 1683.61,
+    "actual_short_pnl": 378.31,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2023-02-27",
+    "pred": "FLAT",
+    "prob_long": 0.0,
+    "prob_short": 0.0,
+    "prob_flat": 1.0,
+    "actual_long_pnl": -596.1,
+    "actual_short_pnl": -364.7,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2023-03-06",
+    "pred": "SHORT",
+    "prob_long": 0.0001,
+    "prob_short": 0.9008,
+    "prob_flat": 0.0992,
+    "actual_long_pnl": -1569.85,
+    "actual_short_pnl": 4054.15,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2023-03-13",
+    "pred": "SHORT",
+    "prob_long": 0.0,
+    "prob_short": 0.9782,
+    "prob_flat": 0.0217,
+    "actual_long_pnl": -2027.38,
+    "actual_short_pnl": 4175.43,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2023-03-20",
+    "pred": "SHORT",
+    "prob_long": 0.0001,
+    "prob_short": 0.9763,
+    "prob_flat": 0.0236,
+    "actual_long_pnl": -2627.12,
+    "actual_short_pnl": 4717.81,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2023-03-27",
+    "pred": "SHORT",
+    "prob_long": 0.0,
+    "prob_short": 0.9733,
+    "prob_flat": 0.0267,
+    "actual_long_pnl": -4640.81,
+    "actual_short_pnl": 7355.36,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2023-04-03",
+    "pred": "SHORT",
+    "prob_long": 0.0005,
+    "prob_short": 0.9493,
+    "prob_flat": 0.0502,
+    "actual_long_pnl": -3346.5,
+    "actual_short_pnl": 3933.17,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2023-04-10",
+    "pred": "SHORT",
+    "prob_long": 0.0804,
+    "prob_short": 0.8874,
+    "prob_flat": 0.0322,
+    "actual_long_pnl": -3414.8,
+    "actual_short_pnl": 7587.19,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2023-04-17",
+    "pred": "SHORT",
+    "prob_long": 0.0063,
+    "prob_short": 0.8609,
+    "prob_flat": 0.1328,
+    "actual_long_pnl": -2610.75,
+    "actual_short_pnl": 7460.94,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2023-04-24",
+    "pred": "SHORT",
+    "prob_long": 0.0125,
+    "prob_short": 0.947,
+    "prob_flat": 0.0405,
+    "actual_long_pnl": -2929.43,
+    "actual_short_pnl": 7701.94,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2023-05-01",
+    "pred": "SHORT",
+    "prob_long": 0.064,
+    "prob_short": 0.5953,
+    "prob_flat": 0.3407,
+    "actual_long_pnl": -3695.45,
+    "actual_short_pnl": 7687.19,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2023-05-08",
+    "pred": "SHORT",
+    "prob_long": 0.0017,
+    "prob_short": 0.6282,
+    "prob_flat": 0.3701,
+    "actual_long_pnl": -1990.47,
+    "actual_short_pnl": 6546.65,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2023-05-15",
+    "pred": "LONG",
+    "prob_long": 0.9172,
+    "prob_short": 0.0,
+    "prob_flat": 0.0828,
+    "actual_long_pnl": 5582.4,
+    "actual_short_pnl": 1390.14,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2023-05-22",
+    "pred": "LONG",
+    "prob_long": 0.8573,
+    "prob_short": 0.0,
+    "prob_flat": 0.1427,
+    "actual_long_pnl": 8376.67,
+    "actual_short_pnl": -1330.26,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2023-05-29",
+    "pred": "LONG",
+    "prob_long": 0.9984,
+    "prob_short": 0.0,
+    "prob_flat": 0.0016,
+    "actual_long_pnl": 8296.61,
+    "actual_short_pnl": -2503.7,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2023-06-05",
+    "pred": "LONG",
+    "prob_long": 0.9983,
+    "prob_short": 0.0,
+    "prob_flat": 0.0017,
+    "actual_long_pnl": 5488.09,
+    "actual_short_pnl": -5263.09,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2023-06-12",
+    "pred": "SHORT",
+    "prob_long": 0.0017,
+    "prob_short": 0.8955,
+    "prob_flat": 0.1028,
+    "actual_long_pnl": -5453.45,
+    "actual_short_pnl": 3098.97,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2023-06-19",
+    "pred": "SHORT",
+    "prob_long": 0.0001,
+    "prob_short": 0.9111,
+    "prob_flat": 0.0888,
+    "actual_long_pnl": -5309.62,
+    "actual_short_pnl": 2870.84,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2023-06-26",
+    "pred": "SHORT",
+    "prob_long": 0.0001,
+    "prob_short": 0.5775,
+    "prob_flat": 0.4224,
+    "actual_long_pnl": -5956.57,
+    "actual_short_pnl": 1811.57,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2023-07-03",
+    "pred": "SHORT",
+    "prob_long": 0.0047,
+    "prob_short": 0.798,
+    "prob_flat": 0.1973,
+    "actual_long_pnl": -4801.47,
+    "actual_short_pnl": 6740.34,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2023-07-10",
+    "pred": "FLAT",
+    "prob_long": 0.0016,
+    "prob_short": 0.2278,
+    "prob_flat": 0.7705,
+    "actual_long_pnl": -4872.7,
+    "actual_short_pnl": 5201.4,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2023-07-17",
+    "pred": "FLAT",
+    "prob_long": 0.0509,
+    "prob_short": 0.2507,
+    "prob_flat": 0.6984,
+    "actual_long_pnl": -5750.52,
+    "actual_short_pnl": 5337.34,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2023-07-24",
+    "pred": "SHORT",
+    "prob_long": 0.0096,
+    "prob_short": 0.7621,
+    "prob_flat": 0.2283,
+    "actual_long_pnl": -5771.26,
+    "actual_short_pnl": 6592.49,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2023-07-31",
+    "pred": "SHORT",
+    "prob_long": 0.0,
+    "prob_short": 0.9996,
+    "prob_flat": 0.0004,
+    "actual_long_pnl": -5692.76,
+    "actual_short_pnl": 2121.53,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2023-08-07",
+    "pred": "FLAT",
+    "prob_long": 0.0,
+    "prob_short": 0.1164,
+    "prob_flat": 0.8836,
+    "actual_long_pnl": -2141.74,
+    "actual_short_pnl": -588.9,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2023-08-14",
+    "pred": "FLAT",
+    "prob_long": 0.0,
+    "prob_short": 0.1577,
+    "prob_flat": 0.8423,
+    "actual_long_pnl": -1517.39,
+    "actual_short_pnl": -966.23,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2023-08-21",
+    "pred": "FLAT",
+    "prob_long": 0.0001,
+    "prob_short": 0.1285,
+    "prob_flat": 0.8714,
+    "actual_long_pnl": -1144.97,
+    "actual_short_pnl": -1162.11,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2023-08-28",
+    "pred": "FLAT",
+    "prob_long": 0.0009,
+    "prob_short": 0.1099,
+    "prob_flat": 0.8892,
+    "actual_long_pnl": -1259.48,
+    "actual_short_pnl": -1021.94,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2023-09-04",
+    "pred": "FLAT",
+    "prob_long": 0.0845,
+    "prob_short": 0.1286,
+    "prob_flat": 0.7869,
+    "actual_long_pnl": -1879.69,
+    "actual_short_pnl": -1785.84,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2023-09-11",
+    "pred": "LONG",
+    "prob_long": 0.9924,
+    "prob_short": 0.0073,
+    "prob_flat": 0.0003,
+    "actual_long_pnl": 4901.17,
+    "actual_short_pnl": -6039.15,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2023-09-18",
+    "pred": "LONG",
+    "prob_long": 0.9943,
+    "prob_short": 0.0056,
+    "prob_flat": 0.0001,
+    "actual_long_pnl": 5998.26,
+    "actual_short_pnl": -22057.62,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2023-09-25",
+    "pred": "LONG",
+    "prob_long": 0.9976,
+    "prob_short": 0.0023,
+    "prob_flat": 0.0001,
+    "actual_long_pnl": 7545.54,
+    "actual_short_pnl": -26674.85,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2023-10-02",
+    "pred": "LONG",
+    "prob_long": 0.9927,
+    "prob_short": 0.007,
+    "prob_flat": 0.0003,
+    "actual_long_pnl": 10658.37,
+    "actual_short_pnl": -25003.52,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2023-10-09",
+    "pred": "LONG",
+    "prob_long": 0.9895,
+    "prob_short": 0.0101,
+    "prob_flat": 0.0004,
+    "actual_long_pnl": 3894.31,
+    "actual_short_pnl": -21828.86,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2023-10-16",
+    "pred": "LONG",
+    "prob_long": 0.9915,
+    "prob_short": 0.0073,
+    "prob_flat": 0.0012,
+    "actual_long_pnl": 5332.66,
+    "actual_short_pnl": -9739.06,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2023-10-23",
+    "pred": "LONG",
+    "prob_long": 0.9797,
+    "prob_short": 0.0182,
+    "prob_flat": 0.0021,
+    "actual_long_pnl": 9466.46,
+    "actual_short_pnl": -6183.68,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2023-10-30",
+    "pred": "LONG",
+    "prob_long": 0.9606,
+    "prob_short": 0.0381,
+    "prob_flat": 0.0013,
+    "actual_long_pnl": 9141.91,
+    "actual_short_pnl": -8863.1,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2023-11-06",
+    "pred": "LONG",
+    "prob_long": 0.9627,
+    "prob_short": 0.0368,
+    "prob_flat": 0.0005,
+    "actual_long_pnl": 11043.36,
+    "actual_short_pnl": -8128.75,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2023-11-13",
+    "pred": "LONG",
+    "prob_long": 0.967,
+    "prob_short": 0.0324,
+    "prob_flat": 0.0006,
+    "actual_long_pnl": 11753.6,
+    "actual_short_pnl": -6573.24,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2023-11-20",
+    "pred": "LONG",
+    "prob_long": 0.9531,
+    "prob_short": 0.0455,
+    "prob_flat": 0.0014,
+    "actual_long_pnl": 6125.28,
+    "actual_short_pnl": -7251.98,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2023-11-27",
+    "pred": "LONG",
+    "prob_long": 0.9377,
+    "prob_short": 0.0606,
+    "prob_flat": 0.0016,
+    "actual_long_pnl": 3093.68,
+    "actual_short_pnl": -4175.82,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2023-12-04",
+    "pred": "LONG",
+    "prob_long": 0.9659,
+    "prob_short": 0.0318,
+    "prob_flat": 0.0023,
+    "actual_long_pnl": 2193.52,
+    "actual_short_pnl": -3410.91,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2023-12-11",
+    "pred": "LONG",
+    "prob_long": 0.6225,
+    "prob_short": 0.2394,
+    "prob_flat": 0.1382,
+    "actual_long_pnl": 44.92,
+    "actual_short_pnl": -935.03,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2023-12-18",
+    "pred": "LONG",
+    "prob_long": 0.9363,
+    "prob_short": 0.0586,
+    "prob_flat": 0.0051,
+    "actual_long_pnl": 3019.86,
+    "actual_short_pnl": 609.12,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2023-12-25",
+    "pred": "LONG",
+    "prob_long": 0.9535,
+    "prob_short": 0.0442,
+    "prob_flat": 0.0023,
+    "actual_long_pnl": 4568.05,
+    "actual_short_pnl": 1409.79,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2024-01-01",
+    "pred": "LONG",
+    "prob_long": 0.9467,
+    "prob_short": 0.0505,
+    "prob_flat": 0.0028,
+    "actual_long_pnl": 11375.44,
+    "actual_short_pnl": 250.38,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2024-01-08",
+    "pred": "LONG",
+    "prob_long": 0.9336,
+    "prob_short": 0.0638,
+    "prob_flat": 0.0025,
+    "actual_long_pnl": 12732.16,
+    "actual_short_pnl": -1346.07,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2024-01-15",
+    "pred": "LONG",
+    "prob_long": 0.9427,
+    "prob_short": 0.0551,
+    "prob_flat": 0.0022,
+    "actual_long_pnl": 12360.46,
+    "actual_short_pnl": -3646.18,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2024-01-22",
+    "pred": "LONG",
+    "prob_long": 0.9145,
+    "prob_short": 0.0828,
+    "prob_flat": 0.0026,
+    "actual_long_pnl": 13880.79,
+    "actual_short_pnl": -12982.05,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2024-01-29",
+    "pred": "LONG",
+    "prob_long": 0.9067,
+    "prob_short": 0.0905,
+    "prob_flat": 0.0028,
+    "actual_long_pnl": 6164.94,
+    "actual_short_pnl": -14155.27,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2024-02-05",
+    "pred": "LONG",
+    "prob_long": 0.9582,
+    "prob_short": 0.0398,
+    "prob_flat": 0.002,
+    "actual_long_pnl": 4006.58,
+    "actual_short_pnl": -11425.09,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2024-02-12",
+    "pred": "LONG",
+    "prob_long": 0.8722,
+    "prob_short": 0.1263,
+    "prob_flat": 0.0015,
+    "actual_long_pnl": 1024.48,
+    "actual_short_pnl": -8598.59,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2024-02-19",
+    "pred": "SHORT",
+    "prob_long": 0.0704,
+    "prob_short": 0.9261,
+    "prob_flat": 0.0035,
+    "actual_long_pnl": -1180.5,
+    "actual_short_pnl": 3715.48,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2024-02-26",
+    "pred": "SHORT",
+    "prob_long": 0.0,
+    "prob_short": 0.9994,
+    "prob_flat": 0.0006,
+    "actual_long_pnl": -1180.5,
+    "actual_short_pnl": 8303.58,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2024-03-04",
+    "pred": "SHORT",
+    "prob_long": 0.0,
+    "prob_short": 0.9998,
+    "prob_flat": 0.0002,
+    "actual_long_pnl": -4440.96,
+    "actual_short_pnl": 13428.87,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2024-03-11",
+    "pred": "SHORT",
+    "prob_long": 0.0,
+    "prob_short": 0.9998,
+    "prob_flat": 0.0002,
+    "actual_long_pnl": -3403.1,
+    "actual_short_pnl": 14132.88,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2024-03-18",
+    "pred": "SHORT",
+    "prob_long": 0.0,
+    "prob_short": 0.9989,
+    "prob_flat": 0.0011,
+    "actual_long_pnl": -3487.22,
+    "actual_short_pnl": 9958.57,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2024-03-25",
+    "pred": "SHORT",
+    "prob_long": 0.0,
+    "prob_short": 0.997,
+    "prob_flat": 0.003,
+    "actual_long_pnl": -5224.06,
+    "actual_short_pnl": 7749.55,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2024-04-01",
+    "pred": "SHORT",
+    "prob_long": 0.0,
+    "prob_short": 0.9993,
+    "prob_flat": 0.0007,
+    "actual_long_pnl": -1373.76,
+    "actual_short_pnl": 1192.82,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2024-04-08",
+    "pred": "SHORT",
+    "prob_long": 0.0,
+    "prob_short": 0.9998,
+    "prob_flat": 0.0002,
+    "actual_long_pnl": -542.48,
+    "actual_short_pnl": 980.62,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2024-04-15",
+    "pred": "SHORT",
+    "prob_long": 0.0,
+    "prob_short": 0.9988,
+    "prob_flat": 0.0012,
+    "actual_long_pnl": 1082.39,
+    "actual_short_pnl": 1676.3,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2024-04-22",
+    "pred": "SHORT",
+    "prob_long": 0.0,
+    "prob_short": 0.9983,
+    "prob_flat": 0.0017,
+    "actual_long_pnl": 2228.73,
+    "actual_short_pnl": 5551.77,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2024-04-29",
+    "pred": "SHORT",
+    "prob_long": 0.0,
+    "prob_short": 0.9996,
+    "prob_flat": 0.0004,
+    "actual_long_pnl": 2440.53,
+    "actual_short_pnl": 10577.25,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2024-05-06",
+    "pred": "SHORT",
+    "prob_long": 0.0,
+    "prob_short": 0.9996,
+    "prob_flat": 0.0004,
+    "actual_long_pnl": 529.22,
+    "actual_short_pnl": 16857.46,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2024-05-13",
+    "pred": "SHORT",
+    "prob_long": 0.0,
+    "prob_short": 0.9971,
+    "prob_flat": 0.0029,
+    "actual_long_pnl": -5597.57,
+    "actual_short_pnl": 17955.76,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2024-05-20",
+    "pred": "SHORT",
+    "prob_long": 0.0,
+    "prob_short": 0.9983,
+    "prob_flat": 0.0017,
+    "actual_long_pnl": -9288.63,
+    "actual_short_pnl": 13690.71,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2024-05-27",
+    "pred": "SHORT",
+    "prob_long": 0.0,
+    "prob_short": 0.9987,
+    "prob_flat": 0.0013,
+    "actual_long_pnl": -8693.88,
+    "actual_short_pnl": 10423.74,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2024-06-03",
+    "pred": "FLAT",
+    "prob_long": 0.0,
+    "prob_short": 0.0,
+    "prob_flat": 1.0,
+    "actual_long_pnl": -8352.29,
+    "actual_short_pnl": -47.07,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2024-06-10",
+    "pred": "FLAT",
+    "prob_long": 0.0,
+    "prob_short": 0.0,
+    "prob_flat": 1.0,
+    "actual_long_pnl": -3847.67,
+    "actual_short_pnl": -694.18,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2024-06-17",
+    "pred": "SHORT",
+    "prob_long": 0.0,
+    "prob_short": 0.9985,
+    "prob_flat": 0.0015,
+    "actual_long_pnl": -7172.73,
+    "actual_short_pnl": 4968.62,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2024-06-24",
+    "pred": "SHORT",
+    "prob_long": 0.0,
+    "prob_short": 0.9993,
+    "prob_flat": 0.0007,
+    "actual_long_pnl": -11410.55,
+    "actual_short_pnl": 3869.3,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2024-07-01",
+    "pred": "SHORT",
+    "prob_long": 0.0,
+    "prob_short": 0.9992,
+    "prob_flat": 0.0008,
+    "actual_long_pnl": -10683.05,
+    "actual_short_pnl": 7097.96,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2024-07-08",
+    "pred": "SHORT",
+    "prob_long": 0.0,
+    "prob_short": 0.9954,
+    "prob_flat": 0.0046,
+    "actual_long_pnl": -10594.02,
+    "actual_short_pnl": 4544.99,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2024-07-15",
+    "pred": "FLAT",
+    "prob_long": 0.0,
+    "prob_short": 0.1924,
+    "prob_flat": 0.8076,
+    "actual_long_pnl": -2987.4,
+    "actual_short_pnl": -1161.43,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2024-07-22",
+    "pred": "SHORT",
+    "prob_long": 0.0,
+    "prob_short": 0.9917,
+    "prob_flat": 0.0083,
+    "actual_long_pnl": -186.33,
+    "actual_short_pnl": 980.88,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2024-07-29",
+    "pred": "SHORT",
+    "prob_long": 0.0007,
+    "prob_short": 0.9609,
+    "prob_flat": 0.0384,
+    "actual_long_pnl": 353.21,
+    "actual_short_pnl": 719.77,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2024-08-05",
+    "pred": "LONG",
+    "prob_long": 0.9397,
+    "prob_short": 0.0058,
+    "prob_flat": 0.0545,
+    "actual_long_pnl": 780.5,
+    "actual_short_pnl": 105.88,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2024-08-12",
+    "pred": "LONG",
+    "prob_long": 0.974,
+    "prob_short": 0.0042,
+    "prob_flat": 0.0218,
+    "actual_long_pnl": 902.51,
+    "actual_short_pnl": -394.96,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2024-08-19",
+    "pred": "LONG",
+    "prob_long": 0.9814,
+    "prob_short": 0.0046,
+    "prob_flat": 0.014,
+    "actual_long_pnl": 2016.23,
+    "actual_short_pnl": -7460.18,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2024-08-26",
+    "pred": "LONG",
+    "prob_long": 0.9624,
+    "prob_short": 0.0009,
+    "prob_flat": 0.0367,
+    "actual_long_pnl": 1617.52,
+    "actual_short_pnl": -6229.56,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2024-09-02",
+    "pred": "LONG",
+    "prob_long": 0.9648,
+    "prob_short": 0.0015,
+    "prob_flat": 0.0337,
+    "actual_long_pnl": 1461.11,
+    "actual_short_pnl": -11262.47,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2024-09-09",
+    "pred": "LONG",
+    "prob_long": 0.9472,
+    "prob_short": 0.008,
+    "prob_flat": 0.0448,
+    "actual_long_pnl": 1369.8,
+    "actual_short_pnl": -11257.63,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2024-09-16",
+    "pred": "LONG",
+    "prob_long": 0.9538,
+    "prob_short": 0.0034,
+    "prob_flat": 0.0428,
+    "actual_long_pnl": 1018.56,
+    "actual_short_pnl": -6855.09,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2024-09-23",
+    "pred": "FLAT",
+    "prob_long": 0.0121,
+    "prob_short": 0.002,
+    "prob_flat": 0.9859,
+    "actual_long_pnl": 91.42,
+    "actual_short_pnl": -9839.88,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2024-09-30",
+    "pred": "LONG",
+    "prob_long": 0.8643,
+    "prob_short": 0.0025,
+    "prob_flat": 0.1333,
+    "actual_long_pnl": 32816.3,
+    "actual_short_pnl": -8606.08,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2024-10-07",
+    "pred": "LONG",
+    "prob_long": 0.9433,
+    "prob_short": 0.0078,
+    "prob_flat": 0.049,
+    "actual_long_pnl": 32735.73,
+    "actual_short_pnl": -14369.13,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2024-10-14",
+    "pred": "LONG",
+    "prob_long": 0.9895,
+    "prob_short": 0.0017,
+    "prob_flat": 0.0088,
+    "actual_long_pnl": 36774.52,
+    "actual_short_pnl": -16578.65,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2024-10-21",
+    "pred": "LONG",
+    "prob_long": 0.9992,
+    "prob_short": 0.0,
+    "prob_flat": 0.0008,
+    "actual_long_pnl": 36912.77,
+    "actual_short_pnl": -13829.7,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2024-10-28",
+    "pred": "LONG",
+    "prob_long": 0.9981,
+    "prob_short": 0.0,
+    "prob_flat": 0.0019,
+    "actual_long_pnl": 3881.47,
+    "actual_short_pnl": -2309.23,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2024-11-04",
+    "pred": "SHORT",
+    "prob_long": 0.0035,
+    "prob_short": 0.9922,
+    "prob_flat": 0.0043,
+    "actual_long_pnl": 3216.17,
+    "actual_short_pnl": 4222.54,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2024-11-11",
+    "pred": "SHORT",
+    "prob_long": 0.0042,
+    "prob_short": 0.9791,
+    "prob_flat": 0.0167,
+    "actual_long_pnl": 2346.92,
+    "actual_short_pnl": 18756.5,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2024-11-18",
+    "pred": "SHORT",
+    "prob_long": 0.0005,
+    "prob_short": 0.9791,
+    "prob_flat": 0.0203,
+    "actual_long_pnl": 2194.07,
+    "actual_short_pnl": 13750.8,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2024-11-25",
+    "pred": "SHORT",
+    "prob_long": 0.0015,
+    "prob_short": 0.9837,
+    "prob_flat": 0.0149,
+    "actual_long_pnl": 2109.61,
+    "actual_short_pnl": 7802.52,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2024-12-02",
+    "pred": "SHORT",
+    "prob_long": 0.0063,
+    "prob_short": 0.963,
+    "prob_flat": 0.0307,
+    "actual_long_pnl": 2824.78,
+    "actual_short_pnl": 6625.25,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2024-12-09",
+    "pred": "FLAT",
+    "prob_long": 0.0019,
+    "prob_short": 0.0189,
+    "prob_flat": 0.9793,
+    "actual_long_pnl": -15457.79,
+    "actual_short_pnl": -4452.64,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2024-12-16",
+    "pred": "SHORT",
+    "prob_long": 0.0079,
+    "prob_short": 0.9725,
+    "prob_flat": 0.0196,
+    "actual_long_pnl": -15658.87,
+    "actual_short_pnl": 7409.41,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2024-12-23",
+    "pred": "SHORT",
+    "prob_long": 0.0027,
+    "prob_short": 0.9902,
+    "prob_flat": 0.007,
+    "actual_long_pnl": -33356.54,
+    "actual_short_pnl": 11398.59,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2024-12-30",
+    "pred": "SHORT",
+    "prob_long": 0.0038,
+    "prob_short": 0.9888,
+    "prob_flat": 0.0074,
+    "actual_long_pnl": -36382.61,
+    "actual_short_pnl": 18105.89,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2025-01-06",
+    "pred": "SHORT",
+    "prob_long": 0.0087,
+    "prob_short": 0.9707,
+    "prob_flat": 0.0206,
+    "actual_long_pnl": -21909.65,
+    "actual_short_pnl": 16915.52,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2025-01-13",
+    "pred": "SHORT",
+    "prob_long": 0.0129,
+    "prob_short": 0.9737,
+    "prob_flat": 0.0133,
+    "actual_long_pnl": -26267.01,
+    "actual_short_pnl": 18188.32,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2025-01-20",
+    "pred": "SHORT",
+    "prob_long": 0.1225,
+    "prob_short": 0.872,
+    "prob_flat": 0.0055,
+    "actual_long_pnl": -10430.63,
+    "actual_short_pnl": 17980.44,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2025-01-27",
+    "pred": "SHORT",
+    "prob_long": 0.1145,
+    "prob_short": 0.8814,
+    "prob_flat": 0.0041,
+    "actual_long_pnl": -9540.07,
+    "actual_short_pnl": 15526.08,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2025-02-03",
+    "pred": "SHORT",
+    "prob_long": 0.005,
+    "prob_short": 0.8996,
+    "prob_flat": 0.0953,
+    "actual_long_pnl": -8901.86,
+    "actual_short_pnl": 15679.41,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2025-02-10",
+    "pred": "SHORT",
+    "prob_long": 0.0028,
+    "prob_short": 0.7869,
+    "prob_flat": 0.2102,
+    "actual_long_pnl": -5677.67,
+    "actual_short_pnl": 8391.71,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2025-02-17",
+    "pred": "SHORT",
+    "prob_long": 0.0012,
+    "prob_short": 0.9299,
+    "prob_flat": 0.0689,
+    "actual_long_pnl": -3703.98,
+    "actual_short_pnl": 10657.72,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2025-02-24",
+    "pred": "SHORT",
+    "prob_long": 0.0001,
+    "prob_short": 0.9695,
+    "prob_flat": 0.0305,
+    "actual_long_pnl": -9770.48,
+    "actual_short_pnl": 8660.53,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2025-03-03",
+    "pred": "SHORT",
+    "prob_long": 0.0006,
+    "prob_short": 0.9394,
+    "prob_flat": 0.06,
+    "actual_long_pnl": -5172.73,
+    "actual_short_pnl": 8261.31,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2025-03-10",
+    "pred": "SHORT",
+    "prob_long": 0.0135,
+    "prob_short": 0.9033,
+    "prob_flat": 0.0832,
+    "actual_long_pnl": 7256.57,
+    "actual_short_pnl": 6584.29,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2025-03-17",
+    "pred": "SHORT",
+    "prob_long": 0.0202,
+    "prob_short": 0.8467,
+    "prob_flat": 0.133,
+    "actual_long_pnl": 13247.32,
+    "actual_short_pnl": -8194.94,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2025-03-24",
+    "pred": "SHORT",
+    "prob_long": 0.0372,
+    "prob_short": 0.8808,
+    "prob_flat": 0.082,
+    "actual_long_pnl": 21449.33,
+    "actual_short_pnl": -13645.17,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2025-03-31",
+    "pred": "SHORT",
+    "prob_long": 0.0747,
+    "prob_short": 0.4655,
+    "prob_flat": 0.4599,
+    "actual_long_pnl": 25541.67,
+    "actual_short_pnl": -15585.41,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2025-04-07",
+    "pred": "SHORT",
+    "prob_long": 0.0423,
+    "prob_short": 0.5911,
+    "prob_flat": 0.3667,
+    "actual_long_pnl": 19214.6,
+    "actual_short_pnl": -10483.29,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2025-04-14",
+    "pred": "SHORT",
+    "prob_long": 0.0045,
+    "prob_short": 0.915,
+    "prob_flat": 0.0806,
+    "actual_long_pnl": 12750.77,
+    "actual_short_pnl": 287.26,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2025-04-21",
+    "pred": "SHORT",
+    "prob_long": 0.0054,
+    "prob_short": 0.5869,
+    "prob_flat": 0.4077,
+    "actual_long_pnl": 11551.39,
+    "actual_short_pnl": 8732.73,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2025-04-28",
+    "pred": "SHORT",
+    "prob_long": 0.0196,
+    "prob_short": 0.5478,
+    "prob_flat": 0.4326,
+    "actual_long_pnl": 850.97,
+    "actual_short_pnl": 17334.55,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2025-05-05",
+    "pred": "SHORT",
+    "prob_long": 0.0568,
+    "prob_short": 0.703,
+    "prob_flat": 0.2402,
+    "actual_long_pnl": -12092.95,
+    "actual_short_pnl": 15119.81,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2025-05-12",
+    "pred": "SHORT",
+    "prob_long": 0.013,
+    "prob_short": 0.9328,
+    "prob_flat": 0.0542,
+    "actual_long_pnl": -1873.52,
+    "actual_short_pnl": 13309.46,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2025-05-19",
+    "pred": "SHORT",
+    "prob_long": 0.1032,
+    "prob_short": 0.705,
+    "prob_flat": 0.1918,
+    "actual_long_pnl": 17794.31,
+    "actual_short_pnl": 6290.46,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2025-05-26",
+    "pred": "FLAT",
+    "prob_long": 0.0628,
+    "prob_short": 0.2505,
+    "prob_flat": 0.6867,
+    "actual_long_pnl": 27956.65,
+    "actual_short_pnl": -6198.37,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2025-06-02",
+    "pred": "SHORT",
+    "prob_long": 0.0187,
+    "prob_short": 0.8384,
+    "prob_flat": 0.143,
+    "actual_long_pnl": 44787.83,
+    "actual_short_pnl": -12241.81,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2025-06-09",
+    "pred": "SHORT",
+    "prob_long": 0.0288,
+    "prob_short": 0.7225,
+    "prob_flat": 0.2487,
+    "actual_long_pnl": 34932.52,
+    "actual_short_pnl": -13861.05,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2025-06-16",
+    "pred": "SHORT",
+    "prob_long": 0.0656,
+    "prob_short": 0.8423,
+    "prob_flat": 0.0921,
+    "actual_long_pnl": 11450.81,
+    "actual_short_pnl": -6658.68,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2025-06-23",
+    "pred": "FLAT",
+    "prob_long": 0.1503,
+    "prob_short": 0.1031,
+    "prob_flat": 0.7466,
+    "actual_long_pnl": 3380.19,
+    "actual_short_pnl": -5432.73,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2025-06-30",
+    "pred": "LONG",
+    "prob_long": 0.5277,
+    "prob_short": 0.2603,
+    "prob_flat": 0.2121,
+    "actual_long_pnl": -5382.88,
+    "actual_short_pnl": -3141.82,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2025-07-07",
+    "pred": "SHORT",
+    "prob_long": 0.0384,
+    "prob_short": 0.9483,
+    "prob_flat": 0.0133,
+    "actual_long_pnl": -5773.62,
+    "actual_short_pnl": 5105.37,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2025-07-14",
+    "pred": "SHORT",
+    "prob_long": 0.0074,
+    "prob_short": 0.9845,
+    "prob_flat": 0.0081,
+    "actual_long_pnl": -5932.26,
+    "actual_short_pnl": -4305.52,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2025-07-21",
+    "pred": "SHORT",
+    "prob_long": 0.0215,
+    "prob_short": 0.9087,
+    "prob_flat": 0.0698,
+    "actual_long_pnl": -8040.29,
+    "actual_short_pnl": 1696.15,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2025-07-28",
+    "pred": "SHORT",
+    "prob_long": 0.0244,
+    "prob_short": 0.9694,
+    "prob_flat": 0.0062,
+    "actual_long_pnl": 7976.91,
+    "actual_short_pnl": 2005.49,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2025-08-04",
+    "pred": "SHORT",
+    "prob_long": 0.0037,
+    "prob_short": 0.9952,
+    "prob_flat": 0.0012,
+    "actual_long_pnl": 8642.7,
+    "actual_short_pnl": 5466.38,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2025-08-11",
+    "pred": "SHORT",
+    "prob_long": 0.0176,
+    "prob_short": 0.9549,
+    "prob_flat": 0.0275,
+    "actual_long_pnl": 12523.43,
+    "actual_short_pnl": 10957.22,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2025-08-18",
+    "pred": "SHORT",
+    "prob_long": 0.0715,
+    "prob_short": 0.916,
+    "prob_flat": 0.0125,
+    "actual_long_pnl": 17606.8,
+    "actual_short_pnl": 8303.64,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2025-08-25",
+    "pred": "SHORT",
+    "prob_long": 0.0653,
+    "prob_short": 0.9271,
+    "prob_flat": 0.0076,
+    "actual_long_pnl": -939.7,
+    "actual_short_pnl": 18230.37,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2025-09-01",
+    "pred": "SHORT",
+    "prob_long": 0.0321,
+    "prob_short": 0.9632,
+    "prob_flat": 0.0047,
+    "actual_long_pnl": -8682.39,
+    "actual_short_pnl": 20903.56,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2025-09-08",
+    "pred": "SHORT",
+    "prob_long": 0.2037,
+    "prob_short": 0.7449,
+    "prob_flat": 0.0514,
+    "actual_long_pnl": 5184.03,
+    "actual_short_pnl": 32014.59,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2025-09-15",
+    "pred": "SHORT",
+    "prob_long": 0.2802,
+    "prob_short": 0.7122,
+    "prob_flat": 0.0076,
+    "actual_long_pnl": -10525.17,
+    "actual_short_pnl": 41101.11,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2025-09-22",
+    "pred": "SHORT",
+    "prob_long": 0.3055,
+    "prob_short": 0.6892,
+    "prob_flat": 0.0053,
+    "actual_long_pnl": -10884.99,
+    "actual_short_pnl": 42363.66,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2025-09-29",
+    "pred": "SHORT",
+    "prob_long": 0.4408,
+    "prob_short": 0.5533,
+    "prob_flat": 0.0059,
+    "actual_long_pnl": -11799.61,
+    "actual_short_pnl": 19070.24,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2025-10-06",
+    "pred": "LONG",
+    "prob_long": 0.7604,
+    "prob_short": 0.2259,
+    "prob_flat": 0.0137,
+    "actual_long_pnl": -35942.29,
+    "actual_short_pnl": 26273.44,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2025-10-13",
+    "pred": "LONG",
+    "prob_long": 0.9248,
+    "prob_short": 0.063,
+    "prob_flat": 0.0121,
+    "actual_long_pnl": -33004.13,
+    "actual_short_pnl": 18757.02,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2025-10-20",
+    "pred": "LONG",
+    "prob_long": 0.9521,
+    "prob_short": 0.0392,
+    "prob_flat": 0.0087,
+    "actual_long_pnl": -44873.3,
+    "actual_short_pnl": 12255.74,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2025-10-27",
+    "pred": "LONG",
+    "prob_long": 0.9847,
+    "prob_short": 0.0061,
+    "prob_flat": 0.0091,
+    "actual_long_pnl": -41544.08,
+    "actual_short_pnl": 32933.02,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2025-11-03",
+    "pred": "LONG",
+    "prob_long": 0.9969,
+    "prob_short": 0.0004,
+    "prob_flat": 0.0026,
+    "actual_long_pnl": -47809.46,
+    "actual_short_pnl": 4394.66,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2025-11-10",
+    "pred": "LONG",
+    "prob_long": 0.9884,
+    "prob_short": 0.0033,
+    "prob_flat": 0.0083,
+    "actual_long_pnl": -38546.22,
+    "actual_short_pnl": 4422.46,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2025-11-17",
+    "pred": "LONG",
+    "prob_long": 0.9579,
+    "prob_short": 0.0235,
+    "prob_flat": 0.0187,
+    "actual_long_pnl": -15363.98,
+    "actual_short_pnl": -8958.83,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2025-11-24",
+    "pred": "LONG",
+    "prob_long": 0.9217,
+    "prob_short": 0.0227,
+    "prob_flat": 0.0556,
+    "actual_long_pnl": -9120.46,
+    "actual_short_pnl": -24711.95,
+    "actual_label": "FLAT"
+  },
+  {
+    "week": "2025-12-01",
+    "pred": "LONG",
+    "prob_long": 0.9456,
+    "prob_short": 0.0163,
+    "prob_flat": 0.0381,
+    "actual_long_pnl": 11511.48,
+    "actual_short_pnl": 8106.14,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2025-12-08",
+    "pred": "LONG",
+    "prob_long": 0.9858,
+    "prob_short": 0.0048,
+    "prob_flat": 0.0094,
+    "actual_long_pnl": 9388.81,
+    "actual_short_pnl": 14009.82,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2025-12-15",
+    "pred": "LONG",
+    "prob_long": 0.9883,
+    "prob_short": 0.0053,
+    "prob_flat": 0.0064,
+    "actual_long_pnl": -10795.66,
+    "actual_short_pnl": 30238.52,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2025-12-22",
+    "pred": "LONG",
+    "prob_long": 0.9457,
+    "prob_short": 0.005,
+    "prob_flat": 0.0493,
+    "actual_long_pnl": -15634.99,
+    "actual_short_pnl": 59355.8,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2025-12-29",
+    "pred": "LONG",
+    "prob_long": 0.9706,
+    "prob_short": 0.0005,
+    "prob_flat": 0.0289,
+    "actual_long_pnl": -21302.08,
+    "actual_short_pnl": 38012.94,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2026-01-05",
+    "pred": "LONG",
+    "prob_long": 0.9825,
+    "prob_short": 0.0103,
+    "prob_flat": 0.0071,
+    "actual_long_pnl": -15786.37,
+    "actual_short_pnl": 31876.14,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2026-01-12",
+    "pred": "LONG",
+    "prob_long": 0.9525,
+    "prob_short": 0.0086,
+    "prob_flat": 0.0389,
+    "actual_long_pnl": -7414.33,
+    "actual_short_pnl": 32092.91,
+    "actual_label": "SHORT"
+  },
+  {
+    "week": "2026-01-19",
+    "pred": "LONG",
+    "prob_long": 0.9528,
+    "prob_short": 0.0095,
+    "prob_flat": 0.0377,
+    "actual_long_pnl": 40219.43,
+    "actual_short_pnl": -3026.91,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2026-01-26",
+    "pred": "LONG",
+    "prob_long": 0.9691,
+    "prob_short": 0.0021,
+    "prob_flat": 0.0287,
+    "actual_long_pnl": 50616.02,
+    "actual_short_pnl": -13168.07,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2026-02-02",
+    "pred": "LONG",
+    "prob_long": 0.9117,
+    "prob_short": 0.0526,
+    "prob_flat": 0.0357,
+    "actual_long_pnl": 50473.81,
+    "actual_short_pnl": -20431.42,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2026-02-09",
+    "pred": "LONG",
+    "prob_long": 0.8912,
+    "prob_short": 0.0131,
+    "prob_flat": 0.0957,
+    "actual_long_pnl": 54227.68,
+    "actual_short_pnl": -11941.31,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2026-02-16",
+    "pred": "LONG",
+    "prob_long": 0.949,
+    "prob_short": 0.0012,
+    "prob_flat": 0.0498,
+    "actual_long_pnl": 16332.11,
+    "actual_short_pnl": 5342.26,
+    "actual_label": "LONG"
+  },
+  {
+    "week": "2026-02-23",
+    "pred": "LONG",
+    "prob_long": 0.9911,
+    "prob_short": 0.0007,
+    "prob_flat": 0.0082,
+    "actual_long_pnl": 26854.66,
+    "actual_short_pnl": 20429.76,
+    "actual_label": "LONG"
+  }
+]

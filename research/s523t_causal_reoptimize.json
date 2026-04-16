@@ -1,0 +1,655 @@
+{
+  "G30_DB30_t15": {
+    "config": {
+      "gate_window": 30,
+      "deep_bear_window": 30,
+      "deep_bear_thresh": -0.15,
+      "halving_mode": "normal"
+    },
+    "returns": {
+      "2022": 73.1,
+      "2023": 103.3,
+      "2024": 17.9,
+      "2025": 240.6
+    },
+    "total": 434.9,
+    "all_positive": true
+  },
+  "G14_DB30_t15": {
+    "config": {
+      "gate_window": 14,
+      "deep_bear_window": 30,
+      "deep_bear_thresh": -0.15,
+      "halving_mode": "normal"
+    },
+    "returns": {
+      "2022": 73.1,
+      "2023": 94.6,
+      "2024": -4.3,
+      "2025": 267.3
+    },
+    "total": 430.7,
+    "all_positive": false
+  },
+  "G30_DB30_t12": {
+    "config": {
+      "gate_window": 30,
+      "deep_bear_window": 30,
+      "deep_bear_thresh": -0.12,
+      "halving_mode": "normal"
+    },
+    "returns": {
+      "2022": 74.0,
+      "2023": 137.1,
+      "2024": 26.2,
+      "2025": 350.9
+    },
+    "total": 588.1999999999999,
+    "all_positive": true
+  },
+  "G14_DB30_t12": {
+    "config": {
+      "gate_window": 14,
+      "deep_bear_window": 30,
+      "deep_bear_thresh": -0.12,
+      "halving_mode": "normal"
+    },
+    "returns": {
+      "2022": 74.0,
+      "2023": 78.7,
+      "2024": -0.1,
+      "2025": 316.7
+    },
+    "total": 469.29999999999995,
+    "all_positive": false
+  },
+  "G30_noDB": {
+    "config": {
+      "gate_window": 30,
+      "deep_bear_window": null,
+      "deep_bear_thresh": null,
+      "halving_mode": "normal"
+    },
+    "returns": {
+      "2022": 25.5,
+      "2023": 103.3,
+      "2024": 41.4,
+      "2025": 268.8
+    },
+    "total": 439.0,
+    "all_positive": true
+  },
+  "G21_noDB": {
+    "config": {
+      "gate_window": 21,
+      "deep_bear_window": null,
+      "deep_bear_thresh": null,
+      "halving_mode": "normal"
+    },
+    "returns": {
+      "2022": 25.5,
+      "2023": 158.2,
+      "2024": -28.0,
+      "2025": 270.0
+    },
+    "total": 425.7,
+    "all_positive": false
+  },
+  "G7_noDB": {
+    "config": {
+      "gate_window": 7,
+      "deep_bear_window": null,
+      "deep_bear_thresh": null,
+      "halving_mode": "normal"
+    },
+    "returns": {
+      "2022": 25.5,
+      "2023": 171.3,
+      "2024": -17.3,
+      "2025": 216.3
+    },
+    "total": 395.8,
+    "all_positive": false
+  },
+  "G30_DB45_t8": {
+    "config": {
+      "gate_window": 30,
+      "deep_bear_window": 45,
+      "deep_bear_thresh": -0.08,
+      "halving_mode": "normal"
+    },
+    "returns": {
+      "2022": 113.3,
+      "2023": 110.7,
+      "2024": 10.1,
+      "2025": 226.6
+    },
+    "total": 460.7,
+    "all_positive": true
+  },
+  "G30_DB45_t10": {
+    "config": {
+      "gate_window": 30,
+      "deep_bear_window": 45,
+      "deep_bear_thresh": -0.1,
+      "halving_mode": "normal"
+    },
+    "returns": {
+      "2022": 69.9,
+      "2023": 72.3,
+      "2024": 22.9,
+      "2025": 308.8
+    },
+    "total": 473.9,
+    "all_positive": true
+  },
+  "G14_DB30_t8": {
+    "config": {
+      "gate_window": 14,
+      "deep_bear_window": 30,
+      "deep_bear_thresh": -0.08,
+      "halving_mode": "normal"
+    },
+    "returns": {
+      "2022": 89.9,
+      "2023": 221.7,
+      "2024": 28.0,
+      "2025": 370.8
+    },
+    "total": 710.4000000000001,
+    "all_positive": true
+  },
+  "G14_DB30_t10": {
+    "config": {
+      "gate_window": 14,
+      "deep_bear_window": 30,
+      "deep_bear_thresh": -0.1,
+      "halving_mode": "normal"
+    },
+    "returns": {
+      "2022": 85.8,
+      "2023": 89.0,
+      "2024": 16.6,
+      "2025": 459.1
+    },
+    "total": 650.5,
+    "all_positive": true
+  },
+  "G14_DB45_t8": {
+    "config": {
+      "gate_window": 14,
+      "deep_bear_window": 45,
+      "deep_bear_thresh": -0.08,
+      "halving_mode": "normal"
+    },
+    "returns": {
+      "2022": 113.3,
+      "2023": 100.8,
+      "2024": 30.7,
+      "2025": 278.9
+    },
+    "total": 523.6999999999999,
+    "all_positive": true
+  },
+  "G14_DB45_t10": {
+    "config": {
+      "gate_window": 14,
+      "deep_bear_window": 45,
+      "deep_bear_thresh": -0.1,
+      "halving_mode": "normal"
+    },
+    "returns": {
+      "2022": 69.9,
+      "2023": 69.7,
+      "2024": 34.0,
+      "2025": 319.1
+    },
+    "total": 492.70000000000005,
+    "all_positive": true
+  },
+  "G45_DB30_t8": {
+    "config": {
+      "gate_window": 45,
+      "deep_bear_window": 30,
+      "deep_bear_thresh": -0.08,
+      "halving_mode": "normal"
+    },
+    "returns": {
+      "2022": 89.9,
+      "2023": 285.3,
+      "2024": 64.5,
+      "2025": 291.3
+    },
+    "total": 731.0,
+    "all_positive": true
+  },
+  "G45_DB30_t10": {
+    "config": {
+      "gate_window": 45,
+      "deep_bear_window": 30,
+      "deep_bear_thresh": -0.1,
+      "halving_mode": "normal"
+    },
+    "returns": {
+      "2022": 85.8,
+      "2023": 223.5,
+      "2024": 58.0,
+      "2025": 359.2
+    },
+    "total": 726.5,
+    "all_positive": true
+  },
+  "G60_DB30_t10": {
+    "config": {
+      "gate_window": 60,
+      "deep_bear_window": 30,
+      "deep_bear_thresh": -0.1,
+      "halving_mode": "normal"
+    },
+    "returns": {
+      "2022": 85.8,
+      "2023": 60.4,
+      "2024": 40.8,
+      "2025": 390.8
+    },
+    "total": 577.8,
+    "all_positive": true
+  },
+  "G14_DB30_t5": {
+    "config": {
+      "gate_window": 14,
+      "deep_bear_window": 30,
+      "deep_bear_thresh": -0.05,
+      "halving_mode": "normal"
+    },
+    "returns": {
+      "2022": 47.7,
+      "2023": 236.0,
+      "2024": 40.1,
+      "2025": 350.4,
+      "2026Q1": -30.6
+    },
+    "total": 643.6,
+    "all_positive": false
+  },
+  "G14_DB14_t5": {
+    "config": {
+      "gate_window": 14,
+      "deep_bear_window": 14,
+      "deep_bear_thresh": -0.05,
+      "halving_mode": "normal"
+    },
+    "returns": {
+      "2022": 29.1,
+      "2023": 85.6,
+      "2024": 0.4,
+      "2025": 226.7,
+      "2026Q1": -21.9
+    },
+    "total": 319.9,
+    "all_positive": false
+  },
+  "G14_DB45_t5": {
+    "config": {
+      "gate_window": 14,
+      "deep_bear_window": 45,
+      "deep_bear_thresh": -0.05,
+      "halving_mode": "normal"
+    },
+    "returns": {
+      "2022": 95.7,
+      "2023": 143.2,
+      "2024": -17.3,
+      "2025": 205.2,
+      "2026Q1": -20.2
+    },
+    "total": 406.59999999999997,
+    "all_positive": false
+  },
+  "G21_DB30_t5": {
+    "config": {
+      "gate_window": 21,
+      "deep_bear_window": 30,
+      "deep_bear_thresh": -0.05,
+      "halving_mode": "normal"
+    },
+    "returns": {
+      "2022": 47.7,
+      "2023": 165.6,
+      "2024": -9.6,
+      "2025": 304.8,
+      "2026Q1": -30.6
+    },
+    "total": 477.9,
+    "all_positive": false
+  },
+  "G7_DB30_t5": {
+    "config": {
+      "gate_window": 7,
+      "deep_bear_window": 30,
+      "deep_bear_thresh": -0.05,
+      "halving_mode": "normal"
+    },
+    "returns": {
+      "2022": 47.7,
+      "2023": 194.1,
+      "2024": -51.8,
+      "2025": 295.1,
+      "2026Q1": -30.6
+    },
+    "total": 454.5,
+    "all_positive": false
+  },
+  "G30_DB30_t3": {
+    "config": {
+      "gate_window": 30,
+      "deep_bear_window": 30,
+      "deep_bear_thresh": -0.03,
+      "halving_mode": "normal"
+    },
+    "returns": {
+      "2022": 31.3,
+      "2023": 191.2,
+      "2024": 67.2,
+      "2025": 268.5,
+      "2026Q1": -30.5
+    },
+    "total": 527.7,
+    "all_positive": false
+  },
+  "G30_DB30_t8": {
+    "config": {
+      "gate_window": 30,
+      "deep_bear_window": 30,
+      "deep_bear_thresh": -0.08,
+      "halving_mode": "normal"
+    },
+    "returns": {
+      "2022": 89.9,
+      "2023": 159.0,
+      "2024": 80.8,
+      "2025": 297.1,
+      "2026Q1": -30.9
+    },
+    "total": 595.9,
+    "all_positive": false
+  },
+  "G30_DB30_t10": {
+    "config": {
+      "gate_window": 30,
+      "deep_bear_window": 30,
+      "deep_bear_thresh": -0.1,
+      "halving_mode": "normal"
+    },
+    "returns": {
+      "2022": 85.8,
+      "2023": 107.6,
+      "2024": 89.2,
+      "2025": 351.2,
+      "2026Q1": -30.9
+    },
+    "total": 602.9,
+    "all_positive": false
+  },
+  "G14_noDB": {
+    "config": {
+      "gate_window": 14,
+      "deep_bear_window": null,
+      "deep_bear_thresh": null,
+      "halving_mode": "normal"
+    },
+    "returns": {
+      "2022": 25.5,
+      "2023": 94.6,
+      "2024": 65.7,
+      "2025": 197.5,
+      "2026Q1": -30.9
+    },
+    "total": 352.40000000000003,
+    "all_positive": false
+  },
+  "G14_DB14_t3": {
+    "config": {
+      "gate_window": 14,
+      "deep_bear_window": 14,
+      "deep_bear_thresh": -0.03,
+      "halving_mode": "normal"
+    },
+    "returns": {
+      "2022": 21.5,
+      "2023": 127.6,
+      "2024": 21.4,
+      "2025": 220.5,
+      "2026Q1": -7.5
+    },
+    "total": 383.5,
+    "all_positive": false
+  },
+  "noGate_DBonly": {
+    "config": {
+      "gate_window": null,
+      "deep_bear_window": 30,
+      "deep_bear_thresh": -0.05,
+      "halving_mode": "no_halving"
+    },
+    "returns": {
+      "2022": 47.7,
+      "2023": -10.8,
+      "2024": -18.4,
+      "2025": 254.9,
+      "2026Q1": -30.6
+    },
+    "total": 242.80000000000004,
+    "all_positive": false
+  },
+  "G14_halving": {
+    "config": {
+      "gate_window": 14,
+      "deep_bear_window": 30,
+      "deep_bear_thresh": -0.05,
+      "halving_mode": "halving_nogateB"
+    },
+    "returns": {
+      "2022": 47.7,
+      "2023": 236.0,
+      "2024": 40.1,
+      "2025": 350.4,
+      "2026Q1": -30.6
+    },
+    "total": 643.6,
+    "all_positive": false
+  },
+  "G21_halving": {
+    "config": {
+      "gate_window": 21,
+      "deep_bear_window": 30,
+      "deep_bear_thresh": -0.05,
+      "halving_mode": "halving_nogateB"
+    },
+    "returns": {
+      "2022": 47.7,
+      "2023": 165.6,
+      "2024": -9.6,
+      "2025": 304.8,
+      "2026Q1": -30.6
+    },
+    "total": 477.9,
+    "all_positive": false
+  },
+  "G45_noDB": {
+    "config": {
+      "gate_window": 45,
+      "deep_bear_window": null,
+      "deep_bear_thresh": null,
+      "halving_mode": "normal"
+    },
+    "returns": {
+      "2022": 25.5,
+      "2023": 165.9,
+      "2024": -0.5,
+      "2025": 269.9
+    },
+    "total": 460.79999999999995,
+    "all_positive": false
+  },
+  "G60_noDB": {
+    "config": {
+      "gate_window": 60,
+      "deep_bear_window": null,
+      "deep_bear_thresh": null,
+      "halving_mode": "normal"
+    },
+    "returns": {
+      "2022": 25.5,
+      "2023": 43.6,
+      "2024": 56.8,
+      "2025": 200.4
+    },
+    "total": 326.3,
+    "all_positive": true
+  },
+  "G45_DB30_t15": {
+    "config": {
+      "gate_window": 45,
+      "deep_bear_window": 30,
+      "deep_bear_thresh": -0.15,
+      "halving_mode": "normal"
+    },
+    "returns": {
+      "2022": 73.1,
+      "2023": 165.8,
+      "2024": -14.0,
+      "2025": 265.3
+    },
+    "total": 490.20000000000005,
+    "all_positive": false
+  },
+  "G45_DB30_t12": {
+    "config": {
+      "gate_window": 45,
+      "deep_bear_window": 30,
+      "deep_bear_thresh": -0.12,
+      "halving_mode": "normal"
+    },
+    "returns": {
+      "2022": 74.0,
+      "2023": 193.8,
+      "2024": -3.0,
+      "2025": 293.7
+    },
+    "total": 558.5,
+    "all_positive": false
+  },
+  "G45_DB60_t8": {
+    "config": {
+      "gate_window": 45,
+      "deep_bear_window": 60,
+      "deep_bear_thresh": -0.08,
+      "halving_mode": "normal"
+    },
+    "returns": {
+      "2022": 55.6,
+      "2023": 95.6,
+      "2024": 4.4,
+      "2025": 320.7
+    },
+    "total": 476.29999999999995,
+    "all_positive": true
+  },
+  "G45_DB60_t10": {
+    "config": {
+      "gate_window": 45,
+      "deep_bear_window": 60,
+      "deep_bear_thresh": -0.1,
+      "halving_mode": "normal"
+    },
+    "returns": {
+      "2022": 61.6,
+      "2023": 80.6,
+      "2024": 9.1,
+      "2025": 283.4
+    },
+    "total": 434.69999999999993,
+    "all_positive": true
+  },
+  "G60_DB30_t8": {
+    "config": {
+      "gate_window": 60,
+      "deep_bear_window": 30,
+      "deep_bear_thresh": -0.08,
+      "halving_mode": "normal"
+    },
+    "returns": {
+      "2022": 89.9,
+      "2023": 60.9,
+      "2024": 33.9,
+      "2025": 333.4
+    },
+    "total": 518.1,
+    "all_positive": true
+  },
+  "G60_DB45_t10": {
+    "config": {
+      "gate_window": 60,
+      "deep_bear_window": 45,
+      "deep_bear_thresh": -0.1,
+      "halving_mode": "normal"
+    },
+    "returns": {
+      "2022": 69.9,
+      "2023": 16.6,
+      "2024": 34.6,
+      "2025": 346.0
+    },
+    "total": 467.1,
+    "all_positive": true
+  },
+  "noGateB_DB30_t10": {
+    "config": {
+      "gate_window": null,
+      "deep_bear_window": 30,
+      "deep_bear_thresh": -0.1,
+      "halving_mode": "halving_bull_nogateB"
+    },
+    "returns": {
+      "2022": 85.8,
+      "2023": 5.6,
+      "2024": 5.5,
+      "2025": 382.1
+    },
+    "total": 479.0,
+    "all_positive": true
+  },
+  "noGateB_DB30_t8": {
+    "config": {
+      "gate_window": null,
+      "deep_bear_window": 30,
+      "deep_bear_thresh": -0.08,
+      "halving_mode": "halving_bull_nogateB"
+    },
+    "returns": {
+      "2022": 89.9,
+      "2023": -12.2,
+      "2024": -42.8,
+      "2025": 306.5
+    },
+    "total": 341.4,
+    "all_positive": false
+  },
+  "G30_DB30_t10_v": {
+    "config": {
+      "gate_window": 30,
+      "deep_bear_window": 30,
+      "deep_bear_thresh": -0.1,
+      "halving_mode": "normal"
+    },
+    "returns": {
+      "2022": 85.8,
+      "2023": 107.6,
+      "2024": 89.2,
+      "2025": 351.2
+    },
+    "total": 633.8,
+    "all_positive": true
+  }
+}

@@ -1,0 +1,297 @@
+{
+  "baseline_mission_p": {
+    "n_trades_in_set": 616,
+    "n_deleverage_actions": 106,
+    "n_lever_up_actions": 0,
+    "n_helped": 76,
+    "n_hurt": 30,
+    "saved": 67079.17338017737,
+    "given_back": -21603.644913376647,
+    "total_orig": 243850.6183505299,
+    "total_new": 289326.14681733074,
+    "total_improvement": 45475.52846680084,
+    "improvement_pct": 0.18648928911646542
+  },
+  "variant_a_deleverage": {
+    "0.25": {
+      "r8": {
+        "n_trades_in_set": 616,
+        "n_deleverage_actions": 106,
+        "n_lever_up_actions": 0,
+        "n_helped": 76,
+        "n_hurt": 30,
+        "saved": 16769.79334504434,
+        "given_back": -5400.911228344162,
+        "total_orig": 243850.6183505299,
+        "total_new": 255219.5004672301,
+        "total_improvement": 11368.882116700202,
+        "improvement_pct": 0.04662232227911633
+      },
+      "r50": {
+        "n_trades_in_set": 616,
+        "n_deleverage_actions": 106,
+        "n_lever_up_actions": 0,
+        "n_helped": 73,
+        "n_hurt": 33,
+        "saved": 15886.816479001593,
+        "given_back": -5783.365386495115,
+        "total_orig": 243850.6183505299,
+        "total_new": 253954.06944303645,
+        "total_improvement": 10103.451092506555,
+        "improvement_pct": 0.04143295252170764
+      }
+    },
+    "0.5": {
+      "r8": {
+        "n_trades_in_set": 616,
+        "n_deleverage_actions": 106,
+        "n_lever_up_actions": 0,
+        "n_helped": 76,
+        "n_hurt": 30,
+        "saved": 33539.58669008868,
+        "given_back": -10801.822456688324,
+        "total_orig": 243850.6183505299,
+        "total_new": 266588.38258393045,
+        "total_improvement": 22737.76423340055,
+        "improvement_pct": 0.09324464455823325
+      },
+      "r50": {
+        "n_trades_in_set": 616,
+        "n_deleverage_actions": 106,
+        "n_lever_up_actions": 0,
+        "n_helped": 73,
+        "n_hurt": 33,
+        "saved": 31773.632958003185,
+        "given_back": -11566.730772990233,
+        "total_orig": 243850.6183505299,
+        "total_new": 264057.5205355429,
+        "total_improvement": 20206.902185013023,
+        "improvement_pct": 0.08286590504341493
+      }
+    },
+    "0.75": {
+      "r8": {
+        "n_trades_in_set": 616,
+        "n_deleverage_actions": 106,
+        "n_lever_up_actions": 0,
+        "n_helped": 76,
+        "n_hurt": 30,
+        "saved": 50309.38003513302,
+        "given_back": -16202.733685032494,
+        "total_orig": 243850.6183505299,
+        "total_new": 277957.2647006307,
+        "total_improvement": 34106.64635010078,
+        "improvement_pct": 0.1398669668373497
+      },
+      "r50": {
+        "n_trades_in_set": 616,
+        "n_deleverage_actions": 106,
+        "n_lever_up_actions": 0,
+        "n_helped": 73,
+        "n_hurt": 33,
+        "saved": 47660.44943700478,
+        "given_back": -17350.096159485354,
+        "total_orig": 243850.6183505299,
+        "total_new": 274160.9716280494,
+        "total_improvement": 30310.35327751949,
+        "improvement_pct": 0.12429885756512221
+      }
+    },
+    "1.0": {
+      "r8": {
+        "n_trades_in_set": 616,
+        "n_deleverage_actions": 106,
+        "n_lever_up_actions": 0,
+        "n_helped": 76,
+        "n_hurt": 30,
+        "saved": 67079.17338017737,
+        "given_back": -21603.644913376647,
+        "total_orig": 243850.6183505299,
+        "total_new": 289326.14681733074,
+        "total_improvement": 45475.52846680084,
+        "improvement_pct": 0.18648928911646542
+      },
+      "r50": {
+        "n_trades_in_set": 616,
+        "n_deleverage_actions": 106,
+        "n_lever_up_actions": 0,
+        "n_helped": 73,
+        "n_hurt": 33,
+        "saved": 63547.26591600637,
+        "given_back": -23133.461545980466,
+        "total_orig": 243850.6183505299,
+        "total_new": 284264.42272055586,
+        "total_improvement": 40413.80437002596,
+        "improvement_pct": 0.1657318100868295
+      }
+    }
+  },
+  "variant_b_lever_winners": {
+    "0.25": {
+      "r8": {
+        "n_trades_in_set": 616,
+        "n_deleverage_actions": 0,
+        "n_lever_up_actions": 294,
+        "n_helped": 115,
+        "n_hurt": 179,
+        "saved": 70880.19706922233,
+        "given_back": -51575.98165305039,
+        "total_orig": 243850.6183505299,
+        "total_new": 263154.83376670204,
+        "total_improvement": 19304.21541617214,
+        "improvement_pct": 0.0791641027886292
+      },
+      "r50": {
+        "n_trades_in_set": 616,
+        "n_deleverage_actions": 0,
+        "n_lever_up_actions": 294,
+        "n_helped": 112,
+        "n_hurt": 182,
+        "saved": 69407.49158698664,
+        "given_back": -53643.6605010793,
+        "total_orig": 243850.6183505299,
+        "total_new": 259614.44943643743,
+        "total_improvement": 15763.831085907528,
+        "improvement_pct": 0.06464544233079356
+      }
+    },
+    "0.5": {
+      "r8": {
+        "n_trades_in_set": 616,
+        "n_deleverage_actions": 0,
+        "n_lever_up_actions": 294,
+        "n_helped": 115,
+        "n_hurt": 179,
+        "saved": 141760.39413844462,
+        "given_back": -103151.96330610076,
+        "total_orig": 243850.6183505299,
+        "total_new": 282459.04918287403,
+        "total_improvement": 38608.43083234414,
+        "improvement_pct": 0.15832820557725782
+      },
+      "r50": {
+        "n_trades_in_set": 616,
+        "n_deleverage_actions": 0,
+        "n_lever_up_actions": 294,
+        "n_helped": 112,
+        "n_hurt": 182,
+        "saved": 138814.98317397328,
+        "given_back": -107287.3210021586,
+        "total_orig": 243850.6183505299,
+        "total_new": 275378.28052234463,
+        "total_improvement": 31527.662171814736,
+        "improvement_pct": 0.12929088466158578
+      }
+    },
+    "0.75": {
+      "r8": {
+        "n_trades_in_set": 616,
+        "n_deleverage_actions": 0,
+        "n_lever_up_actions": 294,
+        "n_helped": 115,
+        "n_hurt": 179,
+        "saved": 212640.59120766696,
+        "given_back": -154727.94495915115,
+        "total_orig": 243850.6183505299,
+        "total_new": 301763.2645990458,
+        "total_improvement": 57912.6462485159,
+        "improvement_pct": 0.23749230836588547
+      },
+      "r50": {
+        "n_trades_in_set": 616,
+        "n_deleverage_actions": 0,
+        "n_lever_up_actions": 294,
+        "n_helped": 112,
+        "n_hurt": 182,
+        "saved": 208222.47476095997,
+        "given_back": -160930.98150323788,
+        "total_orig": 243850.6183505299,
+        "total_new": 291142.1116082521,
+        "total_improvement": 47291.493257722206,
+        "improvement_pct": 0.19393632699237912
+      }
+    },
+    "1.0": {
+      "r8": {
+        "n_trades_in_set": 616,
+        "n_deleverage_actions": 0,
+        "n_lever_up_actions": 294,
+        "n_helped": 115,
+        "n_hurt": 179,
+        "saved": 283520.7882768893,
+        "given_back": -206303.92661220155,
+        "total_orig": 243850.6183505299,
+        "total_new": 321067.48001521744,
+        "total_improvement": 77216.86166468755,
+        "improvement_pct": 0.31665641115451265
+      },
+      "r50": {
+        "n_trades_in_set": 616,
+        "n_deleverage_actions": 0,
+        "n_lever_up_actions": 294,
+        "n_helped": 112,
+        "n_hurt": 182,
+        "saved": 277629.96634794655,
+        "given_back": -214574.6420043172,
+        "total_orig": 243850.6183505299,
+        "total_new": 306905.94269415934,
+        "total_improvement": 63055.32434362944,
+        "improvement_pct": 0.25858176932317145
+      }
+    }
+  },
+  "variant_c_combined": {
+    "0.5_0.25": {
+      "n_trades_in_set": 616,
+      "n_deleverage_actions": 85,
+      "n_lever_up_actions": 288,
+      "n_helped": 177,
+      "n_hurt": 196,
+      "saved": 102326.45372477818,
+      "given_back": -57749.90357344848,
+      "total_orig": 243850.6183505299,
+      "total_new": 288427.16850185976,
+      "total_improvement": 44576.550151329866,
+      "improvement_pct": 0.18280269475163707
+    },
+    "0.5_0.5": {
+      "n_trades_in_set": 616,
+      "n_deleverage_actions": 85,
+      "n_lever_up_actions": 288,
+      "n_helped": 177,
+      "n_hurt": 196,
+      "saved": 173180.00840455492,
+      "given_back": -107544.10366939777,
+      "total_orig": 243850.6183505299,
+      "total_new": 309486.52308568737,
+      "total_improvement": 65635.90473515747,
+      "improvement_pct": 0.26916439736399317
+    },
+    "1.0_0.25": {
+      "n_trades_in_set": 616,
+      "n_deleverage_actions": 85,
+      "n_lever_up_actions": 288,
+      "n_helped": 177,
+      "n_hurt": 196,
+      "saved": 133799.35276977962,
+      "given_back": -65705.60705094764,
+      "total_orig": 243850.6183505299,
+      "total_new": 311944.36406936205,
+      "total_improvement": 68093.74571883216,
+      "improvement_pct": 0.27924368689091816
+    },
+    "1.0_0.5": {
+      "n_trades_in_set": 616,
+      "n_deleverage_actions": 85,
+      "n_lever_up_actions": 288,
+      "n_helped": 177,
+      "n_hurt": 196,
+      "saved": 204652.90744955637,
+      "given_back": -115499.80714689696,
+      "total_orig": 243850.6183505299,
+      "total_new": 333003.7186531896,
+      "total_improvement": 89153.1003026597,
+      "improvement_pct": 0.36560538950327404
+    }
+  }
+}
