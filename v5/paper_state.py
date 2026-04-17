@@ -17,7 +17,7 @@ from typing import Optional
 
 import numpy as np
 
-from v5.position import Position, ClosedTrade, PositionManager
+from v5.position import Position, ClosedTrade, PositionManager, ScalingEvent
 from v5.simulator import SimulationState
 
 
@@ -78,6 +78,15 @@ def _serialize_position(pos: Position) -> dict:
         "limit_placed_at": pos.limit_placed_at,
         "stop_limit_price": float(pos.stop_limit_price),
         "fill_source": pos.fill_source,
+        # M2 scaling fields (Task 12, brief T13b)
+        "scale_count": int(pos.scale_count),
+        "scaling_events": [asdict(ev) for ev in pos.scaling_events],
+        "r_anchor_price": float(pos.r_anchor_price),
+        "_scale_action_bar": int(pos._scale_action_bar),
+        # _helper_state: per brief T13b, roundtrips verbatim; helpers use
+        # namespaced keys (Q3) so the dict is safe to persist as-is. Values
+        # must already be JSON-compatible at write time.
+        "_helper_state": dict(pos._helper_state) if pos._helper_state else {},
     }
     # Sub-hourly entry window_end for re-entry prevention across restarts
     window_end = getattr(pos, '_window_end', 0.0)
@@ -144,6 +153,23 @@ def _deserialize_position(d: dict) -> Position:
     wend = d.get("_window_end", 0.0)
     if wend > 0:
         pos._window_end = wend
+
+    # M2 scaling fields (Task 12) — backward compatible defaults
+    pos.scale_count = int(d.get("scale_count", 0))
+    # r_anchor_price: if 0.0 or missing, Position.__post_init__ already set it to
+    # entry_price. For explicit-zero legacy states, fall back to entry_price.
+    r_anchor = d.get("r_anchor_price", 0.0)
+    if r_anchor and r_anchor > 0.0:
+        pos.r_anchor_price = float(r_anchor)
+    # else: leave as entry_price from __post_init__
+    pos._scale_action_bar = int(d.get("_scale_action_bar", -1))
+
+    scaling_events_data = d.get("scaling_events", []) or []
+    pos.scaling_events = [ScalingEvent(**ev) for ev in scaling_events_data]
+    helper_state = d.get("_helper_state", None)
+    if isinstance(helper_state, dict):
+        pos._helper_state = dict(helper_state)
+    # else: Position.__init__ already set _helper_state = {} (default factory)
     return pos
 
 
@@ -154,16 +180,21 @@ def _deserialize_position(d: dict) -> Position:
 def serialize_state(
     state: SimulationState,
     tick_counter: int,
-    last_timestamp: str,
+    last_timestamp: Optional[str] = None,
     shadow_pools: Optional[dict] = None,
     last_known_prices: Optional[dict] = None,
     armed_tokens: Optional[list] = None,
     filled_4h_windows: Optional[list] = None,
+    timestamp: Optional[str] = None,
 ) -> dict:
     """Serialize SimulationState to a JSON-compatible dict.
 
     Closed trades are NOT included — they go to trades.jsonl.
+    `timestamp=` is accepted as an alias for `last_timestamp` (M2 tests use this
+    shorter name; legacy positional callers still pass `last_timestamp`).
     """
+    if last_timestamp is None:
+        last_timestamp = timestamp if timestamp is not None else ""
     positions = [_serialize_position(p) for p in state.position_manager.open_positions]
 
     data = {
@@ -557,3 +588,125 @@ def deserialize_engine_state(data: dict) -> tuple:
         strategy_states[sid] = state
 
     return strategy_states, tick_counter, last_timestamp
+
+
+# ---------------------------------------------------------------------------
+# v4 compatibility loaders (AC31a, AC33, AC34 — Tasks 12 + 14)
+# ---------------------------------------------------------------------------
+
+def load_v4_compat(state_path: str) -> tuple:
+    """AC31a: load a v4-format paper_state JSON and synthesize v5 defaults.
+
+    Returns (state, tick_counter). v4 positions are deserialized via the standard
+    path — new M2 fields (`scale_count`, `scaling_events`, `r_anchor_price`,
+    `_scale_action_bar`) are absent in v4 so they pick up defaults:
+      - scale_count = 0
+      - scaling_events = []
+      - r_anchor_price = entry_price (set by Position.__post_init__)
+      - _scale_action_bar = -1
+    """
+    with open(state_path) as f:
+        data = json.load(f)
+    return deserialize_state(data)
+
+
+def load_trade_log(path: str) -> list[ClosedTrade]:
+    """AC33/AC34: load v4 analysis/*.json trade logs; synthesize M2 identity fields.
+
+    v4 uses a ':partial' suffix on position_id for partial-TP events. Strip it
+    to derive parent_position_id. Synthesize identity fields per record:
+      - parent_position_id: position_id with trailing ':partial' stripped
+      - exec_seq: 1 if ':partial' suffix present else 0
+      - exec_type: 'reduce' if ':partial' else 'exit'
+      - is_terminal: False if ':partial' else True
+      - has_scaling: True if ANY record in the log has ':partial' suffix
+      - scaling_events: [] (v4 logs do not carry these)
+      - triggered_by: ''
+
+    Raises ValueError if the log contains v5-format ':scale_N' or ':scale_N_final'
+    suffixes WITHOUT corresponding identity fields (AC33 fails loud on mixed-format
+    logs to prevent silent misinterpretation).
+    """
+    with open(path) as f:
+        records = json.load(f)
+
+    if not isinstance(records, list):
+        raise ValueError(
+            f"Trade log {path} must be a JSON list; got {type(records).__name__}"
+        )
+
+    # First pass: detect v5-format suffixes + compute has_scaling at log level
+    any_partial = False
+    for rec in records:
+        pid = rec.get("position_id", "")
+        if not isinstance(pid, str):
+            continue
+        if ":scale_" in pid:
+            # v5-format suffix present. Identity fields must be explicit.
+            if "exec_seq" not in rec or "parent_position_id" not in rec:
+                raise ValueError(
+                    f"Mixed-format trade log {path}: record {pid!r} uses v5 "
+                    f"':scale_' suffix without required identity fields "
+                    f"(parent_position_id, exec_seq). Refusing to load."
+                )
+        if pid.endswith(":partial"):
+            any_partial = True
+
+    # Second pass: build ClosedTrade objects with synthesized identity fields
+    trades: list[ClosedTrade] = []
+    for rec in records:
+        pid = rec.get("position_id", "")
+        is_partial = isinstance(pid, str) and pid.endswith(":partial")
+
+        if is_partial:
+            parent_id = pid[: -len(":partial")]
+            exec_seq = 1
+            exec_type = "reduce"
+            is_terminal = False
+        else:
+            parent_id = pid
+            exec_seq = 0
+            exec_type = "exit"
+            is_terminal = True
+
+        # v4 logs sometimes use 'hold_hours' instead of 'hold_bars' — prefer
+        # hold_bars if present, else fall back to hold_hours, else 0.
+        hold_bars = rec.get("hold_bars")
+        if hold_bars is None:
+            hold_bars = rec.get("hold_hours", 0)
+
+        trade = ClosedTrade(
+            position_id=pid,  # AC34: retain original legacy position_id verbatim
+            token=rec.get("token", ""),
+            strategy_id=rec.get("strategy_id", ""),
+            leg=rec.get("leg", ""),
+            entry_bar=int(rec.get("entry_bar", 0)),
+            exit_bar=int(rec.get("exit_bar", 0)),
+            entry_price=float(rec.get("entry_price", 0.0)),
+            exit_price=float(rec.get("exit_price", 0.0)),
+            direction=int(rec.get("direction", 0)),
+            margin_usd=float(rec.get("margin_usd", 0.0)),
+            pnl=float(rec.get("pnl", 0.0)),
+            funding_cost=float(rec.get("funding_cost", 0.0)),
+            entry_fee=float(rec.get("entry_fee", 0.0)),
+            exit_fee=float(rec.get("exit_fee", 0.0)),
+            hold_bars=int(hold_bars),
+            exit_reason=rec.get("exit_reason", ""),
+            is_perp=bool(rec.get("is_perp", False)),
+            entry_timestamp=rec.get("entry_timestamp", ""),
+            exit_timestamp=rec.get("exit_timestamp", ""),
+            limit_price=float(rec.get("limit_price", 0.0)),
+            limit_placed_at=rec.get("limit_placed_at", ""),
+            stop_limit_price=float(rec.get("stop_limit_price", 0.0)),
+            fill_source=rec.get("fill_source", ""),
+            parent_position_id=parent_id,
+            exec_seq=exec_seq,
+            exec_type=exec_type,
+            is_terminal=is_terminal,
+            triggered_by="",
+            has_scaling=any_partial,
+            scaling_events=[],
+        )
+        trades.append(trade)
+
+    return trades

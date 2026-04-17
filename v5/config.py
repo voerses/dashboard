@@ -130,6 +130,11 @@ class StrategySpec:
     # Runs AFTER state-mutating handlers (breakeven, trail) but BEFORE built-in exit checks.
     # Signature: Callable[[Position, BarContext], Optional[ExitCheck]]
     exit_check_fn: object = None
+    # Optional M2 scale-check: strategy-defined function called each bar per open position.
+    # Receives (position, bar_context) and returns ScaleAction | list[ScaleAction] | None.
+    # Runs in Phase 2 (between update_state and check_exit).
+    # Signature: Callable[[Position, BarContext], Optional[ScaleAction | list[ScaleAction]]]
+    scale_check_fn: object = None
 
     def __post_init__(self):
         if isinstance(self.max_positions_per_symbol, bool):
@@ -141,6 +146,23 @@ class StrategySpec:
             raise ValueError(
                 f"max_positions_per_symbol must be >= 1, got {self.max_positions_per_symbol}"
             )
+        # AC20 / TG5: validate on construction when both fields are set at once.
+        # Deferred validation (setattr after construction) handled by
+        # ``validate_scaling_compat()``.
+        self.validate_scaling_compat()
+
+    def validate_scaling_compat(self) -> None:
+        """AC20 / TG5: scale_check_fn requires max_positions_per_symbol == 1.
+
+        Raises ``ValueError`` when both ``scale_check_fn`` is set and
+        ``max_positions_per_symbol`` exceeds 1. Safe to call repeatedly.
+        """
+        if getattr(self, "scale_check_fn", None) is not None:
+            if int(getattr(self, "max_positions_per_symbol", 1)) > 1:
+                raise ValueError(
+                    "max_positions_per_symbol must be 1 when scale_check_fn is set; "
+                    f"got {self.max_positions_per_symbol}"
+                )
 
     @classmethod
     def from_dict(cls, d: dict) -> StrategySpec:
@@ -195,3 +217,10 @@ class PortfolioConfig:
     entry_delay_bars: int = 0
     # Maximum bars a pending entry can wait before expiring (safety valve).
     max_pending_bars: int = 240  # 10 days default
+    # --- M2 scale-dispatch: dust promotion + error strictness ---
+    # AC10a: dust promotion threshold (notional)
+    min_close_notional_usd: float = 1.0
+    # AC10a: dust = max(min_close_notional_usd, dust_fraction_of_min_position * min_position_usd)
+    dust_fraction_of_min_position: float = 0.05
+    # Q2: backtest default re-raises scale_check_fn exceptions; paper may set False
+    strict_scale_errors: bool = True

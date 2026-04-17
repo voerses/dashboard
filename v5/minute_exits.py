@@ -8,6 +8,7 @@ surviving positions.
 """
 from __future__ import annotations
 
+import logging
 import math
 from pathlib import Path
 
@@ -15,13 +16,18 @@ import numpy as np
 import pandas as pd
 
 from .config import PortfolioConfig, StrategySpec
+from .exit_handlers import BarContext
 from .position import Position
 from .simulator import (
     SimulationState,
     _close_position,
+    _dispatch_scale_action,
     _get_bar_data,
 )
 from .signals import TokenSignals
+
+
+logger = logging.getLogger(__name__)
 
 
 class MinuteExitCache:
@@ -246,6 +252,72 @@ def check_candle_exits(
     return None, None
 
 
+def run_scale_on_candle(
+    state: SimulationState,
+    config: PortfolioConfig,
+    pos: Position,
+    spec: StrategySpec | None,
+    candle_high: float,
+    candle_low: float,
+    candle_close: float,
+    hourly_bar_idx: int,
+    adv_val: float,
+    atr_val: float,
+    regime_val: int,
+    sig: TokenSignals | None = None,
+    candle_volume: float = float("nan"),
+) -> bool:
+    """Sub-hourly scale_check_fn invocation.
+
+    Builds a minimal BarContext from the 1m/5m candle + hourly-frozen atr/regime,
+    invokes spec.scale_check_fn, dispatches the resulting action(s) via the
+    shared _dispatch_scale_action path. Returns True if any action was dispatched.
+
+    Per AC18 C2: hourly_bar_idx gates pos._scale_action_bar so a sub-hourly
+    fire blocks further scale actions until the NEXT hourly bar.
+    Per OQ-2: ScalingEvent.atr_at_event sources from bar_ctx.atr (= atr_val here).
+    """
+    if spec is None or getattr(spec, "scale_check_fn", None) is None:
+        return False
+    # AC18 C2: per-hourly-bar cap — no-op if we already fired on this hourly bar.
+    if hourly_bar_idx <= pos._scale_action_bar:
+        return False
+
+    bar_ctx = BarContext(
+        close=float(candle_close),
+        high=float(candle_high),
+        low=float(candle_low),
+        atr=float(atr_val),
+        rsi=float("nan"),  # RSI not computed at candle cadence
+        regime=int(regime_val),
+        bars_held=hourly_bar_idx - pos.entry_bar,
+        local_bar=hourly_bar_idx,
+        funding_val=0.0,  # funding accrues on hourly bars only
+        volume=float(candle_volume),
+        vol_20=float("nan"),
+        ret_1h=float("nan"),
+    )
+
+    try:
+        result = spec.scale_check_fn(pos, bar_ctx)
+    except Exception as e:
+        if config.strict_scale_errors:
+            raise
+        logger.warning(
+            "scale_check_fn error on %s (sub-hourly): %s", pos.position_id, e,
+        )
+        return False
+
+    if result is None:
+        return False
+
+    # Delegate to the shared dispatcher — it already handles the per-hourly-bar
+    # gate (via bar_ctx.local_bar vs pos._scale_action_bar), list execution,
+    # terminal-drop counting, and ScalingEvent.atr_at_event sourcing.
+    _dispatch_scale_action(state, pos, result, bar_ctx, sig, config)
+    return True
+
+
 def process_minute_exits(
     state: SimulationState,
     all_signals: dict[str, dict[str, TokenSignals]],
@@ -304,15 +376,19 @@ def process_minute_exits(
         spec_cb = strategy_specs.get(pos.strategy_id)
         cb_r = spec_cb.circuit_breaker_r if spec_cb else 0.0
 
+        # Hourly-frozen regime for scale_check_fn ctx (also reused by bear TP adj)
+        regime_val = int(sig.regime[local_bar])
+
         # Compute effective target (may be adjusted for bear regime)
         eff_target = pos.target_mult
         if sig.bear_target_mult > 0.0:
-            regime_val_tp = int(sig.regime[local_bar])
-            if regime_val_tp == 4:
+            if regime_val == 4:
                 eff_target = sig.bear_target_mult
 
         exit_price = None
         exit_reason = ""
+
+        scale_fn = getattr(spec_cb, "scale_check_fn", None) if spec_cb else None
 
         for i in range(len(m_high)):
             h_i = float(m_high[i])
@@ -321,6 +397,23 @@ def process_minute_exits(
 
             if np.isnan(h_i) or np.isnan(l_i) or np.isnan(c_i):
                 continue
+
+            # AC18 C2 / Task 10: sub-hourly scale_check_fn invocation BEFORE
+            # exit checks. _dispatch_scale_action's per-hourly-bar gate ensures
+            # only the first fire within the hour takes effect.
+            if scale_fn is not None:
+                run_scale_on_candle(
+                    state, config, pos, spec_cb,
+                    h_i, l_i, c_i,
+                    hourly_bar_idx=global_bar,
+                    adv_val=adv_val,
+                    atr_val=cur_atr,
+                    regime_val=regime_val,
+                    sig=sig,
+                )
+                # If the scale action terminally closed the position, skip exits.
+                if pos not in state.position_manager.open_positions:
+                    break
 
             # Use shared helper for exit checks (updates pos state in-place)
             reason, price = check_candle_exits(

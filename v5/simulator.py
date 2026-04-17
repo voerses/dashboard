@@ -5,6 +5,7 @@ Faithfully ports ALL v3 JIT exit logic paths.
 """
 from __future__ import annotations
 
+import logging
 import sys
 import os
 from collections import defaultdict
@@ -15,13 +16,24 @@ import numpy as np
 import pandas as pd
 
 from .config import PortfolioConfig, StrategySpec, resolve_sizing
-from .position import Position, ClosedTrade, PositionManager
+from .position import Position, ClosedTrade, PositionManager, ScalingEvent
 from .signals import TokenSignals
 from .sizing import compute_slippage_bps, get_sizing_model, get_slippage_model
-from .exit_handlers import BarContext, build_exit_chain, run_exit_handlers
+from .exit_handlers import (
+    BarContext, build_exit_chain, run_exit_handlers,
+    run_update_state_phase, run_check_exit_phase,
+)
+from .strategy_api import ScaleAction
 
 # Import fee/MMR lookups from v4
 from v5.universe import get_fee_rate, get_maint_margin_rate, get_liquidation_fee_rate
+
+
+logger = logging.getLogger(__name__)
+
+
+# OQ-1: near-zero qty threshold — smaller than this is a no-op.
+EPS_QTY = 1e-9
 
 
 @dataclass
@@ -34,8 +46,12 @@ class RejectionStats:
     concentration: int = 0
     capital: int = 0
     direction_zero: int = 0  # entries with direction=0 (defaulted to long)
+    # Q7 / AC26: informational counters for M2 scale-dispatch (NOT summed into total)
+    entry_scale_downs: int = 0
+    entry_scale_downs_by_reason: dict[str, int] = field(default_factory=dict)
 
     def total(self) -> int:
+        # entry_scale_downs* are INFORMATIONAL (clamps, not rejections) — excluded from total
         return (self.portfolio_limit + self.strategy_limit + self.min_size +
                 self.direction_zero +
                 self.adv_cap + self.concentration + self.capital)
@@ -49,6 +65,8 @@ class RejectionStats:
             "concentration": self.concentration,
             "capital": self.capital,
             "direction_zero": self.direction_zero,
+            "entry_scale_downs": self.entry_scale_downs,
+            "entry_scale_downs_by_reason": dict(self.entry_scale_downs_by_reason),
             "total": self.total(),
         }
 
@@ -112,6 +130,16 @@ class SimulationState:
     _slippage_models: dict = field(default_factory=dict)   # strategy_id -> SlippageModel
     max_equity_watermark: float = 0.0                      # peak MTM equity for DD scaling
     pending_entries: list = field(default_factory=list)     # list[PendingEntry] — armed, slot-reserving
+    # AC26: per-(strategy, token) scaling diagnostic counters.
+    # Keys: (strategy_id, token); values: dict[str, int] with
+    # {"increase_fills", "partial_fills", "contingent_fills",
+    #  "entry_scale_downs", "scale_actions_dropped_after_terminal"}.
+    scaling_diagnostics: dict = field(default_factory=dict)
+    # AC24a: positions where a terminal scale-action dropped subsequent actions.
+    scale_actions_dropped_after_terminal: int = 0
+    # Scale-dispatch counters for engine-level analytics (separate from per-(strat,token)
+    # diagnostics so legacy code is undisturbed).
+    increase_fills: int = 0
 
     @property
     def n_pending(self) -> int:
@@ -182,8 +210,18 @@ def _close_position(
     exit_reason: str,
     exit_adv: float,
     config: PortfolioConfig,
+    *,
+    position_id_override: str | None = None,
+    exec_type: str = "exit",
+    triggered_by: str = "",
 ) -> ClosedTrade:
-    """Close a position with exit slippage and fee."""
+    """Close a position with exit slippage and fee.
+
+    Keyword-only overrides (Q-DEC5 / AC29) allow callers such as ``book_reduce``
+    to rebadge the terminal ClosedTrade with a scale-specific position_id while
+    preserving ``parent_position_id`` pointing back at the original Position.
+    Default behavior (no overrides) is unchanged.
+    """
     notional = abs(pos.quantity * exit_price)
 
     # Exit slippage using point-in-time ADV
@@ -232,16 +270,600 @@ def _close_position(
 
     entry_fee = state._entry_fees_by_pos.pop(pos.position_id, 0.0)
 
-    return state.position_manager.close_position(
-        pos,
+    # Fast-path: default terminal close (no overrides) — preserve legacy behavior
+    if position_id_override is None and exec_type == "exit" and not triggered_by:
+        return state.position_manager.close_position(
+            pos,
+            exit_bar=exit_bar,
+            exit_price=exit_price,
+            pnl=net_pnl,
+            funding_cost=pos.cumulative_funding,
+            entry_fee=entry_fee,
+            exit_fee=exit_fee,
+            exit_reason=exit_reason,
+        )
+
+    # Override path (Q-DEC5 / AC29): scale-tagged identity on terminal close.
+    # Build ClosedTrade directly so we can set the new identity fields.
+    effective_id = position_id_override if position_id_override is not None else pos.position_id
+    # Safe because _close_position is always called on currently-open positions.
+    if pos in state.position_manager.open_positions:
+        state.position_manager.open_positions.remove(pos)
+    trade = ClosedTrade(
+        position_id=effective_id,
+        parent_position_id=pos.position_id,
+        exec_seq=pos.scale_count,
+        exec_type=exec_type,
+        is_terminal=True,
+        triggered_by=triggered_by,
+        has_scaling=(len(pos.scaling_events) >= 1),
+        scaling_events=list(pos.scaling_events),
+        token=pos.token,
+        strategy_id=pos.strategy_id,
+        leg=pos.leg,
+        entry_bar=pos.entry_bar,
         exit_bar=exit_bar,
+        entry_price=pos.entry_price,
         exit_price=exit_price,
+        direction=pos.direction,
+        margin_usd=pos.margin_usd,
         pnl=net_pnl,
         funding_cost=pos.cumulative_funding,
         entry_fee=entry_fee,
         exit_fee=exit_fee,
+        hold_bars=exit_bar - pos.entry_bar,
         exit_reason=exit_reason,
+        is_perp=pos.is_perp,
+        entry_timestamp=pos.entry_timestamp,
+        exit_timestamp="",
+        limit_price=pos.limit_price,
+        limit_placed_at=pos.limit_placed_at,
+        stop_limit_price=pos.stop_limit_price,
+        fill_source=pos.fill_source,
     )
+    state.position_manager.closed_trades.append(trade)
+    return trade
+
+
+def book_reduce(
+    state: SimulationState,
+    config: PortfolioConfig,
+    pos: Position,
+    qty_to_close: float,
+    fill_price: float,
+    bar_idx: int,
+    sig,
+    triggered_by: str = "",
+    is_stop_like: bool = False,
+) -> "ReduceResult":
+    """Wrapper around ``Position.reduce`` that books a partial ClosedTrade or
+    promotes to a terminal close (Q-DEC5 / AC29).
+
+    Non-terminal: appends a ``ClosedTrade(exec_type="reduce", is_terminal=False,
+    position_id=<parent>:scale_N)`` and updates the engine's entry-fee bookkeeping.
+    Terminal (dust-promoted): delegates to ``_close_position`` with identity
+    overrides so the closing trade carries ``position_id=<parent>:scale_N_final``
+    and ``parent_position_id=<parent>``.
+
+    Returns the underlying ``ReduceResult`` for caller introspection.
+    """
+    # Determine fee rate for this venue (perp vs spot).
+    market_kind = "perp" if pos.is_perp else "spot"
+    fee_rate = get_fee_rate(config.exchange, market_kind, "taker")
+
+    # ATR for ScalingEvent annotation (best-effort).
+    atr = 0.0
+    atr_arr = getattr(sig, "atr", None)
+    if atr_arr is not None and 0 <= bar_idx < len(atr_arr):
+        atr = float(atr_arr[bar_idx])
+        if np.isnan(atr):
+            atr = 0.0
+
+    # AC8 / AC28b: compute slippage_bps from fill notional and ADV.
+    # When ``is_stop_like`` is True, apply stress_adv_multiplier to widen slip.
+    reduce_qty_abs = min(abs(qty_to_close), abs(pos.quantity))
+    fill_notional_est = reduce_qty_abs * float(fill_price)
+    adv_val = 0.0
+    adv_arr = getattr(sig, "rolling_adv", None)
+    if adv_arr is not None and 0 <= bar_idx < len(adv_arr):
+        try:
+            adv_val = float(adv_arr[bar_idx])
+            if np.isnan(adv_val):
+                adv_val = 0.0
+        except (IndexError, TypeError):
+            adv_val = 0.0
+    effective_adv = adv_val
+    if is_stop_like and config.stress_adv_multiplier != 1.0:
+        # Convention matches ``_close_position``: multiplier scales ADV directly,
+        # so mult < 1 tightens liquidity (wider slippage) and mult > 1 eases it.
+        effective_adv = adv_val * config.stress_adv_multiplier
+    slip_bps_for_event = compute_slippage_bps(
+        fill_notional_est,
+        effective_adv,
+        config.base_spread_bps,
+        config.impact_coeff,
+        config.max_slip_bps,
+    )
+
+    full_entry_fee = state._entry_fees_by_pos.get(pos.position_id, 0.0)
+    dust_usd = max(
+        config.min_close_notional_usd,
+        config.dust_fraction_of_min_position * config.min_position_usd,
+    )
+
+    result = pos.reduce(
+        qty_to_close=qty_to_close,
+        fill_price=fill_price,
+        bar_idx=bar_idx,
+        fee_rate=fee_rate,
+        atr=atr,
+        full_entry_fee=full_entry_fee,
+        dust_usd=dust_usd,
+        triggered_by=triggered_by,
+        is_stop_like=is_stop_like,
+    )
+
+    # Populate slippage_bps on the just-appended ScalingEvent (AC8 / AC28b).
+    if pos.scaling_events:
+        pos.scaling_events[-1].slippage_bps = slip_bps_for_event
+
+    if result.is_terminal:
+        # Dust-promoted terminal reduce. Per AC14a (equity/attribution
+        # equivalence): the booked ClosedTrade must carry the already-computed
+        # residuals from ReduceResult — NOT be reconstructed from the now-zeroed
+        # Position. Build the ClosedTrade directly here (same shape as the
+        # non-terminal branch) with is_terminal=True and the dust exit_reason.
+        pos.scale_count += 1
+        try:
+            closed = ClosedTrade(
+                # Identity (AC29)
+                position_id=f"{pos.position_id}{result.suffix}",
+                parent_position_id=pos.position_id,
+                exec_seq=pos.scale_count,
+                exec_type="reduce",
+                is_terminal=True,
+                triggered_by=triggered_by,
+                has_scaling=True,
+                scaling_events=list(pos.scaling_events),
+                # Core trade fields (from ReduceResult, source-of-truth)
+                token=pos.token,
+                strategy_id=pos.strategy_id,
+                leg=pos.leg,
+                entry_bar=pos.entry_bar,
+                exit_bar=bar_idx,
+                entry_price=pos.entry_price,
+                exit_price=fill_price,
+                direction=pos.direction,
+                margin_usd=result.closed_margin,
+                pnl=result.gross_pnl - result.exit_fee - result.closed_funding,
+                funding_cost=result.closed_funding,
+                entry_fee=result.partial_entry_fee_to_book,
+                exit_fee=result.exit_fee,
+                hold_bars=bar_idx - pos.entry_bar,
+                exit_reason="dust_promoted_reduce",
+                is_perp=pos.is_perp,
+                entry_timestamp=pos.entry_timestamp,
+                exit_timestamp="",
+                limit_price=pos.limit_price,
+                limit_placed_at=pos.limit_placed_at,
+                stop_limit_price=pos.stop_limit_price,
+                fill_source=pos.fill_source,
+            )
+            state.position_manager.closed_trades.append(closed)
+            # Remove pos from open positions (terminal close).
+            if pos in state.position_manager.open_positions:
+                state.position_manager.open_positions.remove(pos)
+            state._entry_fees_by_pos.pop(pos.position_id, None)
+            state.total_fees += result.exit_fee
+            state.realized_pnl += closed.pnl
+            state.partial_fills += 1
+        except Exception:
+            pos.scale_count -= 1
+            raise
+        return result
+
+    # Non-terminal reduce: book a partial ClosedTrade directly.
+    pos.scale_count += 1
+    try:
+        closed = ClosedTrade(
+            position_id=f"{pos.position_id}{result.suffix}",
+            parent_position_id=pos.position_id,
+            exec_seq=pos.scale_count,
+            exec_type="reduce",
+            is_terminal=False,
+            triggered_by=triggered_by,
+            has_scaling=True,
+            scaling_events=list(pos.scaling_events),
+            token=pos.token,
+            strategy_id=pos.strategy_id,
+            leg=pos.leg,
+            entry_bar=pos.entry_bar,
+            exit_bar=bar_idx,
+            entry_price=pos.entry_price,
+            exit_price=fill_price,
+            direction=pos.direction,
+            margin_usd=result.closed_margin,
+            pnl=result.gross_pnl - result.exit_fee - result.closed_funding,
+            funding_cost=result.closed_funding,
+            entry_fee=result.partial_entry_fee_to_book,
+            exit_fee=result.exit_fee,
+            hold_bars=bar_idx - pos.entry_bar,
+            exit_reason="partial_reduce",
+            is_perp=pos.is_perp,
+            entry_timestamp=pos.entry_timestamp,
+            exit_timestamp="",
+            limit_price=pos.limit_price,
+            limit_placed_at=pos.limit_placed_at,
+            stop_limit_price=pos.stop_limit_price,
+            fill_source=pos.fill_source,
+        )
+        state.position_manager.closed_trades.append(closed)
+        state._entry_fees_by_pos[pos.position_id] = result.partial_entry_fee_remaining
+        state.total_fees += result.exit_fee
+        state.realized_pnl += closed.pnl
+        state.partial_fills += 1
+    except Exception:
+        pos.scale_count -= 1
+        raise
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# M2 — scale-dispatch helpers (AC6 / AC8 / AC10 / AC17 / AC24a / AC25 / AC26 /
+# AC28b / OQ-1). The public entry points are _dispatch_scale_action and
+# dispatch_scale_check.
+# ---------------------------------------------------------------------------
+
+def _bump_diag(state: SimulationState, strategy_id: str, token: str,
+               key: str, inc: int = 1) -> None:
+    """Increment a per-(strategy, token) counter on state.scaling_diagnostics."""
+    bucket = state.scaling_diagnostics.setdefault(
+        (strategy_id, token),
+        {
+            "increase_fills": 0,
+            "partial_fills": 0,
+            "contingent_fills": 0,
+            "entry_scale_downs": 0,
+            "scale_actions_dropped_after_terminal": 0,
+        },
+    )
+    bucket[key] = bucket.get(key, 0) + inc
+
+
+def _apply_portfolio_constraints_on_increase(
+    state: SimulationState,
+    pos: Position,
+    requested_qty: float,
+    close_val: float,
+    adv_val: float,
+    config: PortfolioConfig,
+) -> tuple[float, str]:
+    """AC10: return (actual_qty_allowed, reason).
+
+    Checks in order: ADV cap, concentration, margin, min_size.
+    ``reason`` is an empty string when no clamp fires. ``reason='adv'`` means
+    fully skipped (no event should be appended). Other reasons with
+    ``actual_qty == 0`` still warrant an event emission to record intent.
+    """
+    # ADV cap — fully SKIP when breached (see AC10 / test_adv_cap_skip_no_scaling_event)
+    if adv_val > 0.0 and config.adv_cap_pct > 0.0:
+        max_adv_notional = adv_val * config.adv_cap_pct
+        max_adv_qty = max_adv_notional / max(close_val, 1e-10)
+        if requested_qty * close_val > max_adv_notional + 1e-9:
+            return 0.0, "adv"
+
+    # Concentration — compare total margin after the increase against the cap
+    leverage = max(pos.leverage, 1.0)
+    additional_margin = (requested_qty * close_val) / leverage
+    if state.portfolio_equity > 0:
+        cap_margin = state.portfolio_equity * config.concentration_limit
+        existing_margin = state.position_manager.total_margin_for_token(pos.token)
+        if existing_margin + additional_margin > cap_margin - 1e-9:
+            allowed_margin = max(cap_margin - existing_margin, 0.0)
+            allowed_qty = (allowed_margin * leverage) / max(close_val, 1e-10)
+            if allowed_qty < requested_qty - 1e-9:
+                return max(allowed_qty, 0.0), "concentration"
+
+    # Margin availability
+    if additional_margin > state.free_capital + 1e-9:
+        allowed_margin = max(state.free_capital, 0.0)
+        allowed_qty = (allowed_margin * leverage) / max(close_val, 1e-10)
+        if allowed_qty < requested_qty - 1e-9:
+            return max(allowed_qty, 0.0), "margin"
+
+    # Min size
+    notional = requested_qty * close_val
+    if notional < config.min_position_usd:
+        return 0.0, "min_size"
+
+    return requested_qty, ""
+
+
+def _record_clamped_denial_event(
+    pos: Position,
+    bar_idx: int,
+    fill_price: float,
+    requested_qty_signed: float,
+    atr_val: float,
+) -> None:
+    """Append a ``qty_delta=0`` ScalingEvent capturing a clamped-to-zero intent.
+
+    Used when AC10 concentration/margin caps fully block an increase but the
+    strategy's requested intent still needs to be recorded for diagnostics
+    (AC13: requested_qty_delta != qty_delta).
+    """
+    pos.scaling_events.append(
+        ScalingEvent(
+            bar=bar_idx,
+            kind="increase",
+            fill_price=fill_price,
+            qty_delta=0.0,
+            requested_qty_delta=requested_qty_signed,
+            margin_delta=0.0,
+            fill_notional=0.0,
+            entry_fee_delta=0.0,
+            exit_fee=0.0,
+            slippage_bps=0.0,
+            atr_at_event=atr_val,
+            is_stop_like=False,
+        )
+    )
+
+
+def _dispatch_single_scale_action(
+    state: SimulationState,
+    pos: Position,
+    action: ScaleAction,
+    bar_ctx: BarContext,
+    sig: TokenSignals,
+    config: PortfolioConfig,
+) -> bool:
+    """Execute ONE ScaleAction. Returns True when the action terminal-closed
+    the position so the caller halts the remaining list (AC24a)."""
+    if abs(action.qty_delta) < EPS_QTY:
+        return False  # OQ-1 short-circuit
+
+    bar_idx = bar_ctx.local_bar
+    close_val = float(bar_ctx.close)
+    atr_val = float(bar_ctx.atr)
+    adv_val = 0.0
+    if hasattr(sig, "rolling_adv") and sig.rolling_adv is not None:
+        try:
+            adv_val = float(sig.rolling_adv[bar_idx])
+            if np.isnan(adv_val):
+                adv_val = 0.0
+        except (IndexError, TypeError):
+            adv_val = 0.0
+
+    market_kind = "perp" if pos.is_perp else "spot"
+    fee_rate = get_fee_rate(config.exchange, market_kind, "taker")
+
+    if action.qty_delta > 0:
+        # --- INCREASE ---------------------------------------------------
+        requested_qty = float(action.qty_delta)
+        actual_qty, reason = _apply_portfolio_constraints_on_increase(
+            state, pos, requested_qty, close_val, adv_val, config,
+        )
+
+        if reason == "adv":
+            # Fully SKIP — no event, no counter (silent under AC10).
+            return False
+
+        if actual_qty < requested_qty - 1e-9:
+            # A clamp fired (concentration / margin / min_size).
+            state.rejections.entry_scale_downs += 1
+            state.rejections.entry_scale_downs_by_reason[reason] = (
+                state.rejections.entry_scale_downs_by_reason.get(reason, 0) + 1
+            )
+            _bump_diag(state, pos.strategy_id, pos.token, "entry_scale_downs")
+
+        if actual_qty < EPS_QTY:
+            # Fully blocked by concentration/margin/min_size. Record the
+            # requested intent so downstream diagnostics can observe it.
+            _record_clamped_denial_event(
+                pos,
+                bar_idx=bar_idx,
+                fill_price=close_val,
+                requested_qty_signed=pos.direction * requested_qty,
+                atr_val=atr_val,
+            )
+            # Apply stop_override even on a denied increase (AC2 / T-B3 spirit).
+            if action.stop_override is not None:
+                pos.stop_price = float(action.stop_override)
+            return False
+
+        # Slippage on this fill (AC8) — adverse to the trader.
+        fill_notional = actual_qty * close_val
+        slip_bps = compute_slippage_bps(
+            fill_notional,
+            adv_val,
+            config.base_spread_bps,
+            config.impact_coeff,
+            config.max_slip_bps,
+        )
+        slip = close_val * slip_bps / 10000.0
+        adj_fill_price = close_val + slip if pos.direction == 1 else close_val - slip
+        margin_delta = (actual_qty * adj_fill_price) / max(pos.leverage, 1.0)
+
+        pos.increase(
+            qty_to_add=actual_qty,
+            fill_price=adj_fill_price,
+            margin_delta=margin_delta,
+            bar_idx=bar_idx,
+            stop_override=action.stop_override,
+            fee_rate=fee_rate,
+            atr=atr_val,
+            freeze_initial_risk=True,
+        )
+
+        # Update last ScalingEvent with requested + slip_bps + is_stop_like (AC13)
+        if pos.scaling_events:
+            evt = pos.scaling_events[-1]
+            evt.requested_qty_delta = pos.direction * requested_qty
+            evt.slippage_bps = slip_bps
+            evt.is_stop_like = bool(action.is_stop_like)
+
+        # Engine-level accounting: entry fee moves margin-equation (AC10 re-eval
+        # across a list must see the drop in free_capital).
+        entry_fee_delta = actual_qty * adj_fill_price * fee_rate
+        state.total_fees += entry_fee_delta
+        state._entry_fees_by_pos[pos.position_id] = (
+            state._entry_fees_by_pos.get(pos.position_id, 0.0) + entry_fee_delta
+        )
+
+        state.increase_fills += 1
+        _bump_diag(state, pos.strategy_id, pos.token, "increase_fills")
+        return False
+
+    # --- REDUCE ---------------------------------------------------------
+    requested_abs = abs(float(action.qty_delta))
+    qty_abs = min(requested_abs, abs(pos.quantity))  # AC17 over-close clamp
+
+    fill_notional = qty_abs * close_val
+    effective_adv = adv_val
+    if action.is_stop_like and config.stress_adv_multiplier != 1.0:
+        # AC28b: convention matches ``_close_position`` — multiplier scales ADV
+        # directly (mult < 1 => tighter liquidity => wider slippage).
+        effective_adv = adv_val * config.stress_adv_multiplier
+    slip_bps = compute_slippage_bps(
+        fill_notional,
+        effective_adv,
+        config.base_spread_bps,
+        config.impact_coeff,
+        config.max_slip_bps,
+    )
+    slip = close_val * slip_bps / 10000.0
+    adj_fill_price = close_val - slip if pos.direction == 1 else close_val + slip
+
+    result = book_reduce(
+        state,
+        config,
+        pos,
+        qty_abs,
+        adj_fill_price,
+        bar_idx,
+        sig,
+        triggered_by=action.reason,
+        is_stop_like=bool(action.is_stop_like),
+    )
+
+    # Update last ScalingEvent with slippage + is_stop_like copy (AC13).
+    if pos.scaling_events:
+        ev = pos.scaling_events[-1]
+        ev.slippage_bps = slip_bps
+        ev.is_stop_like = bool(action.is_stop_like)
+
+    # Apply stop_override (used on reduce to re-arm a tighter stop — T-B3).
+    if action.stop_override is not None and not result.is_terminal:
+        pos.stop_price = float(action.stop_override)
+
+    # AC26 diagnostic counter.
+    if not result.is_terminal:
+        _bump_diag(state, pos.strategy_id, pos.token, "partial_fills")
+
+    return bool(result.is_terminal)
+
+
+def _dispatch_scale_action(
+    state: SimulationState,
+    pos: Position,
+    action,
+    bar_ctx: BarContext,
+    sig: TokenSignals,
+    config: PortfolioConfig,
+) -> bool:
+    """Execute a single ScaleAction or an ordered list[ScaleAction].
+
+    AC18 C2: sets ``pos._scale_action_bar = bar_ctx.local_bar`` BEFORE executing
+    so repeated sub-hourly invocations on the same hourly bar are gated by the
+    caller (see ``dispatch_scale_check``).
+
+    AC24a: list actions run in order; first terminal result halts the remainder
+    and increments ``scale_actions_dropped_after_terminal`` (both on state and
+    on the (strategy, token) diagnostic bucket).
+
+    Returns ``True`` when any action caused terminal close.
+    """
+    # Normalize to list
+    if isinstance(action, ScaleAction):
+        actions = [action]
+    else:
+        actions = list(action)
+
+    if not actions:
+        return False
+
+    # AC18 C2: only fire once per hourly bar (per position). Repeat sub-hourly
+    # invocations on the same hourly bar are no-ops.
+    if bar_ctx.local_bar <= pos._scale_action_bar:
+        return False
+
+    # AC18 C2: mark bar BEFORE execution so re-entry on same hourly bar is a no-op.
+    pos._scale_action_bar = bar_ctx.local_bar
+
+    any_terminal = False
+    for idx, act in enumerate(actions):
+        terminal = _dispatch_single_scale_action(state, pos, act, bar_ctx, sig, config)
+        if terminal:
+            any_terminal = True
+            dropped = len(actions) - idx - 1
+            if dropped > 0:
+                state.scale_actions_dropped_after_terminal += dropped
+                _bump_diag(
+                    state,
+                    pos.strategy_id,
+                    pos.token,
+                    "scale_actions_dropped_after_terminal",
+                    inc=dropped,
+                )
+                logger.warning(
+                    "Scale action terminal on %s bar=%d; dropped %d remaining actions",
+                    pos.position_id,
+                    bar_ctx.local_bar,
+                    dropped,
+                )
+            break
+        # If position fell out of open_positions via some other path, bail too.
+        if pos not in state.position_manager.open_positions:
+            break
+
+    return any_terminal
+
+
+def dispatch_scale_check(
+    state: SimulationState,
+    pos: Position,
+    scale_fn,
+    bar_ctx: BarContext,
+    sig: TokenSignals,
+    config: PortfolioConfig,
+) -> bool:
+    """AC25: invoke a strategy ``scale_check_fn`` with strict/non-strict
+    error handling.
+
+    Returns True when the invocation led to a terminal close.
+    In strict mode (``config.strict_scale_errors`` True, the backtest default),
+    exceptions from the callback are re-raised. In non-strict mode (paper-like),
+    they are logged at WARNING level and swallowed.
+    """
+    if scale_fn is None:
+        return False
+    try:
+        result = scale_fn(pos, bar_ctx)
+    except Exception as e:
+        if config.strict_scale_errors:
+            raise
+        logger.warning(
+            "scale_check_fn error on %s: %s: %s",
+            pos.position_id,
+            type(e).__name__,
+            e,
+        )
+        return False
+    if result is None:
+        return False
+    return _dispatch_scale_action(state, pos, result, bar_ctx, sig, config)
 
 
 def _get_bar_data(sig: TokenSignals, local_bar: int, is_primary: bool = True, use_perp: bool | None = None):
@@ -402,8 +1024,20 @@ def _process_exits(
             ret_1h=ret_1h_val,
         )
 
-        # Run handler chain: update_state -> partial TP -> check_exit
-        exit_result = run_exit_handlers(pos, bar_ctx, global_bar, adv_val)
+        # Phase 1: update_state (breakeven, trailing) mutates pos.stop_price etc.
+        run_update_state_phase(pos, bar_ctx)
+
+        # Phase 2 (M2 / AC18): scale_check_fn — exactly once per hourly bar.
+        spec = strategy_specs.get(pos.strategy_id) if strategy_specs else None
+        scale_fn = getattr(spec, "scale_check_fn", None) if spec is not None else None
+        if scale_fn is not None and bar_ctx.local_bar > pos._scale_action_bar:
+            terminal = dispatch_scale_check(state, pos, scale_fn, bar_ctx, sig, config)
+            if terminal or pos not in state.position_manager.open_positions:
+                # Position was terminal-closed during scaling — skip Phase 3.
+                continue
+
+        # Phase 3: check_exit — sees stop_price mutations from Phase 1/2.
+        exit_result = run_check_exit_phase(pos, bar_ctx)
 
         exit_signal = exit_result.should_exit
         exit_reason = exit_result.reason

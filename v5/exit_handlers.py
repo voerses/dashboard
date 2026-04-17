@@ -455,24 +455,27 @@ def build_exit_chain(
     return handlers
 
 
+def run_update_state_phase(pos: Position, bar: BarContext) -> None:
+    """Run Phase 1 (handler.update_state) on all handlers."""
+    for h in pos.exit_handlers:
+        h.update_state(pos, bar)
+
+
+def run_check_exit_phase(pos: Position, bar: BarContext) -> ExitCheck:
+    """Run Phase 3 (handler.check_exit) on all handlers; first should_exit wins."""
+    for h in pos.exit_handlers:
+        result = h.check_exit(pos, bar)
+        if result.should_exit:
+            return result
+    return _NO_EXIT
+
+
 def run_exit_handlers(
     pos: Position,
     bar: BarContext,
     global_bar: int,
     adv_val: float,
 ) -> ExitCheck:
-    """Run all handlers: update_state, partial TP, then check_exit until first match.
-
-    Returns the first ExitCheck with should_exit=True, or _NO_EXIT.
-    """
-    # Phase 1: update state on all handlers
-    for handler in pos.exit_handlers:
-        handler.update_state(pos, bar)
-
-    # Phase 2: check exit conditions (first match wins)
-    for handler in pos.exit_handlers:
-        result = handler.check_exit(pos, bar)
-        if result.should_exit:
-            return result
-
-    return _NO_EXIT
+    """Back-compat wrapper: runs Phase 1 then Phase 3 (no scale hook)."""
+    run_update_state_phase(pos, bar)
+    return run_check_exit_phase(pos, bar)

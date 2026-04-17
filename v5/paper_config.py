@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from typing import List
 
 from v5.config import PortfolioConfig, StrategySpec, SizingDefaults, resolve_sizing
+from v5.strategy_api import LinkedScalePolicy
 
 
 @dataclass
@@ -40,6 +41,14 @@ class PaperConfig(PortfolioConfig):
     bar_resolution: int = 0                       # 0=hourly only, 1/5/15/30=sub-hourly WebSocket candles
     dedicated_ws: bool = False                       # True = own WebSocket, skip shared monitor
     cache_max_rows: int = 5000                         # paper trader memory limit (overrides PortfolioConfig default of 0)
+    # M2 (AC36): LinkedScalePolicy — INDEPENDENT is the only supported mode in M2.
+    # PROPORTIONAL / ABSOLUTE are stubs that raise NotImplementedError at reduce
+    # time; see `paper_engine.propagate_linked_reduce`.
+    linked_scale_policy: LinkedScalePolicy = LinkedScalePolicy.INDEPENDENT
+    # Q2: paper default is log-and-continue (False), overriding PortfolioConfig
+    # which defaults True (backtest re-raises). Paper trading prefers resilience
+    # over halting on a strategy-callback bug.
+    strict_scale_errors: bool = False
 
 
 def load_paper_config(path: str) -> PaperConfig:

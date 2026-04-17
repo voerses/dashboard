@@ -67,6 +67,93 @@ def _current_4h_window_end() -> float:
     return calendar.timegm((t.tm_year, t.tm_mon, t.tm_mday, next_4h, 0, 0, 0, 0, 0))
 
 
+# ------------------------------------------------------------------
+# M2 — LinkedScalePolicy helpers (AC36)
+# ------------------------------------------------------------------
+# Module-level, process-wide dedup cache for INDEPENDENT-policy reduce warnings.
+# Keyed by (strategy_id, token); each pair emits at most one WARNING per process.
+_linked_reduce_warned: set[tuple[str, str]] = set()
+
+
+def validate_linked_scale_policy(config) -> None:
+    """AC36 / Q-DEC2: reject PROPORTIONAL / ABSOLUTE at paper startup.
+
+    INDEPENDENT is the only supported mode in M2. Called by
+    PaperPortfolioEngine.__init__ and available standalone for explicit
+    validation prior to engine construction.
+    """
+    from v5.strategy_api import LinkedScalePolicy
+    policy = getattr(config, "linked_scale_policy", LinkedScalePolicy.INDEPENDENT)
+    if policy != LinkedScalePolicy.INDEPENDENT:
+        raise NotImplementedError(
+            f"LinkedScalePolicy.{policy.name} not yet implemented in paper engine "
+            f"(M2 INDEPENDENT only)"
+        )
+
+
+def warn_linked_reduce_once(strategy_id: str, token: str) -> None:
+    """AC36: one-shot WARNING per (strategy_id, token) for INDEPENDENT
+    linked-position reduces. The secondary leg is NOT auto-propagated under
+    INDEPENDENT — this warning alerts the operator that the primary leg was
+    reduced while the secondary remains at full size.
+    """
+    import logging
+    key = (strategy_id, token)
+    if key in _linked_reduce_warned:
+        return
+    _linked_reduce_warned.add(key)
+    logging.getLogger(__name__).warning(
+        "LinkedScalePolicy.INDEPENDENT: secondary leg not auto-propagated "
+        "for (strategy=%s, token=%s)", strategy_id, token,
+    )
+
+
+def propagate_linked_reduce(
+    policy,
+    primary_token: str,
+    primary_reduced_fraction: float,
+    secondary_position,
+    strategy_id: str,
+):
+    """AC36 (T-L2 / T-L3): propagate a primary-leg partial reduce to the
+    linked secondary leg.
+
+    In M2, INDEPENDENT is a no-op (emits one-shot warning via the caller);
+    PROPORTIONAL and ABSOLUTE raise NotImplementedError at reduce time.
+    Full closes (is_terminal=True) bypass this path and are handled by the
+    existing v4 linked-exit mechanism — see `should_propagate_on_terminal`.
+    """
+    from v5.strategy_api import LinkedScalePolicy
+    if policy == LinkedScalePolicy.INDEPENDENT:
+        # INDEPENDENT: warn is emitted at the call site; no propagation here.
+        return None
+    if policy == LinkedScalePolicy.PROPORTIONAL:
+        raise NotImplementedError(
+            "LinkedScalePolicy.PROPORTIONAL partial-reduce propagation is not "
+            "implemented in M2 (INDEPENDENT only)"
+        )
+    if policy == LinkedScalePolicy.ABSOLUTE:
+        raise NotImplementedError(
+            "LinkedScalePolicy.ABSOLUTE partial-reduce propagation is not "
+            "implemented in M2 (INDEPENDENT only)"
+        )
+    raise ValueError(f"Unknown LinkedScalePolicy: {policy!r}")
+
+
+def should_propagate_on_terminal(policy, is_terminal: bool) -> bool:
+    """AC36 (T-L5): a FULL close (is_terminal=True) always propagates to the
+    linked leg via the existing v4 linked-exit path, regardless of policy.
+    Only partial (non-terminal) reduces are policy-gated — under INDEPENDENT
+    partial reduces orphan the secondary leg and do NOT propagate.
+    """
+    if is_terminal:
+        return True
+    # Partial reduce: INDEPENDENT does not propagate (orphans secondary).
+    # PROPORTIONAL / ABSOLUTE would propagate, but they raise in M2 at
+    # propagate_linked_reduce, so this path is not exercised.
+    return False
+
+
 @dataclass
 class TickResult:
     """Result of processing a single tick."""
@@ -94,6 +181,8 @@ class PaperPortfolioEngine:
     BACKOFF = [30, 60, 120]  # Retry backoff delays in seconds (AC10d)
 
     def __init__(self, config: PaperConfig, *, price_monitor=None):
+        # M2 / AC36: reject unsupported LinkedScalePolicy at startup.
+        validate_linked_scale_policy(config)
         self.config = config
         self.tick_counter: int = 0
         self._last_known_prices: dict[str, float] = {}
@@ -217,7 +306,7 @@ class PaperPortfolioEngine:
         from datetime import datetime, timezone
         logger = logging.getLogger(__name__)
 
-        from v5.minute_exits import check_candle_exits
+        from v5.minute_exits import check_candle_exits, run_scale_on_candle
         from v5.universe import get_maint_margin_rate
 
         closed_count = 0
@@ -285,6 +374,51 @@ class PaperPortfolioEngine:
                 regime = bar_data.get("regime", 0)
                 if bear_target > 0.0 and regime == 4:
                     eff_target = bear_target
+
+                # --- M2 / AC18 / AC36: sub-hourly scale_check_fn invocation ---
+                # Invoke strategy scale_check_fn (if any) BEFORE exit checks so
+                # scale-outs get priority over trail/stop/target. Uses the
+                # current hourly tick as hourly_bar_idx — run_scale_on_candle
+                # gates further invocations via pos._scale_action_bar.
+                if spec is not None and getattr(spec, "scale_check_fn", None) is not None:
+                    cur_adv = bar_data.get("adv", 0.0)
+                    sig_ref = bar_data.get("sig", None)
+                    # Snapshot pre-state to detect a partial reduce on a linked
+                    # position (AC36 INDEPENDENT warning path).
+                    pre_qty = pos.quantity
+                    pre_linked_id = pos.linked_position_id
+                    try:
+                        run_scale_on_candle(
+                            st, self.config, pos, spec,
+                            candle_high=h, candle_low=l, candle_close=c,
+                            hourly_bar_idx=self.tick_counter,
+                            adv_val=cur_adv, atr_val=cur_atr, regime_val=regime,
+                            sig=sig_ref,
+                        )
+                    except Exception as e:
+                        # strict_scale_errors=False (paper default) is handled
+                        # inside run_scale_on_candle; this outer guard protects
+                        # against unexpected errors in the dispatcher itself.
+                        if getattr(self.config, "strict_scale_errors", False):
+                            raise
+                        logger.warning(
+                            "run_scale_on_candle error on %s/%s: %s",
+                            pos.strategy_id, pos.token, e,
+                        )
+
+                    # AC36: if a linked position was partially reduced under
+                    # INDEPENDENT policy, emit a one-shot warning.
+                    from v5.strategy_api import LinkedScalePolicy as _LSP
+                    if (pre_linked_id is not None
+                            and pos in st.position_manager.open_positions
+                            and abs(pos.quantity) < abs(pre_qty) - 1e-12
+                            and self.config.linked_scale_policy == _LSP.INDEPENDENT):
+                        warn_linked_reduce_once(pos.strategy_id, pos.token)
+
+                    # If scale action terminal-closed the position, skip the
+                    # candle exit check (the position is no longer open).
+                    if pos not in st.position_manager.open_positions:
+                        continue
 
                 reason, price = check_candle_exits(
                     pos, h, l, c, cur_atr, bars_held,
@@ -890,6 +1024,10 @@ class PaperPortfolioEngine:
                     "regime": int(sig.regime[local_bar]) if sig.regime is not None and local_bar < len(sig.regime) else 0,
                     "bear_target_mult": sig.bear_target_mult if hasattr(sig, 'bear_target_mult') else 0.0,
                     "bear_max_hold": sig.bear_max_hold if hasattr(sig, 'bear_max_hold') else 0,
+                    # M2 (AC18 / Task 11): cache sig reference for scale_check_fn
+                    # invocation at sub-hourly ticks. _dispatch_scale_action uses
+                    # sig for ScalingEvent fields and per-token bookkeeping.
+                    "sig": sig,
                 }
 
     def _update_ws_subscriptions(self) -> None:
