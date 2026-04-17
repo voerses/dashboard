@@ -127,3 +127,6 @@ dist/
 data/*.txt
 data/repos-config.yaml
 repos/
+
+# Alternative data (5min binance metrics, etc.)
+data/alternative/
