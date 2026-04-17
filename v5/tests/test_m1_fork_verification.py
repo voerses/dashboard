@@ -164,11 +164,11 @@ def _assert_file_exists(relpath: str) -> Path:
 
 
 # ===================================================================
-# AC1: v5/ directory exists with 42 .py files (41 engine + __init__)
+# AC1: v5/ directory exists with 41 .py files (40 engine + __init__)
 # ===================================================================
 
 class TestAC01DirectoryExists:
-    """AC1: v5/ directory exists with all 41 engine .py files + __init__.py."""
+    """AC1: v5/ directory exists with all 40 engine .py files + __init__.py = 41 total."""
 
     def test_ac01_v5_directory_with_engine_files(self):
         """v5/ directory must exist and contain engine .py files (not just tests/)."""
@@ -179,10 +179,15 @@ class TestAC01DirectoryExists:
         )
 
     def test_ac01_v5_file_count(self):
-        """v5/ must contain exactly 42 .py files (41 engine + __init__.py)."""
+        """v5/ must contain exactly 41 .py files (40 engine + __init__.py).
+
+        Arithmetic: v4/ has 46 top-level .py files; SKIP list removes 5
+        (run_sentinel, sentinel_metrics, breach_detector, stop_store,
+        paper_shadow), leaving 41 files to copy -- including __init__.py.
+        """
         py_files = list(V5_DIR.glob("*.py"))
-        assert len(py_files) == 42, (
-            f"Expected 42 .py files in v5/, found {len(py_files)}: "
+        assert len(py_files) == 41, (
+            f"Expected 41 .py files in v5/, found {len(py_files)}: "
             f"{sorted(f.name for f in py_files)}"
         )
 

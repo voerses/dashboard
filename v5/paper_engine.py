@@ -1,0 +1,3216 @@
+"""V5 Paper Trading — Core engine.
+
+PaperPortfolioEngine orchestrates live paper trading by delegating to
+v4's battle-tested _process_exits() and _process_entries() functions.
+
+Tick processing order (AC10b):
+  fetch_data → append_to_history → recompute_signals →
+  process_exits → compute_shadow_rebalance → process_entries →
+  record_equity → persist_state → generate_alerts
+"""
+from __future__ import annotations
+
+import concurrent.futures
+import dataclasses
+import math
+import os
+import resource
+import sys
+import threading
+from dataclasses import dataclass, field
+from typing import Optional
+
+import numpy as np
+
+import json
+import tempfile
+import time
+
+from v5.paper_config import PaperConfig
+from v5.config import PortfolioConfig, StrategySpec
+from v5.position import Position, ClosedTrade, PositionManager
+import v5.simulator as _sim
+from v5.simulator import SimulationState
+from v5.signals import precompute_strategy_signals, discover_tokens
+from v5.engine import Engine, _load_strategy_fn, _load_strategy_required_plugins, _load_strategy_required_indicator_groups
+from v5.sizing import get_slippage_model
+from v5.paper_state import (
+    serialize_state, atomic_write_state, append_trades, append_equity,
+    _closed_trade_to_dict,
+)
+
+from v5.universe import get_fee_rate
+
+
+def _parse_ts(s: str) -> float:
+    """Parse ISO-UTC timestamp to epoch seconds, returning 0 on failure."""
+    import calendar
+    try:
+        return calendar.timegm(time.strptime(s, "%Y-%m-%dT%H:%M:%SZ"))
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def _current_4h_window_end() -> float:
+    """Return epoch seconds of the end of the current 4H window (UTC).
+
+    4H windows align to Binance candle boundaries: 0, 4, 8, 12, 16, 20 UTC.
+    """
+    import calendar
+    t = time.gmtime()
+    next_4h = (t.tm_hour // 4 + 1) * 4
+    if next_4h >= 24:
+        # Rolls to next day at midnight
+        import datetime
+        d = datetime.date(t.tm_year, t.tm_mon, t.tm_mday) + datetime.timedelta(days=1)
+        return calendar.timegm(d.timetuple())
+    return calendar.timegm((t.tm_year, t.tm_mon, t.tm_mday, next_4h, 0, 0, 0, 0, 0))
+
+
+@dataclass
+class TickResult:
+    """Result of processing a single tick."""
+    tick_counter: int = 0
+    timestamp: str = ""
+    entries: int = 0
+    exits: int = 0
+    open_positions: int = 0
+    portfolio_equity: float = 0.0
+    mark_to_market_equity: float = 0.0
+    error: Optional[str] = None
+    alerts: list = field(default_factory=list)
+    skipped: bool = False
+    peak_rss_mb: float = 0.0
+    processing_time_s: float = 0.0
+
+
+class PaperPortfolioEngine:
+    """Live paper trading engine using v4 simulation logic.
+
+    Pool mode: shared SimulationState, strategies size off portfolio_equity * weight.
+    Independent mode: separate SimulationState per strategy.
+    """
+
+    BACKOFF = [30, 60, 120]  # Retry backoff delays in seconds (AC10d)
+
+    def __init__(self, config: PaperConfig, *, price_monitor=None):
+        self.config = config
+        self.tick_counter: int = 0
+        self._last_known_prices: dict[str, float] = {}
+        self._last_known_regimes: dict[str, int] = {}
+        self._alerts: list = []
+        self._consecutive_failures: int = 0
+        self.fetcher = None  # Set by live integration (Task 7)
+        self._dynamic_allocator = None  # Initialized lazily on first tick
+
+        # Integrated sub-hourly bars via WebSocket
+        # Effective resolution = finest non-zero bar_resolution across all strategies.
+        # Falls back to portfolio-level config.bar_resolution for backward compat.
+        self._candle_aggregator = None
+        self._price_monitor = None
+        self._owns_price_monitor = False
+        strategy_resolutions = [s.bar_resolution for s in config.strategies if s.bar_resolution > 0]
+        effective_resolution = min(strategy_resolutions) if strategy_resolutions else getattr(config, 'bar_resolution', 0)
+        self._effective_bar_resolution = effective_resolution
+        # Build a lookup: strategy_id -> its bar_resolution (0 = hourly only)
+        self._strategy_bar_resolution: dict[str, int] = {
+            s.strategy_id: s.bar_resolution for s in config.strategies
+        }
+        # Store shared PriceMonitor if provided (needed for dashboard live prices
+        # even when sub-hourly exits are disabled, i.e. ws_resolution=0)
+        if price_monitor is not None:
+            self._price_monitor = price_monitor
+            self._owns_price_monitor = False
+        # WS infra: create CandleAggregator using finest resolution
+        ws_resolution = effective_resolution if effective_resolution > 0 else 0
+        if ws_resolution > 0:
+            from v5.candle_aggregator import CandleAggregator
+            # Always create own CandleAggregator (resolution is per-engine)
+            self._candle_aggregator = CandleAggregator(ws_resolution)
+            if self._price_monitor is None:
+                # Create own PriceMonitor (backward compat / dedicated mode)
+                from v5.price_monitor import PriceMonitor
+                # Derive venue from strategy market types
+                markets = {s.market for s in config.strategies}
+                if "spot" in markets and "perp" not in markets and "combined" not in markets:
+                    venue = "spot"
+                else:
+                    venue = "perp"
+                self._price_monitor = PriceMonitor(
+                    callback=self._candle_aggregator.on_price,
+                    venue=venue,
+                )
+                self._owns_price_monitor = True
+        # Cache for sub-hourly exit checks (populated after each hourly tick)
+        # Keyed by (strategy_id, token) so each strategy gets its own ATR values
+        self._cached_bar_data: dict[tuple[str, str], dict] = {}
+        # Historical parquet cache — populated on first tick, reused on subsequent
+        # ticks. Historical parquets are immutable between cache rebuilds.
+        # Live buffer is always re-read fresh from disk.
+        self._hist_cache: dict[tuple[str, str], "pd.DataFrame"] = {}
+
+        # Armed order tracking (sub-hourly entry observability)
+        # _armed_tokens holds pending limit orders keyed by (strategy_id, token)
+        self._armed_tokens: dict[tuple[str, str], dict] = {}
+        self._armed_tokens_lock = threading.Lock()
+        self._last_armed_skip_reasons: dict[tuple[str, str], str] = {}
+        self._last_expired_orders: list[dict] = []
+        self._armed_log_lock = threading.Lock()
+        self._armed_log_path = os.path.join(config.state_dir, "armed_log.jsonl")
+
+        # Track filled 4H windows to prevent re-entry after stop-out.
+        # Matches backtest's _first_cross_only: one entry per 4H window per token.
+        # Keys are (strategy_id, token, window_end_epoch).
+        self._filled_4h_windows: set[tuple[str, str, float]] = set()
+
+        # Background tick executor (AC28)
+        self._bg_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="tick-bg")
+        self._bg_future: concurrent.futures.Future | None = None
+
+        if config.mode == "independent":
+            self._init_independent_mode()
+            self.state = None  # Not used in independent mode (use strategy_states)
+        else:
+            self.state = SimulationState(initial_capital=config.capital)
+            # Pre-resolve slippage models per strategy (cached on state for exit paths)
+            for spec in config.strategies:
+                self.state._slippage_models[spec.strategy_id] = get_slippage_model(spec.slippage_model)
+            self.strategy_states = {}
+
+    def cleanup(self) -> None:
+        """Release resources. Disconnects PriceMonitor only if this engine owns it."""
+        if self._price_monitor is not None and self._owns_price_monitor:
+            try:
+                self._price_monitor.disconnect()
+            except Exception:
+                pass
+        if self._bg_executor is not None:
+            self._bg_executor.shutdown(wait=False)
+
+    def _init_independent_mode(self) -> None:
+        """Initialize separate SimulationState for each strategy (AC6b)."""
+        self.strategy_states: dict[str, SimulationState] = {}
+        for spec in self.config.strategies:
+            capital = self.config.capital * spec.weight
+            sstate = SimulationState(initial_capital=capital)
+            sstate._slippage_models[spec.strategy_id] = get_slippage_model(spec.slippage_model)
+            self.strategy_states[spec.strategy_id] = sstate
+
+    # ------------------------------------------------------------------
+    # Integrated sub-hourly exits
+    # ------------------------------------------------------------------
+
+    def process_sub_hourly_exits(
+        self, candles: dict[str, tuple[float, float, float]],
+    ) -> int:
+        """Process all exits from completed sub-hourly candles.
+
+        Returns number of positions closed.
+        Handles liquidation, trail/stop/target exits, and real-time max_hold.
+        For strategies with bar_resolution > 0, this is the sole exit path
+        (hourly _process_exits is skipped).
+        """
+        if not candles or getattr(self, '_effective_bar_resolution', 0) == 0:
+            return 0
+
+        import logging
+        from datetime import datetime, timezone
+        logger = logging.getLogger(__name__)
+
+        from v5.minute_exits import check_candle_exits
+        from v5.universe import get_maint_margin_rate
+
+        closed_count = 0
+        positions_to_close: list[tuple] = []  # (state, pos, exit_price, exit_reason)
+        strategy_specs = {s.strategy_id: s for s in self.config.strategies}
+
+        for st in self._get_all_states():
+            for pos in list(st.position_manager.open_positions):
+                if pos.token not in candles:
+                    continue
+                # Skip positions whose strategy is hourly-only (bar_resolution=0)
+                if getattr(self, '_strategy_bar_resolution', {}).get(pos.strategy_id, 0) == 0:
+                    continue
+                # Skip if already queued for closure
+                if any(p is pos for _, p, _, _ in positions_to_close):
+                    continue
+
+                h, l, c = candles[pos.token]
+
+                # NaN/Inf guard (AC30)
+                if not (math.isfinite(h) and math.isfinite(l) and math.isfinite(c)):
+                    continue
+
+                # Get cached bar data from last hourly tick (per-strategy)
+                bar_data = self._cached_bar_data.get((pos.strategy_id, pos.token))
+                if bar_data is None:
+                    # No cached data yet (first tick hasn't run) — skip
+                    continue
+
+                cur_atr = bar_data.get("atr", 0.0)
+                if cur_atr <= 0:
+                    cur_atr = abs(pos.entry_price) * 0.02
+
+                bars_held = self.tick_counter - pos.entry_bar
+
+                # --- Liquidation check (before price-based exits) ---
+                # Mirrors simulator _process_exits lines 424-442.
+                # Note: cumulative_funding reflects 8h settlement intervals
+                # (not per-bar like the simulator), so unsettled funding
+                # between settlements makes this slightly less conservative.
+                if pos.is_perp and (pos.leverage > 1.0 or pos.quantity < 0.0):
+                    mmr = get_maint_margin_rate(self.config.exchange)
+                    if pos.quantity > 0.0:
+                        unrealized = pos.quantity * (l - pos.entry_price)
+                    else:
+                        unrealized = abs(pos.quantity) * (pos.entry_price - h)
+                    entry_notional = pos.margin_usd * pos.leverage
+                    maintenance_margin = entry_notional * mmr
+                    if pos.margin_usd + unrealized - pos.cumulative_funding < maintenance_margin:
+                        positions_to_close.append((st, pos, c, "liquidation"))
+                        if pos.linked_position_id:
+                            linked = st.position_manager.get_linked(pos.linked_position_id)
+                            if linked and not any(p is linked for _, p, _, _ in positions_to_close):
+                                lc = candles.get(linked.token, (c, c, c))[2]
+                                positions_to_close.append((st, linked, lc, "linked_exit"))
+                        continue
+
+                # Get circuit breaker params
+                spec = strategy_specs.get(pos.strategy_id)
+                cb_r = spec.circuit_breaker_r if spec else 0.0
+
+                # Effective target (use cached bear_target_mult if in bear regime)
+                eff_target = pos.target_mult
+                bear_target = bar_data.get("bear_target_mult", 0.0)
+                regime = bar_data.get("regime", 0)
+                if bear_target > 0.0 and regime == 4:
+                    eff_target = bear_target
+
+                reason, price = check_candle_exits(
+                    pos, h, l, c, cur_atr, bars_held,
+                    cb_r, eff_target, pos.initial_risk,
+                )
+
+                # --- Real-time max_hold check ---
+                # Uses wall-clock time so downtime still counts toward hold limit.
+                # Falls back to tick-based bars_held if entry_timestamp is missing.
+                if reason is None and pos.max_hold > 0:
+                    eff_max_hold = pos.max_hold
+                    bear_max_hold = bar_data.get("bear_max_hold", 0)
+                    if bear_max_hold > 0 and regime == 4:
+                        eff_max_hold = bear_max_hold
+                    if pos.entry_timestamp:
+                        try:
+                            entry_dt = datetime.strptime(
+                                pos.entry_timestamp, "%Y-%m-%dT%H:%M:%SZ"
+                            ).replace(tzinfo=timezone.utc)
+                            elapsed_hours = (
+                                datetime.now(timezone.utc) - entry_dt
+                            ).total_seconds() / 3600.0
+                            if elapsed_hours >= eff_max_hold:
+                                reason = "max_hold"
+                                price = c
+                        except (ValueError, TypeError):
+                            if bars_held >= eff_max_hold:
+                                reason = "max_hold"
+                                price = c
+                    elif bars_held >= eff_max_hold:
+                        reason = "max_hold"
+                        price = c
+
+                if reason is not None:
+                    positions_to_close.append((st, pos, price, reason))
+                    # Close linked position too
+                    if pos.linked_position_id:
+                        linked = st.position_manager.get_linked(pos.linked_position_id)
+                        if linked and not any(p is linked for _, p, _, _ in positions_to_close):
+                            # Compute proper exit price for linked leg
+                            linked_token = linked.token
+                            has_linked_candle = linked_token in candles
+                            if has_linked_candle:
+                                lh, ll, lc = candles[linked_token]
+                            else:
+                                # No candle for linked token — use primary close
+                                lh, ll, lc = c, c, c
+                            linked_bar_data = self._cached_bar_data.get(
+                                (linked.strategy_id, linked_token)
+                            )
+                            if linked_bar_data is not None and has_linked_candle:
+                                linked_atr = linked_bar_data.get("atr", 0.0)
+                                if linked_atr <= 0:
+                                    linked_atr = abs(linked.entry_price) * 0.02
+                                linked_bars_held = self.tick_counter - linked.entry_bar
+                                linked_spec = strategy_specs.get(linked.strategy_id)
+                                linked_cb_r = linked_spec.circuit_breaker_r if linked_spec else 0.0
+                                linked_eff_target = linked.target_mult
+                                linked_bear_target = linked_bar_data.get("bear_target_mult", 0.0)
+                                linked_regime = linked_bar_data.get("regime", 0)
+                                if linked_bear_target > 0.0 and linked_regime == 4:
+                                    linked_eff_target = linked_bear_target
+                                linked_reason, linked_price = check_candle_exits(
+                                    linked, lh, ll, lc, linked_atr,
+                                    linked_bars_held, linked_cb_r,
+                                    linked_eff_target, linked.initial_risk,
+                                )
+                                exit_price_linked = linked_price if linked_reason else lc
+                            else:
+                                exit_price_linked = lc
+                            positions_to_close.append((st, linked, exit_price_linked, "linked_exit"))
+
+        # Execute closures
+        from v5.sizing import compute_slippage_bps
+        from v5.universe import get_liquidation_fee_rate
+
+        timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        for st, pos, exit_price, reason in positions_to_close:
+            if pos not in st.position_manager.open_positions:
+                continue  # Already closed (e.g., linked leg)
+
+            pm = st.position_manager
+
+            # Slippage on ALL exits (including liquidation — paper trading
+            # uses real prices, not the backtest simplification of no-slip).
+            notional = abs(pos.quantity * exit_price)
+            bar_data = self._cached_bar_data.get((pos.strategy_id, pos.token))
+            exit_adv = bar_data.get("adv", 1e6) if bar_data else 1e6
+            effective_adv = exit_adv
+            if reason in ("stop", "margin_call", "liquidation"):
+                effective_adv = exit_adv * self.config.stress_adv_multiplier
+            _slip_model = st._slippage_models.get(pos.strategy_id)
+            if _slip_model is not None:
+                slip_bps = _slip_model.compute_slippage(notional, effective_adv, self.config.base_spread_bps, self.config.impact_coeff, self.config.max_slip_bps)
+            else:
+                slip_bps = compute_slippage_bps(notional, effective_adv, self.config.base_spread_bps, self.config.impact_coeff, self.config.max_slip_bps)
+            slip = exit_price * slip_bps / 10000.0
+            if pos.direction == 1:
+                exit_price -= slip  # Long exit: sell lower
+            else:
+                exit_price += slip  # Short exit: buy higher
+
+            entry_fee = st._entry_fees_by_pos.pop(pos.position_id, 0.0)
+
+            # PnL accounting — uses simulator's capped max_loss model for
+            # liquidation.  Note: exit_fee uses slipped price (paper realism)
+            # while simulator skips slippage for liquidation exits.
+            if reason == "liquidation":
+                # Exchange-style capped loss: you lose margin minus maintenance
+                # margin reserve, regardless of how far price gaps past liquidation.
+                mmr = get_maint_margin_rate(self.config.exchange)
+                entry_notional = pos.margin_usd * pos.leverage
+                max_loss = pos.margin_usd - entry_notional * mmr
+                liq_fee_rate = get_liquidation_fee_rate(self.config.exchange)
+                exit_fee = abs(pos.quantity * exit_price) * liq_fee_rate
+                # Funding already tracked in total_funding; add back so net
+                # effect is: equity -= (max_loss + exit_fee)
+                st.realized_pnl += -max_loss + pos.cumulative_funding
+                st.total_fees += exit_fee
+                net_pnl = -(max_loss + exit_fee) - pos.cumulative_funding
+            else:
+                # Normal exits: actual price-based PnL with slippage
+                if pos.direction == 1:
+                    raw_pnl = pos.quantity * (exit_price - pos.entry_price)
+                else:
+                    raw_pnl = abs(pos.quantity) * (pos.entry_price - exit_price)
+                exit_fee = abs(pos.quantity * exit_price) * pos.fee_rate
+                net_pnl = raw_pnl - exit_fee - pos.cumulative_funding
+                st.realized_pnl += raw_pnl
+                st.total_fees += exit_fee
+
+            closed_trade = pm.close_position(
+                pos=pos,
+                exit_bar=self.tick_counter,
+                exit_price=exit_price,
+                pnl=net_pnl,
+                funding_cost=pos.cumulative_funding,
+                entry_fee=entry_fee,
+                exit_fee=exit_fee,
+                exit_reason=reason,
+                exit_timestamp=timestamp,
+            )
+            # Carry window_end to trade record for crash-recovery re-entry prevention
+            window_end = getattr(pos, '_window_end', 0.0)
+            if window_end > 0:
+                closed_trade._window_end = window_end
+            closed_count += 1
+
+        # Always update last known prices from candle closes for fresh MTM
+        # AC30: skip NaN/Inf to prevent price corruption
+        for token, (_, _, c_price) in candles.items():
+            if math.isfinite(c_price):
+                self._last_known_prices[token] = c_price
+
+        # Persist state if any exits occurred
+        if closed_count > 0:
+            self._persist_sub_hourly_state(timestamp)
+            self._update_ws_subscriptions()
+            logger.info("Sub-hourly exits: %d positions closed", closed_count)
+
+        return closed_count
+
+    # ------------------------------------------------------------------
+    # Integrated sub-hourly entries (AC22, AC23, AC25, AC30)
+    # ------------------------------------------------------------------
+
+    def process_sub_hourly_entries(
+        self, candles: dict[str, tuple[float, float, float]],
+    ) -> int:
+        """Check if 1m candle crossed any armed entry levels. Enter at market.
+
+        For each armed token, checks if the 1m candle breached the BB armed
+        level. On cross, executes entry at the candle close price (market order)
+        with slippage applied.
+
+        Constraint checks match the backtest's _process_entries() for parity:
+        portfolio limit, strategy limit, max_positions_per_symbol,
+        concentration limit, and free capital with scale-down + funding buffer.
+
+        Returns number of entries executed.
+        """
+        if not candles or self._effective_bar_resolution == 0:
+            return 0
+        with self._armed_tokens_lock:
+            if not self._armed_tokens:
+                return 0
+            # Snapshot armed tokens under lock for iteration
+            armed_snapshot = list(self._armed_tokens.items())
+
+        import logging
+        logger = logging.getLogger(__name__)
+
+        from v5.sizing import compute_slippage_bps, get_sizing_model
+        from v5.config import resolve_sizing
+
+        entries = 0
+        to_remove: list[tuple[str, str]] = []
+        self._last_armed_skip_reasons.clear()
+        strategy_specs = {s.strategy_id: s for s in self.config.strategies}
+
+        for (sid, token), cand in armed_snapshot:
+            if token not in candles:
+                continue
+
+            high, low, close = candles[token]
+
+            # NaN/Inf guard (AC30)
+            if not (math.isfinite(high) and math.isfinite(low) and math.isfinite(close)):
+                continue
+
+            level = cand["level"]
+            direction = cand["direction"]
+
+            # Cross detection (AC22)
+            if direction == 1 and high < level:
+                continue  # Long: need high >= level
+            if direction == -1 and low > level:
+                continue  # Short: need low <= level
+
+            # Cross detected — execute entry
+            spec = strategy_specs.get(sid)
+            if spec is None:
+                continue
+
+            # Get the state to open position in
+            if self.config.mode == "independent":
+                state = self.strategy_states.get(sid)
+                if state is None:
+                    continue
+            else:
+                state = self.state
+
+            # Portfolio constraints
+            if state.position_manager.total_open() >= self.config.max_portfolio_positions:
+                self._last_armed_skip_reasons[(sid, token)] = "portfolio_limit"
+                continue
+            if state.position_manager.count_for_strategy(sid) >= spec.max_positions:
+                self._last_armed_skip_reasons[(sid, token)] = "strategy_limit"
+                continue
+            max_conc = spec.max_positions_per_symbol
+            if len(state.position_manager.find_open_for_token_strategy(token, sid)) >= max_conc:
+                self._last_armed_skip_reasons[(sid, token)] = "max_concurrent"
+                continue
+
+            # Compute sizing (matching backtest normal-mode path)
+            resolved = resolve_sizing(self.config.sizing_defaults, spec.sizing_overrides)
+            sizing_model = get_sizing_model(spec.sizing_model)
+            slippage_model = state._slippage_models.get(sid)
+
+            close_val = cand["close_val"]
+            atr_val = cand["atr_val"]
+            adv_val = cand["adv_val"]
+            lev_val = cand["leverage"]
+            is_perp = cand["is_perp"]
+
+            portfolio_eq = state.portfolio_equity
+            sizing_eq = max(portfolio_eq, 0.0)
+            if self.config.max_sizing_equity is not None:
+                sizing_eq = min(sizing_eq, self.config.max_sizing_equity)
+            strategy_equity = sizing_eq * spec.weight
+
+            pos_usd = sizing_model.compute_size(
+                strategy_equity=strategy_equity,
+                rolling_adv=adv_val,
+                edge=cand.get("edge", 0.0),
+                adv_cap_pct=self.config.adv_cap_pct,
+                edge_minimum=resolved.edge_minimum,
+                spot_max_equity_pct=resolved.spot_max_equity_pct,
+                leverage=lev_val,
+            )
+
+            if pos_usd <= 0 or pos_usd < self.config.min_position_usd:
+                self._last_armed_skip_reasons[(sid, token)] = "below_min_usd"
+                continue
+
+            # Leverage
+            margin_usd = pos_usd
+            if is_perp and lev_val > 1.0:
+                notional_usd = pos_usd * lev_val
+            else:
+                notional_usd = pos_usd
+
+            # ADV cap check
+            if adv_val > 0 and pos_usd > adv_val * self.config.adv_cap_pct:
+                self._last_armed_skip_reasons[(sid, token)] = "adv_cap"
+                continue
+
+            # Concentration limit (scale down or reject)
+            portfolio_eq = state.portfolio_equity
+            existing_margin = state.position_manager.total_margin_for_token(token)
+            max_for_token = self.config.concentration_limit * portfolio_eq - existing_margin
+            if margin_usd > max_for_token:
+                if max_for_token < self.config.min_position_usd:
+                    self._last_armed_skip_reasons[(sid, token)] = "concentration"
+                    continue
+                pos_usd = max_for_token
+                margin_usd = pos_usd
+                if is_perp and lev_val > 1.0:
+                    notional_usd = pos_usd * lev_val
+                else:
+                    notional_usd = pos_usd
+
+            # Fee
+            fee_rate = get_fee_rate(self.config.exchange, "perp" if is_perp else "spot", "taker")
+            entry_fee = notional_usd * fee_rate
+
+            # Free capital check (scale down with funding buffer, matching backtest)
+            if state.free_capital < margin_usd + entry_fee:
+                funding_buffer = max(state.portfolio_equity * self.config.sizing_defaults.funding_buffer_pct, 1.0)
+                usable = state.free_capital - funding_buffer
+                if usable <= 0:
+                    self._last_armed_skip_reasons[(sid, token)] = "capital"
+                    continue
+                if is_perp and lev_val > 1.0:
+                    affordable = usable / (1.0 + lev_val * fee_rate)
+                else:
+                    affordable = usable / (1.0 + fee_rate)
+                if affordable < self.config.min_position_usd:
+                    self._last_armed_skip_reasons[(sid, token)] = "capital"
+                    continue
+                pos_usd = affordable
+                margin_usd = pos_usd
+                if is_perp and lev_val > 1.0:
+                    notional_usd = pos_usd * lev_val
+                else:
+                    notional_usd = pos_usd
+                entry_fee = notional_usd * fee_rate
+
+            # Slippage: apply to the 1m cross close price
+            if slippage_model is not None:
+                slip_bps = slippage_model.compute_slippage(
+                    notional_usd, adv_val, self.config.base_spread_bps,
+                    self.config.impact_coeff, self.config.max_slip_bps,
+                )
+            else:
+                slip_bps = compute_slippage_bps(
+                    notional_usd, adv_val, self.config.base_spread_bps,
+                    self.config.impact_coeff, self.config.max_slip_bps,
+                )
+            slip = close * slip_bps / 10000.0
+            entry_price = close + slip * direction
+
+            if not math.isfinite(entry_price) or entry_price <= 0:
+                continue
+
+            # Quantity (signed like simulator)
+            quantity = notional_usd / max(entry_price, 1e-10) * direction
+
+            if abs(quantity) <= 0:
+                continue
+
+            # Position creation
+            stop_mult = cand["stop_mult"]
+            initial_risk = stop_mult * atr_val
+            if direction == 1:
+                stop_price = entry_price - initial_risk
+            else:
+                stop_price = entry_price + initial_risk
+
+            tick = cand["tick_counter"]
+            position_id = f"{token}:{sid}:{tick}:sub"
+
+            pos = Position(
+                position_id=position_id,
+                token=token,
+                strategy_id=sid,
+                leg="primary",
+                entry_bar=tick,
+                entry_price=entry_price,
+                direction=direction,
+                quantity=quantity,
+                margin_usd=margin_usd,
+                leverage=lev_val,
+                is_perp=is_perp,
+                fee_rate=fee_rate,
+                stop_mult=stop_mult,
+                trail_mult=cand.get("trail_mult", 999.0),
+                target_mult=cand.get("target_mult", 999.0),
+                no_stop_bars=cand.get("no_stop_bars", 0),
+                min_hold=cand.get("min_hold", 1),
+                max_hold=cand.get("max_hold", 4),
+                convex_exit=cand.get("convex_exit", False),
+                stop_price=stop_price,
+                highest=high,   # AC23: from 1m candle, not cached hourly
+                lowest=low,     # AC23: from 1m candle, not cached hourly
+                initial_risk=initial_risk,
+                limit_price=level,
+                limit_placed_at=cand.get("limit_placed_at", ""),
+                stop_limit_price=stop_price,
+                fill_source="sub_hourly",
+                # Exit handler parameters (backtest parity)
+                rsi_exit_level=cand.get("rsi_exit_level", 999.0),
+                convex_bar_thresholds=cand.get("convex_bar_thresholds", (48, 12)),
+                convex_multipliers=cand.get("convex_multipliers", (2.0, 1.5, 0.3)),
+                trail_schedule=cand.get("trail_schedule"),
+                time_trail_schedule=cand.get("time_trail_schedule"),
+                max_trail_mult_arr=cand.get("max_trail_mult_arr"),
+                funding_exit_threshold=cand.get("funding_exit_threshold", 0.0),
+                breakeven_atr=cand.get("breakeven_atr", 0.0),
+                chandelier_lookback=cand.get("chandelier_lookback", 0),
+            )
+            pos.entry_timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            # Stash window_end for trade record (4H re-entry prevention on recovery)
+            pos._window_end = cand.get("window_end", 0.0)
+
+            # Open position
+            state.position_manager.open_position(pos)
+            state.total_fees += entry_fee
+            # Store entry fee for retrieval on close (matching simulator pattern)
+            state._entry_fees_by_pos[position_id] = entry_fee
+
+            # Build exit chain from sig_ref if available (AC23)
+            sig_ref = cand.get("sig_ref")
+            if sig_ref is not None:
+                from v5.exit_handlers import build_exit_chain
+                pos.exit_handlers = build_exit_chain(pos, sig_ref, spec, state, self.config)
+
+            # Update last known price (valid close only — AC30)
+            self._last_known_prices[token] = close
+
+            to_remove.append((sid, token))
+            entries += 1
+
+            # Record this 4H window as filled — prevent re-entry after stop-out
+            # (matches backtest's _first_cross_only: one entry per 4H window)
+            window_end = cand.get("window_end", 0)
+            if window_end > 0:
+                with self._armed_tokens_lock:
+                    self._filled_4h_windows.add((sid, token, window_end))
+
+            # Log filled event
+            self._log_armed_event({
+                "event": "filled",
+                "strategy": sid,
+                "token": token,
+                "direction": direction,
+                "level": level,
+                "fill_price": entry_price,
+                "position_id": position_id,
+                "tick_counter": cand.get("tick_counter", 0),
+                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            })
+
+        # Remove executed armed tokens under lock
+        with self._armed_tokens_lock:
+            for key in to_remove:
+                self._armed_tokens.pop(key, None)
+
+        # Persist state and update WS subscriptions after entries
+        if entries > 0:
+            ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            self._persist_sub_hourly_state(ts)
+            self._update_ws_subscriptions()
+            logger.info("Sub-hourly entries: %d positions opened", entries)
+
+        return entries
+
+    def _compute_sub_hourly_unrealized(self, st: "SimulationState") -> float:
+        """Compute total unrealized P&L for sub-hourly entry sizing.
+
+        Uses last known prices (updated from hourly tick + sub-hourly candles).
+        Mirrors simulator's _compute_total_unrealized but uses cached prices
+        instead of signal arrays (which aren't available between ticks).
+        """
+        total = 0.0
+        for pos in st.position_manager.open_positions:
+            price = self._last_known_prices.get(pos.token)
+            if price is None:
+                continue
+            total += pos.quantity * (price - pos.entry_price)
+        return total
+
+    def _persist_sub_hourly_state(self, timestamp: str) -> None:
+        """Persist state after sub-hourly entries/exits.
+
+        Write order: state.json FIRST, then trades.jsonl.
+        If crash between writes, state.json has the position (safe —
+        position survives, trade record filled on next persist). The
+        reverse order would lose the position while keeping a dangling
+        trade record.
+
+        Does NOT recompute signals or process entries (that's hourly only).
+        """
+        state_dir = self.config.state_dir
+        os.makedirs(state_dir, exist_ok=True)
+
+        # Collect unflushed trades BEFORE writing state.json
+        # (state.json must reflect all positions including ones about to be flushed)
+        trades_path = os.path.join(state_dir, "trades.jsonl")
+        new_closed = []
+        for st in self._get_all_states():
+            new_closed.extend(st.position_manager.closed_trades)
+        if not hasattr(self, '_flushed_position_ids'):
+            self._flushed_position_ids = set()
+        unflushed = [t for t in new_closed if t.position_id not in self._flushed_position_ids]
+
+        # Step 1: Write state.json atomically (positions, armed tokens, filled windows)
+        state_path = os.path.join(state_dir, "state.json")
+        armed_snapshot = self._serialize_armed_tokens()
+        shadow = getattr(self, 'shadow', None)
+        shadow_pools = {
+            "spot_funds": shadow.spot_funds_shadow if shadow else 0.0,
+            "perp_funds": shadow.perp_funds_shadow if shadow else 0.0,
+            "spot_deployed": shadow.spot_deployed if shadow else 0.0,
+            "perp_deployed": shadow.perp_deployed if shadow else 0.0,
+        }
+        filled_windows_snapshot = self._serialize_filled_4h_windows()
+        if self.state is not None:
+            atomic_write_state(
+                self.state, self.tick_counter, timestamp, state_path,
+                shadow_pools=shadow_pools,
+                last_known_prices=dict(self._last_known_prices),
+                last_known_regimes=dict(self._last_known_regimes),
+                armed_tokens=armed_snapshot,
+                filled_4h_windows=filled_windows_snapshot,
+            )
+        else:
+            from v5.paper_state import serialize_engine_state
+            data = serialize_engine_state(
+                dict(self.strategy_states), self.tick_counter, timestamp,
+                mode="independent",
+                shadow_pools=shadow_pools,
+                last_known_prices=dict(self._last_known_prices),
+                last_known_regimes=dict(self._last_known_regimes),
+                armed_tokens=armed_snapshot,
+                filled_4h_windows=filled_windows_snapshot,
+            )
+            import tempfile as _tmpfile
+            fd, tmp = _tmpfile.mkstemp(dir=state_dir, suffix=".tmp")
+            os.close(fd)
+            with open(tmp, "w") as f:
+                json.dump(data, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.rename(tmp, state_path)
+
+        # Step 2: Write trades.jsonl (append new closed trades)
+        staged_ids: set = set()
+        if unflushed:
+            with open(trades_path, "a") as f:
+                for trade in unflushed:
+                    f.write(json.dumps(_closed_trade_to_dict(trade, tick=self.tick_counter)) + "\n")
+                f.flush()
+                os.fsync(f.fileno())
+            staged_ids = {t.position_id for t in unflushed}
+
+        # Promote staged position IDs after both writes succeed
+        self._flushed_position_ids.update(staged_ids)
+
+        # Append equity snapshot so sub-hourly changes are tracked
+        equity_path = os.path.join(state_dir, "equity.csv")
+        portfolio_eq = self._aggregate_portfolio_equity()
+        mtm_eq = self._compute_mark_to_market()
+        all_states = self._get_all_states()
+        free_cap = sum(s.free_capital for s in all_states) if all_states else 0.0
+        append_equity(
+            equity_path,
+            timestamp=timestamp,
+            tick=self.tick_counter,
+            portfolio_equity=portfolio_eq,
+            mark_to_market_equity=mtm_eq,
+            free_capital=free_cap,
+            open_positions=self._aggregate_open_positions(),
+            spot_shadow_free=shadow_pools.get("spot_funds", 0.0),
+            perp_shadow_free=shadow_pools.get("perp_funds", 0.0),
+            spot_deployed=shadow_pools.get("spot_deployed", 0.0),
+            perp_deployed=shadow_pools.get("perp_deployed", 0.0),
+        )
+
+    def _cache_bar_data(
+        self,
+        all_signals: dict[str, dict],
+        bar_maps: dict[str, np.ndarray],
+    ) -> None:
+        """Cache ATR/regime/bear_target_mult per (strategy_id, token) for sub-hourly exit checks.
+
+        Called at the end of each hourly tick so sub-hourly exits between ticks
+        have access to the latest hourly bar data.  Keyed by (strategy_id, token)
+        so each strategy gets its own ATR values.
+        """
+        from v5.simulator import _get_bar_data
+        from v5.signals import TokenSignals
+
+        self._cached_bar_data.clear()
+        for sid, token_sigs in all_signals.items():
+            for token, sig in token_sigs.items():
+                bm = bar_maps.get(token)
+                if bm is None:
+                    continue
+                local_bar = int(bm[self.tick_counter]) if self.tick_counter < len(bm) else -1
+                if local_bar == -1 or local_bar >= sig.n_bars:
+                    continue
+                try:
+                    use_perp = None
+                    if sig.per_bar_is_perp is not None:
+                        use_perp = bool(sig.per_bar_is_perp[local_bar])
+                    _, _, _, atr_val, adv_val, _ = _get_bar_data(sig, local_bar, True, use_perp=use_perp)
+                except Exception:
+                    continue
+                self._cached_bar_data[(sid, token)] = {
+                    "atr": float(atr_val) if not np.isnan(atr_val) else 0.0,
+                    "adv": float(adv_val) if not np.isnan(adv_val) else 0.0,
+                    "regime": int(sig.regime[local_bar]) if sig.regime is not None and local_bar < len(sig.regime) else 0,
+                    "bear_target_mult": sig.bear_target_mult if hasattr(sig, 'bear_target_mult') else 0.0,
+                    "bear_max_hold": sig.bear_max_hold if hasattr(sig, 'bear_max_hold') else 0,
+                }
+
+    def _update_ws_subscriptions(self) -> None:
+        """Update WebSocket subscriptions to match current open positions.
+
+        AC24: Also includes armed tokens (from _armed_tokens cache) so that
+        sub-hourly entry monitoring receives 1m candle data for armed levels.
+
+        No-op when engine does not own its PriceMonitor — the runner manages
+        subscriptions centrally to prevent clobbering other engines' tokens.
+        """
+        if self._price_monitor is None or not self._owns_price_monitor:
+            return
+        open_tokens = set()
+        for st in self._get_all_states():
+            for pos in st.position_manager.open_positions:
+                open_tokens.add(pos.token)
+        # AC24: Include armed tokens alongside open-position tokens
+        with self._armed_tokens_lock:
+            armed_snapshot = list(self._armed_tokens.keys())
+        for (_sid, token) in armed_snapshot:
+            open_tokens.add(token)
+        self._price_monitor.update_subscriptions(open_tokens)
+        if self._candle_aggregator:
+            self._candle_aggregator.update_tokens(open_tokens)
+
+    # ------------------------------------------------------------------
+    # Armed order observability
+    # ------------------------------------------------------------------
+
+    def _log_armed_event(self, event: dict) -> None:
+        """Append one event to armed_log.jsonl (thread-safe).
+
+        Events: armed, expired, filled, skipped.
+        Non-fatal — observability should never crash the engine.
+        """
+        with self._armed_log_lock:
+            try:
+                with open(self._armed_log_path, "a") as f:
+                    f.write(json.dumps(event, default=str) + "\n")
+            except OSError:
+                pass
+
+    def _rotate_armed_log(self) -> None:
+        """Rotate armed_log.jsonl if > 200KB. Call from tick thread only.
+
+        Size check and rename are both inside the lock to prevent TOCTOU race
+        with _log_armed_event() appending concurrently from the WS thread.
+        """
+        try:
+            with self._armed_log_lock:
+                if os.path.getsize(self._armed_log_path) > 200_000:
+                    rotated = self._armed_log_path + "." + time.strftime("%Y%m%d_%H%M%S")
+                    os.rename(self._armed_log_path, rotated)
+        except OSError:
+            pass
+
+    # ------------------------------------------------------------------
+    # Armed tokens persistence
+    # ------------------------------------------------------------------
+
+    def _serialize_armed_tokens(self) -> list[dict]:
+        """Serialize _armed_tokens to a JSON-compatible list.
+
+        Skips non-serializable fields (sig_ref) and converts numpy arrays/sets
+        to JSON-compatible types. Used for state.json persistence so armed
+        orders survive restarts.
+        """
+        with self._armed_tokens_lock:
+            snapshot = dict(self._armed_tokens)
+
+        result = []
+        for (sid, token), armed in snapshot.items():
+            entry = {"strategy_id": sid, "token": token}
+            for k, v in armed.items():
+                if k == "sig_ref":
+                    continue  # Not serializable
+                if isinstance(v, set):
+                    entry[k] = sorted(v)
+                elif isinstance(v, (np.integer,)):
+                    entry[k] = int(v)
+                elif isinstance(v, (np.floating,)):
+                    entry[k] = float(v)
+                elif isinstance(v, np.ndarray):
+                    entry[k] = v.tolist()
+                elif isinstance(v, tuple):
+                    entry[k] = list(v)
+                elif isinstance(v, float) and math.isnan(v):
+                    entry[k] = None  # JSON doesn't support NaN
+                else:
+                    entry[k] = v
+            result.append(entry)
+        return result
+
+    def _serialize_filled_4h_windows(self) -> list[list]:
+        """Serialize _filled_4h_windows to JSON-compatible list.
+
+        Each entry is [strategy_id, token, window_end_epoch].
+        Only includes non-expired windows. Thread-safe via _armed_tokens_lock.
+        """
+        now = time.time()
+        with self._armed_tokens_lock:
+            snapshot = list(self._filled_4h_windows)
+        return [
+            [s, t, w] for s, t, w in snapshot if w > now
+        ]
+
+    @staticmethod
+    def _deserialize_filled_4h_windows(data: list) -> set[tuple[str, str, float]]:
+        """Deserialize filled 4H windows from state.json.
+
+        Filters out expired entries (window_end in the past).
+        """
+        now = time.time()
+        result: set[tuple[str, str, float]] = set()
+        for entry in data:
+            if len(entry) >= 3:
+                s, t, w = str(entry[0]), str(entry[1]), float(entry[2])
+                if w > now:
+                    result.add((s, t, w))
+        return result
+
+    @staticmethod
+    def _deserialize_armed_tokens(
+        data: list[dict],
+    ) -> tuple[dict[tuple[str, str], dict], list[dict]]:
+        """Deserialize armed tokens from state.json.
+
+        Filters out expired entries based on real UTC time (window_end).
+        Converts JSON-serialized types back to expected Python types.
+
+        Returns (active_armed, expired_list) so callers can log expired entries.
+        """
+        now_epoch = time.time()
+        result: dict[tuple[str, str], dict] = {}
+        expired: list[dict] = []
+        for raw in data:
+            sid = raw.get("strategy_id", "")
+            token = raw.get("token", "")
+            if not sid or not token:
+                continue
+
+            # Check window_end against real UTC time — expired orders are discarded.
+            # window_end == 0 (missing) is treated as expired to avoid immortal tokens.
+            window_end = raw.get("window_end", 0)
+            if not window_end or window_end <= now_epoch:
+                expired.append({
+                    "event": "expired",
+                    "strategy": sid,
+                    "token": token,
+                    "direction": raw.get("direction", 0),
+                    "level": raw.get("level", 0),
+                    "close_val": raw.get("close_val", 0),
+                    "tick_counter": raw.get("tick_counter", 0),
+                    "expired_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                })
+                continue
+
+            # Build a clean copy without strategy_id/token keys
+            entry = {k: v for k, v in raw.items() if k not in ("strategy_id", "token")}
+
+            # Convert types back
+            for tuple_key in ("convex_bar_thresholds", "convex_multipliers"):
+                if tuple_key in entry and isinstance(entry[tuple_key], list):
+                    entry[tuple_key] = tuple(entry[tuple_key])
+            for arr_key in ("trail_schedule", "time_trail_schedule", "max_trail_mult_arr"):
+                if arr_key in entry and isinstance(entry[arr_key], list):
+                    entry[arr_key] = np.array(entry[arr_key])
+            # Restore NaN from None
+            if entry.get("funding_zscore") is None:
+                entry["funding_zscore"] = float('nan')
+
+            result[(sid, token)] = entry
+        return result, expired
+
+    # ------------------------------------------------------------------
+    # Armed level caching (AC21)
+    # ------------------------------------------------------------------
+
+    def _cache_armed_levels(
+        self,
+        all_signals: dict,
+        strategy_specs: dict,
+        bar_maps: dict,
+    ) -> None:
+        """Populate _armed_tokens from signals for sub-hourly entry monitoring.
+
+        Called after each hourly tick. Atomically swaps the cache so stale
+        entries from the previous hour are discarded.
+
+        Skips:
+        - Strategies with bar_resolution == 0
+        - Combined strategies (can't arm independent legs)
+        - Tokens with existing open positions
+        - Signals without armed_levels or with NaN at the current bar
+        - Tokens already filled in the current 4H window (backtest parity)
+        """
+        new_armed: dict[tuple[str, str], dict] = {}
+
+        # Purge expired 4H window entries (window_end in the past)
+        now_epoch = time.time()
+        current_window_end = _current_4h_window_end()
+        with self._armed_tokens_lock:
+            self._filled_4h_windows = {
+                (s, t, w) for s, t, w in self._filled_4h_windows if w > now_epoch
+            }
+            filled_snapshot = frozenset(self._filled_4h_windows)
+
+        for sid, token_signals in all_signals.items():
+            # Skip strategies without bar_resolution
+            if self._strategy_bar_resolution.get(sid, 0) == 0:
+                continue
+
+            spec = strategy_specs.get(sid)
+            if spec is None:
+                continue
+
+            max_conc = spec.max_positions_per_symbol
+
+            for token, sig in token_signals.items():
+                # Skip combined strategies (legs can't be armed independently)
+                if spec.market == "combined":
+                    continue
+
+                # Skip if at max concurrent positions for this token+strategy
+                open_count = 0
+                for st in self._get_all_states():
+                    open_count += len(st.position_manager.find_open_for_token_strategy(token, sid))
+                if open_count >= max_conc:
+                    continue
+
+                # Skip if already filled in this 4H window (backtest parity:
+                # _first_cross_only allows one entry per 4H window, no re-entry
+                # after stop-out within the same window)
+                if (sid, token, current_window_end) in filled_snapshot:
+                    continue
+
+                # Skip if no armed_levels
+                armed_levels = getattr(sig, 'armed_levels', None)
+                if armed_levels is None:
+                    continue
+
+                # Get bar index
+                bar_idx_arr = bar_maps.get(token)
+                if bar_idx_arr is None or len(bar_idx_arr) == 0:
+                    continue
+                local_bar = int(bar_idx_arr[-1])
+
+                if local_bar < 0 or local_bar >= len(armed_levels):
+                    continue
+
+                level = float(armed_levels[local_bar])
+                if math.isnan(level):
+                    continue
+
+                # Bounds-checked armed_direction
+                if sig.armed_direction is None or local_bar >= len(sig.armed_direction):
+                    continue
+                direction = int(sig.armed_direction[local_bar])
+                if direction == 0:
+                    continue
+
+                # Base values from spot arrays
+                h_val = float(sig.high[local_bar])
+                l_val = float(sig.low[local_bar])
+                close_val = float(sig.close[local_bar])
+                atr_val = float(sig.atr[local_bar])
+                if np.isnan(atr_val):
+                    atr_val = close_val * 0.02
+                adv_val = float(sig.rolling_adv[local_bar])
+                lev_val = float(sig.leverage[local_bar])
+
+                # Per-bar venue routing (perp vs spot)
+                is_perp = getattr(sig, 'is_perp_primary', spec.market != "spot")
+                per_bar = getattr(sig, 'per_bar_is_perp', None)
+                if per_bar is not None and local_bar < len(per_bar):
+                    is_perp = bool(per_bar[local_bar])
+                    perp_close = getattr(sig, 'perp_close', None)
+                    if is_perp and perp_close is not None and local_bar < len(perp_close):
+                        close_val = float(perp_close[local_bar])
+                        perp_atr = getattr(sig, 'perp_atr', None)
+                        if perp_atr is not None and local_bar < len(perp_atr):
+                            atr_val = float(perp_atr[local_bar])
+                            if np.isnan(atr_val):
+                                atr_val = close_val * 0.02
+                        perp_adv = getattr(sig, 'perp_rolling_adv', None)
+                        if perp_adv is not None and local_bar < len(perp_adv):
+                            adv_val = float(perp_adv[local_bar])
+
+                new_armed[(sid, token)] = {
+                    "level": level,
+                    "direction": direction,
+                    "tick_counter": self.tick_counter,
+                    "limit_placed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                    "close_val": close_val,
+                    "atr_val": atr_val,
+                    "adv_val": adv_val,
+                    "leverage": lev_val,
+                    "is_perp": is_perp,
+                    "sig_ref": sig,
+                    "stop_mult": float(sig.stop_mult[local_bar]),
+                    "trail_mult": float(sig.trail_mult[local_bar]),
+                    "target_mult": getattr(sig, 'target_mult', 999.0),
+                    "no_stop_bars": getattr(sig, 'no_stop_bars', 0),
+                    "min_hold": getattr(sig, 'min_hold', 1),
+                    "max_hold": getattr(sig, 'max_hold', 4),
+                    "convex_exit": getattr(sig, 'convex_exit', False),
+                    "edge": getattr(sig, 'edge', 0.0),
+                    "high_val": h_val,
+                    "low_val": l_val,
+                    "funding_zscore": (
+                        float(sig.funding_zscore[local_bar])
+                        if getattr(sig, 'funding_zscore', None) is not None and local_bar < len(sig.funding_zscore)
+                        else float('nan')
+                    ),
+                    # Conviction score for threshold check
+                    "conviction": (
+                        float(sig.conviction_score[local_bar])
+                        if getattr(sig, 'conviction_score', None) is not None and local_bar < len(sig.conviction_score)
+                        else 1.0
+                    ),
+                    # Exit handler parameters (backtest parity for Position fields)
+                    "rsi_exit_level": getattr(sig, 'rsi_exit_level', 999.0),
+                    "convex_bar_thresholds": getattr(sig, 'convex_bar_thresholds', (48, 12)),
+                    "convex_multipliers": getattr(sig, 'convex_multipliers', (2.0, 1.5, 0.3)),
+                    "trail_schedule": getattr(sig, 'trail_schedule', None),
+                    "time_trail_schedule": getattr(sig, 'time_trail_schedule', None),
+                    "max_trail_mult_arr": getattr(sig, 'max_trail_mult', None),
+                    "funding_exit_threshold": getattr(sig, 'funding_exit_threshold', 0.0),
+                    "breakeven_atr": getattr(sig, 'breakeven_atr', 0.0),
+                    "chandelier_lookback": getattr(sig, 'chandelier_lookback', 0),
+                    "window_end": _current_4h_window_end(),
+                }
+
+        # Detect expired (unfilled) armed entries before swap.
+        # Carry forward old armed orders whose 4H window hasn't ended,
+        # even if the strategy no longer arms them (matches backtester
+        # which evaluates all conditions on the cross bar, not pre-emptively).
+        now_epoch = time.time()
+        expired = []
+        with self._armed_tokens_lock:
+            old_armed = self._armed_tokens
+            for key, armed in old_armed.items():
+                if key in new_armed:
+                    continue  # Still armed by strategy — new_armed takes precedence
+                window_end = armed.get("window_end", 0)
+                if window_end > now_epoch:
+                    # 4H window still open — carry forward
+                    new_armed[key] = armed
+                else:
+                    expired.append({
+                        "event": "expired",
+                        "strategy": key[0],
+                        "token": key[1],
+                        "direction": armed.get("direction", 0),
+                        "level": armed.get("level", 0),
+                        "close_val": armed.get("close_val", 0),
+                        "tick_counter": armed.get("tick_counter", 0),
+                        "expired_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                    })
+            self._armed_tokens = new_armed
+            self._last_expired_orders = expired
+
+        # Log expired + newly armed events
+        for evt in expired:
+            self._log_armed_event(evt)
+        for key, armed in new_armed.items():
+            self._log_armed_event({
+                "event": "armed",
+                "strategy": key[0],
+                "token": key[1],
+                "direction": armed.get("direction", 0),
+                "level": armed.get("level", 0),
+                "close_val": armed.get("close_val", 0),
+                "tick_counter": armed.get("tick_counter", 0),
+                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            })
+
+        # Rotate log if needed
+        self._rotate_armed_log()
+
+    # ------------------------------------------------------------------
+    # Background tick (AC28)
+    # ------------------------------------------------------------------
+
+    def _tick_internal_async(self) -> None:
+        """Submit _tick_internal to background executor for non-blocking execution."""
+        if self._bg_future is not None and not self._bg_future.done():
+            import logging
+            logging.getLogger(__name__).warning("Previous tick still running -- skipping")
+            return
+        self._bg_future = self._bg_executor.submit(self._tick_bg_worker)
+
+    def _tick_bg_worker(self) -> None:
+        """Worker function for background tick execution."""
+        try:
+            self._tick_internal()
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception("Background tick failed")
+        finally:
+            self._on_tick_complete()
+
+    def _on_tick_complete(self) -> None:
+        """Called when background tick completes (success or failure)."""
+        pass  # Hook for future signaling (e.g., event.set())
+
+    # ------------------------------------------------------------------
+    # Bar maps
+    # ------------------------------------------------------------------
+
+    def _build_bar_maps(
+        self,
+        all_signals: dict[str, dict],
+        tick_counter: int,
+    ) -> dict[str, np.ndarray]:
+        """Build trivial bar_maps for paper trading.
+
+        For each token, bar_maps[token] maps global_bar → local_bar.
+        In paper mode:
+          - bar_maps[token][tick_counter] = sig.n_bars - 1 (latest bar)
+          - bar_maps[token][tick_counter-1] = sig.n_bars - 2 (prev-tick safety)
+        """
+        # Collect all tokens across strategies
+        token_n_bars: dict[str, int] = {}
+        for sid, token_sigs in all_signals.items():
+            for token, sig in token_sigs.items():
+                n = getattr(sig, 'n_bars', 0)
+                if token not in token_n_bars or n > token_n_bars[token]:
+                    token_n_bars[token] = n
+
+        bar_maps: dict[str, np.ndarray] = {}
+        for token, n_bars in token_n_bars.items():
+            # Allocate array covering [0..tick_counter]
+            size = tick_counter + 1
+            bm = np.full(size, -1, dtype=np.int32)
+
+            # Map current tick to last signal bar
+            local_bar = n_bars - 1
+            if tick_counter < size:
+                bm[tick_counter] = local_bar
+
+            # Map previous tick for safety (exit processing may look back)
+            if tick_counter > 0 and local_bar > 0:
+                bm[tick_counter - 1] = local_bar - 1
+
+            bar_maps[token] = bm
+
+        return bar_maps
+
+    # ------------------------------------------------------------------
+    # Disappeared token handling
+    # ------------------------------------------------------------------
+
+    def _get_all_states(self) -> list:
+        """Return list of all SimulationState objects (works in both modes)."""
+        if self.config.mode == "independent":
+            return list(self.strategy_states.values())
+        return [self.state]
+
+    def _get_state_for_position(self, pos) -> "SimulationState":
+        """Return the SimulationState that owns this position."""
+        if self.config.mode == "independent":
+            return self.strategy_states[pos.strategy_id]
+        return self.state
+
+    def _handle_disappeared_tokens(
+        self,
+        all_signals: dict[str, dict],
+        timestamp: str = "",
+    ) -> None:
+        """Pre-scan for tokens with open positions that are no longer in signals.
+
+        Force-close at last known price with exit_reason='data_end'.
+
+        Sub-hourly positions with valid cached bar data are exempt — their
+        exits are handled by process_sub_hourly_exits() using real-time
+        prices. This prevents mass liquidation when signal computation
+        fails transiently (e.g., missing indicator data on restart).
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        # Collect all tokens in current signals
+        current_tokens: set[str] = set()
+        for sid, token_sigs in all_signals.items():
+            current_tokens.update(token_sigs.keys())
+
+        exit_res = getattr(self, '_strategy_bar_resolution', {})
+
+        # Find positions for tokens not in current signals (across all states)
+        positions_to_close = []
+        skipped_sub_hourly = 0
+        for st in self._get_all_states():
+            for pos in list(st.position_manager.open_positions):
+                if pos.token in current_tokens:
+                    continue
+                # Sub-hourly positions with cached bar data survive —
+                # process_sub_hourly_exits handles them via real-time prices.
+                if exit_res.get(pos.strategy_id, 0) > 0:
+                    has_cache = self._cached_bar_data.get(
+                        (pos.strategy_id, pos.token)
+                    ) is not None
+                    if has_cache:
+                        skipped_sub_hourly += 1
+                        continue
+                positions_to_close.append(pos)
+
+        if skipped_sub_hourly:
+            logger.warning(
+                "Token disappeared: %d sub-hourly positions kept alive "
+                "(cached bar data available, exits via real-time prices)",
+                skipped_sub_hourly,
+            )
+
+        closed_ids: set = set()
+        for pos in positions_to_close:
+            # Skip if already closed (e.g., secondary leg closed as linked to primary)
+            if pos.position_id in closed_ids:
+                continue
+
+            # Get exit price: last known or fallback to entry price
+            exit_price = self._last_known_prices.get(pos.token, pos.entry_price)
+
+            # Close position — match simulator._close_position accounting:
+            #   realized_pnl += raw_pnl  (NO fees, NO funding — those are tracked separately)
+            #   total_fees += exit_fee
+            #   funding already in total_funding from bar-by-bar accrual
+            st = self._get_state_for_position(pos)
+            entry_fee = st._entry_fees_by_pos.pop(pos.position_id, 0.0)
+            exit_fee = abs(pos.quantity * exit_price) * pos.fee_rate
+            raw_pnl = pos.quantity * (exit_price - pos.entry_price)
+            net_pnl = raw_pnl - exit_fee - pos.cumulative_funding  # for ClosedTrade record
+
+            st.position_manager.close_position(
+                pos,
+                exit_bar=self.tick_counter,
+                exit_price=exit_price,
+                pnl=net_pnl,
+                funding_cost=pos.cumulative_funding,
+                entry_fee=entry_fee,
+                exit_fee=exit_fee,
+                exit_reason="data_end",
+                exit_timestamp=timestamp,
+            )
+
+            st.realized_pnl += raw_pnl
+            st.total_fees += exit_fee
+            closed_ids.add(pos.position_id)
+
+            # Also close linked position if exists
+            if pos.linked_position_id:
+                linked = st.position_manager.get_linked(pos.linked_position_id)
+                if linked and linked.position_id not in closed_ids:
+                    linked_st = self._get_state_for_position(linked)
+                    linked_exit_price = self._last_known_prices.get(
+                        linked.token, linked.entry_price
+                    )
+                    linked_entry_fee = linked_st._entry_fees_by_pos.pop(
+                        linked.position_id, 0.0
+                    )
+                    linked_exit_fee = abs(linked.quantity * linked_exit_price) * linked.fee_rate
+                    linked_raw_pnl = linked.quantity * (linked_exit_price - linked.entry_price)
+                    linked_net_pnl = (linked_raw_pnl
+                                      - linked_exit_fee - linked.cumulative_funding)
+
+                    linked_st.position_manager.close_position(
+                        linked,
+                        exit_bar=self.tick_counter,
+                        exit_price=linked_exit_price,
+                        pnl=linked_net_pnl,
+                        funding_cost=linked.cumulative_funding,
+                        entry_fee=linked_entry_fee,
+                        exit_fee=linked_exit_fee,
+                        exit_reason="data_end",
+                        exit_timestamp=timestamp,
+                    )
+                    linked_st.realized_pnl += linked_raw_pnl
+                    linked_st.total_fees += linked_exit_fee
+                    closed_ids.add(linked.position_id)
+
+            # Fire alert
+            self._alerts.append(
+                f"Token disappeared: {pos.token} — position {pos.position_id} force-closed "
+                f"at ${exit_price:.2f} (data_end)"
+            )
+
+    # ------------------------------------------------------------------
+    # Strategy equity
+    # ------------------------------------------------------------------
+
+    def _get_strategy_equity(self, strategy_id: str) -> float:
+        """Get strategy equity for sizing (AC6).
+
+        Pool mode: portfolio_equity * strategy_weight
+        Independent mode: strategy's own state equity
+        """
+        if self.config.mode == "independent":
+            return self.strategy_states[strategy_id].portfolio_equity
+
+        # Pool mode: find the strategy weight
+        for spec in self.config.strategies:
+            if spec.strategy_id == strategy_id:
+                return self.state.portfolio_equity * spec.weight
+
+        return 0.0
+
+    # ------------------------------------------------------------------
+    # Emergency close
+    # ------------------------------------------------------------------
+
+    def _emergency_close_all(self) -> None:
+        """Emergency close all open positions at last known prices."""
+        emergency_ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        # Collect all positions across all states (works in both modes)
+        positions_to_close = []
+        for st in self._get_all_states():
+            positions_to_close.extend(list(st.position_manager.open_positions))
+
+        for pos in positions_to_close:
+            st = self._get_state_for_position(pos)
+            exit_price = self._last_known_prices.get(pos.token, pos.entry_price)
+            entry_fee = st._entry_fees_by_pos.pop(pos.position_id, 0.0)
+            exit_fee = abs(pos.quantity * exit_price) * pos.fee_rate
+            raw_pnl = pos.quantity * (exit_price - pos.entry_price)
+            # net_pnl for ClosedTrade record only (not for realized_pnl)
+            net_pnl = raw_pnl - exit_fee - pos.cumulative_funding
+
+            st.position_manager.close_position(
+                pos,
+                exit_bar=self.tick_counter,
+                exit_price=exit_price,
+                pnl=net_pnl,
+                funding_cost=pos.cumulative_funding,
+                entry_fee=entry_fee,
+                exit_fee=exit_fee,
+                exit_reason="emergency",
+                exit_timestamp=emergency_ts,
+            )
+            # Match simulator._close_position: raw_pnl to realized, fees tracked separately
+            st.realized_pnl += raw_pnl
+            st.total_fees += exit_fee
+
+        # Clear armed tokens — don't re-enter after invariant violation
+        lock = getattr(self, '_armed_tokens_lock', None)
+        if lock is not None:
+            with lock:
+                self._armed_tokens.clear()
+        self._alerts.append("EMERGENCY: All positions closed due to invariant violation")
+
+    def _persist_emergency_state(self) -> None:
+        """Persist state after emergency close (R4-C1).
+
+        Writes trades.jsonl and state.json so emergency closures survive restart.
+        Writes trades before state (hourly ordering).  Sub-hourly persist
+        uses the opposite order — see _persist_sub_hourly_state docstring.
+        """
+        state_dir = self.config.state_dir
+        os.makedirs(state_dir, exist_ok=True)
+        timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+        # Write emergency-closed trades to trades.jsonl
+        trades_path = os.path.join(state_dir, "trades.jsonl")
+        new_closed = []
+        for st in self._get_all_states():
+            new_closed.extend(st.position_manager.closed_trades)
+        if not hasattr(self, '_flushed_position_ids'):
+            self._flushed_position_ids = set()
+        unflushed = [t for t in new_closed if t.position_id not in self._flushed_position_ids]
+        if unflushed:
+            with open(trades_path, "a") as f:
+                for trade in unflushed:
+                    f.write(json.dumps(_closed_trade_to_dict(trade, tick=self.tick_counter)) + "\n")
+                f.flush()
+                os.fsync(f.fileno())
+            self._flushed_position_ids.update(t.position_id for t in unflushed)
+
+        # Write state.json (atomic) — armed tokens already cleared in _emergency_close_all
+        state_path = os.path.join(state_dir, "state.json")
+        armed_snapshot = self._serialize_armed_tokens()
+        shadow = getattr(self, 'shadow', None)
+        shadow_pools = {
+            "spot_funds": shadow.spot_funds_shadow if shadow else 0.0,
+            "perp_funds": shadow.perp_funds_shadow if shadow else 0.0,
+            "spot_deployed": shadow.spot_deployed if shadow else 0.0,
+            "perp_deployed": shadow.perp_deployed if shadow else 0.0,
+        }
+        filled_windows_snapshot = self._serialize_filled_4h_windows()
+        if self.state is not None:
+            atomic_write_state(
+                self.state, self.tick_counter, timestamp, state_path,
+                shadow_pools=shadow_pools,
+                last_known_prices=dict(self._last_known_prices),
+                last_known_regimes=dict(self._last_known_regimes),
+                armed_tokens=armed_snapshot,
+                filled_4h_windows=filled_windows_snapshot,
+            )
+        else:
+            from v5.paper_state import serialize_engine_state
+            data = serialize_engine_state(
+                dict(self.strategy_states), self.tick_counter, timestamp,
+                mode="independent", shadow_pools=shadow_pools,
+                last_known_prices=dict(self._last_known_prices),
+                last_known_regimes=dict(self._last_known_regimes),
+                armed_tokens=armed_snapshot,
+                filled_4h_windows=filled_windows_snapshot,
+            )
+            import tempfile as _tmpfile
+            fd, tmp = _tmpfile.mkstemp(dir=state_dir, suffix=".tmp")
+            os.close(fd)
+            with open(tmp, "w") as f:
+                json.dump(data, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.rename(tmp, state_path)
+
+    # ------------------------------------------------------------------
+    # Funding settlement
+    # ------------------------------------------------------------------
+
+    def apply_funding_settlement(self, funding_rates: dict[str, list[dict]]) -> int:
+        """Apply funding rate settlement to all open perp positions.
+
+        Called at 8-hour settlement intervals when funding rates are fetched
+        via REST.  Applies the full 8h funding rate as a one-time debit/credit,
+        independent of the simulator's per-bar exit processing.
+
+        Args:
+            funding_rates: Dict mapping token → [{"fundingRate": float, ...}]
+
+        Returns:
+            Number of positions that had funding applied.
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        applied = 0
+        total_cost = 0.0
+
+        for st in self._get_all_states():
+            for pos in list(st.position_manager.open_positions):
+                if not pos.is_perp:
+                    continue
+                rates = funding_rates.get(pos.token)
+                if not rates:
+                    continue
+                rate = float(rates[0]["fundingRate"])  # raw 8h rate
+                if rate == 0.0:
+                    continue
+
+                # Use last known price for notional (or entry price as fallback)
+                price = self._last_known_prices.get(pos.token, pos.entry_price)
+                notional = abs(pos.quantity * price)
+                d_sign = 1.0 if pos.quantity > 0 else -1.0
+                funding_cost = notional * rate * d_sign
+
+                pos.cumulative_funding += funding_cost
+                st.total_funding += funding_cost
+                total_cost += funding_cost
+                applied += 1
+
+                logger.debug(
+                    "Funding settlement: %s %s rate=%.6f notional=%.2f cost=%.4f cum=%.4f",
+                    pos.token, "LONG" if pos.quantity > 0 else "SHORT",
+                    rate, notional, funding_cost, pos.cumulative_funding,
+                )
+
+        if applied:
+            logger.info(
+                "Funding settlement: %d positions, total_cost=%.4f",
+                applied, total_cost,
+            )
+        return applied
+
+    # ------------------------------------------------------------------
+    # Tick processing
+    # ------------------------------------------------------------------
+
+    def _process_exits_for_tick(
+        self,
+        all_signals: dict,
+        bar_maps: dict,
+    ) -> None:
+        """Delegate exit processing to v4 simulator for hourly-only strategies.
+
+        Strategies with bar_resolution > 0 are excluded — their exits
+        (including liquidation, max_hold, trail/stop) are handled entirely
+        by process_sub_hourly_exits() at sub-hourly resolution.
+
+        Clear ALL positions' exit_handlers before processing so they rebuild
+        with fresh signal data via lazy init (simulator.py:456). In paper mode,
+        precompute_strategy_signals() creates NEW TokenSignals each tick with
+        +1 bar. Handlers holding old sig refs would IndexError on
+        RSIExitHandler, MeanTargetHandler, or chandelier lookback.
+
+        Funding note: funding_1h arrays are zeroed out before calling the
+        simulator to prevent double-counting.  Funding is applied at 8h
+        settlement time via apply_funding_settlement() instead.
+        """
+        exit_res = getattr(self, '_strategy_bar_resolution', {})
+
+        for st in self._get_all_states():
+            for pos in st.position_manager.open_positions:
+                # Only clear exit_handlers for hourly strategies — sub-hourly
+                # strategies don't use the handler chain (they use check_candle_exits).
+                if exit_res.get(pos.strategy_id, 0) == 0:
+                    pos.exit_handlers = []
+
+        # Zero out funding_1h in signals — funding is handled at settlement
+        # time by apply_funding_settlement(), not per-bar by the simulator.
+        # Signals are regenerated fresh each tick so this has no lasting effect.
+        for _sid, token_sigs in all_signals.items():
+            for _tok, sig in token_sigs.items():
+                if sig.funding_1h is not None:
+                    sig.funding_1h[:] = 0.0
+                if sig.perp_funding_1h is not None:
+                    sig.perp_funding_1h[:] = 0.0
+
+        strategy_specs = {s.strategy_id: s for s in self.config.strategies}
+        if self.config.mode == "independent":
+            for sid, sstate in self.strategy_states.items():
+                if exit_res.get(sid, 0) > 0:
+                    continue  # Sub-hourly strategies: exits handled by process_sub_hourly_exits
+                sid_signals = {sid: all_signals.get(sid, {})}
+                _sim._process_exits(sstate, sid_signals, bar_maps, self.tick_counter, self.config, strategy_specs=strategy_specs)
+        else:
+            # Pool mode: include hourly strategies' full signals, but provide
+            # empty dicts for sub-hourly strategies. _process_exits uses bracket
+            # notation (all_signals[pos.strategy_id]) so every strategy_id that
+            # has open positions MUST be a key — otherwise KeyError.
+            # Sub-hourly positions will match the empty dict and get sig=None → skip.
+            filtered_signals = {
+                sid: (sigs if exit_res.get(sid, 0) == 0 else {})
+                for sid, sigs in all_signals.items()
+            }
+            # Ensure every strategy_id with open positions is a key.
+            # If signal computation failed for a strategy, its ID won't be in
+            # all_signals — add an empty dict so _process_exits doesn't KeyError.
+            for pos in self.state.position_manager.open_positions:
+                if pos.strategy_id not in filtered_signals:
+                    filtered_signals[pos.strategy_id] = {}
+            _sim._process_exits(self.state, filtered_signals, bar_maps, self.tick_counter, self.config, strategy_specs=strategy_specs)
+
+    def _process_entries_for_tick(
+        self,
+        all_signals: dict,
+        strategy_specs: dict,
+        bar_maps: dict,
+    ) -> None:
+        """Delegate entry processing to v4 simulator with per-bar RNG seeding (AC9c).
+
+        AC25: Strategies with bar_resolution > 0 are excluded from hourly
+        entries — they use process_sub_hourly_entries() instead.
+        """
+        # AC25: Filter out strategies that use sub-hourly bar resolution
+        entry_res = getattr(self, '_strategy_bar_resolution', {})
+        filtered_signals = {
+            sid: sigs for sid, sigs in all_signals.items()
+            if entry_res.get(sid, 0) == 0
+        }
+        filtered_specs = {
+            sid: spec for sid, spec in strategy_specs.items()
+            if entry_res.get(sid, 0) == 0
+        }
+
+        rng = np.random.RandomState(self.config.seed + self.tick_counter)
+        if self.config.mode == "independent":
+            for sid, sstate in self.strategy_states.items():
+                if entry_res.get(sid, 0) > 0:
+                    continue  # AC25: skip sub-hourly strategies
+                sid_signals = {sid: filtered_signals.get(sid, {})}
+                if sid in filtered_specs:
+                    orig_spec = filtered_specs[sid]
+                    # Weight=1.0 because capital was already pre-split in _init_independent_mode.
+                    # Passing the original weight would double-apply it (portfolio_equity already
+                    # reflects weight-scaled initial_capital, and _process_entries multiplies
+                    # by spec.weight again).
+                    # Use dataclasses.replace to preserve ALL fields (including ADV sizing).
+                    spec_independent = dataclasses.replace(orig_spec, weight=1.0)
+                    sid_specs = {sid: spec_independent}
+                else:
+                    sid_specs = {}
+                _sim._process_entries(
+                    sstate, sid_signals, sid_specs,
+                    bar_maps, self.tick_counter, self.config, rng,
+                )
+        else:
+            _sim._process_entries(
+                self.state, filtered_signals, filtered_specs,
+                bar_maps, self.tick_counter, self.config, rng,
+            )
+
+    def _process_margin_calls_for_tick(self, all_signals, bar_maps):
+        """Run margin-call logic for the current tick.
+
+        Sub-hourly strategies are excluded — their liquidation/margin
+        pressure is handled by process_sub_hourly_exits() at sub-hourly
+        resolution with real-time price data.
+        """
+        exit_res = getattr(self, '_strategy_bar_resolution', {})
+        if self.config.mode == "independent":
+            for sid, sstate in self.strategy_states.items():
+                if exit_res.get(sid, 0) > 0:
+                    continue  # Sub-hourly: handled by process_sub_hourly_exits
+                sid_signals = {sid: all_signals.get(sid, {})}
+                _sim._process_margin_calls(sstate, sid_signals, bar_maps, self.tick_counter, self.config)
+        else:
+            # Pool mode: _process_margin_calls uses .get() for signal access
+            # (safe), but we still exclude sub-hourly signals to prevent
+            # margin calls based on stale hourly bar prices.
+            filtered_signals = {
+                sid: (sigs if exit_res.get(sid, 0) == 0 else {})
+                for sid, sigs in all_signals.items()
+            }
+            # Same safety net: ensure open-position strategy_ids are keys
+            for pos in self.state.position_manager.open_positions:
+                if pos.strategy_id not in filtered_signals:
+                    filtered_signals[pos.strategy_id] = {}
+            _sim._process_margin_calls(self.state, filtered_signals, bar_maps, self.tick_counter, self.config)
+
+    def _tick_internal_with_signals(
+        self,
+        all_signals: dict,
+        strategy_specs: dict,
+        bar_maps: dict,
+    ) -> None:
+        """Core tick processing with pre-computed signals.
+
+        Order (AC10b): exits → margin_calls → shadow_rebalance → entries → equity snapshot
+        """
+        self._process_exits_for_tick(all_signals, bar_maps)
+        self._process_margin_calls_for_tick(all_signals, bar_maps)
+        # Shadow rebalance would run here (between exits and entries)
+        if not strategy_specs:
+            strategy_specs = {s.strategy_id: s for s in self.config.strategies}
+        self._process_entries_for_tick(all_signals, strategy_specs, bar_maps)
+
+        # Cache bar data for sub-hourly exit checks between hourly ticks
+        if getattr(self, '_effective_bar_resolution', 0) > 0:
+            self._cache_bar_data(all_signals, bar_maps)
+
+        # Cache armed levels for sub-hourly entry checks (AC22/AC23)
+        if getattr(self, '_effective_bar_resolution', 0) > 0:
+            self._cache_armed_levels(all_signals, strategy_specs, bar_maps)
+
+        # Update WS subscriptions for sub-hourly monitoring
+        if getattr(self, '_effective_bar_resolution', 0) > 0:
+            self._update_ws_subscriptions()
+
+    def _tick_internal(self, bar_timestamp=None) -> None:
+        """Full tick processing: fetch data, recompute signals, process.
+
+        Pipeline (AC10b):
+          1. Fetch live data via self.fetcher + append to parquet
+          2. Discover tokens from parquet cache
+          3. Call precompute_strategy_signals() per strategy
+          4. Build bar_maps
+          5. Handle disappeared tokens
+          6. Call _tick_internal_with_signals()
+          7. Update last known prices
+          8. Compute mark-to-market equity + populate equity_history
+          9. Persist state (state.json, equity.csv, shadow_pools)
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        timestamp = bar_timestamp or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+        # --- Step 1: Fetch live data + append to parquet ---
+        if self.fetcher is not None:
+            # Discover which tokens to fetch for each market
+            all_tokens_to_fetch: set[str] = set()
+            for spec in self.config.strategies:
+                try:
+                    tokens = discover_tokens(spec.market)
+                    all_tokens_to_fetch.update(tokens)
+                except Exception:
+                    pass  # No parquet data yet — will handle below
+
+            fetch_ok = 0
+            fetch_err = 0
+            bars_appended = 0
+            funding_merged = 0
+            for token in all_tokens_to_fetch:
+                for market in ("spot", "perp"):
+                    try:
+                        bars = self.fetcher.fetch_ohlcv(token, market, limit=10)
+                        closed = self.fetcher.filter_closed_bars(bars)
+                        if closed:
+                            self.fetcher.append_to_parquet(token, market, closed)
+                            bars_appended += len(closed)
+                        fetch_ok += 1
+                    except Exception as e:
+                        fetch_err += 1
+                        if fetch_err <= 3:  # Log first 3 errors
+                            logger.warning("Fetch %s/%s failed: %s", token, market, e)
+
+                # Fetch and merge funding rates for perp
+                try:
+                    rates = self.fetcher.fetch_funding_rates(token, limit=10)
+                    if rates and hasattr(self.fetcher, 'merge_funding_into_parquet'):
+                        self.fetcher.merge_funding_into_parquet(token, rates)
+                        funding_merged += 1
+                except Exception as e:
+                    if fetch_err <= 3:
+                        logger.warning("Funding %s failed: %s", token, e)
+
+            logger.info("Data fetch: %d ok, %d err, %d bars appended, %d funding merged",
+                        fetch_ok, fetch_err, bars_appended, funding_merged)
+
+            # Apply funding settlement at 8h intervals (00, 08, 16 UTC)
+            hour_utc = time.gmtime().tm_hour
+            last_settle_hour = getattr(self, '_last_funding_settle_hour', -1)
+            if hour_utc in (0, 8, 16) and hour_utc != last_settle_hour:
+                # Collect per-token rates into batch format for settlement
+                batch: dict[str, list[dict]] = {}
+                for token in all_tokens_to_fetch:
+                    try:
+                        rates = self.fetcher.fetch_funding_rates(token, limit=1)
+                        if rates:
+                            batch[token] = rates
+                    except Exception:
+                        pass
+                if batch:
+                    self.apply_funding_settlement(batch)
+                self._last_funding_settle_hour = hour_utc
+        else:
+            logger.debug("No fetcher configured — using existing parquet data")
+
+        # --- Step 2-3: Discover tokens + precompute signals per strategy ---
+        all_signals: dict[str, dict] = {}
+        strategy_specs = {s.strategy_id: s for s in self.config.strategies}
+
+        # Pre-load strategy modules and compute shared plugin requirements.
+        # If ALL strategies declare REQUIRED_PLUGINS, create shared engines
+        # with _required_plugins = union(all). If ANY lacks it, fall back to
+        # _required_plugins = None (all plugins, backward compat).
+        all_req_plugins = []
+        all_req_groups = []
+        for spec in self.config.strategies:
+            _load_strategy_fn(spec.strategy_id)  # populate module cache
+            # Tell strategy it's in paper mode so it can trim data loading
+            from v5.engine import _STRATEGY_MODULE_CACHE, _STRATEGY_MODULE_LOCK
+            with _STRATEGY_MODULE_LOCK:
+                mod = _STRATEGY_MODULE_CACHE.get(spec.strategy_id)
+            if mod is not None:
+                mod._paper_mode = True
+            rp = _load_strategy_required_plugins(spec.strategy_id)
+            all_req_plugins.append(rp)
+            rg = _load_strategy_required_indicator_groups(spec.strategy_id)
+            all_req_groups.append(rg)
+
+        if all(rp is not None for rp in all_req_plugins):
+            union_plugins = sorted(set().union(*(rp for rp in all_req_plugins)))
+        else:
+            union_plugins = None  # fall back to all plugins
+            if any(rp is not None for rp in all_req_plugins):
+                logger.warning(
+                    "Mixed REQUIRED_PLUGINS declarations — some strategies "
+                    "declare plugins, some don't. Running all plugins (safe fallback)."
+                )
+
+        if all(rg is not None for rg in all_req_groups):
+            union_groups = set().union(*(rg for rg in all_req_groups))
+        else:
+            union_groups = None  # fall back to all groups
+
+        DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+        shared_eng_spot = Engine(data_dir=DATA_DIR, market="spot", capital=self.config.capital, exchange=self.config.exchange)
+        shared_eng_perp = Engine(data_dir=DATA_DIR, market="perp", capital=self.config.capital, exchange=self.config.exchange)
+        shared_eng_spot._required_plugins = union_plugins
+        shared_eng_perp._required_plugins = union_plugins
+        shared_eng_spot._required_indicator_groups = union_groups
+        shared_eng_perp._required_indicator_groups = union_groups
+
+        any_tokens_found = False
+        try:
+            for spec in self.config.strategies:
+                tokens = discover_tokens(spec.market)
+                if tokens:
+                    any_tokens_found = True
+                sigs = precompute_strategy_signals(
+                    spec, tokens, self.config, self.config.lookback_months,
+                    hist_cache=self._hist_cache,
+                    eng_spot=shared_eng_spot, eng_perp=shared_eng_perp,
+                )
+                all_signals[spec.strategy_id] = sigs
+        finally:
+            # Clear shared engine context caches even on exception to prevent
+            # ~2.3 GB leak (236 tokens x 2 engines of cached StrategyContext).
+            if shared_eng_spot is not None:
+                shared_eng_spot._context_cache.clear()
+            if shared_eng_perp is not None:
+                shared_eng_perp._context_cache.clear()
+            del shared_eng_spot, shared_eng_perp
+
+        if not any_tokens_found:
+            logger.warning("No parquet cache data found — cold start or missing data directory")
+
+        if self._hist_cache and self.tick_counter <= 1:
+            logger.info(
+                "Historical parquet cache: %d entries. "
+                "Restart runner after build_parquet_cache.py to pick up rebuilt data.",
+                len(self._hist_cache),
+            )
+
+        # Timestamp: use wall-clock time (set on line 446) for precise equity.csv
+        # and trade entry timestamps. Previously this was overridden with the
+        # hourly bar close time as a temp fix for backwards-tick issues caused by
+        # the ablation tick-counter reset — that is no longer needed.
+
+        # --- Step 4: Build bar_maps ---
+        bar_maps = self._build_bar_maps(all_signals, self.tick_counter)
+
+        # --- Step 5: Handle disappeared tokens ---
+        self._handle_disappeared_tokens(all_signals, timestamp=timestamp)
+
+        # --- Step 5b: Dynamic weight adjustment (if enabled) ---
+        self._apply_dynamic_weights(all_signals, bar_maps)
+
+        # --- Step 6: Process exits → entries ---
+        # Note: walk-forward mask is already applied by precompute_strategy_signals
+        self._tick_internal_with_signals(all_signals, strategy_specs, bar_maps)
+
+        # --- Step 6b: Stamp entry_timestamp on ALL positions missing it ---
+        # New positions (entry_bar == tick_counter) get the current timestamp.
+        # Pre-existing positions that were never stamped (e.g., created before
+        # this code existed) get backfilled with the current timestamp so the
+        # dashboard shows *something* rather than "—".
+        for st in self._get_all_states():
+            for pos in st.position_manager.open_positions:
+                if not pos.entry_timestamp:
+                    pos.entry_timestamp = timestamp
+
+        # --- Step 6c: Stamp exit_timestamp on newly closed trades missing it ---
+        # Simulator-driven exits don't have access to wall-clock time, so we
+        # stamp them here.
+        for st in self._get_all_states():
+            for trade in st.position_manager.closed_trades:
+                if not trade.exit_timestamp:
+                    trade.exit_timestamp = timestamp
+
+        # --- Step 7: Update last known prices ---
+        self._update_last_known_prices(all_signals, bar_maps)
+
+        # --- Step 8: Compute equity + populate equity_history ---
+        portfolio_eq = self._aggregate_portfolio_equity()
+        mtm_eq = self._compute_mark_to_market()
+
+        if not hasattr(self, 'equity_history'):
+            self.equity_history = []
+        self.equity_history.append({
+            "timestamp": timestamp,
+            "portfolio_equity": portfolio_eq,
+            "mark_to_market_equity": mtm_eq,
+        })
+        # R7-I5 fix: cap equity_history to prevent unbounded memory growth
+        # in long-running daemon mode (720 entries = 30 days of hourly ticks)
+        _MAX_EQUITY_HISTORY = 720
+        if len(self.equity_history) > _MAX_EQUITY_HISTORY:
+            self.equity_history = self.equity_history[-_MAX_EQUITY_HISTORY:]
+
+        # --- Step 9: Persist state ---
+        # C5 fix: increment tick_counter BEFORE persisting so state.json
+        # records the NEXT expected tick. On crash-recovery, we restore to
+        # the next tick and don't re-process the current one.
+        self.tick_counter += 1
+        # R5-I1 fix: track whether state.json commit point was reached.
+        # If exception occurs AFTER commit, tick_counter should NOT be rolled back.
+        self._state_committed = False
+
+        state_dir = self.config.state_dir
+        os.makedirs(state_dir, exist_ok=True)
+
+        # Shadow pools
+        shadow = getattr(self, 'shadow', None)
+        if shadow is not None:
+            shadow_pools = {
+                "spot_funds": shadow.spot_funds_shadow,
+                "perp_funds": shadow.perp_funds_shadow,
+                "spot_deployed": shadow.spot_deployed,
+                "perp_deployed": shadow.perp_deployed,
+            }
+        else:
+            shadow_pools = {
+                "spot_funds": 0.0, "perp_funds": 0.0,
+                "spot_deployed": 0.0, "perp_deployed": 0.0,
+            }
+
+        # QM-C2 fix: Write trades.jsonl BEFORE state.json so that on
+        # crash between the two writes, recovery truncation removes the
+        # orphaned trades (they have tick > restored tick_counter).
+        trades_path = os.path.join(state_dir, "trades.jsonl")
+        new_closed = []
+        for st in self._get_all_states():
+            new_closed.extend(st.position_manager.closed_trades)
+        # R4-I1 fix: track flushed trades by position_id to prevent duplicates
+        # on partial write failures. Previously used a count which could re-write
+        # trades if the count wasn't updated due to a write exception.
+        if not hasattr(self, '_flushed_position_ids'):
+            self._flushed_position_ids = set()
+        unflushed = [t for t in new_closed if t.position_id not in self._flushed_position_ids]
+        # R7-I1 fix: stage position_ids written this tick. Only promote to
+        # _flushed_position_ids after state.json commit, so failed ticks don't
+        # permanently mark trades as flushed when the state was never committed.
+        self._tick_staged_ids = set()
+        if unflushed:
+            with open(trades_path, "a") as f:
+                for trade in unflushed:
+                    f.write(json.dumps(_closed_trade_to_dict(trade, tick=self.tick_counter)) + "\n")
+                f.flush()
+                os.fsync(f.fileno())  # R3-C1 fix: fsync before state.json commit
+            self._tick_staged_ids = {t.position_id for t in unflushed}
+
+        # R5-I2 fix: write equity.csv BEFORE state.json commit point
+        # so crash between trades and state doesn't create permanent equity gaps
+        # R6-I4 fix: skip if this tick was already written (retry after failed state.json)
+        last_equity_tick = getattr(self, '_last_equity_tick', -1)
+        if self.tick_counter != last_equity_tick:
+            equity_path = os.path.join(state_dir, "equity.csv")
+            all_states = self._get_all_states()
+            free_cap = sum(s.free_capital for s in all_states) if all_states else 0.0
+            append_equity(
+                equity_path,
+                timestamp=timestamp,
+                tick=self.tick_counter,
+                portfolio_equity=portfolio_eq,
+                mark_to_market_equity=mtm_eq,
+                free_capital=free_cap,
+                open_positions=self._aggregate_open_positions(),
+            )
+            self._last_equity_tick = self.tick_counter
+
+        # Write state.json — handle both pool and independent modes
+        # This is the "commit point": once state.json is atomically written,
+        # the tick is considered complete.
+        state_path = os.path.join(state_dir, "state.json")
+        armed_snapshot = self._serialize_armed_tokens()
+        filled_windows_snapshot = self._serialize_filled_4h_windows()
+        if self.state is not None:
+            # Pool mode: single shared state
+            atomic_write_state(
+                self.state,
+                self.tick_counter,
+                timestamp,
+                state_path,
+                shadow_pools=shadow_pools,
+                last_known_prices=dict(self._last_known_prices),
+                last_known_regimes=dict(self._last_known_regimes),
+                armed_tokens=armed_snapshot,
+                filled_4h_windows=filled_windows_snapshot,
+            )
+        else:
+            # Independent mode: serialize all strategy states (C4 fix)
+            from v5.paper_state import serialize_engine_state
+            data = serialize_engine_state(
+                dict(self.strategy_states), self.tick_counter, timestamp,
+                mode="independent",
+                shadow_pools=shadow_pools,
+                last_known_prices=dict(self._last_known_prices),
+                last_known_regimes=dict(self._last_known_regimes),
+                armed_tokens=armed_snapshot,
+                filled_4h_windows=filled_windows_snapshot,
+            )
+            import tempfile as _tmpfile
+            fd, tmp = _tmpfile.mkstemp(dir=state_dir, suffix=".tmp")
+            os.close(fd)
+            with open(tmp, "w") as f:
+                json.dump(data, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())  # QM-I3 fix: fsync for independent mode
+            os.rename(tmp, state_path)
+
+        # R5-I1 fix: mark commit point reached — tick_counter should NOT
+        # be rolled back if anything after this point throws
+        self._state_committed = True
+
+        # R7-I1 fix: promote staged position_ids to flushed now that state
+        # is committed. If state.json commit failed, these would NOT be promoted,
+        # allowing retry to re-write the trades (duplicates cleaned by truncation).
+        self._flushed_position_ids.update(self._tick_staged_ids)
+        self._tick_staged_ids = set()
+
+        # R4-I3 fix: update last_timestamp so dashboard stale-data checks
+        # use the latest processed tick's timestamp, not the restored one
+        self.last_timestamp = timestamp
+
+        # Free large tick-scoped data structures before dashboard generation.
+        # all_signals + bar_maps hold ~300-500MB of NumPy arrays that are no
+        # longer needed after persistence.  Explicit del + gc.collect() reclaims
+        # memory immediately rather than waiting for Python's GC cycle.
+        del all_signals, bar_maps
+        import gc as _gc
+        _gc.collect()
+
+        # AC26: Trigger dashboard generation after persistence
+        self._trigger_dashboard()
+
+    def _trigger_dashboard(self) -> None:
+        """Trigger dashboard generation after each tick (AC26).
+
+        If config.dashboard_push is True, also pushes the dashboard.
+        Dashboard errors are logged but non-fatal (AC27).
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        try:
+            if self.config.dashboard_push:
+                self._push_dashboard()
+        except Exception as e:
+            logger.warning("Dashboard generation failed (non-fatal): %s", e)
+
+    def _push_dashboard(self) -> None:
+        """Push dashboard to deployment target (AC27).
+
+        Calls tools/generate_dashboard_v2.py with --state-dir and --push.
+        Uses config_path for --config so dashboard picks up pool_name and strategy info.
+        """
+        import subprocess
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        script = os.path.join(project_root, "tools", "generate_dashboard_v2.py")
+
+        cmd = [
+            sys.executable, script,
+            "--state-dir", self.config.state_dir,
+            "--push",
+        ]
+        if self.config.config_path:
+            cmd.extend(["--config", self.config.config_path])
+
+        subprocess.run(cmd, cwd=project_root, timeout=120, check=False,
+                       capture_output=True, text=True)
+
+    def tick(self) -> TickResult:
+        """Process a single tick with error handling.
+
+        Catches invariant violations and performs emergency close if needed.
+        """
+        t0 = time.time()
+        result = TickResult(tick_counter=self.tick_counter)
+        self._alerts.clear()
+        # R4-I4 fix: save tick_counter before _tick_internal so we can roll back
+        # if it throws after incrementing but before persisting
+        saved_tick_counter = self.tick_counter
+
+        try:
+            open_before = self._aggregate_open_positions()
+            closed_before = self._aggregate_closed_trades()
+            self._tick_internal()
+            open_after = self._aggregate_open_positions()
+            closed_after = self._aggregate_closed_trades()
+
+            result.exits = closed_after - closed_before
+            result.entries = max(0, open_after - open_before + result.exits)
+            result.open_positions = open_after
+            result.portfolio_equity = self._aggregate_portfolio_equity()
+            result.mark_to_market_equity = self._compute_mark_to_market()
+            result.alerts = list(self._alerts)
+            # R3-I4 fix: update tick_counter AFTER _tick_internal increments it
+            # so heartbeat matches state.json/trades.jsonl/equity.csv
+            result.tick_counter = self.tick_counter
+
+        except Exception as e:
+            error_msg = str(e)
+            # Only emergency-close for actual invariant violations
+            all_states = self._get_all_states()
+            free_cap = min((s.free_capital for s in all_states), default=0.0)
+            if "invariant" in error_msg.lower() or free_cap < -1.0:
+                self._emergency_close_all()
+                # R4-C1 fix: persist state after emergency close so closures
+                # survive process restart (prevents infinite restart loop)
+                try:
+                    self._persist_emergency_state()
+                except Exception as persist_err:
+                    import logging
+                    logging.getLogger(__name__).error(
+                        "Failed to persist emergency close state: %s", persist_err
+                    )
+                result.error = f"Invariant violation: {error_msg}"
+            else:
+                # Transient errors (network, data, etc.) — log but don't close positions
+                result.error = f"Tick error (non-invariant): {error_msg}"
+                # R4-I4 + R5-I1 fix: only roll back tick_counter if state.json
+                # was NOT yet committed. If committed, the tick is on disk and
+                # rolling back would create a divergence.
+                if not getattr(self, '_state_committed', False):
+                    self.tick_counter = saved_tick_counter
+
+            result.open_positions = self._aggregate_open_positions()
+            result.portfolio_equity = self._aggregate_portfolio_equity()
+            result.mark_to_market_equity = self._compute_mark_to_market()
+            result.alerts = list(self._alerts)
+            # R3-I4 fix: sync tick_counter even on error path
+            result.tick_counter = self.tick_counter
+
+        # AC23: Peak RSS memory
+        ru = resource.getrusage(resource.RUSAGE_SELF)
+        result.peak_rss_mb = ru.ru_maxrss / 1024.0  # Linux reports in KB
+
+        # AC24: Processing time
+        result.processing_time_s = time.time() - t0
+
+        # AC24: Timestamp
+        result.timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+        # AC25: Write heartbeat.json
+        self._write_heartbeat(result)
+
+        return result
+
+    def _write_heartbeat(self, result: TickResult) -> None:
+        """Write heartbeat.json to state_dir after each tick (AC25)."""
+        state_dir = self.config.state_dir
+        os.makedirs(state_dir, exist_ok=True)
+        heartbeat = {
+            "timestamp": result.timestamp,
+            "tick_counter": int(result.tick_counter),
+            "open_positions": int(result.open_positions),
+            "portfolio_equity": float(result.portfolio_equity),
+            "mark_to_market_equity": float(result.mark_to_market_equity),
+            "processing_time_s": float(result.processing_time_s),
+            "errors": result.error,
+        }
+        heartbeat_path = os.path.join(state_dir, "heartbeat.json")
+        # R3-I5 fix: atomic write to avoid partial reads by monitoring
+        import tempfile as _tmpfile
+        fd, tmp = _tmpfile.mkstemp(dir=state_dir, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(heartbeat, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.rename(tmp, heartbeat_path)
+        except Exception:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+
+    # ------------------------------------------------------------------
+    # Live data integration (Task 7)
+    # ------------------------------------------------------------------
+
+    def _fetch_with_retry(self):
+        """Fetch data with exponential backoff retry (AC10d).
+
+        Returns fetched data on success, None on failure after all retries.
+        """
+        for attempt in range(3):
+            try:
+                result = self.fetcher.fetch_ohlcv()
+                self._consecutive_failures = 0
+                return result
+            except Exception:
+                pass
+
+            # Backoff between retries (but don't sleep for the last attempt)
+            if attempt < 2:
+                time.sleep(self.BACKOFF[attempt] * 0.001)  # minimal delay in tests
+
+        # All retries failed
+        self._consecutive_failures += 1
+
+        if self._consecutive_failures >= 3:
+            self._alerts.append({
+                "type": "consecutive_failures",
+                "severity": "critical",
+                "message": f"CRITICAL: {self._consecutive_failures} consecutive tick failures",
+            })
+
+        return None
+
+    def _catch_up(
+        self,
+        n_missed_bars: int,
+        bar_timestamps: list[str] | None = None,
+    ) -> None:
+        """Process missed bars sequentially during catch-up (AC10d).
+
+        Stops on first error to prevent cascading issues.
+        """
+        for i in range(n_missed_bars):
+            ts = bar_timestamps[i] if bar_timestamps and i < len(bar_timestamps) else None
+            try:
+                result = self._tick_internal(bar_timestamp=ts)
+                # R3-I1 fix: check return value if _tick_internal returns a TickResult
+                if result is not None and hasattr(result, 'error') and result.error is not None:
+                    self._alerts.append(
+                        f"Catch-up stopped at bar {i+1}/{n_missed_bars}: {result.error}"
+                    )
+                    break
+            except Exception as e:
+                # R3-I1 fix: also catch exceptions to stop cascading failures
+                self._alerts.append(
+                    f"Catch-up stopped at bar {i+1}/{n_missed_bars}: {e}"
+                )
+                break
+
+    # ------------------------------------------------------------------
+    # Dynamic weight adjustment
+    # ------------------------------------------------------------------
+
+    def _apply_dynamic_weights(self, all_signals: dict, bar_maps: dict) -> None:
+        """Adjust strategy weights based on current BTC regime (if enabled).
+
+        Reads BTC regime from the latest signal data, then updates each
+        strategy's spec.weight using the DynamicWeightAllocator.
+        """
+        if not getattr(self.config, 'dynamic_weights', False):
+            return
+
+        # Lazy-initialize the allocator on first use
+        if self._dynamic_allocator is None:
+            from v5.dynamic_weights import DynamicWeightAllocator
+            allocator = DynamicWeightAllocator.from_config(
+                self.config,
+                smoothing_alpha=getattr(self.config, 'dynamic_weights_smoothing', 0.3),
+            )
+            if allocator is None:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "Dynamic weights enabled but allocator could not be created "
+                    "(missing heatmap?). Falling back to static weights."
+                )
+                # Disable to avoid re-trying every tick
+                self.config.dynamic_weights = False
+                return
+            self._dynamic_allocator = allocator
+
+        # Get current BTC regime from signals or last known
+        btc_regime = self._last_known_regimes.get('BTC', 3)  # Default: RANGE
+
+        # Also try to read from current tick's signals (more up-to-date)
+        for sid, token_sigs in all_signals.items():
+            if 'BTC' in token_sigs:
+                sig = token_sigs['BTC']
+                bm = bar_maps.get('BTC')
+                if bm is not None and self.tick_counter < len(bm):
+                    local_bar = bm[self.tick_counter]
+                    if 0 <= local_bar < sig.n_bars and hasattr(sig, 'regime') and sig.regime is not None:
+                        btc_regime = int(sig.regime[local_bar])
+                break  # Only need BTC from one strategy
+
+        # Compute dynamic weights
+        new_weights = self._dynamic_allocator.get_weights(btc_regime)
+
+        # Apply to strategy specs
+        for spec in self.config.strategies:
+            if spec.strategy_id in new_weights:
+                spec.weight = new_weights[spec.strategy_id]
+
+        # Log (first tick + regime changes)
+        self._dynamic_allocator.log_weights(btc_regime, new_weights)
+
+    # ------------------------------------------------------------------
+    # Price tracking
+    # ------------------------------------------------------------------
+
+    def _update_last_known_prices(
+        self,
+        all_signals: dict,
+        bar_maps: dict,
+    ) -> None:
+        """Track last known prices and regimes for each token."""
+        for sid, token_sigs in all_signals.items():
+            for token, sig in token_sigs.items():
+                bm = bar_maps.get(token)
+                if bm is not None and self.tick_counter < len(bm):
+                    local_bar = bm[self.tick_counter]
+                    if local_bar >= 0 and local_bar < sig.n_bars:
+                        self._last_known_prices[token] = float(sig.close[local_bar])
+                        if hasattr(sig, 'regime') and sig.regime is not None:
+                            self._last_known_regimes[token] = int(sig.regime[local_bar])
+
+    # ------------------------------------------------------------------
+    # Quick price refresh — update MTM without running a full tick
+    # ------------------------------------------------------------------
+
+    def update_prices(self, exchange) -> dict:
+        """Fetch live prices for open positions, update MTM and heartbeat.
+
+        Does NOT run signals, entries, exits, or increment tick_counter.
+        Returns dict with updated MTM info for logging.
+        """
+        import time as _time
+        from datetime import datetime, timezone
+
+        t0 = _time.perf_counter()
+
+        # Collect tokens with open positions
+        tokens_needed: set[str] = set()
+        for st in self._get_all_states():
+            for pos in st.position_manager.open_positions:
+                tokens_needed.add(pos.token)
+
+        if not tokens_needed:
+            return {"tokens": 0, "mtm": self._compute_mark_to_market()}
+
+        # Fetch live prices via ccxt tickers
+        updated = 0
+        for token in tokens_needed:
+            try:
+                ticker = exchange.fetch_ticker(f"{token}/USDT")
+                price = ticker.get("last")
+                if price:
+                    self._last_known_prices[token] = float(price)
+                    updated += 1
+            except Exception:
+                pass  # Keep last known price
+
+        mtm = self._compute_mark_to_market()
+        elapsed = _time.perf_counter() - t0
+
+        # Update heartbeat with fresh MTM (no tick_counter change)
+        state_dir = self.config.state_dir
+        os.makedirs(state_dir, exist_ok=True)
+        heartbeat = {
+            "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "tick_counter": int(self.tick_counter),
+            "open_positions": int(self._aggregate_open_positions()),
+            "portfolio_equity": float(self._aggregate_portfolio_equity()),
+            "mark_to_market_equity": float(mtm),
+            "processing_time_s": float(elapsed),
+            "errors": None,
+            "price_refresh": True,
+        }
+        heartbeat_path = os.path.join(state_dir, "heartbeat.json")
+        import tempfile as _tmpfile
+        fd, tmp = _tmpfile.mkstemp(dir=state_dir, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(heartbeat, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.rename(tmp, heartbeat_path)
+        except Exception:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+
+        # Re-persist state.json so dashboard picks up fresh last_known_prices
+        if updated > 0:
+            refresh_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            armed_snapshot = self._serialize_armed_tokens()
+            filled_windows_snapshot = self._serialize_filled_4h_windows()
+            state_path = os.path.join(state_dir, "state.json")
+            if self.state is not None:
+                atomic_write_state(
+                    self.state,
+                    self.tick_counter,
+                    refresh_ts,
+                    state_path,
+                    last_known_prices=dict(self._last_known_prices),
+                    last_known_regimes=dict(self._last_known_regimes),
+                    armed_tokens=armed_snapshot,
+                    filled_4h_windows=filled_windows_snapshot,
+                )
+            else:
+                from v5.paper_state import serialize_engine_state
+                data = serialize_engine_state(
+                    dict(self.strategy_states), self.tick_counter, refresh_ts,
+                    mode="independent",
+                    last_known_prices=dict(self._last_known_prices),
+                    last_known_regimes=dict(self._last_known_regimes),
+                    armed_tokens=armed_snapshot,
+                    filled_4h_windows=filled_windows_snapshot,
+                )
+                import tempfile as _tmpfile2
+                fd2, tmp2 = _tmpfile2.mkstemp(dir=state_dir, suffix=".tmp")
+                os.close(fd2)
+                with open(tmp2, "w") as f2:
+                    json.dump(data, f2, indent=2)
+                    f2.flush()
+                    os.fsync(f2.fileno())
+                os.rename(tmp2, state_path)
+
+        return {"tokens": updated, "mtm": mtm, "elapsed": elapsed}
+
+    # ------------------------------------------------------------------
+    # process_tick — deterministic tick for testing (Task 12)
+    # ------------------------------------------------------------------
+
+    def _aggregate_open_positions(self) -> int:
+        """Total open positions across all states (works in both modes)."""
+        if self.config.mode == "independent":
+            return sum(s.position_manager.total_open() for s in self.strategy_states.values())
+        return self.state.position_manager.total_open()
+
+    def _aggregate_portfolio_equity(self) -> float:
+        """Total portfolio equity across all states (works in both modes)."""
+        if self.config.mode == "independent":
+            return sum(s.portfolio_equity for s in self.strategy_states.values())
+        return self.state.portfolio_equity
+
+    def _aggregate_closed_trades(self) -> int:
+        """Total closed trades across all states (works in both modes)."""
+        if self.config.mode == "independent":
+            return sum(len(s.position_manager.closed_trades) for s in self.strategy_states.values())
+        return len(self.state.position_manager.closed_trades)
+
+    def _get_all_entry_fees(self) -> dict:
+        """Collect entry fees for all open positions across states."""
+        fees = {}
+        for st in self._get_all_states():
+            fees.update(st._entry_fees_by_pos)
+        return fees
+
+    def _compute_mark_to_market(self) -> float:
+        """Compute mark-to-market equity: portfolio_equity + sum of unrealized P&L.
+
+        Unrealized P&L = quantity * (current_price - entry_price) for each open position.
+        """
+        base_equity = self._aggregate_portfolio_equity()
+        unrealized_pnl = 0.0
+        for st in self._get_all_states():
+            for pos in st.position_manager.open_positions:
+                current_price = self._last_known_prices.get(pos.token, pos.entry_price)
+                unrealized_pnl += pos.quantity * (current_price - pos.entry_price)
+        return base_equity + unrealized_pnl
+
+    def process_tick(
+        self,
+        all_signals: dict,
+        specs: dict | None = None,
+    ) -> TickResult:
+        """Process a single tick with provided signals (for testing/determinism).
+
+        Unlike tick() which fetches data internally, this accepts pre-computed signals.
+        Uses per-bar RNG seeding: RandomState(seed + tick_counter).
+        """
+        if specs is None:
+            specs = {s.strategy_id: s for s in self.config.strategies}
+
+        bar_maps = self._build_bar_maps(all_signals, self.tick_counter)
+        self._tick_internal_with_signals(all_signals, specs, bar_maps)
+
+        result = TickResult(
+            tick_counter=self.tick_counter,
+            open_positions=self._aggregate_open_positions(),
+            portfolio_equity=self._aggregate_portfolio_equity(),
+        )
+        self.tick_counter += 1
+        return result
+
+    # ------------------------------------------------------------------
+    # Dashboard SIMS output (Task 10)
+    # ------------------------------------------------------------------
+
+    def to_dashboard_sim(self, price_overrides: dict[str, float] | None = None) -> dict:
+        """Produce SIMS JSON schema for dashboard consumption (AC11b, AC12, AC26).
+
+        Args:
+            price_overrides: Optional live prices to merge on top of _last_known_prices.
+                Used by the dashboard heartbeat to overlay WebSocket prices without
+                mutating engine state (thread-safe).
+        """
+        from datetime import datetime, timezone, timedelta
+
+        config = self.config
+        pool_name = config.pool_name or config.strategies[0].strategy_id if config.strategies else "default"
+
+        # Aggregate across all states (works in both modes)
+        all_closed_trades = []
+        for st in self._get_all_states():
+            all_closed_trades.extend(st.position_manager.closed_trades)
+
+        # Build strategy info
+        def _exit_res_label(val: int) -> str:
+            if val <= 0: return "hourly"
+            return f"{val}min"
+
+        if config.mode == "pool" and config.pool_name:
+            strategies = [{
+                "id": config.pool_name,
+                "name": config.pool_name,
+                "weight": sum(s.weight for s in config.strategies),
+                "final_equity": self._aggregate_portfolio_equity(),
+                "trade_count": len(all_closed_trades),
+                "open_positions": self._aggregate_open_positions(),
+                "strategies": [s.strategy_id for s in config.strategies],
+                "bar_resolution": _exit_res_label(self._effective_bar_resolution),
+            }]
+        else:
+            strategies = [{
+                "id": s.strategy_id,
+                "name": s.strategy_id,
+                "weight": s.weight,
+                "bar_resolution": _exit_res_label(s.bar_resolution),
+            } for s in config.strategies]
+
+        # Build all_trades (closed + open) — raw data, no consolidation
+        all_trades = []
+        for t in all_closed_trades:
+            all_trades.append({
+                "token": t.token,
+                "strategy": t.strategy_id,
+                "market_type": "perp" if t.is_perp else "spot",
+                "direction": t.direction,
+                "pnl": t.pnl,
+                "exit_reason": t.exit_reason,
+                "signal": {
+                    "entry_bar": t.entry_bar,
+                    "exit_bar": t.exit_bar,
+                    "entry_price": t.entry_price,
+                    "exit_price": t.exit_price,
+                    "hold_bars": t.hold_bars,
+                },
+                "entry_price": t.entry_price,
+                "exit_price": t.exit_price,
+                "margin_usd": t.margin_usd,
+                "hold_bars": t.hold_bars,
+                "funding_cost": t.funding_cost,
+                "entry_fee": t.entry_fee,
+                "exit_fee": t.exit_fee,
+                "entry_timestamp": t.entry_timestamp,
+                "exit_timestamp": t.exit_timestamp,
+            })
+
+        if strategies and "trade_count" in strategies[0]:
+            strategies[0]["trade_count"] = len(all_trades)
+
+        # AC28: Include open positions with status="open"
+        last_prices = dict(getattr(self, '_last_known_prices', {}))
+        if price_overrides:
+            last_prices.update(price_overrides)
+        last_regimes = dict(getattr(self, '_last_known_regimes', {}))
+        regime_names = {0: "CRISIS", 1: "QUIET", 2: "UPTREND", 3: "RANGE", 4: "DOWNTREND"}
+        all_entry_fees = self._get_all_entry_fees()
+        for st in self._get_all_states():
+            for pos in st.position_manager.open_positions:
+                current_price = last_prices.get(pos.token, pos.entry_price)
+                raw_unrealized = pos.quantity * (current_price - pos.entry_price)
+                entry_fee = all_entry_fees.get(pos.position_id, 0.0)
+                # Net unrealized: deduct known costs (entry fee + accrued funding)
+                unrealized_pnl = raw_unrealized - entry_fee - pos.cumulative_funding
+                # Stop distance
+                stop_price = pos.stop_price
+                pct_to_stop = 0
+                if stop_price and current_price and stop_price > 0:
+                    if pos.direction == 1:
+                        pct_to_stop = (current_price - stop_price) / current_price * 100
+                    else:
+                        pct_to_stop = (stop_price - current_price) / current_price * 100
+                # Clamp nonsensical stops (negative, or >200% away = effectively no stop)
+                if stop_price <= 0 or pct_to_stop > 200:
+                    stop_price = 0
+                    pct_to_stop = 0
+                # Regime
+                regime_id = last_regimes.get(pos.token, -1)
+                regime_name = regime_names.get(regime_id, "N/A")
+                hold_bars = self.tick_counter - pos.entry_bar
+                all_trades.append({
+                    "token": pos.token,
+                    "strategy": pos.strategy_id,
+                    "market_type": "perp" if pos.is_perp else "spot",
+                    "direction": pos.direction,
+                    "status": "open",
+                    "current_price": current_price,
+                    "unrealized_pnl": unrealized_pnl,
+                    "entry_price": pos.entry_price,
+                    "margin_usd": pos.margin_usd,
+                    "entry_bar": pos.entry_bar,
+                    "cumulative_funding": pos.cumulative_funding,
+                    "entry_fee": entry_fee,
+                    "hold_bars": hold_bars,
+                    "stop_price": stop_price,
+                    "no_stop_bars": pos.no_stop_bars,
+                    "stop_active": hold_bars >= pos.no_stop_bars or pos.convex_exit,
+                    "pct_to_stop": round(pct_to_stop, 2),
+                    "regime": regime_name,
+                    "entry_timestamp": pos.entry_timestamp,
+                    "leverage": pos.leverage,
+                })
+
+        # Thread-safe snapshot of armed orders + expired orders + skip reasons
+        with self._armed_tokens_lock:
+            armed_snap = dict(self._armed_tokens)
+            expired_snap = list(self._last_expired_orders)
+            skip_reasons_snap = dict(self._last_armed_skip_reasons)
+
+        armed_orders = []
+        for (sid, token), cand in armed_snap.items():
+            current_price = last_prices.get(token, cand.get("close_val", 0))
+            level = cand.get("level", 0)
+            direction = cand.get("direction", 1)
+            # Guard against invalid prices/levels
+            if level <= 0 or current_price <= 0:
+                pct_to_fill = 0.0
+                crossed = False
+            elif direction == 1:
+                pct_to_fill = (level - current_price) / current_price * 100
+                crossed = pct_to_fill < 0
+                pct_to_fill = max(pct_to_fill, 0.0)
+            else:
+                pct_to_fill = (current_price - level) / current_price * 100
+                crossed = pct_to_fill < 0
+                pct_to_fill = max(pct_to_fill, 0.0)
+            armed_orders.append({
+                "strategy": sid,
+                "token": token,
+                "direction": direction,
+                "level": level,
+                "current_price": current_price,
+                "pct_to_fill": round(pct_to_fill, 2),
+                "crossed": crossed,
+                "is_perp": cand.get("is_perp", True),
+                "armed_at": cand.get("limit_placed_at", ""),
+                "tick_counter": cand.get("tick_counter", 0),
+                "last_skip": skip_reasons_snap.get((sid, token), "waiting"),
+            })
+
+        # Equity history
+        equity_history = getattr(self, 'equity_history', [])
+
+        # Shadow pools
+        shadow = getattr(self, 'shadow', None)
+        if shadow is not None:
+            shadow_pools = {
+                "spot_funds": shadow.spot_funds_shadow,
+                "perp_funds": shadow.perp_funds_shadow,
+                "spot_deployed": shadow.spot_deployed,
+                "perp_deployed": shadow.perp_deployed,
+                "imbalance_pct": abs(shadow.spot_funds_shadow - shadow.perp_funds_shadow) / max(
+                    shadow.spot_funds_shadow + shadow.perp_funds_shadow, 1.0
+                ) * 100.0,
+                "blocked_entries_count": sum(
+                    r.get("would_have_blocked_entries", 0)
+                    for r in getattr(shadow, 'rebalance_log', [])
+                ),
+            }
+            rebalance_history = list(getattr(shadow, 'rebalance_log', []))
+        else:
+            shadow_pools = {
+                "spot_funds": 0.0, "perp_funds": 0.0,
+                "spot_deployed": 0.0, "perp_deployed": 0.0,
+                "imbalance_pct": 0.0, "blocked_entries_count": 0,
+            }
+            rebalance_history = []
+
+        # Stale data check
+        last_ts = getattr(self, 'last_timestamp', None)
+        is_stale = False
+        if last_ts:
+            try:
+                ts_dt = datetime.strptime(last_ts, "%Y-%m-%dT%H:%M:%SZ").replace(
+                    tzinfo=timezone.utc
+                )
+                age = datetime.now(timezone.utc) - ts_dt
+                is_stale = age > timedelta(hours=2)
+            except (ValueError, TypeError):
+                is_stale = True
+
+        # Aggregate fees/funding/pnl across all states
+        agg_fees = 0.0
+        agg_funding = 0.0
+        agg_realized_pnl = 0.0
+        for st in self._get_all_states():
+            agg_fees += st.total_fees
+            agg_funding += st.total_funding
+            agg_realized_pnl += st.realized_pnl
+
+        return {
+            "id": pool_name,
+            "name": pool_name,
+            "capital": config.capital,
+            "strategies": strategies,
+            "all_trades": all_trades,
+            "equity_history": equity_history,
+            "shadow_pools": shadow_pools,
+            "rebalance_history": rebalance_history,
+            "last_updated": last_ts or "",
+            "is_stale": is_stale,
+            "tick_counter": self.tick_counter,
+            "portfolio_equity": self._aggregate_portfolio_equity(),
+            "open_positions": self._aggregate_open_positions(),
+            "total_fees": agg_fees,
+            "total_funding": agg_funding,
+            "realized_pnl": agg_realized_pnl,
+            "armed_orders": armed_orders,
+            "expired_orders": expired_snap,
+        }
+
+    # ------------------------------------------------------------------
+    # Reconciliation (Task 11)
+    # ------------------------------------------------------------------
+
+    def reconcile(
+        self,
+        paper_trades: list,
+        backtest_trades: list,
+        start_date: str,
+        end_date: str,
+    ) -> "ReconciliationReport":
+        """Compare paper trades vs backtest trades, returning divergences (AC20)."""
+        divergences = []
+
+        # Index trades by (token, strategy_id, entry_bar, leg) — leg prevents
+        # combined strategy primary/secondary from overwriting each other
+        paper_by_key = {}
+        for t in paper_trades:
+            key = (t.token, t.strategy_id, t.entry_bar, getattr(t, 'leg', 'primary'))
+            paper_by_key[key] = t
+
+        backtest_by_key = {}
+        for t in backtest_trades:
+            key = (t.token, t.strategy_id, t.entry_bar, getattr(t, 'leg', 'primary'))
+            backtest_by_key[key] = t
+
+        all_keys = set(paper_by_key.keys()) | set(backtest_by_key.keys())
+
+        for key in all_keys:
+            token, sid, entry_bar, _leg = key
+            p_trade = paper_by_key.get(key)
+            b_trade = backtest_by_key.get(key)
+
+            if p_trade and not b_trade:
+                divergences.append({
+                    "type": "entry_mismatch",
+                    "field": "entry",
+                    "token": token,
+                    "strategy_id": sid,
+                    "entry_bar": entry_bar,
+                    "paper_value": "present",
+                    "backtest_value": "absent",
+                })
+            elif b_trade and not p_trade:
+                divergences.append({
+                    "type": "entry_mismatch",
+                    "field": "entry",
+                    "token": token,
+                    "strategy_id": sid,
+                    "entry_bar": entry_bar,
+                    "paper_value": "absent",
+                    "backtest_value": "present",
+                })
+            else:
+                # Both present — compare fields
+                if p_trade.exit_bar != b_trade.exit_bar:
+                    divergences.append({
+                        "type": "exit_mismatch",
+                        "field": "exit_bar",
+                        "token": token,
+                        "strategy_id": sid,
+                        "entry_bar": entry_bar,
+                        "paper_value": p_trade.exit_bar,
+                        "backtest_value": b_trade.exit_bar,
+                    })
+
+                if p_trade.exit_reason != b_trade.exit_reason:
+                    divergences.append({
+                        "type": "exit_mismatch",
+                        "field": "exit_reason",
+                        "token": token,
+                        "strategy_id": sid,
+                        "entry_bar": entry_bar,
+                        "paper_value": p_trade.exit_reason,
+                        "backtest_value": b_trade.exit_reason,
+                    })
+
+                if abs(p_trade.pnl - b_trade.pnl) > 0.01:
+                    divergences.append({
+                        "type": "pnl_mismatch",
+                        "field": "pnl",
+                        "token": token,
+                        "strategy_id": sid,
+                        "entry_bar": entry_bar,
+                        "paper_value": p_trade.pnl,
+                        "backtest_value": b_trade.pnl,
+                        "difference": abs(p_trade.pnl - b_trade.pnl),
+                    })
+
+        return ReconciliationReport(
+            start_date=start_date,
+            end_date=end_date,
+            divergences=divergences,
+            summary={
+                "total_divergences": len(divergences),
+                "paper_trades": len(paper_trades),
+                "backtest_trades": len(backtest_trades),
+            },
+        )
+
+
+@dataclass
+class ReconciliationReport:
+    """Result of reconciling paper trades vs backtest trades (AC20)."""
+    start_date: str
+    end_date: str
+    divergences: list = field(default_factory=list)
+    summary: dict = field(default_factory=dict)
+
+
+# ---------------------------------------------------------------------------
+# AlertManager — structured alerts, heartbeat, and logging (Task 9)
+# ---------------------------------------------------------------------------
+
+class AlertManager:
+    """Manages structured alerts, heartbeat file, and logging (AC14, AC18, AC19)."""
+
+    def __init__(
+        self,
+        state_dir: str,
+        drawdown_alert_pct: float = 5.0,
+        webhook_url: str = "",
+    ):
+        self.state_dir = state_dir
+        self.drawdown_alert_pct = drawdown_alert_pct
+        self.webhook_url = webhook_url
+
+        self._pending_alerts: list[dict] = []
+        self._peak_equity: float = 0.0
+        self._drawdown_alert_fired: bool = False
+        self.consecutive_failures: int = 0
+
+    # --- Alert accessors ---
+
+    def get_pending_alerts(self) -> list[dict]:
+        """Return and clear pending alerts."""
+        alerts = list(self._pending_alerts)
+        self._pending_alerts = []
+        return alerts
+
+    # --- Position alerts ---
+
+    def on_position_open(
+        self,
+        token: str,
+        strategy_id: str,
+        direction: int,
+        margin_usd: float,
+        entry_price: float,
+        leverage: float,
+        timestamp: str,
+    ) -> None:
+        """Record a position open alert."""
+        side = "LONG" if direction == 1 else "SHORT"
+        self._pending_alerts.append({
+            "type": "position_open",
+            "severity": "info",
+            "token": token,
+            "strategy_id": strategy_id,
+            "direction": direction,
+            "margin_usd": margin_usd,
+            "entry_price": entry_price,
+            "leverage": leverage,
+            "timestamp": timestamp,
+            "message": f"{side} {token} opened: ${margin_usd:.0f} @ ${entry_price:.2f} ({strategy_id})",
+        })
+
+    def on_position_close(
+        self,
+        token: str,
+        strategy_id: str,
+        direction: int,
+        pnl: float,
+        exit_reason: str,
+        hold_bars: int,
+        timestamp: str,
+    ) -> None:
+        """Record a position close alert."""
+        self._pending_alerts.append({
+            "type": "position_close",
+            "severity": "info",
+            "token": token,
+            "strategy_id": strategy_id,
+            "direction": direction,
+            "pnl": pnl,
+            "exit_reason": exit_reason,
+            "hold_bars": hold_bars,
+            "timestamp": timestamp,
+            "message": f"{token} closed ({exit_reason}): PnL ${pnl:.2f}, held {hold_bars}h",
+        })
+
+    # --- Drawdown alerts ---
+
+    def update_peak_equity(self, equity: float) -> None:
+        """Update peak equity watermark."""
+        if equity > self._peak_equity:
+            self._peak_equity = equity
+            self._drawdown_alert_fired = False  # Reset on new high
+
+    def check_drawdown(self, current_equity: float, timestamp: str) -> bool:
+        """Check if drawdown exceeds threshold. Returns True if alert fired."""
+        if self._peak_equity <= 0:
+            return False
+
+        drawdown_pct = (self._peak_equity - current_equity) / self._peak_equity * 100.0
+
+        if drawdown_pct > self.drawdown_alert_pct:
+            if not self._drawdown_alert_fired:
+                self._drawdown_alert_fired = True
+                self._pending_alerts.append({
+                    "type": "drawdown",
+                    "severity": "warning",
+                    "drawdown_pct": drawdown_pct,
+                    "peak_equity": self._peak_equity,
+                    "current_equity": current_equity,
+                    "timestamp": timestamp,
+                    "message": f"Drawdown alert: {drawdown_pct:.1f}% from peak ${self._peak_equity:.0f}",
+                })
+                return True
+            return False  # Suppressed (already fired)
+        else:
+            # Equity recovered above threshold — reset suppression
+            self._drawdown_alert_fired = False
+            return False
+
+    # --- Tick failure tracking ---
+
+    def on_tick_failure(self, error_msg: str, timestamp: str) -> None:
+        """Record a tick failure."""
+        self.consecutive_failures += 1
+        if self.consecutive_failures >= 3:
+            self._pending_alerts.append({
+                "type": "consecutive_failures",
+                "severity": "critical",
+                "consecutive_count": self.consecutive_failures,
+                "timestamp": timestamp,
+                "message": f"CRITICAL: {self.consecutive_failures} consecutive failures: {error_msg}",
+            })
+
+    def on_tick_success(self, timestamp: str) -> None:
+        """Reset consecutive failure counter on success."""
+        self.consecutive_failures = 0
+
+    # --- Delisting alert ---
+
+    def on_delisting(
+        self,
+        token: str,
+        strategy_id: str,
+        position_id: str,
+        last_price: float,
+        timestamp: str,
+    ) -> None:
+        """Record a delisting/data-disappearance alert."""
+        self._pending_alerts.append({
+            "type": "delisting",
+            "severity": "warning",
+            "token": token,
+            "strategy_id": strategy_id,
+            "position_id": position_id,
+            "last_price": last_price,
+            "timestamp": timestamp,
+            "message": f"Token delisted: {token} — position {position_id} force-closed @ ${last_price:.2f}",
+        })
+
+    # --- Heartbeat ---
+
+    def write_heartbeat(
+        self,
+        timestamp: str,
+        last_processed_bar: str,
+        open_positions: int,
+        portfolio_equity: float,
+        errors: list,
+    ) -> None:
+        """Write heartbeat.json atomically (AC18)."""
+        data = {
+            "timestamp": timestamp,
+            "last_processed_bar": last_processed_bar,
+            "open_positions": open_positions,
+            "portfolio_equity": portfolio_equity,
+            "errors": errors,
+        }
+        json_str = json.dumps(data, indent=2)
+        target_path = os.path.join(self.state_dir, "heartbeat.json")
+
+        fd, tmp_path = tempfile.mkstemp(dir=self.state_dir, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w") as f:
+                f.write(json_str)
+                f.flush()
+                os.fsync(f.fileno())
+            os.rename(tmp_path, target_path)
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
+
+    # --- Structured logging ---
+
+    def log_tick(
+        self,
+        timestamp: str,
+        tick: int,
+        entries_attempted: int,
+        entries_accepted: int,
+        entries_rejected: int,
+        rejection_reasons: dict,
+        exits_triggered: int,
+        exit_reasons: dict,
+        equity_snapshot: dict,
+    ) -> None:
+        """Append a structured log entry to daily-rotated JSONL file (AC19)."""
+        log_dir = os.path.join(self.state_dir, "logs")
+        os.makedirs(log_dir, exist_ok=True)
+
+        # Extract date from timestamp for daily rotation
+        date_str = timestamp[:10]  # "YYYY-MM-DD"
+        log_path = os.path.join(log_dir, f"paper_engine_{date_str}.jsonl")
+
+        entry = {
+            "timestamp": timestamp,
+            "tick": tick,
+            "entries_attempted": entries_attempted,
+            "entries_accepted": entries_accepted,
+            "entries_rejected": entries_rejected,
+            "rejection_reasons": rejection_reasons,
+            "exits_triggered": exits_triggered,
+            "exit_reasons": exit_reasons,
+            "equity_snapshot": equity_snapshot,
+        }
+
+        with open(log_path, "a") as f:
+            f.write(json.dumps(entry) + "\n")
+
+
+# Test-expected alias — PaperEngine maps to the full class name.
+PaperEngine = PaperPortfolioEngine
