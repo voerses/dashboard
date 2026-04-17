@@ -71,6 +71,9 @@ def _discover_tokens_for_market(data_dir: str, market: str) -> set[str]:
             if f.endswith(".parquet") and not f.startswith(".") and ".tmp" not in f:
                 if (live_dir / f).stat().st_size > 0:
                     tokens.add(f.replace(".parquet", ""))
+    if market == "spot":
+        from v4.live_fetcher import DELISTED_SPOT
+        tokens -= DELISTED_SPOT
     return tokens
 
 

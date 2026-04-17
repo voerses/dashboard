@@ -19,6 +19,10 @@ logger = logging.getLogger(__name__)
 _HOUR_MS = 3_600_000
 _MINUTE_MS = 60_000
 
+# Spot tokens delisted from Binance — skip backfill to avoid retrying
+# gaps that can never be filled. XMR delisted Feb 2024, LIT delisted Feb 2025.
+DELISTED_SPOT = frozenset({'XMR', 'LIT'})
+
 
 class LiveFetcher:
     """Fetches live OHLCV + funding data and appends to parquet cache."""
@@ -210,6 +214,8 @@ class LiveFetcher:
 
         for token in sorted(tokens):
             for market in markets:
+                if market == "spot" and token in DELISTED_SPOT:
+                    continue
                 if _deadline is not None and time.monotonic() >= _deadline:
                     logger.info("Backfill deadline reached — stopping with %d tokens done", len(results))
                     return results
