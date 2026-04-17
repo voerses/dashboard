@@ -1,6 +1,0 @@
-{
-  "written_by": "subagent",
-  "timestamp": "2026-04-02T14:00:00Z",
-  "test_files": ["tests/test_memory_decoupling.py"],
-  "brief_hash": "1d008e10"
-}
