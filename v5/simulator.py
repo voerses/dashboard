@@ -49,9 +49,13 @@ class RejectionStats:
     # Q7 / AC26: informational counters for M2 scale-dispatch (NOT summed into total)
     entry_scale_downs: int = 0
     entry_scale_downs_by_reason: dict[str, int] = field(default_factory=dict)
+    # M3 / AC22: informational counter for cross-sectional ts-alignment
+    # (tokens lagging >1 bar-period excluded from cross-sectional rank — NOT summed into total)
+    cross_sectional_stale: int = 0
 
     def total(self) -> int:
-        # entry_scale_downs* are INFORMATIONAL (clamps, not rejections) — excluded from total
+        # entry_scale_downs* and cross_sectional_stale are INFORMATIONAL
+        # (clamps/exclusions, not rejections) — excluded from total
         return (self.portfolio_limit + self.strategy_limit + self.min_size +
                 self.direction_zero +
                 self.adv_cap + self.concentration + self.capital)
@@ -67,6 +71,7 @@ class RejectionStats:
             "direction_zero": self.direction_zero,
             "entry_scale_downs": self.entry_scale_downs,
             "entry_scale_downs_by_reason": dict(self.entry_scale_downs_by_reason),
+            "cross_sectional_stale": self.cross_sectional_stale,
             "total": self.total(),
         }
 

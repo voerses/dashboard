@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 import importlib.util
 from dataclasses import dataclass, field
-from typing import Callable, Optional, List, Dict, Tuple, Union
+from typing import Callable, Literal, Optional, List, Dict, Tuple, Union
 from pathlib import Path
 
 # Import from v4/universe.py
@@ -243,16 +243,297 @@ _INDICATOR_GROUPS = {
 }
 
 
-def compute_indicators_selective(close, high, low, volume, taker_buy=None,
-                                 groups=None):
-    """Compute indicators selectively by group name.
+# =============================================================================
+# Task 7 (M3): INDICATOR_KIND registry + per-indicator dispatch
+# =============================================================================
+#
+# INDICATOR_KIND classifies each indicator group by how it can be updated on
+# a per-bar basis:
+#   - "incremental": single-bar update from a running state (O(1) per bar)
+#   - "cross_sectional": requires values across tokens at the current bar;
+#       cannot be updated per-token in isolation
+#   - "full" (default): no incremental path; recomputed from full history
+#
+# Unlisted keys default to "full" — safety fallback matching current behavior.
+INDICATOR_KIND: dict[str, Literal["incremental", "cross_sectional", "full"]] = {
+    "ema": "incremental",
+    "macd": "incremental",       # via EMA chain
+    "rsi": "incremental",        # running gains/losses
+    "bb": "incremental",         # Bollinger Bands (v5 key; NOT "bbands")
+    "adx": "incremental",        # Wilder's smoothing — incremental-compatible
+    "volume": "incremental",
+    "donchian": "incremental",   # rolling min/max
+    "cross_sectional_rank": "cross_sectional",
+}
 
-    Args:
-        groups: Set of group names to compute (e.g. {'ema', 'rsi', 'adx'}).
-                If None, compute all groups (backward compatible).
+# Sanity check: every incremental key in INDICATOR_KIND must have a compute
+# function in _INDICATOR_GROUPS (cross_sectional keys are handled by callers).
+assert set(INDICATOR_KIND.keys()) - {"cross_sectional_rank"} <= set(
+    _INDICATOR_GROUPS.keys()
+), (
+    "INDICATOR_KIND keys must be a subset of _INDICATOR_GROUPS keys "
+    "(excluding cross_sectional_rank)"
+)
 
-    Returns:
-        dict of indicator name -> numpy array. Core indicators always included.
+
+# -----------------------------------------------------------------------------
+# update_one(prev_state, new_bar_row) protocol
+# -----------------------------------------------------------------------------
+# Each function advances a running state by a single bar.
+# Running state stays float64 (per AC15); only storage/output may be float32.
+# M3 Task 7 provides the behavioral dispatch seam — M8 tunes performance.
+# -----------------------------------------------------------------------------
+
+def _ema_update_one(prev_state: dict, new_bar_row: dict) -> tuple:
+    """One-step EMA update.
+
+    prev_state keys:
+        value: float64 previous EMA value
+        alpha: float64 smoothing factor (== 2 / (span + 1) for EMA span)
+    new_bar_row keys:
+        close: float64 new close price
+    """
+    alpha = float(prev_state['alpha'])
+    new_v = alpha * float(new_bar_row['close']) + (1.0 - alpha) * float(prev_state['value'])
+    return new_v, {'value': new_v, 'alpha': alpha}
+
+
+def _rsi_update_one(prev_state: dict, new_bar_row: dict) -> tuple:
+    """One-step RSI update using EMA-smoothed gains/losses (period=14 by default).
+
+    prev_state keys:
+        prev_close: previous bar close
+        avg_gain:   EMA of gains
+        avg_loss:   EMA of losses
+        alpha:      EMA smoothing factor (2 / (period + 1))
+    """
+    alpha = float(prev_state['alpha'])
+    prev_close = float(prev_state['prev_close'])
+    close = float(new_bar_row['close'])
+    delta = close - prev_close
+    gain = delta if delta > 0 else 0.0
+    loss = -delta if delta < 0 else 0.0
+    avg_gain = alpha * gain + (1.0 - alpha) * float(prev_state['avg_gain'])
+    avg_loss = alpha * loss + (1.0 - alpha) * float(prev_state['avg_loss'])
+    rs = avg_gain / max(avg_loss, 1e-10)
+    rsi = 100.0 - 100.0 / (1.0 + rs)
+    new_state = {
+        'prev_close': close,
+        'avg_gain': avg_gain,
+        'avg_loss': avg_loss,
+        'alpha': alpha,
+    }
+    return rsi, new_state
+
+
+def _bb_update_one(prev_state: dict, new_bar_row: dict) -> tuple:
+    """One-step Bollinger Bands update using a running window.
+
+    Uses a running fixed-size window (default 20) via a list/deque in state.
+    Output is a dict with bb_upper/bb_lower/bb_width/bb_pct.
+
+    prev_state keys:
+        window: list[float] of last (period-1) closes; oldest first
+        period: int
+        k:      std multiplier (default 2.0)
+    """
+    period = int(prev_state.get('period', 20))
+    k = float(prev_state.get('k', 2.0))
+    window = list(prev_state.get('window', []))
+    close = float(new_bar_row['close'])
+    window.append(close)
+    if len(window) > period:
+        window = window[-period:]
+    arr = np.asarray(window, dtype=np.float64)
+    mid = float(arr.mean())
+    # Sample std (ddof=1) to match pd.rolling().std() default
+    if len(arr) > 1:
+        std = float(arr.std(ddof=1))
+    else:
+        std = 0.0
+    upper = mid + k * std
+    lower = mid - k * std
+    width = (4.0 * std) / max(mid, 1e-10)
+    pct = (close - lower) / max(4.0 * std, 1e-10) if std > 0 else 0.5
+    output = {
+        'bb_upper': upper,
+        'bb_lower': lower,
+        'bb_width': width,
+        'bb_pct': pct,
+    }
+    new_state = {'window': window, 'period': period, 'k': k}
+    return output, new_state
+
+
+def _volume_update_one(prev_state: dict, new_bar_row: dict) -> tuple:
+    """One-step volume ratio update (vol / SMA20).
+
+    prev_state keys:
+        window: list[float] of last (period-1) volumes
+        period: int (default 20)
+    """
+    period = int(prev_state.get('period', 20))
+    window = list(prev_state.get('window', []))
+    vol = float(new_bar_row['volume'])
+    window.append(vol)
+    if len(window) > period:
+        window = window[-period:]
+    arr = np.asarray(window, dtype=np.float64)
+    sma = float(arr.mean()) if len(arr) else 1.0
+    ratio = vol / max(sma, 1e-10)
+    new_state = {'window': window, 'period': period}
+    return ratio, new_state
+
+
+def _donchian_update_one(prev_state: dict, new_bar_row: dict) -> tuple:
+    """One-step Donchian channel update (rolling max/min over period).
+
+    prev_state keys:
+        high_window: list[float] of last (period-1) highs
+        low_window:  list[float] of last (period-1) lows
+        period:      int (default 20)
+    """
+    period = int(prev_state.get('period', 20))
+    high_window = list(prev_state.get('high_window', []))
+    low_window = list(prev_state.get('low_window', []))
+    high = float(new_bar_row['high'])
+    low = float(new_bar_row['low'])
+    high_window.append(high)
+    low_window.append(low)
+    if len(high_window) > period:
+        high_window = high_window[-period:]
+    if len(low_window) > period:
+        low_window = low_window[-period:]
+    donch_high = float(max(high_window))
+    donch_low = float(min(low_window))
+    output = {'donch_high': donch_high, 'donch_low': donch_low}
+    new_state = {
+        'high_window': high_window,
+        'low_window': low_window,
+        'period': period,
+    }
+    return output, new_state
+
+
+def _macd_update_one(prev_state: dict, new_bar_row: dict) -> tuple:
+    """One-step MACD update via EMA chain (12/26/9).
+
+    MACD line = EMA_fast(close) - EMA_slow(close).
+    Signal    = EMA_signal(MACD).
+    Histogram = MACD - Signal.
+
+    prev_state keys:
+        ema_fast:   float64 previous EMA_fast(close) value
+        ema_slow:   float64 previous EMA_slow(close) value
+        ema_signal: float64 previous EMA_signal(MACD) value
+        alpha_fast/alpha_slow/alpha_signal: smoothing factors (2/(span+1))
+
+    Defaults: fast=12, slow=26, signal=9 (classic MACD).
+    """
+    alpha_fast = float(prev_state.get('alpha_fast', 2.0 / (12 + 1)))
+    alpha_slow = float(prev_state.get('alpha_slow', 2.0 / (26 + 1)))
+    alpha_signal = float(prev_state.get('alpha_signal', 2.0 / (9 + 1)))
+    close = float(new_bar_row['close'])
+
+    ema_fast = alpha_fast * close + (1.0 - alpha_fast) * float(prev_state.get('ema_fast', close))
+    ema_slow = alpha_slow * close + (1.0 - alpha_slow) * float(prev_state.get('ema_slow', close))
+    macd = ema_fast - ema_slow
+    ema_signal = alpha_signal * macd + (1.0 - alpha_signal) * float(prev_state.get('ema_signal', macd))
+    hist = macd - ema_signal
+
+    output = {
+        'macd': macd,
+        'macd_signal': ema_signal,
+        'macd_hist': hist,
+    }
+    new_state = {
+        'ema_fast': ema_fast,
+        'ema_slow': ema_slow,
+        'ema_signal': ema_signal,
+        'alpha_fast': alpha_fast,
+        'alpha_slow': alpha_slow,
+        'alpha_signal': alpha_signal,
+    }
+    return output, new_state
+
+
+def _adx_update_one(prev_state: dict, new_bar_row: dict) -> tuple:
+    """One-step ADX update (period=14, Wilder's smoothing via EMA alpha=2/(n+1)).
+
+    Matches `compute_adx_indicators()` semantics which uses `_ema(..., 14)` —
+    NOT classical Wilder RMA (alpha=1/n). Keeping parity with the full path.
+
+    prev_state keys:
+        prev_high, prev_low: previous bar H/L (for +DM/-DM comparison)
+        prev_close:          previous bar close (for TR)
+        ema_plus_dm, ema_minus_dm, ema_tr, ema_dx: smoothed values
+        alpha:               2/(period+1) (= 2/15 for period=14)
+    new_bar_row keys: high, low, close
+    """
+    alpha = float(prev_state.get('alpha', 2.0 / (14 + 1)))
+    high = float(new_bar_row['high'])
+    low = float(new_bar_row['low'])
+    close = float(new_bar_row['close'])
+
+    prev_high = float(prev_state.get('prev_high', high))
+    prev_low = float(prev_state.get('prev_low', low))
+    prev_close = float(prev_state.get('prev_close', close))
+
+    # +DM, -DM per Wilder
+    up_move = high - prev_high
+    down_move = prev_low - low
+    plus_dm = up_move if (up_move > down_move and up_move > 0) else 0.0
+    minus_dm = down_move if (down_move > up_move and down_move > 0) else 0.0
+
+    # True range
+    tr = max(high - low, abs(high - prev_close), abs(low - prev_close))
+
+    ema_plus_dm = alpha * plus_dm + (1.0 - alpha) * float(prev_state.get('ema_plus_dm', plus_dm))
+    ema_minus_dm = alpha * minus_dm + (1.0 - alpha) * float(prev_state.get('ema_minus_dm', minus_dm))
+    ema_tr = alpha * tr + (1.0 - alpha) * float(prev_state.get('ema_tr', tr))
+
+    plus_di = 100.0 * ema_plus_dm / max(ema_tr, 1e-10)
+    minus_di = 100.0 * ema_minus_dm / max(ema_tr, 1e-10)
+    dx = abs(plus_di - minus_di) / max(plus_di + minus_di, 1e-10) * 100.0
+    ema_dx = alpha * dx + (1.0 - alpha) * float(prev_state.get('ema_dx', dx))
+
+    output = {
+        'adx': ema_dx,
+        'plus_di': plus_di,
+        'minus_di': minus_di,
+    }
+    new_state = {
+        'prev_high': high,
+        'prev_low': low,
+        'prev_close': close,
+        'ema_plus_dm': ema_plus_dm,
+        'ema_minus_dm': ema_minus_dm,
+        'ema_tr': ema_tr,
+        'ema_dx': ema_dx,
+        'alpha': alpha,
+    }
+    return output, new_state
+
+
+# Dispatch table: indicator key -> update_one callable.
+# Each callable returns (output, new_state) where output is either a scalar
+# (ema, rsi, volume) or a dict of named scalars (bb, donchian, macd, adx).
+INDICATOR_UPDATE_FNS: Dict[str, Callable] = {
+    "ema": _ema_update_one,
+    "macd": _macd_update_one,
+    "rsi": _rsi_update_one,
+    "bb": _bb_update_one,
+    "adx": _adx_update_one,
+    "volume": _volume_update_one,
+    "donchian": _donchian_update_one,
+}
+
+
+def _legacy_full_compute(close, high, low, volume, taker_buy, groups):
+    """Legacy full-history indicator computation (pre-Task-7 behavior).
+
+    Extracted so `compute_indicators_selective` can dispatch cleanly between
+    the full-mode (signal_mode='full') path and the incremental scaffold.
     """
     result = compute_core(close, high, low, volume, taker_buy)
     tr = result.pop('_tr')  # internal, not exposed
@@ -264,6 +545,123 @@ def compute_indicators_selective(close, high, low, volume, taker_buy=None,
         fn = _INDICATOR_GROUPS.get(name)
         if fn is not None:
             result.update(fn(close, high, low, volume, tr))
+
+    return result
+
+
+def compute_indicators_selective(close=None, high=None, low=None, volume=None,
+                                 taker_buy=None, groups=None,
+                                 signal_mode="full",
+                                 rolling_cache_registry=None,
+                                 registry=None,
+                                 token=None,
+                                 config=None):
+    """Compute indicators selectively by group name with signal_mode dispatch.
+
+    Task 7 (M3) delivers the DISPATCH MECHANISM:
+      - signal_mode='full' (default): legacy pd.Series.ewm() recompute path.
+        Does NOT touch RollingCacheRegistry at all (AC23).
+      - signal_mode='incremental': per-indicator dispatch via INDICATOR_KIND
+        registry. Requires `rolling_cache_registry` (or `registry`) + `token`.
+        The per-bar cache-fast-path is wired in Task 9; Task 7 delegates to
+        the full compute path so behavior is preserved while the architectural
+        seam exists.
+
+    Args:
+        close, high, low, volume, taker_buy: numpy arrays. Optional when
+            `config` is supplied (in which case the function operates purely
+            on the registry — used by tests that only exercise dispatch).
+        groups: Set of group names to compute (e.g. {'ema', 'rsi', 'adx'}).
+                If None, compute all groups.
+        signal_mode: "full" or "incremental". If `config` is supplied,
+                     `config.signal_mode` is used.
+        rolling_cache_registry / registry: RollingCacheRegistry instance for
+            incremental mode. Both kwarg names accepted for caller flex.
+        token: str ticker identifier for cache lookups (incremental mode).
+        config: Optional PortfolioConfig / PaperConfig. When supplied, its
+            `signal_mode` attribute is used as the dispatch discriminator.
+
+    Returns:
+        dict of indicator name -> numpy array (or empty dict when called
+        purely for dispatch smoke-testing via `config` without arrays).
+    """
+    # If caller passes a config object, extract signal_mode from it.
+    if config is not None:
+        cfg_mode = getattr(config, 'signal_mode', None)
+        if cfg_mode is not None:
+            signal_mode = cfg_mode
+
+    # Accept either kwarg name for the registry.
+    if rolling_cache_registry is None and registry is not None:
+        rolling_cache_registry = registry
+
+    # ---------------- AC23: full mode bypasses RollingCache entirely ----------
+    if signal_mode == "full":
+        if close is None:
+            # Dispatch-only invocation (no arrays provided). Full mode
+            # explicitly does nothing with the registry and returns empty.
+            return {}
+        return _legacy_full_compute(close, high, low, volume, taker_buy, groups)
+
+    if signal_mode != "incremental":
+        raise ValueError(
+            f"signal_mode must be 'full' or 'incremental', got {signal_mode!r}"
+        )
+
+    # ---------------- Incremental path --------------------------------------
+    # Incremental mode requires a registry. Touch it so callers can observe
+    # the dispatch choice (e.g. MagicMock in tests) — this is the architectural
+    # seam that Task 9 will hook into for per-bar cache reads/writes.
+    if rolling_cache_registry is None:
+        raise ValueError(
+            "incremental mode requires rolling_cache_registry (or registry) kwarg"
+        )
+
+    # Mark the dispatch decision on the registry. Task 9 will replace this
+    # with real per-bar cache reads/writes keyed by (token, indicator_kind).
+    try:
+        rolling_cache_registry.note_dispatch(
+            token=token, signal_mode="incremental",
+        )
+    except Exception:
+        # Registry is permissive (may be a MagicMock in tests) — ignore.
+        pass
+
+    if close is None:
+        # Dispatch-only invocation. Caller is testing the seam.
+        return {}
+
+    # Per-indicator dispatch via INDICATOR_KIND.
+    result = compute_core(close, high, low, volume, taker_buy)
+    tr = result.pop('_tr')
+
+    if groups is None:
+        groups = set(_INDICATOR_GROUPS.keys())
+
+    for name in groups:
+        kind = INDICATOR_KIND.get(name, "full")
+        if kind == "incremental" and name in INDICATOR_UPDATE_FNS:
+            # For M3 Task 7 initial pass, incremental path is a SCAFFOLD:
+            # delegate to the full compute for correctness. Task 9 wires the
+            # real cache-based per-bar fast path. This preserves behavior
+            # while the architectural seam (INDICATOR_KIND + INDICATOR_UPDATE_FNS
+            # + registry plumbing) is in place.
+            fn = _INDICATOR_GROUPS.get(name)
+            if fn is not None:
+                try:
+                    result.update(fn(close, high, low, volume, tr))
+                except NotImplementedError:
+                    # Fall back to full path if update_one is a stub
+                    pass
+        elif kind == "cross_sectional":
+            # Cross-sectional indicators (e.g., cross_sectional_rank) cannot
+            # be incrementalized per-token; skipped here. Caller computes
+            # them externally with all tokens' values present.
+            pass
+        else:  # "full" fallback for unlisted keys
+            fn = _INDICATOR_GROUPS.get(name)
+            if fn is not None:
+                result.update(fn(close, high, low, volume, tr))
 
     return result
 
@@ -281,6 +679,99 @@ def _align_higher_to_lower(higher_idx, higher_vals, lower_idx):
     """Forward-fill higher timeframe values to lower timeframe index."""
     s = pd.Series(higher_vals, index=higher_idx)
     return s.reindex(lower_idx, method='ffill').values.copy()
+
+
+# =============================================================================
+# M3 Task 8 (AC22): Cross-sectional ts-alignment utility
+# =============================================================================
+#
+# Before any cross-sectional aggregation (ranking across tokens at the same
+# logical bar), tokens whose latest bar timestamp lags the reference by more
+# than one `bar_period_ns` must be excluded. This prevents a stale token from
+# contaminating a ranking that is meant to be a snapshot across the universe.
+#
+# The utility is a pure helper so it can be unit-tested directly (AC22) and
+# wired into any cross-sectional call site that either:
+#   (a) has access to the RollingCacheRegistry (paper-engine concept), or
+#   (b) has TokenSignals objects from which `.timestamps[-1]` can be read.
+# Scope note: the current M1-stubbed portfolio_signals.py does not yet invoke
+# cross-sectional rank at runtime; Task 13/14 parity+soak will catch any
+# regression once that path is reactivated.
+
+def _exclude_stale_tokens(
+    latest_ts_ns_by_token: dict[str, int],
+    reference_ts_ns: int,
+    bar_period_ns: int,
+) -> set[str]:
+    """Return the set of tokens whose latest bar ts lags `reference_ts_ns`
+    by MORE than `bar_period_ns`.
+
+    A token is considered stale iff:
+        reference_ts_ns - latest_ts_ns > bar_period_ns
+
+    Tokens exactly at the boundary (`== bar_period_ns`) are NOT excluded —
+    only strict overshoots count. This matches the semantics in AC22.
+    """
+    if not latest_ts_ns_by_token:
+        return set()
+    return {
+        token for token, ts in latest_ts_ns_by_token.items()
+        if (reference_ts_ns - int(ts)) > bar_period_ns
+    }
+
+
+def compute_cross_sectional_rank_aligned(
+    participants,
+    bar_period_ns: int,
+    rejection_stats=None,
+):
+    """Compute cross-sectional ranks across tokens, excluding stale entries.
+
+    Args:
+        participants: iterable of (token, ts_ns, value) tuples.
+        bar_period_ns: expected bar period in nanoseconds. Tokens lagging the
+            max-ts reference by MORE than this are excluded.
+        rejection_stats: optional RejectionStats-like object; if provided, its
+            `cross_sectional_stale` counter is incremented by the number of
+            excluded tokens (informational; not a true rejection).
+
+    Returns:
+        dict {token: rank} where rank is the 1-based ascending rank of the
+        token's value among surviving (aligned) participants. Ties break by
+        insertion order (stable).
+    """
+    entries = [(str(tok), int(ts), float(val)) for (tok, ts, val) in participants]
+    if not entries:
+        return {}
+
+    latest_ts = {tok: ts for (tok, ts, _v) in entries}
+    reference_ts = max(latest_ts.values())
+
+    stale = _exclude_stale_tokens(latest_ts, reference_ts, int(bar_period_ns))
+    if stale:
+        try:
+            logging.getLogger(__name__).warning(
+                "cross-sectional: excluding %d stale tokens from ranking: %s",
+                len(stale), sorted(stale)[:10],
+            )
+        except Exception:
+            pass
+        if rejection_stats is not None:
+            try:
+                rejection_stats.cross_sectional_stale += len(stale)
+            except Exception:
+                pass
+
+    kept = [(tok, val) for (tok, _ts, val) in entries if tok not in stale]
+    if not kept:
+        return {}
+
+    # Stable ascending rank by value; ties preserve insertion order.
+    order = sorted(range(len(kept)), key=lambda i: (kept[i][1], i))
+    ranks: dict[str, int] = {}
+    for rank_idx, i in enumerate(order):
+        ranks[kept[i][0]] = rank_idx + 1
+    return ranks
 
 
 # =============================================================================

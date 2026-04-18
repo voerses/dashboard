@@ -25,7 +25,7 @@ from .signals import TokenSignals
 # Data carriers
 # ---------------------------------------------------------------------------
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class BarContext:
     """Immutable per-bar market data passed to exit handlers."""
     close: float

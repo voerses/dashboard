@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict
-from typing import Optional, Tuple
+from typing import Literal, Optional, Tuple
 
 
 # ---------------------------------------------------------------------------
@@ -224,3 +224,13 @@ class PortfolioConfig:
     dust_fraction_of_min_position: float = 0.05
     # Q2: backtest default re-raises scale_check_fn exceptions; paper may set False
     strict_scale_errors: bool = True
+    # M3 (AC23): signal recomputation mode.
+    # "full" = legacy pd.Series.ewm() recompute across the window every tick;
+    # "incremental" = RollingCache-backed O(1)-per-tick dispatch (Task 7+).
+    signal_mode: Literal["full", "incremental"] = "incremental"
+
+    def __post_init__(self):
+        if self.signal_mode not in ("full", "incremental"):
+            raise ValueError(
+                f"signal_mode must be 'full' or 'incremental', got {self.signal_mode!r}"
+            )

@@ -50,7 +50,7 @@ def _log_shim_warning_once(strategy_id: str) -> None:
         )
 
 
-@dataclass
+@dataclass(slots=True)
 class TokenSignals:
     """Lightweight signal arrays for one token under one strategy."""
     token: str
@@ -143,10 +143,22 @@ class TokenSignals:
     post_walkforward_count: int = 0   # after WF mask
 
     def __post_init__(self):
-        # conviction→priority migration shim (AC4). Fires on any TokenSignals
-        # construction — whether via precompute_strategy_signals or directly in
-        # a test. If priority is None and conviction_score is populated,
-        # auto-derive priority and emit one warning per strategy_id per process.
+        # AC9: downcast non-precision-critical float arrays to float32 at
+        # construction time. Prices / ATR / PnL stay float64 elsewhere on
+        # Position/ClosedTrade; these TokenSignals arrays are sizing/trail/
+        # score signals where 1e-7 precision is acceptable.
+        for _fld in (
+            "trail_schedule", "time_trail_schedule", "max_trail_mult",
+            "conviction_score", "volume", "vol_20", "ret_1h",
+        ):
+            _v = getattr(self, _fld, None)
+            if _v is not None and isinstance(_v, np.ndarray) and _v.dtype != np.float32:
+                object.__setattr__(self, _fld, _v.astype(np.float32))
+
+        # AC4 conviction→priority migration shim. Fires on any TokenSignals
+        # construction — whether via precompute_strategy_signals or directly.
+        # If priority is None and conviction_score is populated, auto-derive
+        # priority and emit one warning per strategy_id per process.
         if self.priority is None and self.conviction_score is not None:
             self.priority = np.round(
                 np.clip(np.asarray(self.conviction_score, dtype=np.float64), 0.0, 1.0)

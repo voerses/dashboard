@@ -10,6 +10,7 @@ Tick processing order (AC10b):
 """
 from __future__ import annotations
 
+import collections
 import concurrent.futures
 import dataclasses
 import math
@@ -17,7 +18,9 @@ import os
 import resource
 import sys
 import threading
+from collections import OrderedDict
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Optional
 
 import numpy as np
@@ -40,6 +43,15 @@ from v5.paper_state import (
 )
 
 from v5.universe import get_fee_rate
+
+
+# Task 9e: re-export _read_rss_mb at the paper_engine module level so tests
+# (and external callers) can patch it via `patch.object(pe_mod, "_read_rss_mb", ...)`.
+# Lazy reference via a module-level attribute; the real implementation lives in
+# `v5.paper_utils._read_rss_mb` (circular-import-safe).
+def _read_rss_mb() -> float:  # pragma: no cover - thin forwarder
+    from v5.paper_utils import _read_rss_mb as _impl
+    return _impl()
 
 
 def _parse_ts(s: str) -> float:
@@ -65,6 +77,71 @@ def _current_4h_window_end() -> float:
         d = datetime.date(t.tm_year, t.tm_mon, t.tm_mday) + datetime.timedelta(days=1)
         return calendar.timegm(d.timetuple())
     return calendar.timegm((t.tm_year, t.tm_mon, t.tm_mday, next_4h, 0, 0, 0, 0, 0))
+
+
+# ------------------------------------------------------------------
+# M3 (AC7) — TTL-evicted OrderedDict for bounded _filled_4h_windows
+# ------------------------------------------------------------------
+
+class _TTLOrderedDict:
+    """Bounded OrderedDict with wall-clock TTL eviction on insert.
+
+    Key: any hashable (typically (strategy_id, token, window_start_epoch)).
+    Value: inserted_ts_epoch_seconds (for TTL math).
+
+    On each ``add()`` call:
+      1. Entries whose ``inserted_ts`` is older than ``ttl_seconds`` (vs the
+         caller-supplied ``ts_epoch`` or ``time.time()``) are popped from the
+         front (insertion-ordered).
+      2. If length still ``>= maxlen``, oldest entries are popped until under
+         the bound.
+      3. The new ``(key, inserted_ts)`` pair is appended.
+
+    Supports ``key in container``, ``len(container)``, ``.items()`` (for
+    serialization), and ``.restore(items)`` (for deserialization).
+    """
+
+    __slots__ = ("_ttl", "_maxlen", "_d")
+
+    def __init__(self, ttl_seconds: float, maxlen: int):
+        self._ttl = float(ttl_seconds)
+        self._maxlen = int(maxlen)
+        self._d: OrderedDict = OrderedDict()
+
+    def add(self, key, ts_epoch: Optional[float] = None) -> None:
+        """Insert ``key`` with optional explicit ``ts_epoch`` (defaults to now)."""
+        now = float(ts_epoch) if ts_epoch is not None else time.time()
+        # 1. Evict TTL-expired entries from the front (insertion-ordered).
+        while self._d:
+            first_key = next(iter(self._d))
+            if now - self._d[first_key] > self._ttl:
+                self._d.popitem(last=False)
+            else:
+                break
+        # 2. Evict oldest entries to respect maxlen.
+        while len(self._d) >= self._maxlen:
+            self._d.popitem(last=False)
+        # 3. Insert (overwrites timestamp if key already present).
+        if key in self._d:
+            del self._d[key]
+        self._d[key] = now
+
+    def __contains__(self, key) -> bool:
+        return key in self._d
+
+    def __len__(self) -> int:
+        return len(self._d)
+
+    def __iter__(self):
+        return iter(self._d)
+
+    def items(self):
+        """Return list of (key, inserted_ts_epoch) for serialization."""
+        return list(self._d.items())
+
+    def restore(self, items) -> None:
+        """Restore from a list/iterable of (key, inserted_ts_epoch) pairs."""
+        self._d = OrderedDict(items)
 
 
 # ------------------------------------------------------------------
@@ -185,9 +262,13 @@ class PaperPortfolioEngine:
         validate_linked_scale_policy(config)
         self.config = config
         self.tick_counter: int = 0
+        # Task 9e: RSS periodic-log bookkeeping (sampled at most once per 60s).
+        self._last_rss_check: float = 0.0
         self._last_known_prices: dict[str, float] = {}
         self._last_known_regimes: dict[str, int] = {}
-        self._alerts: list = []
+        # AC6: bounded alert queues (deque drops oldest on overflow).
+        self._alerts: collections.deque = collections.deque(maxlen=1000)
+        self._pending_alerts: collections.deque = collections.deque(maxlen=500)
         self._consecutive_failures: int = 0
         self.fetcher = None  # Set by live integration (Task 7)
         self._dynamic_allocator = None  # Initialized lazily on first tick
@@ -233,6 +314,24 @@ class PaperPortfolioEngine:
         # Cache for sub-hourly exit checks (populated after each hourly tick)
         # Keyed by (strategy_id, token) so each strategy gets its own ATR values
         self._cached_bar_data: dict[tuple[str, str], dict] = {}
+        # Task 9a: Rolling cache registry is the source-of-truth cache going
+        # forward; `subscribe(token, bar_type)` is the explicit
+        # publisher-subscriber gateway (see FIX review). `_hist_cache` is
+        # retained as a thin dict-shaped shim for back-compat with existing
+        # call sites (precompute_strategy_signals / load_token_data_cached
+        # which expect a dict[(token, market), pd.DataFrame]). New code should
+        # go through the registry directly; Task 9b/9c will migrate the
+        # remaining signal-layer consumers and retire the shim.
+        from v5.rolling_cache import RollingCacheRegistry
+        self._rolling_cache_registry: RollingCacheRegistry = RollingCacheRegistry()
+        # Task 9b: derive MAX_LOOKBACK_BARS at runtime from strategy modules,
+        # then cold-start every subscribed cache via seed_all().
+        import logging as _logging_t9b
+        self._max_lookback_bars = self._derive_max_lookback_bars(config.strategies)
+        _logging_t9b.getLogger(__name__).info(
+            "Paper engine init: MAX_LOOKBACK_BARS = %d", self._max_lookback_bars,
+        )
+        self._seed_rolling_caches(config)
         # Historical parquet cache — populated on first tick, reused on subsequent
         # ticks. Historical parquets are immutable between cache rebuilds.
         # Live buffer is always re-read fresh from disk.
@@ -250,7 +349,10 @@ class PaperPortfolioEngine:
         # Track filled 4H windows to prevent re-entry after stop-out.
         # Matches backtest's _first_cross_only: one entry per 4H window per token.
         # Keys are (strategy_id, token, window_end_epoch).
-        self._filled_4h_windows: set[tuple[str, str, float]] = set()
+        # AC7: bounded TTL-evicted OrderedDict (7-day TTL, maxlen=500).
+        self._filled_4h_windows: _TTLOrderedDict = _TTLOrderedDict(
+            ttl_seconds=7 * 86400.0, maxlen=500
+        )
 
         # Background tick executor (AC28)
         self._bg_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="tick-bg")
@@ -266,6 +368,264 @@ class PaperPortfolioEngine:
                 self.state._slippage_models[spec.strategy_id] = get_slippage_model(spec.slippage_model)
             self.strategy_states = {}
 
+    @staticmethod
+    def _derive_max_lookback_bars(strategy_specs) -> int:
+        """Task 9b: scan strategy modules at runtime for MAX_LOOKBACK_BARS.
+
+        Each strategy module MAY declare `MAX_LOOKBACK_BARS = <int>`.
+        Default is 4800 (200 days of hourly bars). Returns max across all
+        strategies (plus default floor). Module load failures are logged
+        and skipped — engine init must not crash on strategy errors.
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        default = 4800
+        lookbacks: list[int] = []
+        for spec in strategy_specs or []:
+            try:
+                from v5.engine import (
+                    _load_strategy_fn, _STRATEGY_MODULE_CACHE, _STRATEGY_MODULE_LOCK,
+                )
+                # Ensure module is loaded in the cache
+                _load_strategy_fn(spec.strategy_id)
+                with _STRATEGY_MODULE_LOCK:
+                    mod = _STRATEGY_MODULE_CACHE.get(spec.strategy_id)
+                if mod is not None and hasattr(mod, "MAX_LOOKBACK_BARS"):
+                    lookbacks.append(int(mod.MAX_LOOKBACK_BARS))
+            except Exception as e:
+                logger.warning(
+                    "Failed to load strategy %s for lookback scan: %s",
+                    spec.strategy_id, e,
+                )
+        return max([default, *lookbacks])
+
+    def _seed_rolling_caches(self, config) -> None:
+        """Task 9b: one-shot cold-start — subscribe + seed every (token, bar_type)
+        strategies will need.
+
+        Bar types:
+        - 1h: always (baseline signal resolution)
+        - 1m: when any strategy has bar_resolution > 0 (sub-hourly exits/entries)
+        - 1d: for regime detection
+
+        Per-token failures are logged + skipped; engine init must not crash
+        if a parquet is missing. Latency budget: <30s across ~236 tokens ×
+        (1h + daily + optional 1m). A WARNING is emitted if exceeded.
+        """
+        import logging
+        import time as _time
+        import pandas as pd
+        from v5.rolling_cache import BarType
+        from v5.data_loader import load_token_data
+        from v5.universe import get_all_tradeable
+
+        logger = logging.getLogger(__name__)
+        t0 = _time.time()
+
+        # Determine bar types needed across all strategies
+        bar_types: list[BarType] = [BarType.ONE_HOUR, BarType.DAILY]
+        if any(s.bar_resolution > 0 for s in config.strategies):
+            bar_types.append(BarType.ONE_MIN)
+
+        # Collect (market, token) pairs from every strategy's universe.
+        # Default universe: get_all_tradeable(market).
+        pairs: set[tuple[str, str]] = set()
+        for spec in config.strategies:
+            market = spec.market
+            try:
+                tokens = get_all_tradeable(market)
+            except Exception as e:
+                logger.warning(
+                    "seed_all: get_all_tradeable(%s) failed: %s", market, e,
+                )
+                continue
+            for t in tokens:
+                pairs.add((market, t))
+
+        max_lookback = int(self._max_lookback_bars)
+        tail_len = max_lookback + 200
+        n_ok = 0
+        n_fail = 0
+        for market, token in pairs:
+            # Load once per (market, token), reuse for all bar_types
+            try:
+                df = load_token_data(token, market)
+            except Exception as e:
+                logger.warning(
+                    "seed_all: load_token_data(%s,%s) failed: %s",
+                    token, market, e,
+                )
+                n_fail += 1
+                continue
+            if df is None or len(df) == 0:
+                n_fail += 1
+                continue
+            # Tail-slice to the lookback window
+            if len(df) > tail_len:
+                df = df.iloc[-tail_len:]
+            # Rolling cache expects a `timestamp` column; load_token_data
+            # returns a DatetimeIndex — materialise as int64 ns.
+            if "timestamp" not in df.columns:
+                df = df.copy()
+                df["timestamp"] = df.index.astype("int64")
+
+            for bt in bar_types:
+                try:
+                    cache = self._rolling_cache_registry.subscribe(token, bt)
+                    cache.seed(df)
+                    n_ok += 1
+                except Exception as e:
+                    logger.warning(
+                        "seed_all: seed failed for %s/%s: %s",
+                        token, bt.value, e,
+                    )
+                    n_fail += 1
+
+        elapsed = _time.time() - t0
+        logger.info(
+            "Paper engine seed_all: %d caches seeded, %d failures, %.1fs "
+            "(tokens=%d, bar_types=%d)",
+            n_ok, n_fail, elapsed, len(pairs), len(bar_types),
+        )
+        if elapsed > 30.0:
+            logger.warning(
+                "Paper engine seed_all exceeded 30s latency budget: %.1fs",
+                elapsed,
+            )
+
+    def _paper_data_dir(self) -> str:
+        """Tasks 9c/9d: resolve the repo-root `data/` directory (the
+        parquet root the fetcher appends to and where
+        `.maintenance.lock` lives). Matches the convention used in
+        `_tick_internal` (see DATA_DIR local there).
+        """
+        return os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "data",
+        )
+
+    def _reseed_cache(self, token: str, bar_type) -> None:
+        """Task 9c: reseed a single (token, bar_type) cache from the
+        on-disk parquet. Reuses the same `load_token_data` + tail-slice
+        logic as `_seed_rolling_caches` so the incremental state matches
+        a fresh cold-start build.
+        """
+        import logging
+        from v5.data_loader import load_token_data
+        from v5.rolling_cache import BarType as _BarType
+
+        logger = logging.getLogger(__name__)
+        cache = self._rolling_cache_registry.get(token, bar_type)
+        if cache is None:
+            return
+
+        max_lookback = int(getattr(self, "_max_lookback_bars", 4800))
+        tail_len = max_lookback + 200
+
+        def _load_fn(tok: str, bt) -> "pd.DataFrame":
+            # Try both markets — caller doesn't know which one subscribed.
+            # Match `_seed_rolling_caches` ordering: perp first for derivatives,
+            # but fall back to spot.
+            import pandas as pd
+            for market in ("perp", "spot"):
+                try:
+                    df = load_token_data(tok, market)
+                except Exception as e:
+                    logger.debug("reseed load_token_data(%s,%s) failed: %s",
+                                 tok, market, e)
+                    continue
+                if df is None or len(df) == 0:
+                    continue
+                if len(df) > tail_len:
+                    df = df.iloc[-tail_len:]
+                if "timestamp" not in df.columns:
+                    df = df.copy()
+                    df["timestamp"] = df.index.astype("int64")
+                return df
+            return pd.DataFrame()
+
+        cache.reseed_from_parquet(token, bar_type, _load_fn)
+
+    def _check_and_reseed_drifted_caches(self) -> None:
+        """Task 9c: poll the registry for any parquet that has advanced
+        beyond a cache's watermark and reseed. Logs a WARNING when the
+        poll itself exceeds 100ms (instrumentation).
+        """
+        import logging
+        import time as _time
+        import pandas as pd
+        from v5.data_loader import load_token_data
+
+        logger = logging.getLogger(__name__)
+        t0 = _time.time()
+        max_lookback = int(getattr(self, "_max_lookback_bars", 4800))
+        tail_len = max_lookback + 200
+
+        def _peek_fn(tok: str, bt) -> "pd.DataFrame":
+            for market in ("perp", "spot"):
+                try:
+                    df = load_token_data(tok, market)
+                except Exception:
+                    continue
+                if df is None or len(df) == 0:
+                    continue
+                if len(df) > tail_len:
+                    df = df.iloc[-tail_len:]
+                if "timestamp" not in df.columns:
+                    df = df.copy()
+                    df["timestamp"] = df.index.astype("int64")
+                return df
+            return pd.DataFrame()
+
+        try:
+            drift_keys = self._rolling_cache_registry.check_parquet_drift(
+                load_fn=_peek_fn,
+            )
+        except Exception as e:
+            logger.warning("check_parquet_drift failed: %s", e)
+            drift_keys = []
+
+        for key in drift_keys:
+            token, bar_type = key
+            try:
+                self._reseed_cache(token, bar_type)
+            except Exception as e:
+                logger.warning("reseed failed for %s/%s: %s",
+                               token, getattr(bar_type, "value", bar_type), e)
+
+        poll_ms = (_time.time() - t0) * 1000.0
+        if poll_ms > 100.0:
+            logger.warning(
+                "drift-poll cost %.0fms exceeds 100ms budget (drifted=%d)",
+                poll_ms, len(drift_keys),
+            )
+
+    def _periodic_rss_check(self) -> None:
+        """Task 9e: sample RSS at most once per 60s; INFO always, WARNING
+        above 1200MB. Skips logging when the RSS reader returns 0
+        (psutil + /proc both failed).
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        now = time.time()
+        last = getattr(self, "_last_rss_check", 0.0)
+        if now - last <= 60.0:
+            return
+        # Resolve through the module so tests can monkeypatch.
+        import v5.paper_engine as _pe_mod
+        rss_reader = getattr(_pe_mod, "_read_rss_mb", None)
+        if rss_reader is None:
+            return
+        rss_mb = float(rss_reader())
+        self._last_rss_check = now
+        if rss_mb <= 0.0:
+            return  # reader failed — skip log entirely
+        logger.info("paper_engine RSS: %.0f MB", rss_mb)
+        if rss_mb > 1200.0:
+            logger.warning(
+                "paper_engine RSS %.0f MB exceeds 1.2GB threshold", rss_mb,
+            )
+
     def cleanup(self) -> None:
         """Release resources. Disconnects PriceMonitor only if this engine owns it."""
         if self._price_monitor is not None and self._owns_price_monitor:
@@ -275,6 +635,32 @@ class PaperPortfolioEngine:
                 pass
         if self._bg_executor is not None:
             self._bg_executor.shutdown(wait=False)
+
+    def _hist_cache_compat_df(self, token: str, bar_type) -> "pd.DataFrame | None":
+        """Task 9a back-compat shim: rebuild a DataFrame from the rolling
+        cache registry's per-field numpy arrays for call sites that still
+        expect a DataFrame.
+
+        Returns None when (token, bar_type) is not subscribed or the cache
+        is empty. Callers MUST NOT mutate the returned DataFrame — those
+        sites need deeper refactoring and should be flagged for Task 9c.
+        """
+        import pandas as pd
+        cache = self._rolling_cache_registry.get(token, bar_type)
+        if cache is None:
+            return None
+        ts = cache.timestamps()
+        if len(ts) == 0:
+            return None
+        return pd.DataFrame({
+            "timestamp": ts,
+            "close": cache.arrays("close"),
+            "high": cache.arrays("high"),
+            "low": cache.arrays("low"),
+            "volume": cache.arrays("volume"),
+            "atr": cache.arrays("atr"),
+            "funding": cache.arrays("funding"),
+        })
 
     def _init_independent_mode(self) -> None:
         """Initialize separate SimulationState for each strategy (AC6b)."""
@@ -930,7 +1316,7 @@ class PaperPortfolioEngine:
             atomic_write_state(
                 self.state, self.tick_counter, timestamp, state_path,
                 shadow_pools=shadow_pools,
-                last_known_prices=dict(self._last_known_prices),
+                last_known_prices=MappingProxyType(self._last_known_prices),
                 last_known_regimes=dict(self._last_known_regimes),
                 armed_tokens=armed_snapshot,
                 filled_4h_windows=filled_windows_snapshot,
@@ -941,7 +1327,7 @@ class PaperPortfolioEngine:
                 dict(self.strategy_states), self.tick_counter, timestamp,
                 mode="independent",
                 shadow_pools=shadow_pools,
-                last_known_prices=dict(self._last_known_prices),
+                last_known_prices=MappingProxyType(self._last_known_prices),
                 last_known_regimes=dict(self._last_known_regimes),
                 armed_tokens=armed_snapshot,
                 filled_4h_windows=filled_windows_snapshot,
@@ -1136,18 +1522,20 @@ class PaperPortfolioEngine:
         ]
 
     @staticmethod
-    def _deserialize_filled_4h_windows(data: list) -> set[tuple[str, str, float]]:
+    def _deserialize_filled_4h_windows(data: list) -> "_TTLOrderedDict":
         """Deserialize filled 4H windows from state.json.
 
-        Filters out expired entries (window_end in the past).
+        Filters out expired entries (window_end in the past). Returns a
+        _TTLOrderedDict (AC7) populated with (key, inserted_ts) pairs; legacy
+        state files without inserted_ts use the current wall clock.
         """
         now = time.time()
-        result: set[tuple[str, str, float]] = set()
+        result = _TTLOrderedDict(ttl_seconds=7 * 86400.0, maxlen=500)
         for entry in data:
             if len(entry) >= 3:
                 s, t, w = str(entry[0]), str(entry[1]), float(entry[2])
                 if w > now:
-                    result.add((s, t, w))
+                    result.add((s, t, w), now)
         return result
 
     @staticmethod
@@ -1227,14 +1615,25 @@ class PaperPortfolioEngine:
         """
         new_armed: dict[tuple[str, str], dict] = {}
 
-        # Purge expired 4H window entries (window_end in the past)
+        # Purge expired 4H window entries (window_end in the past).
+        # _filled_4h_windows is a _TTLOrderedDict; iterating yields keys
+        # (strategy_id, token, window_end_epoch).
         now_epoch = time.time()
         current_window_end = _current_4h_window_end()
         with self._armed_tokens_lock:
-            self._filled_4h_windows = {
+            live_keys = [
                 (s, t, w) for s, t, w in self._filled_4h_windows if w > now_epoch
-            }
-            filled_snapshot = frozenset(self._filled_4h_windows)
+            ]
+            # Rebuild the TTL container with only non-expired windows,
+            # preserving original insertion timestamps from .items().
+            items_by_key = dict(self._filled_4h_windows.items())
+            self._filled_4h_windows = _TTLOrderedDict(
+                ttl_seconds=7 * 86400.0, maxlen=500
+            )
+            self._filled_4h_windows.restore(
+                [(k, items_by_key[k]) for k in live_keys if k in items_by_key]
+            )
+            filled_snapshot = frozenset(live_keys)
 
         for sid, token_signals in all_signals.items():
             # Skip strategies without bar_resolution
@@ -1720,7 +2119,7 @@ class PaperPortfolioEngine:
             atomic_write_state(
                 self.state, self.tick_counter, timestamp, state_path,
                 shadow_pools=shadow_pools,
-                last_known_prices=dict(self._last_known_prices),
+                last_known_prices=MappingProxyType(self._last_known_prices),
                 last_known_regimes=dict(self._last_known_regimes),
                 armed_tokens=armed_snapshot,
                 filled_4h_windows=filled_windows_snapshot,
@@ -1730,7 +2129,7 @@ class PaperPortfolioEngine:
             data = serialize_engine_state(
                 dict(self.strategy_states), self.tick_counter, timestamp,
                 mode="independent", shadow_pools=shadow_pools,
-                last_known_prices=dict(self._last_known_prices),
+                last_known_prices=MappingProxyType(self._last_known_prices),
                 last_known_regimes=dict(self._last_known_regimes),
                 armed_tokens=armed_snapshot,
                 filled_4h_windows=filled_windows_snapshot,
@@ -1991,6 +2390,78 @@ class PaperPortfolioEngine:
           8. Compute mark-to-market equity + populate equity_history
           9. Persist state (state.json, equity.csv, shadow_pools)
         """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        # Task 9e: periodic RSS sampling (once per 60s).
+        try:
+            self._periodic_rss_check()
+        except Exception as e:  # pragma: no cover - diagnostic path
+            logger.debug("periodic RSS check failed: %s", e)
+
+        # Task 9c: detect any parquet that has advanced beyond a cache's
+        # watermark and reseed before signal compute. Additive — no-op
+        # when no caches drifted or no caches subscribed.
+        try:
+            self._check_and_reseed_drifted_caches()
+        except Exception as e:  # pragma: no cover - diagnostic path
+            logger.warning("drift-poll failed: %s", e)
+
+        # Task 9d: acquire shared read lock on .maintenance.lock for the
+        # duration of this tick. Multiple readers (paper ticks) don't
+        # block each other; ensure_data_fresh() (LOCK_EX) does.
+        lock_fp = None
+        lock_acquired = False
+        try:
+            import fcntl
+            data_dir = self._paper_data_dir()
+            os.makedirs(data_dir, exist_ok=True)
+            lock_path = os.path.join(data_dir, ".maintenance.lock")
+            lock_fp = open(lock_path, "a+")
+            try:
+                fcntl.flock(lock_fp.fileno(), fcntl.LOCK_SH | fcntl.LOCK_NB)
+                lock_acquired = True
+            except BlockingIOError:
+                # Writer (maintenance) holds the exclusive lock — skip.
+                logger.info("tick skipped: maintenance in progress")
+                try:
+                    lock_fp.close()
+                except Exception:
+                    pass
+                return
+        except Exception as e:
+            # Infrastructure missing (e.g., data_dir unwritable) — fall
+            # through unlocked rather than crashing the paper engine.
+            if not getattr(self, "_lock_setup_warning_logged", False):
+                logger.warning(
+                    "maintenance lock setup failed (%s); tick running unlocked",
+                    e,
+                )
+                self._lock_setup_warning_logged = True
+            if lock_fp is not None:
+                try:
+                    lock_fp.close()
+                except Exception:
+                    pass
+                lock_fp = None
+
+        try:
+            self._tick_internal_body(bar_timestamp=bar_timestamp)
+        finally:
+            if lock_fp is not None:
+                try:
+                    if lock_acquired:
+                        import fcntl
+                        fcntl.flock(lock_fp.fileno(), fcntl.LOCK_UN)
+                except Exception:
+                    pass
+                try:
+                    lock_fp.close()
+                except Exception:
+                    pass
+
+    def _tick_internal_body(self, bar_timestamp=None) -> None:
+        """Tick body (unlocked). See `_tick_internal` for the lock wrapper."""
         import logging
         logger = logging.getLogger(__name__)
 
@@ -2275,7 +2746,7 @@ class PaperPortfolioEngine:
                 timestamp,
                 state_path,
                 shadow_pools=shadow_pools,
-                last_known_prices=dict(self._last_known_prices),
+                last_known_prices=MappingProxyType(self._last_known_prices),
                 last_known_regimes=dict(self._last_known_regimes),
                 armed_tokens=armed_snapshot,
                 filled_4h_windows=filled_windows_snapshot,
@@ -2287,7 +2758,7 @@ class PaperPortfolioEngine:
                 dict(self.strategy_states), self.tick_counter, timestamp,
                 mode="independent",
                 shadow_pools=shadow_pools,
-                last_known_prices=dict(self._last_known_prices),
+                last_known_prices=MappingProxyType(self._last_known_prices),
                 last_known_regimes=dict(self._last_known_regimes),
                 armed_tokens=armed_snapshot,
                 filled_4h_windows=filled_windows_snapshot,
@@ -2682,7 +3153,7 @@ class PaperPortfolioEngine:
                     self.tick_counter,
                     refresh_ts,
                     state_path,
-                    last_known_prices=dict(self._last_known_prices),
+                    last_known_prices=MappingProxyType(self._last_known_prices),
                     last_known_regimes=dict(self._last_known_regimes),
                     armed_tokens=armed_snapshot,
                     filled_4h_windows=filled_windows_snapshot,
@@ -2692,7 +3163,7 @@ class PaperPortfolioEngine:
                 data = serialize_engine_state(
                     dict(self.strategy_states), self.tick_counter, refresh_ts,
                     mode="independent",
-                    last_known_prices=dict(self._last_known_prices),
+                    last_known_prices=MappingProxyType(self._last_known_prices),
                     last_known_regimes=dict(self._last_known_regimes),
                     armed_tokens=armed_snapshot,
                     filled_4h_windows=filled_windows_snapshot,

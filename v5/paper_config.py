@@ -14,7 +14,7 @@ import json
 import os
 import sys
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Literal
 
 from v5.config import PortfolioConfig, StrategySpec, SizingDefaults, resolve_sizing
 from v5.strategy_api import LinkedScalePolicy
@@ -49,6 +49,9 @@ class PaperConfig(PortfolioConfig):
     # which defaults True (backtest re-raises). Paper trading prefers resilience
     # over halting on a strategy-callback bug.
     strict_scale_errors: bool = False
+    # M3 (AC23): re-declare so PaperConfig exposes signal_mode at its own level
+    # (mirrors PortfolioConfig default). Validation runs in PortfolioConfig.__post_init__.
+    signal_mode: Literal["full", "incremental"] = "incremental"
 
 
 def load_paper_config(path: str) -> PaperConfig:

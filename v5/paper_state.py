@@ -5,11 +5,18 @@ Handles:
   - Atomic write (write to temp, fsync, rename)
   - Append-only writers: trades.jsonl, equity.csv
   - Position ID generation with tick_counter
+  - M3 Task 11a: engine-level (engine, state_dir) save/load entry point with
+    RollingCache sidecar .npz (numpy.savez_compressed) + crash-consistent
+    save order: sidecar committed first, state.json pointer committed second.
 """
 from __future__ import annotations
 
+import collections
 import csv
+import datetime as _dt
+import hashlib
 import json
+import logging
 import os
 import tempfile
 from dataclasses import asdict
@@ -19,6 +26,8 @@ import numpy as np
 
 from v5.position import Position, ClosedTrade, PositionManager, ScalingEvent
 from v5.simulator import SimulationState
+
+logger = logging.getLogger(__name__)
 
 
 STATE_VERSION = 1
@@ -32,6 +41,29 @@ def make_position_id(token: str, strategy_id: str, tick_counter: int, leg: str) 
 # ---------------------------------------------------------------------------
 # Position serialization helpers
 # ---------------------------------------------------------------------------
+
+def _json_safe(obj):
+    """Recursively coerce non-JSON-native types (set, frozenset, numpy scalars)
+    so that json.dumps() without default=str does not TypeError.
+
+    Sets/frozensets → sorted lists (stable output). Numpy scalars → python.
+    Dicts / lists / tuples recursed. Everything else passed through.
+    """
+    import numpy as _np
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (set, frozenset)):
+        try:
+            return sorted(_json_safe(v) for v in obj)
+        except TypeError:
+            # Unsortable mixed types — fall back to list
+            return [_json_safe(v) for v in obj]
+    if isinstance(obj, (list, tuple)):
+        return [_json_safe(v) for v in obj]
+    if isinstance(obj, _np.generic):
+        return obj.item()
+    return obj
+
 
 def _serialize_position(pos: Position) -> dict:
     """Serialize a Position to a JSON-compatible dict.
@@ -83,10 +115,18 @@ def _serialize_position(pos: Position) -> dict:
         "scaling_events": [asdict(ev) for ev in pos.scaling_events],
         "r_anchor_price": float(pos.r_anchor_price),
         "_scale_action_bar": int(pos._scale_action_bar),
-        # _helper_state: per brief T13b, roundtrips verbatim; helpers use
-        # namespaced keys (Q3) so the dict is safe to persist as-is. Values
-        # must already be JSON-compatible at write time.
-        "_helper_state": dict(pos._helper_state) if pos._helper_state else {},
+        # _helper_state: serialized as a fast-path cache (M2 Q3 revised 2026-04-18
+        # per helper-state-dispute review). Helpers MUST still tolerate empty/
+        # missing state on v4-compat load and rebuild from pos.scaling_events
+        # (see v5/helpers.py::_rebuild_fired_from_events). Serialization is an
+        # optimization, not a correctness requirement.
+        #
+        # Defensive coercion: helpers may store Python `set()` in the cache
+        # (e.g. "tp_ladder_atr__fired_indices"). JSON can't encode sets, and
+        # atomic_write_state's top-level json.dumps would TypeError on the
+        # first rung fire (quant reviewer flagged). Coerce sets → sorted lists
+        # here at the serialize boundary.
+        "_helper_state": _json_safe(pos._helper_state),
     }
     # Sub-hourly entry window_end for re-entry prevention across restarts
     window_end = getattr(pos, '_window_end', 0.0)
@@ -177,22 +217,517 @@ def _deserialize_position(d: dict) -> Position:
 # State serialization
 # ---------------------------------------------------------------------------
 
+def _write_rolling_cache_sidecar(registry, state_dir: str) -> tuple[str, str, dict]:
+    """Write a RollingCache sidecar `.npz` file via tmp + fsync + rename.
+
+    Builds an arrays dict keyed `{token}__{bar_type.value}__{field}` plus
+    `{token}__{bar_type.value}__timestamps` and dumps all caches into a
+    single compressed npz. Returns `(relative_path, sha256_hex, metadata)`.
+
+    `metadata` is `{key_prefix: {head, size, maxlen, seeded_through_ts_ns}}`
+    and is embedded in the state.json by the caller.
+
+    Task 11a: HAPPY PATH ONLY. Caller writes sidecar BEFORE state.json so
+    that a crash between steps leaves an orphan .npz (harmless — reclaimed
+    on next save). Task 11b handles sha256-mismatch / missing-sidecar
+    recovery.
+    """
+    arrays: dict[str, np.ndarray] = {}
+    metadata: dict[str, dict] = {}
+    for cache in registry.all():
+        key_prefix = f"{cache.token}__{cache.bar_type.value}"
+        # Each field becomes its own array in the .npz
+        for fname, buf in cache._buf.items():
+            arrays[f"{key_prefix}__{fname}"] = buf
+        arrays[f"{key_prefix}__timestamps"] = cache._timestamps
+        metadata[key_prefix] = {
+            "token": cache.token,
+            "bar_type": cache.bar_type.value,
+            "head": int(cache._head),
+            "size": int(cache._size),
+            "maxlen": int(cache.maxlen),
+            "seeded_through_ts_ns": int(cache.seeded_through_ts_ns),
+        }
+
+    # numpy.savez_compressed appends `.npz` automatically if the target
+    # path doesn't end in `.npz` — use a `.tmp` extension that it WILL
+    # preserve verbatim to control the on-disk filename precisely.
+    tmp_path = os.path.join(state_dir, "rolling_cache.npz.tmp")
+    final_path = os.path.join(state_dir, "rolling_cache.npz")
+    # 1. np.savez_compressed writes the archive to the tmp path. Pass a
+    #    file handle to skip numpy's auto-.npz suffix logic.
+    with open(tmp_path, "wb") as f:
+        np.savez_compressed(f, **arrays)
+        f.flush()
+        os.fsync(f.fileno())
+    # 2. Read back for sha256 + size
+    with open(tmp_path, "rb") as f:
+        data = f.read()
+    sha = hashlib.sha256(data).hexdigest()
+    # 3. Atomic rename — sidecar is now committed to `rolling_cache.npz`
+    os.rename(tmp_path, final_path)
+    return ("rolling_cache.npz", sha, metadata)
+
+
+def _serialize_filled_windows_generic(obj) -> list:
+    """Serialize a `_TTLOrderedDict`-like container (or any mapping-like
+    object supporting `.items()`) to a JSON-compatible list.
+
+    Each item is `[list(key), inserted_ts_epoch]`. Tuples become lists so
+    they survive JSON roundtrip; deserialize reconstructs them as tuples.
+    """
+    items = []
+    if obj is None:
+        return items
+    if hasattr(obj, "items"):
+        for k, v in obj.items():
+            if isinstance(k, tuple):
+                key_payload = list(k)
+            else:
+                key_payload = k
+            items.append([key_payload, float(v) if v is not None else 0.0])
+    else:
+        for k in obj:
+            if isinstance(k, tuple):
+                items.append([list(k), 0.0])
+            else:
+                items.append([k, 0.0])
+    return items
+
+
+def _deserialize_filled_windows_generic(data: list, obj):
+    """Restore into an existing `_TTLOrderedDict`-like container.
+
+    Reconstructs tuple keys (list→tuple) and calls `.add(key, ts)` if the
+    container supports it, else falls back to dict-style `__setitem__`.
+    """
+    if data is None or obj is None:
+        return
+    for entry in data:
+        if not entry:
+            continue
+        raw_key = entry[0]
+        ts = entry[1] if len(entry) > 1 else 0.0
+        if isinstance(raw_key, list):
+            key = tuple(raw_key)
+        else:
+            key = raw_key
+        if hasattr(obj, "add"):
+            try:
+                obj.add(key, ts)
+            except Exception:  # pragma: no cover - defensive
+                try:
+                    obj[key] = None
+                except Exception:
+                    continue
+        else:
+            try:
+                obj[key] = None
+            except Exception:  # pragma: no cover - defensive
+                continue
+
+
+def _audit_rolling_cache_fallback(state_dir: str, reason: str) -> None:
+    """Task 11b: append a dispute-style audit event for a cold-start fallback.
+
+    Writes to `.specs/telemetry.jsonl` (project audit log). Best-effort —
+    any I/O failure is swallowed silently so that state recovery itself is
+    never blocked by audit-logging problems.
+    """
+    try:
+        ts_iso = _dt.datetime.now(_dt.timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+        event = {
+            "event": "rolling_cache_fallback",
+            "state_dir": str(state_dir),
+            "reason": reason,
+            "timestamp": ts_iso,
+        }
+        # Walk upward from state_dir to find a project root with .specs/.
+        # Fall back to writing next to state_dir if no .specs is found.
+        candidate = os.path.abspath(state_dir)
+        telemetry_path: Optional[str] = None
+        for _ in range(10):
+            specs_dir = os.path.join(candidate, ".specs")
+            if os.path.isdir(specs_dir):
+                telemetry_path = os.path.join(specs_dir, "telemetry.jsonl")
+                break
+            parent = os.path.dirname(candidate)
+            if parent == candidate:
+                break
+            candidate = parent
+        if telemetry_path is None:
+            telemetry_path = os.path.join(state_dir, "audit.jsonl")
+            try:
+                os.makedirs(state_dir, exist_ok=True)
+            except OSError:
+                return
+        with open(telemetry_path, "a") as f:
+            f.write(json.dumps(event) + "\n")
+    except Exception:  # pragma: no cover - defensive
+        pass
+
+
+def _cold_start_rolling_cache(engine, *, reason: str, state_dir: str,
+                              emit_warning: bool) -> None:
+    """Task 11b: invoke the same cold-start seed path that fresh engine
+    init uses. Mirrors the engine's `_seed_rolling_caches(config)` contract.
+
+    If the engine exposes `_seed_rolling_caches`, delegate to it so we share
+    exactly one code path with first-boot init (most important for parity).
+    Otherwise fall back to a direct `registry.seed_all(...)` call.
+    """
+    if emit_warning:
+        logger.warning(
+            "rolling_cache.npz sha256 mismatch OR missing; falling back to "
+            "cold-start seed (state_dir=%s, reason=%s)", state_dir, reason,
+        )
+
+    registry = getattr(engine, "_rolling_cache_registry", None)
+    if registry is None:
+        return
+
+    # Preferred path: re-run the engine's own cold-start so new-engine and
+    # recovered-engine behave identically.
+    seed_fn = getattr(engine, "_seed_rolling_caches", None)
+    config = getattr(engine, "config", None)
+    if callable(seed_fn) and config is not None:
+        try:
+            seed_fn(config)
+            return
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning(
+                "cold-start _seed_rolling_caches failed: %s "
+                "(state_dir=%s); registry left empty", exc, state_dir,
+            )
+            return
+
+    # Fallback path: directly invoke seed_all without a load_fn (subscribe
+    # the needed caches; signal compute will populate them lazily).
+    try:
+        registry.seed_all(
+            strategy_specs=getattr(config, "strategies", []) if config else [],
+            data_dir=getattr(config, "data_dir", "") if config else "",
+            max_lookback_bars=int(
+                getattr(engine, "_max_lookback_bars", 4800),
+            ),
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning(
+            "cold-start registry.seed_all failed: %s (state_dir=%s); "
+            "registry left empty", exc, state_dir,
+        )
+
+
+def _restore_filled_4h_windows(engine, payload) -> None:
+    """Task 11c: restore `engine._filled_4h_windows`.
+
+    Accepts two formats:
+      1. Structured dict: `{"maxlen": N, "ttl_seconds": T, "items": [[k, ts], ...]}`
+         — rebuild a `_TTLOrderedDict` with the saved bounds and original
+         insertion timestamps (TTL eviction continues from the right offset).
+      2. Legacy flat list: `[[k, ts], ...]` — fall back to adding into the
+         existing container at current wall-clock time.
+
+    If `_TTLOrderedDict` is importable, format (1) yields a freshly
+    constructed container that replaces `engine._filled_4h_windows`.
+    Otherwise, we fall through to the generic `.add`/`__setitem__` restore.
+    """
+    if payload is None:
+        return
+
+    # Format (1): structured dict
+    if isinstance(payload, dict) and "items" in payload:
+        try:
+            from v5.paper_engine import _TTLOrderedDict as _TTLOrderedDictCls
+        except Exception:
+            _TTLOrderedDictCls = None
+        items_raw = payload.get("items", []) or []
+        restored: list = []
+        for entry in items_raw:
+            if not entry:
+                continue
+            raw_key = entry[0]
+            ts = entry[1] if len(entry) > 1 else 0.0
+            if isinstance(raw_key, list):
+                key = tuple(raw_key)
+            else:
+                key = raw_key
+            try:
+                ts_f = float(ts) if ts is not None else 0.0
+            except (TypeError, ValueError):
+                ts_f = 0.0
+            restored.append((key, ts_f))
+        if _TTLOrderedDictCls is not None:
+            try:
+                ttl = _TTLOrderedDictCls(
+                    ttl_seconds=float(payload.get("ttl_seconds", 7 * 86400.0)),
+                    maxlen=int(payload.get("maxlen", 500)),
+                )
+                ttl.restore(restored)
+                engine._filled_4h_windows = ttl
+                return
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning(
+                    "restore _TTLOrderedDict failed: %s; falling back to "
+                    "generic restore", exc,
+                )
+        # Generic fallback: mutate existing container
+        _deserialize_filled_windows_generic(
+            [[list(k) if isinstance(k, tuple) else k, ts] for k, ts in restored],
+            engine._filled_4h_windows,
+        )
+        return
+
+    # Format (2): legacy flat list
+    _deserialize_filled_windows_generic(payload, engine._filled_4h_windows)
+
+
+def _serialize_engine_state_to_dir(engine, state_dir: str) -> None:
+    """M3 Task 11a — engine-level state save with RollingCache sidecar.
+
+    Save order (crash-consistent):
+      1. If engine has `_rolling_cache_registry` with caches, write
+         `rolling_cache.npz` via tmp + fsync + atomic rename.
+      2. Build state JSON (includes `rolling_cache_path`,
+         `rolling_cache_sha256`, `rolling_cache_metadata` when a sidecar
+         was written, plus bounded structures: `_alerts`, `_pending_alerts`,
+         `_filled_4h_windows`).
+      3. Write `state.json.tmp` → fsync → atomic rename to `state.json`.
+
+    A crash between (1) and (3) leaves an orphan `.npz` (harmless, reclaimed
+    on next save). A crash mid-(3) cannot tear the state.json thanks to the
+    atomic rename.
+    """
+    os.makedirs(state_dir, exist_ok=True)
+
+    data: dict = {
+        "version": STATE_VERSION,
+        "tick_counter": int(getattr(engine, "tick_counter", 0)),
+    }
+
+    # --- 1. Sidecar first -------------------------------------------------
+    registry = getattr(engine, "_rolling_cache_registry", None)
+    if registry is not None:
+        try:
+            has_caches = len(registry.all()) > 0
+        except Exception:
+            has_caches = False
+        if has_caches:
+            rel_path, sha, metadata = _write_rolling_cache_sidecar(
+                registry, state_dir
+            )
+            data["rolling_cache_path"] = rel_path
+            data["rolling_cache_sha256"] = sha
+            data["rolling_cache_metadata"] = metadata
+
+    # --- 2. Bounded structures (AC14) ------------------------------------
+    alerts_obj = getattr(engine, "_alerts", None)
+    if alerts_obj is not None:
+        try:
+            data["_alerts"] = list(alerts_obj)
+        except Exception:
+            data["_alerts"] = []
+        maxlen = getattr(alerts_obj, "maxlen", None)
+        if maxlen is not None:
+            data["_alerts_maxlen"] = int(maxlen)
+
+    pending_obj = getattr(engine, "_pending_alerts", None)
+    if pending_obj is not None:
+        try:
+            data["_pending_alerts"] = list(pending_obj)
+        except Exception:
+            data["_pending_alerts"] = []
+        maxlen = getattr(pending_obj, "maxlen", None)
+        if maxlen is not None:
+            data["_pending_alerts_maxlen"] = int(maxlen)
+
+    filled = getattr(engine, "_filled_4h_windows", None)
+    if filled is not None:
+        # Task 11c: prefer structured format for `_TTLOrderedDict` so
+        # maxlen/ttl_seconds survive the roundtrip. Items are `[key, ts]`
+        # where key-tuples are cast to lists for JSON and restored on load.
+        try:
+            from v5.paper_engine import _TTLOrderedDict as _TTLOrderedDictCls
+        except Exception:
+            _TTLOrderedDictCls = None
+        if _TTLOrderedDictCls is not None and isinstance(
+            filled, _TTLOrderedDictCls
+        ):
+            data["_filled_4h_windows"] = {
+                "maxlen": int(filled._maxlen),
+                "ttl_seconds": float(filled._ttl),
+                "items": [
+                    [list(k) if isinstance(k, tuple) else k,
+                     float(ts) if ts is not None else 0.0]
+                    for k, ts in filled.items()
+                ],
+            }
+        else:
+            data["_filled_4h_windows"] = _serialize_filled_windows_generic(
+                filled,
+            )
+
+    # --- 3. Atomic state.json write ---------------------------------------
+    final_path = os.path.join(state_dir, "state.json")
+    tmp_path = os.path.join(state_dir, "state.json.tmp")
+    payload = json.dumps(data, default=str)
+    with open(tmp_path, "w") as f:
+        f.write(payload)
+        f.flush()
+        os.fsync(f.fileno())
+    os.rename(tmp_path, final_path)
+
+
+def _deserialize_engine_state_from_dir(engine, state_dir: str) -> None:
+    """M3 Task 11a — engine-level state load with RollingCache sidecar.
+
+    HAPPY PATH ONLY (Task 11a). Task 11b adds sha256-mismatch / missing
+    sidecar → cold-start fallback.
+
+    - If `rolling_cache_path` is in the JSON AND the file exists:
+        1. Load `.npz` via `np.load`.
+        2. Verify sha256 matches — raises `ValueError` on mismatch (Task
+           11b will downgrade this to a WARNING + cold-start fallback).
+        3. Reconstruct each RollingCache from the arrays + metadata and
+           register it into `engine._rolling_cache_registry`.
+    - If `rolling_cache_path` NOT in JSON (pre-M3 format), leave registry
+      alone — caller falls back to cold-start seed (Task 9b / 11b).
+    """
+    state_path = os.path.join(state_dir, "state.json")
+    if not os.path.exists(state_path):
+        return
+    with open(state_path) as f:
+        data = json.load(f)
+
+    # --- Bounded structures ----------------------------------------------
+    if "_alerts" in data and hasattr(engine, "_alerts"):
+        maxlen = data.get("_alerts_maxlen",
+                          getattr(engine._alerts, "maxlen", None))
+        engine._alerts = collections.deque(data["_alerts"], maxlen=maxlen)
+
+    if "_pending_alerts" in data and hasattr(engine, "_pending_alerts"):
+        maxlen = data.get("_pending_alerts_maxlen",
+                          getattr(engine._pending_alerts, "maxlen", None))
+        engine._pending_alerts = collections.deque(
+            data["_pending_alerts"], maxlen=maxlen,
+        )
+
+    if "_filled_4h_windows" in data and hasattr(engine, "_filled_4h_windows"):
+        _restore_filled_4h_windows(engine, data["_filled_4h_windows"])
+
+    engine.tick_counter = int(data.get("tick_counter", 0))
+
+    # --- Sidecar with Task 11b cold-start fallback ------------------------
+    rel_path = data.get("rolling_cache_path")
+    if not rel_path:
+        # Old-format state: no `rolling_cache_path` key at all. Legitimate
+        # (pre-Task 11a) — silently cold-start without WARNING.
+        _cold_start_rolling_cache(engine, reason="old_format_no_sidecar_key",
+                                  state_dir=state_dir, emit_warning=False)
+        return
+
+    sidecar_path = os.path.join(state_dir, rel_path)
+    if not os.path.exists(sidecar_path):
+        logger.warning(
+            "rolling_cache.npz sha256 mismatch OR missing; falling back to "
+            "cold-start seed (state_dir=%s)", state_dir,
+        )
+        _audit_rolling_cache_fallback(state_dir, reason="missing")
+        _cold_start_rolling_cache(engine, reason="missing",
+                                  state_dir=state_dir, emit_warning=False)
+        return
+
+    expected_sha = data.get("rolling_cache_sha256", "")
+    with open(sidecar_path, "rb") as f:
+        actual_sha = hashlib.sha256(f.read()).hexdigest()
+    if expected_sha and actual_sha != expected_sha:
+        logger.warning(
+            "rolling_cache.npz sha256 mismatch OR missing; falling back to "
+            "cold-start seed (state_dir=%s)", state_dir,
+        )
+        _audit_rolling_cache_fallback(state_dir, reason="sha256_mismatch")
+        _cold_start_rolling_cache(engine, reason="sha256_mismatch",
+                                  state_dir=state_dir, emit_warning=False)
+        return
+
+    metadata = data.get("rolling_cache_metadata", {}) or {}
+    registry = getattr(engine, "_rolling_cache_registry", None)
+    if registry is None:
+        return
+
+    from v5.rolling_cache import BarType
+
+    try:
+        npz = np.load(sidecar_path)
+    except Exception as exc:
+        logger.warning(
+            "rolling_cache.npz load failed (%s); falling back to cold-start "
+            "seed (state_dir=%s)", exc, state_dir,
+        )
+        _audit_rolling_cache_fallback(state_dir, reason="load_error")
+        _cold_start_rolling_cache(engine, reason="load_error",
+                                  state_dir=state_dir, emit_warning=False)
+        return
+    try:
+        for key_prefix, meta in metadata.items():
+            token = meta.get("token") or key_prefix.split("__")[0]
+            bt_val = meta.get("bar_type") or key_prefix.split("__")[1]
+            bar_type = BarType(bt_val)
+            cache = registry.subscribe(token, bar_type)
+
+            # Buffers — each field had a dedicated array
+            for fname in cache._buf.keys():
+                arr_key = f"{key_prefix}__{fname}"
+                if arr_key in npz.files:
+                    buf = npz[arr_key]
+                    if buf.shape == cache._buf[fname].shape:
+                        cache._buf[fname][:] = buf
+            ts_key = f"{key_prefix}__timestamps"
+            if ts_key in npz.files:
+                ts_buf = npz[ts_key]
+                if ts_buf.shape == cache._timestamps.shape:
+                    cache._timestamps[:] = ts_buf
+
+            cache._head = int(meta.get("head", 0))
+            cache._size = int(meta.get("size", 0))
+            cache.seeded_through_ts_ns = int(
+                meta.get("seeded_through_ts_ns", 0)
+            )
+    finally:
+        npz.close()
+
+
 def serialize_state(
-    state: SimulationState,
-    tick_counter: int,
+    state=None,
+    tick_counter=None,
     last_timestamp: Optional[str] = None,
     shadow_pools: Optional[dict] = None,
     last_known_prices: Optional[dict] = None,
     armed_tokens: Optional[list] = None,
     filled_4h_windows: Optional[list] = None,
     timestamp: Optional[str] = None,
-) -> dict:
+):
     """Serialize SimulationState to a JSON-compatible dict.
 
     Closed trades are NOT included — they go to trades.jsonl.
     `timestamp=` is accepted as an alias for `last_timestamp` (M2 tests use this
     shorter name; legacy positional callers still pass `last_timestamp`).
+
+    M3 Task 11a overload: when called as `serialize_state(engine, state_dir)`
+    where `engine` is a PaperPortfolioEngine (has `_rolling_cache_registry`
+    or is not a SimulationState) and `state_dir` is a string path, this
+    delegates to the engine-level save with sidecar .npz. Returns `None` in
+    that mode (side-effectful disk write, not a dict).
     """
+    # M3 Task 11a overload detection — first arg is a PaperPortfolioEngine
+    # (exposes `_rolling_cache_registry` or lacks `position_manager`) and
+    # second arg is a string path.
+    if isinstance(tick_counter, str) and not isinstance(state, SimulationState):
+        _serialize_engine_state_to_dir(state, tick_counter)
+        return None
+
     if last_timestamp is None:
         last_timestamp = timestamp if timestamp is not None else ""
     positions = [_serialize_position(p) for p in state.position_manager.open_positions]
@@ -226,13 +761,28 @@ def serialize_state(
     return data
 
 
-def deserialize_state(data: dict, return_shadow: bool = False):
+def deserialize_state(data=None, return_shadow: bool = False, *,
+                      state_dir: Optional[str] = None):
     """Deserialize a state dict back to SimulationState + tick_counter.
 
     Returns (state, tick_counter) or (state, tick_counter, shadow_pools) if return_shadow=True.
     last_timestamp is stored as state.last_timestamp for callers that need it.
     Closed trades list is always empty (they live in trades.jsonl).
+
+    M3 Task 11a overload: when called as `deserialize_state(engine, state_dir)`
+    where `engine` is a PaperPortfolioEngine and `return_shadow` is a string
+    path (positional), this delegates to the engine-level load with sidecar
+    .npz. Returns `None` in that mode (side-effectful in-place engine state
+    restore).
     """
+    # M3 Task 11a overload detection — (engine, state_dir) form.
+    if isinstance(return_shadow, str):
+        _deserialize_engine_state_from_dir(data, return_shadow)
+        return None
+    if state_dir is not None and not isinstance(data, dict):
+        _deserialize_engine_state_from_dir(data, state_dir)
+        return None
+
     # R3-I3 fix: validate state version
     version = data.get("version", 1)
     if version != STATE_VERSION:
@@ -287,7 +837,9 @@ def atomic_write_state(
     If rename fails, the original file is preserved.
     """
     data = serialize_state(state, tick_counter, last_timestamp, shadow_pools, last_known_prices, armed_tokens=armed_tokens, filled_4h_windows=filled_4h_windows)
-    json_str = json.dumps(data, indent=2)
+    # default=str as a safety net — _json_safe() handles most known cases but a
+    # stray numpy/set value slipping through would otherwise crash the save.
+    json_str = json.dumps(data, indent=2, default=str)
 
     target_dir = os.path.dirname(target_path) or "."
 

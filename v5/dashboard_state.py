@@ -232,12 +232,25 @@ def _build_portfolio(
     # Load historical closed trades from trades.jsonl (engine only keeps
     # current-session closed trades in memory; trades.jsonl has full history)
     trades_jsonl = Path(config.state_dir) / "trades.jsonl"
+    jsonl_closed_dash: list[dict] = []
     if trades_jsonl.exists():
         jsonl_trades = _load_trades_jsonl(trades_jsonl)
         if len(jsonl_trades) > len(closed_trades):
             # trades.jsonl has more history — use it instead, mapping to
             # the same format that to_dashboard_sim() produces.
             closed_trades = [_jsonl_to_dashboard_trade(t) for t in jsonl_trades]
+        else:
+            jsonl_closed_dash = [_jsonl_to_dashboard_trade(t) for t in jsonl_trades]
+
+    # AC13: union in-memory / jsonl closed trades with the parquet archive
+    # (older trades evicted from PositionManager.closed_trades deque).
+    archive_closed_dash = _load_archive_trades(config.state_dir)
+    if archive_closed_dash:
+        closed_trades = _union_closed_trades(
+            memory_closed=closed_trades,
+            archive_closed=archive_closed_dash,
+            jsonl_closed=jsonl_closed_dash,
+        )
 
     sim["all_trades"] = closed_trades + open_trades
     sim["recent_trades"] = closed_trades
@@ -252,6 +265,129 @@ def _build_portfolio(
 
 _equity_csv_cache: dict[str, tuple[float, list[dict]]] = {}  # path -> (mtime, data)
 _trades_jsonl_cache: dict[str, tuple[float, list[dict]]] = {}  # path -> (mtime, data)
+# Archive cache keyed by (path, dir-newest-mtime); value is the materialized list of dashboard trade dicts.
+_trades_archive_cache: dict[str, tuple[float, list[dict]]] = {}
+
+
+def _archive_row_to_dashboard_trade(row: dict) -> dict:
+    """Convert a TradeArchiveReader row (ClosedTrade dataclass fields) to the
+    dashboard trade dict format produced by to_dashboard_sim().
+    """
+    d = {
+        "token": row.get("token", ""),
+        "strategy": row.get("strategy_id", ""),
+        "market_type": "perp" if row.get("is_perp") else "spot",
+        "direction": int(row.get("direction", 1) or 1),
+        "pnl": float(row.get("pnl", 0) or 0),
+        "exit_reason": row.get("exit_reason", ""),
+        "signal": {
+            "entry_bar": int(row.get("entry_bar", 0) or 0),
+            "exit_bar": int(row.get("exit_bar", 0) or 0),
+            "entry_price": float(row.get("entry_price", 0) or 0),
+            "exit_price": float(row.get("exit_price", 0) or 0),
+            "hold_bars": int(row.get("hold_bars", 0) or 0),
+        },
+        "entry_price": float(row.get("entry_price", 0) or 0),
+        "exit_price": float(row.get("exit_price", 0) or 0),
+        "margin_usd": float(row.get("margin_usd", 0) or 0),
+        "hold_bars": int(row.get("hold_bars", 0) or 0),
+        "funding_cost": float(row.get("funding_cost", 0) or 0),
+        "entry_fee": float(row.get("entry_fee", 0) or 0),
+        "exit_fee": float(row.get("exit_fee", 0) or 0),
+        "entry_timestamp": row.get("entry_timestamp", "") or "",
+        "exit_timestamp": row.get("exit_timestamp", "") or "",
+        # Preserve position_id for de-dup against in-memory / jsonl sources.
+        "position_id": row.get("position_id", "") or "",
+    }
+    return d
+
+
+def _load_archive_trades(state_dir: str) -> list[dict]:
+    """Load archived closed trades from `{state_dir}/trades_archive/` as
+    dashboard trade dicts.  Returns [] if the archive dir is missing, empty,
+    or the reader fails (best-effort degradation).
+
+    Caches per-path keyed on the newest committed parquet's mtime so we skip
+    re-parsing on every heartbeat when nothing changed.
+    """
+    archive_dir = os.path.join(state_dir, "trades_archive")
+    if not os.path.isdir(archive_dir):
+        return []
+    # Compute a cheap "newest committed parquet mtime" fingerprint; avoids
+    # re-reading when the archive hasn't grown since the last heartbeat.
+    try:
+        newest_mtime = 0.0
+        for name in os.listdir(archive_dir):
+            if not name.endswith(".parquet") or name.endswith(".tmp"):
+                continue
+            try:
+                m = os.path.getmtime(os.path.join(archive_dir, name))
+            except OSError:
+                continue
+            if m > newest_mtime:
+                newest_mtime = m
+    except OSError:
+        return []
+    if newest_mtime == 0.0:
+        return []
+    cached = _trades_archive_cache.get(archive_dir)
+    if cached and cached[0] == newest_mtime:
+        return cached[1]
+    try:
+        from v5.trade_archive import TradeArchiveReader
+        reader = TradeArchiveReader(archive_dir)
+        df = reader.all_trades()
+    except Exception:
+        return []
+    if df is None or getattr(df, "empty", True):
+        _trades_archive_cache[archive_dir] = (newest_mtime, [])
+        return []
+    try:
+        rows = df.to_dict(orient="records")
+    except Exception:
+        return []
+    result = [_archive_row_to_dashboard_trade(r) for r in rows]
+    _trades_archive_cache[archive_dir] = (newest_mtime, result)
+    return result
+
+
+def _union_closed_trades(
+    memory_closed: list[dict],
+    archive_closed: list[dict],
+    jsonl_closed: list[dict] | None = None,
+) -> list[dict]:
+    """Union closed-trade dicts from multiple sources, de-duplicating.
+
+    Precedence (freshest wins): memory > jsonl > archive.
+
+    De-dup key: `position_id` when present on both sides; otherwise a
+    composite `(token, strategy, entry_bar, exit_bar, entry_timestamp)`.
+    """
+    def _key(t: dict) -> tuple:
+        pid = t.get("position_id")
+        if pid:
+            return ("pid", pid)
+        sig = t.get("signal") or {}
+        return (
+            "comp",
+            t.get("token", ""),
+            t.get("strategy", ""),
+            sig.get("entry_bar", t.get("entry_bar", 0)),
+            sig.get("exit_bar", t.get("exit_bar", 0)),
+            t.get("entry_timestamp", ""),
+        )
+
+    seen: set = set()
+    out: list[dict] = []
+    # memory first (freshest), then jsonl, then archive (oldest)
+    for source in (memory_closed, jsonl_closed or [], archive_closed):
+        for t in source:
+            k = _key(t)
+            if k in seen:
+                continue
+            seen.add(k)
+            out.append(t)
+    return out
 
 
 def _load_trades_jsonl(path: Path) -> list[dict]:

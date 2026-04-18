@@ -1,6 +1,7 @@
 """V5 Portfolio Backtest — Position and trade tracking."""
 from __future__ import annotations
 
+import collections
 import math
 from dataclasses import dataclass, field
 from typing import Optional
@@ -8,7 +9,7 @@ from typing import Optional
 import numpy as np
 
 
-@dataclass
+@dataclass(slots=True)
 class ScalingEvent:
     """A single scale (increase or reduce) execution event recorded on a Position.
 
@@ -51,7 +52,7 @@ class ReduceResult:
     suffix: str                          # ":scale_N" or ":scale_N_final"
 
 
-@dataclass
+@dataclass(slots=True)
 class Position:
     """An open position in the portfolio."""
     position_id: str             # "BTC:s30:5000:primary"
@@ -100,6 +101,8 @@ class Position:
     limit_placed_at: str = ""            # When limit was determined
     stop_limit_price: float = 0.0        # Initial stop price at entry
     fill_source: str = ""                # "hourly" or "sub_hourly"
+    # Paper-trading 4h window bookkeeping (for breadth-cull / filled-window logic)
+    _window_end: float = 0.0
     # Exit handler chain (built at entry, not serialized to ClosedTrade)
     exit_handlers: list = field(default_factory=list)
     # M2 scaling fields (all with back-compat defaults)
@@ -317,7 +320,7 @@ class Position:
         )
 
 
-@dataclass
+@dataclass(slots=True)
 class ClosedTrade:
     """A completed trade."""
     position_id: str
@@ -344,6 +347,8 @@ class ClosedTrade:
     limit_placed_at: str = ""
     stop_limit_price: float = 0.0
     fill_source: str = ""
+    # Paper-trading 4h window bookkeeping (for breadth-cull / filled-window logic)
+    _window_end: float = 0.0
     # M2 identity fields (AC29, all with backward-compat defaults)
     parent_position_id: str = ""
     exec_seq: int = 0
@@ -355,11 +360,61 @@ class ClosedTrade:
 
 
 class PositionManager:
-    """Manages open positions and closed trades."""
+    """Manages open positions and closed trades.
+
+    M3 AC5/13/17: `closed_trades` is a bounded deque (maxlen=1000). When the
+    deque is at capacity and a new trade is appended via `append_closed_trade`,
+    the oldest 100 entries are flushed to the attached TradeArchiveWriter
+    BEFORE eviction — so the union (memory deque + parquet archive) contains
+    every trade ever booked.
+
+    Callers MUST use `append_closed_trade(...)` (or the path through
+    `close_position(...)`) to get archive-aware eviction. Direct
+    `pm.closed_trades.append(...)` is retained for back-compat but silently
+    drops evicted entries.
+    """
+
+    # How many trades to batch-flush when the deque is at capacity.
+    _ARCHIVE_FLUSH_BATCH: int = 100
 
     def __init__(self):
         self.open_positions: list[Position] = []
-        self.closed_trades: list[ClosedTrade] = []
+        self.closed_trades: collections.deque = collections.deque(maxlen=1000)
+        # Opt-in archive writer — None until a caller wires it up.
+        self._archive_writer = None
+
+    def attach_archive_writer(self, writer) -> None:
+        """Wire an archive writer (v5.trade_archive.TradeArchiveWriter).
+
+        After attachment, `append_closed_trade` will flush the oldest
+        `_ARCHIVE_FLUSH_BATCH` entries to disk BEFORE appending when the deque
+        is at maxlen.
+        """
+        self._archive_writer = writer
+
+    def set_archive_writer(self, writer) -> None:
+        """Alias for attach_archive_writer (spec name)."""
+        self.attach_archive_writer(writer)
+
+    def append_closed_trade(self, trade: "ClosedTrade") -> None:
+        """Append a closed trade; flush overflow to archive before eviction."""
+        maxlen = self.closed_trades.maxlen
+        if (
+            maxlen is not None
+            and len(self.closed_trades) >= maxlen
+            and self._archive_writer is not None
+        ):
+            n = min(self._ARCHIVE_FLUSH_BATCH, len(self.closed_trades))
+            evicted_batch = [self.closed_trades.popleft() for _ in range(n)]
+            try:
+                self._archive_writer.flush(evicted_batch)
+            except Exception:
+                # Defensive: if archive write fails, restore evicted entries
+                # to the front in original order so we don't silently lose them.
+                for t in reversed(evicted_batch):
+                    self.closed_trades.appendleft(t)
+                raise
+        self.closed_trades.append(trade)
 
     def open_position(self, pos: Position) -> None:
         self.open_positions.append(pos)
@@ -402,7 +457,7 @@ class PositionManager:
             stop_limit_price=pos.stop_limit_price,
             fill_source=pos.fill_source,
         )
-        self.closed_trades.append(trade)
+        self.append_closed_trade(trade)
         return trade
 
     def total_margin_for_token(self, token: str) -> float:

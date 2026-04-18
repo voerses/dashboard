@@ -383,3 +383,31 @@ def create_shutdown_handler(shutdown_event):
     def handler(signum, frame):
         shutdown_event.set()
     return handler
+
+
+# ---------------------------------------------------------------------------
+# Memory monitoring (Task 12)
+# ---------------------------------------------------------------------------
+
+def _read_rss_mb() -> float:
+    """Read process RSS in megabytes. psutil-or-/proc fallback.
+
+    Returns RSS of the current process in MB. Zero on error (don't raise —
+    RSS monitoring is diagnostic, shouldn't crash the paper engine).
+    """
+    try:
+        import psutil  # type: ignore
+        return psutil.Process().memory_info().rss / 1024.0 / 1024.0
+    except ImportError:
+        pass
+    # Linux fallback: parse /proc/self/status VmRSS line
+    try:
+        with open("/proc/self/status") as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    # Format: "VmRSS:\t   12345 kB"
+                    kb = int(line.split()[1])
+                    return kb / 1024.0
+    except (OSError, ValueError, IndexError):
+        pass
+    return 0.0
