@@ -1,7 +1,13 @@
-"""V5 Portfolio Backtest — Strategy-facing API (ScaleAction, LinkedScalePolicy)."""
+"""V5 Portfolio Backtest — Strategy-facing API (ScaleAction, LinkedScalePolicy).
+
+Re-exports :class:`v5.strategy_spec.StrategySpec` so downstream callers can
+import the strategy-facing surface from a single module.
+"""
 
 from dataclasses import dataclass
 from enum import Enum
+
+from v5.strategy_spec import StrategySpec  # noqa: F401 — re-export
 
 
 @dataclass

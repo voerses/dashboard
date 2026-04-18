@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict
-from typing import Literal, Optional, Tuple
+from typing import TYPE_CHECKING, Literal, Optional, Tuple
+
+if TYPE_CHECKING:
+    from v5.bar_spec import BarSpec
 
 
 # ---------------------------------------------------------------------------
@@ -228,6 +231,19 @@ class PortfolioConfig:
     # "full" = legacy pd.Series.ewm() recompute across the window every tick;
     # "incremental" = RollingCache-backed O(1)-per-tick dispatch (Task 7+).
     signal_mode: Literal["full", "incremental"] = "incremental"
+    # M4 T18b (AC28 / quant architect Q2): optional override for the MTF sim-
+    # loop base resolution. When ``None`` (default), the engine infers the
+    # effective base resolution via the canonical normalization function
+    # ``v5.bar_processor.resolve_base_resolution`` — finest declared
+    # ``exit`` subscription across loaded strategies, falling back to the
+    # interned ``BarSpec.from_minutes(60)``.
+    #
+    # When set, the override is validated against the coarsest strategy
+    # ``exit`` subscription: ``base_resolution.period_ns`` MUST be
+    # ``<= min(strategy.exit_resolutions).period_ns``. Violation raises
+    # ``ValueError`` at resolution time — a coarser base cannot drive a
+    # finer exit handler.
+    base_resolution: Optional["BarSpec"] = None
 
     def __post_init__(self):
         if self.signal_mode not in ("full", "incremental"):

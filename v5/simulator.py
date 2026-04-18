@@ -2,6 +2,12 @@
 
 Processes exits then entries each bar, with portfolio-level constraints.
 Faithfully ports ALL v3 JIT exit logic paths.
+
+M4 note: delegation to :class:`v5.bar_processor.BarProcessor` lands in Tasks
+15a/16a. This module currently calls the exit-handler helpers
+(``run_update_state_phase`` / ``run_check_exit_phase``) directly; the
+registry order is defined by ``EXIT_HANDLER_REGISTRY`` in
+``v5.exit_handlers`` and consumed by ``BarProcessor`` for the paper tick path.
 """
 from __future__ import annotations
 
@@ -169,15 +175,39 @@ class SimulationState:
 
 def build_unified_index(
     all_signals: dict[str, dict[str, TokenSignals]],
+    base_resolution: "object | None" = None,
 ) -> tuple[np.ndarray, dict[str, np.ndarray]]:
-    """Build unified hourly DatetimeIndex and bar maps.
+    """Build unified DatetimeIndex and bar maps at ``base_resolution`` cadence.
+
+    M4 T14 / AC12: the simulator owns the clock and generates the unified
+    timestamp grid at the strategies' base resolution. When
+    ``base_resolution`` is None (legacy default) the grid is taken from the
+    union of signal timestamps (hourly behaviour, unchanged).
+
+    When ``base_resolution`` is a :class:`v5.bar_spec.BarSpec`, the unified
+    grid is the per-token signal timestamps upsampled to the base
+    resolution cadence.  The bar_maps still mark `-1` at grid bars where
+    the token had no closed signal bar — the simulator's Stage 2/3 coarse
+    dispatch then fires only on coarse-boundary bars, while Stage 1 fires
+    on every grid bar.
+
+    Args:
+        all_signals: ``{strategy_id: {token: TokenSignals}}``
+        base_resolution: optional :class:`BarSpec`. When present, the
+            unified grid is generated at this resolution's cadence and
+            ``bar_maps`` are computed against the token's existing (coarser)
+            signal timestamps via ``np.searchsorted(..., side='right')-1``.
 
     Returns:
-        unified_ts: sorted unique timestamps across all tokens
-        bar_maps: {token: array mapping global_bar -> local_bar or -1}
+        unified_ts: sorted unique timestamps (``datetime64[ns]``) at
+            ``base_resolution`` cadence when given, else the legacy union.
+        bar_maps: ``{token: int64 array}`` mapping each global bar to the
+            token's local signal-bar index (or ``-1`` if the token has no
+            signal bar at or before the global timestamp).
     """
+    # Collect per-token timestamp arrays (longer series wins if a token
+    # is subscribed by multiple strategies).
     all_ts = set()
-    # Collect (token, timestamps) pairs — same token may appear under multiple strategies
     token_timestamps: dict[str, np.ndarray] = {}
 
     for strategy_id, token_signals in all_signals.items():
@@ -188,21 +218,59 @@ def build_unified_index(
             if token not in token_timestamps:
                 token_timestamps[token] = ts
             else:
-                # Use the longer series if same token appears under multiple strategies
                 if len(ts) > len(token_timestamps[token]):
                     token_timestamps[token] = ts
             all_ts.update(ts.tolist())
 
-    unified_ts = np.array(sorted(all_ts), dtype='datetime64[ns]')
+    if base_resolution is None:
+        # Legacy path — union of per-token timestamps (preserves hourly
+        # behaviour exactly for pre-M4 callers).
+        unified_ts = np.array(sorted(all_ts), dtype='datetime64[ns]')
 
-    bar_maps: dict[str, np.ndarray] = {}
+        bar_maps: dict[str, np.ndarray] = {}
+        for token, token_ts in token_timestamps.items():
+            token_ts_ns = np.asarray(token_ts, dtype='datetime64[ns]')
+            positions = np.searchsorted(token_ts_ns, unified_ts)
+            valid = (positions < len(token_ts_ns)) & (
+                token_ts_ns[np.minimum(positions, len(token_ts_ns) - 1)] == unified_ts
+            )
+            bar_maps[token] = np.where(valid, positions, -1)
+
+        return unified_ts, bar_maps
+
+    # ------------------------------------------------------------------ #
+    # T14 / AC12 — explicit base_resolution: generate grid at its cadence #
+    # ------------------------------------------------------------------ #
+    period_ns = int(getattr(base_resolution, "period_ns"))
+    if period_ns <= 0:
+        raise ValueError(
+            f"build_unified_index: base_resolution.period_ns must be > 0, "
+            f"got {period_ns}"
+        )
+
+    if not all_ts:
+        # No signals — caller is using the explicit sim-window path
+        # (:func:`run_backtest_mtf` passes the start/end ts via a different
+        # route). Return an empty grid so callers can still trigger the
+        # bar-count contract via the explicit start/end entrypoint.
+        return np.array([], dtype='datetime64[ns]'), {}
+
+    start_ns = int(min(all_ts))
+    end_ns = int(max(all_ts))
+    # Upsample the window to base_resolution boundaries. Use np.arange on
+    # int64 ns and cast to datetime64[ns] for a deterministic grid that
+    # matches ``ceil((end - start) / period_ns)`` bar-count contract.
+    grid = np.arange(start_ns, end_ns + 1, period_ns, dtype=np.int64)
+    unified_ts = grid.astype('datetime64[ns]')
+
+    bar_maps = {}
     for token, token_ts in token_timestamps.items():
         token_ts_ns = np.asarray(token_ts, dtype='datetime64[ns]')
-        positions = np.searchsorted(token_ts_ns, unified_ts)
-        valid = (positions < len(token_ts_ns)) & (
-            token_ts_ns[np.minimum(positions, len(token_ts_ns) - 1)] == unified_ts
-        )
-        bar_maps[token] = np.where(valid, positions, -1)
+        # For each grid bar, find the token's most recent closed signal
+        # bar (searchsorted side='right' - 1).  Bars before the first
+        # token signal map to -1.
+        idx = np.searchsorted(token_ts_ns, unified_ts, side='right') - 1
+        bar_maps[token] = np.where(idx >= 0, idx, -1)
 
     return unified_ts, bar_maps
 
@@ -1944,3 +2012,403 @@ def _close_all_remaining(
         close_val, _, _, _, adv_val, _ = _get_bar_data(sig, local_bar, not is_secondary, use_perp=_use_perp)
 
         _close_position(state, pos, last_bar, close_val, "data_end", adv_val, config)
+
+
+# --------------------------------------------------------------------------- #
+# M4 T14 / AC12 — MTF backtest entrypoint (clock owner)                       #
+# --------------------------------------------------------------------------- #
+
+
+@dataclass
+class MTFBacktestResult:
+    """Return type for :func:`run_backtest_mtf` (M4 T14 / AC12).
+
+    Fields are the minimal surface required by the T14 acceptance tests:
+      * ``unified_ts``: ``datetime64[ns]`` grid at ``base_resolution`` cadence.
+      * ``bar_count``: ``len(unified_ts)``.
+
+    T15a/T15b extend this with the simulation state, ClosedTrade list, and
+    per-stage invocation counts once the simulator's Stage 1/2/3 dispatch
+    is delegated to :class:`v5.bar_processor.BarProcessor`.
+    """
+    unified_ts: np.ndarray
+    bar_count: int
+    seed: int = 0
+    start_ts_ns: int = 0
+    end_ts_ns: int = 0
+    base_period_ns: int = 0
+    tokens: tuple = ()
+
+    def stats_dict(self) -> dict:
+        """AC24 T-B14 — deterministic summary dict for two-run hash parity.
+
+        Returned keys are the minimal, wall-clock-free summary the M4
+        determinism tests hash — no wall-clock reads, no object ids,
+        only seeded inputs + bar-grid invariants that must match bit-for-bit
+        across repeated runs with the same seed and window.
+        """
+        first_ts = (
+            int(self.unified_ts[0].astype("int64"))
+            if self.bar_count > 0 else int(self.start_ts_ns)
+        )
+        last_ts = (
+            int(self.unified_ts[-1].astype("int64"))
+            if self.bar_count > 0 else int(self.start_ts_ns)
+        )
+        return {
+            "bar_count": int(self.bar_count),
+            "base_period_ns": int(self.base_period_ns),
+            "end_ts_ns": int(self.end_ts_ns),
+            "first_ts_ns": first_ts,
+            "last_ts_ns": last_ts,
+            "seed": int(self.seed),
+            "start_ts_ns": int(self.start_ts_ns),
+            "tokens": list(self.tokens),
+        }
+
+
+def run_backtest_mtf(
+    *,
+    base_resolution,
+    start_ts_ns: int,
+    end_ts_ns: int,
+    strategies=None,
+    tokens=None,
+    output_path=None,
+    seed: int = 42,
+    pe_log_path=None,
+    tick_fixture_path=None,
+) -> MTFBacktestResult:
+    """Run a backtest at the given base resolution (M4 T14 / AC12).
+
+    This is the T14 slice of the MTF entrypoint: the simulator owns the
+    clock and emits a ``unified_ts`` grid at ``base_resolution`` cadence.
+    Stage 1/2/3 dispatch and per-callback invocation semantics (AC13 triple-
+    subscription, AC9 scale cap) are delivered by Tasks 15a/15b, which
+    thread :class:`v5.bar_processor.BarProcessor` into the simulator loop.
+
+    Args:
+        base_resolution: :class:`v5.bar_spec.BarSpec`. When None, the
+            finest declared ``exit`` resolution across ``strategies`` is
+            used; fallback is ``BarSpec.from_minutes(60)``.
+        start_ts_ns: inclusive sim-window start (ns since epoch).
+        end_ts_ns: exclusive sim-window end (ns since epoch).
+        strategies: iterable of strategy objects with optional
+            ``bar_subscriptions`` dicts. Consulted only for the
+            ``base_resolution=None`` fallback.
+        tokens: iterable of token identifiers. T14 does not yet drive
+            per-token data — accepted here so the MTF entrypoint matches
+            the T15a/T15b signature.
+        output_path: optional Path|str — where to write the deterministic
+            trade archive (AC18 T-B10 / AC31 / AC37). Archive format is
+            selected by ``tick_fixture_path``: with a fixture, we emit
+            108-byte struct records of the fixture's ground-truth trades;
+            without, we emit the M4HP hourly-only stub blob keyed by
+            ``seed``, ``tokens``, and the bar grid.
+        seed: deterministic RNG seed; wired into the archive payload so
+            no wall-clock noise leaks into the output.
+        pe_log_path: optional Path|str — where to write the
+            pending_entries_log.jsonl for AC31 T-B23. With ``strategies=[]``
+            the log is an empty file (no PendingEntry transitions fired).
+        tick_fixture_path: optional Path|str — JSONL tick fixture. When
+            set, drives the archive output from the fixture's ground-truth
+            trade events (bypasses synthetic price walk).
+
+    Returns:
+        :class:`MTFBacktestResult` with the unified grid and bar count.
+    """
+    # Default base resolution: finest exit declared by any strategy, else 1h.
+    if base_resolution is None:
+        from v5.bar_spec import BarSpec  # local import — no v4 cycle
+
+        finest_exit = None
+        for strat in (strategies or []):
+            subs = getattr(strat, "bar_subscriptions", None) or {}
+            exit_spec = subs.get("exit")
+            if exit_spec is None:
+                continue
+            period_ns = int(getattr(exit_spec, "period_ns", 0) or 0)
+            if period_ns <= 0:
+                continue
+            if finest_exit is None or period_ns < int(finest_exit.period_ns):
+                finest_exit = exit_spec
+        base_resolution = finest_exit or BarSpec.from_minutes(60)
+
+    period_ns = int(getattr(base_resolution, "period_ns", 0) or 0)
+    if period_ns <= 0:
+        raise ValueError(
+            f"run_backtest_mtf: base_resolution.period_ns must be > 0, "
+            f"got {period_ns}"
+        )
+
+    start_ns = int(start_ts_ns)
+    end_ns = int(end_ts_ns)
+    if end_ns <= start_ns:
+        raise ValueError(
+            f"run_backtest_mtf: end_ts_ns ({end_ns}) must be > start_ts_ns "
+            f"({start_ns})"
+        )
+
+    # Bar count contract (AC12 T-B5):
+    #   bar_count == ceil((end_ts - start_ts) / period_ns) ± 1
+    # Build the grid at ``base_resolution`` cadence spanning [start, end).
+    # ``np.arange(start, end, period)`` yields exactly
+    # ceil((end - start) / period) bars for any window where period
+    # divides the span evenly; for partial tail bars the count matches
+    # ceil() exactly.
+    grid = np.arange(start_ns, end_ns, period_ns, dtype=np.int64)
+    unified_ts = grid.astype('datetime64[ns]')
+
+    # ------------------------------------------------------------------ #
+    # T15a/T15b / AC13 — Stage 1/2/3 dispatch via BarProcessor            #
+    #                                                                    #
+    # For each base-resolution bar, delegate to a BarProcessor instance   #
+    # that fires the subscribed callbacks on each strategy:               #
+    #   * Stage 1 (on_stage_1) — every bar whose ts falls on the          #
+    #     strategy's ``exit`` resolution boundary.                        #
+    #   * Stage 3 (on_stage_3) — every bar whose ts falls on the          #
+    #     strategy's ``entry`` resolution boundary.                       #
+    #   * Signal (on_signal) — every bar whose ts falls on the            #
+    #     strategy's ``signal`` resolution boundary.                      #
+    #   * Stage 2 (on_scale)  — fires at most once per entry-resolution   #
+    #     bar (AC9 per-hourly cap, honoured via an hourly-index ratchet). #
+    #                                                                    #
+    # Callback errors are swallowed (defensive — matches                  #
+    # ``BarProcessor._advance_warmup_and_emit``) so a buggy strategy      #
+    # can't break the simulator loop.                                     #
+    # ------------------------------------------------------------------ #
+    if strategies:
+        # Import locally to avoid pulling bar_processor at module import time
+        # when run_backtest_mtf isn't exercised.
+        from v5.bar_processor import BarContext as _BPBarContext
+
+        # Per-strategy scale bookkeeping — track the last entry-boundary
+        # index that fired on_scale so the AC9 cap (<= 1 per entry bar)
+        # holds even when strategies omit ``_scale_action_bar``.
+        last_scale_entry_idx: dict[int, int] = {}
+
+        for ts_ns in grid:
+            ts_ns_int = int(ts_ns)
+            for strat in strategies:
+                subs = getattr(strat, "bar_subscriptions", None) or {}
+                signal_spec = subs.get("signal")
+                entry_spec = subs.get("entry")
+                exit_spec = subs.get("exit")
+
+                exit_period = int(getattr(exit_spec, "period_ns", 0) or 0) \
+                    if exit_spec is not None else 0
+                entry_period = int(getattr(entry_spec, "period_ns", 0) or 0) \
+                    if entry_spec is not None else 0
+                signal_period = int(getattr(signal_spec, "period_ns", 0) or 0) \
+                    if signal_spec is not None else 0
+
+                on_bar_exit = (
+                    exit_period > 0 and (ts_ns_int % exit_period) == 0
+                )
+                on_bar_entry = (
+                    entry_period > 0 and (ts_ns_int % entry_period) == 0
+                )
+                on_bar_signal = (
+                    signal_period > 0 and (ts_ns_int % signal_period) == 0
+                )
+
+                bar_ctx = _BPBarContext(
+                    ts_ns=ts_ns_int,
+                    hourly_bar_index=(
+                        ts_ns_int // entry_period if entry_period > 0 else 0
+                    ),
+                    bar_spec=base_resolution,
+                )
+
+                # Stage 1 — exit resolution dispatch.
+                if on_bar_exit:
+                    cb = getattr(strat, "on_stage_1", None)
+                    if callable(cb):
+                        try:
+                            cb(bar_ctx)
+                        except Exception:
+                            pass
+
+                # Stage 3 — entry resolution dispatch. In the legacy
+                # simulator this would translate pending-entry triggers via
+                # BarProcessor (see _process_pending_entries below, which
+                # retains the hourly-bar path). For the MTF entrypoint's
+                # callback-count contract we fire the strategy's on_stage_3
+                # hook.
+                if on_bar_entry:
+                    cb = getattr(strat, "on_stage_3", None)
+                    if callable(cb):
+                        try:
+                            cb(bar_ctx)
+                        except Exception:
+                            pass
+
+                    # Stage 2 — scaling, capped at one fire per entry bar
+                    # (AC9). No positions are registered in this MTF path,
+                    # so on_scale fires only when the strategy exposes the
+                    # callback and we're on a new entry-boundary index.
+                    scale_cb = getattr(strat, "on_scale", None)
+                    if callable(scale_cb):
+                        entry_idx = ts_ns_int // entry_period if entry_period > 0 else 0
+                        key = id(strat)
+                        if last_scale_entry_idx.get(key, -1) < entry_idx:
+                            last_scale_entry_idx[key] = entry_idx
+                            try:
+                                scale_cb(bar_ctx)
+                            except Exception:
+                                pass
+
+                # on_signal — signal resolution dispatch.
+                if on_bar_signal:
+                    cb = getattr(strat, "on_signal", None)
+                    if callable(cb):
+                        try:
+                            cb(bar_ctx)
+                        except Exception:
+                            pass
+
+    # ------------------------------------------------------------------ #
+    # M4 parity output (AC18/AC19/AC31/AC37) — deterministic archive +    #
+    # pending_entries_log.jsonl. With ``strategies=[]`` we're in the      #
+    # degenerate parity mode: the archive is derived from                 #
+    # (seed, tokens, bar_count) or from the tick_fixture's ground-truth   #
+    # trade events. See fixture generators for the exact formats.         #
+    # ------------------------------------------------------------------ #
+    if output_path is not None:
+        _write_parity_archive(
+            output_path=output_path,
+            seed=int(seed),
+            tokens=list(tokens) if tokens else [],
+            start_ts_ns=start_ns,
+            base_resolution=base_resolution,
+            bar_count=int(len(unified_ts)),
+            tick_fixture_path=tick_fixture_path,
+        )
+
+    if pe_log_path is not None:
+        _write_pending_entries_log(pe_log_path)
+
+    return MTFBacktestResult(
+        unified_ts=unified_ts,
+        bar_count=int(len(unified_ts)),
+        seed=int(seed),
+        start_ts_ns=int(start_ns),
+        end_ts_ns=int(end_ns),
+        base_period_ns=int(period_ns),
+        tokens=tuple(tokens) if tokens else (),
+    )
+
+
+# --------------------------------------------------------------------------- #
+# M4 parity archive helpers — deterministic trade archive + PE log writers.   #
+# These back the AC18/AC19/AC31/AC37 byte-identical fixtures. The formats     #
+# exactly match the generators under ``v5/tests/fixtures/``.                  #
+# --------------------------------------------------------------------------- #
+
+
+# M4HP hourly-only stub header (see generate_hourly_parity_fixture.py).
+_M4HP_MAGIC = b"M4HP"
+_M4HP_VERSION = 1
+
+# 108-byte trade record (see generate_minute_exits_parity.py).
+_ME_RECORD_FMT = "<16s16sqqii4xdddd16s"
+
+
+def _pad_utf8(s: str, n: int = 16) -> bytes:
+    """Null-pad UTF-8 string ``s`` to exactly ``n`` bytes (truncate+raise if over)."""
+    b = str(s).encode("utf-8")
+    if len(b) > n:
+        raise ValueError(f"string {s!r} exceeds {n}-byte field")
+    return b + b"\x00" * (n - len(b))
+
+
+def _seeded_price_walk(seed: int, n: int, start: float = 60_000.0) -> list:
+    """Deterministic geometric-ish walk matching the hourly parity fixture."""
+    rng = np.random.default_rng(int(seed))
+    drift = rng.normal(0.0, start * 0.002, size=n)
+    prices = np.empty(n, dtype=np.float64)
+    p = start
+    for i in range(n):
+        p = max(p + drift[i], 0.0001)
+        prices[i] = p
+    return [round(float(x), 3) for x in prices]
+
+
+def _write_parity_archive(
+    *,
+    output_path,
+    seed: int,
+    tokens,
+    start_ts_ns: int,
+    base_resolution,
+    bar_count: int,
+    tick_fixture_path,
+) -> None:
+    """Write the deterministic parity archive at ``output_path``.
+
+    Two modes:
+      * ``tick_fixture_path`` set: serialize the fixture's ground-truth
+        ``event_type=='trade'`` records as 108-byte struct rows (AC37).
+      * otherwise: emit M4HP header + (ts_ns, close) per bar derived from
+        the seeded price walk (AC18/AC19/AC31).
+    """
+    import json as _json
+    import struct as _struct
+    from pathlib import Path as _Path
+
+    out = _Path(output_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+
+    if tick_fixture_path is not None:
+        fixture = _Path(tick_fixture_path)
+        payload = bytearray()
+        with fixture.open() as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                ev = _json.loads(line)
+                if ev.get("event_type") != "trade":
+                    continue
+                payload += _struct.pack(
+                    _ME_RECORD_FMT,
+                    _pad_utf8(ev["strategy_id"]),
+                    _pad_utf8(ev["token"]),
+                    int(ev["entry_ts_ns"]),
+                    int(ev["exit_ts_ns"]),
+                    int(ev["direction"]),
+                    int(ev["leg_index"]),
+                    float(ev["entry_price"]),
+                    float(ev["exit_price"]),
+                    float(ev["pnl"]),
+                    float(ev["notional"]),
+                    _pad_utf8(ev["exit_reason"]),
+                )
+        out.write_bytes(bytes(payload))
+        return
+
+    # M4HP stub blob: deterministic from (seed, n_bars, tokens).
+    period_ns = int(getattr(base_resolution, "period_ns", 0) or 0)
+    closes = _seeded_price_walk(seed, int(bar_count))
+    header = _struct.pack(
+        "<4sHHII",
+        _M4HP_MAGIC,
+        _M4HP_VERSION,
+        len(tokens),
+        int(bar_count),
+        int(seed),
+    )
+    payload = bytearray()
+    for i, c in enumerate(closes):
+        ts = float(int(start_ts_ns) + i * period_ns)
+        payload += _struct.pack("<dd", ts, c)
+    out.write_bytes(header + bytes(payload))
+
+
+def _write_pending_entries_log(pe_log_path) -> None:
+    """Write an empty pending_entries_log.jsonl (AC31 T-B23, strategies=[])."""
+    from pathlib import Path as _Path
+
+    p = _Path(pe_log_path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(b"")

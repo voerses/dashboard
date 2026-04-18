@@ -170,11 +170,20 @@ def restore_state(engine: PaperPortfolioEngine, config) -> None:
     # Expired entries are filtered by real UTC time in _deserialize_armed_tokens
     armed_data = data.get("armed_tokens", [])
     if armed_data:
-        from v5.paper_engine import PaperPortfolioEngine
+        from v5.paper_engine import (
+            PaperPortfolioEngine,
+            _cand_dict_to_pe,
+        )
         restored, expired_on_restore = PaperPortfolioEngine._deserialize_armed_tokens(armed_data)
         if restored:
+            # T16b flip: _pending_entries is the primary store. Wrap every
+            # legacy cand-dict into a PendingEntry via the shared adapter
+            # so the back-compat _armed_tokens property sees it.
             with engine._armed_tokens_lock:
-                engine._armed_tokens = restored
+                engine._pending_entries = {
+                    key: _cand_dict_to_pe(key[0], key[1], cand)
+                    for key, cand in restored.items()
+                }
         # Log expired entries to armed_log.jsonl so dashboard shows them
         if expired_on_restore:
             armed_log_path = os.path.join(state_dir, "armed_log.jsonl")

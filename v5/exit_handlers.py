@@ -12,13 +12,20 @@ Handler chain lifecycle:
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Optional, Protocol, runtime_checkable
+import types
+from dataclasses import dataclass, field
+from typing import Any, Mapping, Optional, Protocol, runtime_checkable
 
 import numpy as np
 
 from .position import Position
 from .signals import TokenSignals
+
+
+# Empty immutable indicator snapshot — default for BarContext when no MTF
+# indicators are subscribed. Using MappingProxyType guarantees the default is
+# not mutable and is shared safely across instances.
+_EMPTY_INDICATOR_SNAPSHOT: Mapping[str, float] = types.MappingProxyType({})
 
 
 # ---------------------------------------------------------------------------
@@ -27,7 +34,18 @@ from .signals import TokenSignals
 
 @dataclass(frozen=True, slots=True)
 class BarContext:
-    """Immutable per-bar market data passed to exit handlers."""
+    """Immutable per-bar market data passed to exit handlers.
+
+    M4 additions (all optional, backward-compat for pre-M4 callers):
+      - hourly_bar_index (AC7): exposed for the AC9 scale cap regardless of
+        fine-bar cadence. When execution_resolution == 1h this equals local_bar.
+      - bar_spec (AC13): which resolution drove this call. None for legacy
+        hourly-only callers.
+      - indicator_snapshot (AC13): resolution-appropriate indicator dict.
+        Canonical key 'atr_hourly' carries hourly-frozen ATR per AC40.
+      - ts_ns (AC15): sim clock timestamp; used by BarProcessor look-ahead
+        assertion at callback emission time.
+    """
     close: float
     high: float
     low: float
@@ -41,6 +59,13 @@ class BarContext:
     volume: float = float('nan')
     vol_20: float = float('nan')     # 20-period rolling volatility
     ret_1h: float = float('nan')     # 1-hour log return
+    # M4 additions — optional, default-valued (AC7/AC13/AC15)
+    hourly_bar_index: int = 0
+    bar_spec: Optional[Any] = None   # typed as BarSpec; Any to avoid import cycle
+    indicator_snapshot: Mapping[str, float] = field(
+        default_factory=lambda: _EMPTY_INDICATOR_SNAPSHOT
+    )
+    ts_ns: int = 0
 
 
 @dataclass
@@ -97,6 +122,69 @@ class BreakevenRatchetHandler:
         return _NO_EXIT
 
 
+class BreakevenHandler:
+    """M4 AC8 — breakeven handler that reads the ORIGINAL entry price.
+
+    Unlike :class:`BreakevenRatchetHandler` (which mutates stop on a moving
+    high/low ratchet), this handler exposes an ``entry_anchor_price`` that
+    is pinned to ``pos._breakeven_anchor_entry_price`` — the frozen
+    pre-scale entry. After :meth:`Position.increase`, ``entry_price``
+    becomes the VWAP but the anchor stays at the original value, so the
+    arm threshold is not artificially lowered (longs) or raised (shorts)
+    by averaging.
+
+    ``check(pos, bar_ctx)`` returns True iff the bar close has crossed
+    ``anchor + direction * breakeven_atr * initial_risk``. The handler
+    consumes ``pos.initial_risk`` (frozen at entry) rather than
+    ``bar.atr`` so it tolerates minimal :class:`v5.bar_processor.BarContext`
+    instances that omit the full exit-handler numeric surface.
+    """
+
+    __slots__ = ("entry_anchor_price",)
+
+    def __init__(self, pos: Position) -> None:
+        self.entry_anchor_price = float(pos._breakeven_anchor_entry_price)
+
+    def check(self, pos: Position, bar_ctx: Any) -> bool:
+        """Return True iff the price has crossed the breakeven arm threshold."""
+        if pos.breakeven_atr <= 0.0 or pos.initial_risk <= 0.0:
+            return False
+        gate_dist = pos.breakeven_atr * pos.initial_risk
+        close = float(getattr(bar_ctx, "close", 0.0))
+        if pos.direction == 1:
+            return close >= self.entry_anchor_price + gate_dist
+        return close <= self.entry_anchor_price - gate_dist
+
+
+def breakeven_handler_factory(pos: Position) -> "BreakevenHandler":
+    """M4 AC8 T-B4b — build a breakeven handler bound to ``pos``.
+
+    The returned handler's ``entry_anchor_price`` is the frozen pre-scale
+    entry. ``check(pos, bar_ctx)`` does NOT read post-scale VWAP — this
+    preserves AC8: stop-to-breakeven arms against the OLD entry price
+    regardless of intervening :meth:`Position.increase` VWAP adjustments.
+    """
+    return BreakevenHandler(pos)
+
+
+def r_multiple_gate_price(pos: Position, r_multiple: float) -> float:
+    """M4 AC10 T-B4 — R-multiple gate price measured off ``r_anchor_price``.
+
+    Stage-3 gates (e.g. partial-TP at 2R) MUST consume
+    ``pos.r_anchor_price`` (frozen at first entry by :meth:`Position.increase`
+    with ``freeze_initial_risk=True``, the default) rather than the
+    post-scale VWAP ``entry_price``. Otherwise a scale-down would lower
+    the 2R gate for longs (raise it for shorts) and fire premature
+    take-profits.
+
+    Formula: ``r_anchor_price + direction * r_multiple * initial_risk``.
+    """
+    return (
+        float(pos.r_anchor_price)
+        + float(pos.direction) * float(r_multiple) * float(pos.initial_risk)
+    )
+
+
 class ConvexTrailingHandler:
     """Trailing stop for convex-exit strategies (mutually exclusive with TrailingStopHandler)."""
 
@@ -121,13 +209,90 @@ class ConvexTrailingHandler:
 class TrailingStopHandler:
     """Standard trailing stop with profit schedule, time schedule, max ceiling, and chandelier.
 
-    Reads all trail parameters from the Position (frozen at entry).
+    Two calling conventions:
+
+      1. Engine integration (pre-M4): ``TrailingStopHandler(sig)`` where
+         ``sig`` is a :class:`TokenSignals`. Reads trail parameters from the
+         :class:`Position` (frozen at entry) and consumes per-bar indicators
+         off ``BarContext``.
+
+      2. AC40 T13a resolution-agnostic trail_schedule path:
+         ``TrailingStopHandler(trail_schedule=[(R_hit, R_offset), ...])``.
+         Evaluates on every bar of ``exit_resolution`` (fine-bar cadence when
+         exit_resolution<1h). Requires only ``pos.entry_price``,
+         ``pos.initial_risk``, ``pos.direction``, ``pos.stop_price`` and
+         ``bar_ctx.close`` — NO ATR dependency. Stop only tightens
+         (monotonicity preserved).
     """
 
-    def __init__(self, sig: TokenSignals):
+    def __init__(
+        self,
+        sig: Optional[TokenSignals] = None,
+        *,
+        trail_schedule: Optional[list[tuple[float, float]]] = None,
+    ):
         self._sig = sig
+        # AC40 T13a: handler-level trail_schedule overrides any per-position
+        # schedule and drives the resolution-agnostic profit-milestone
+        # tightening. Stored as a tuple of (profit_R, stop_R_offset) pairs.
+        self._handler_trail_schedule: Optional[tuple[tuple[float, float], ...]] = None
+        if trail_schedule is not None:
+            self._handler_trail_schedule = tuple(
+                (float(r_hit), float(r_offset)) for r_hit, r_offset in trail_schedule
+            )
+
+    # ------------------------------------------------------------------
+    # AC40 T13a helper — resolution-agnostic milestone tightening.
+    # ------------------------------------------------------------------
+    def _update_state_schedule(self, pos: Position, bar: BarContext) -> None:
+        """Profit-milestone tightening that fires on every exit_resolution bar.
+
+        NO ATR dependency. Reads only close / entry_price / initial_risk.
+        Preserves monotonicity: stop only tightens.
+        """
+        if self._handler_trail_schedule is None:
+            return
+        if pos.initial_risk <= 0.0:
+            return
+
+        # profit_R measured in units of initial_risk (signed by direction).
+        if pos.direction == 1:
+            profit_r = (bar.close - pos.entry_price) / pos.initial_risk
+        else:
+            profit_r = (pos.entry_price - bar.close) / pos.initial_risk
+
+        # Walk schedule and find the furthest milestone already crossed.
+        # Schedule is assumed to be sorted ascending by profit_R.
+        hit_offset: Optional[float] = None
+        for r_hit, r_offset in self._handler_trail_schedule:
+            if profit_r >= r_hit:
+                hit_offset = r_offset
+            else:
+                break
+
+        if hit_offset is None:
+            return  # no milestone crossed on this bar — leave stop untouched
+
+        if pos.direction == 1:
+            candidate = pos.entry_price + hit_offset * pos.initial_risk
+            # Monotonicity: long stop only moves up.
+            if candidate > pos.stop_price:
+                pos.stop_price = candidate
+        else:
+            candidate = pos.entry_price - hit_offset * pos.initial_risk
+            # Monotonicity: short stop only moves down.
+            if candidate < pos.stop_price or pos.stop_price == 0.0:
+                pos.stop_price = candidate
 
     def update_state(self, pos: Position, bar: BarContext) -> None:
+        # AC40 T13a: when a handler-level trail_schedule is set, drive the
+        # resolution-agnostic profit-milestone path and return. This branch
+        # intentionally skips all ATR/sig-dependent logic — the fine-bar
+        # BC carries only close/high/low/indicator_snapshot.
+        if self._handler_trail_schedule is not None:
+            self._update_state_schedule(pos, bar)
+            return
+
         if pos.convex_exit:
             return  # handled by ConvexTrailingHandler
         if bar.bars_held < pos.no_stop_bars:
@@ -187,6 +352,82 @@ class TrailingStopHandler:
             pos.stop_price = min(pos.stop_price, trail)
 
     def check_exit(self, pos: Position, bar: BarContext) -> ExitCheck:
+        return _NO_EXIT
+
+
+class ChandelierStopHandler:
+    """AC40 T13a — chandelier stop with explicit ATR-source cascade.
+
+    The chandelier trails a stop N * ATR below (long) / above (short) the
+    rolling max/min of the exit_resolution series. ATR source is declared
+    on the :class:`v5.strategy_spec.StrategySpec`:
+
+      - ``chandelier_atr_source='fine'`` → reads
+        ``bar_ctx.indicator_snapshot['atr_fine']``. Requires
+        ``declared_fine_atr=True`` on the spec (enforced at spec construction).
+      - ``chandelier_atr_source='hourly'`` → reads
+        ``bar_ctx.indicator_snapshot['atr_hourly']`` (the hourly-frozen ATR
+        AC40 canonical key).
+
+    The rolling max/min is supplied by the fine-bar :class:`RollingCache`
+    via ``bar_ctx.rolling_max`` / ``bar_ctx.rolling_min``. The ATR-multiplier
+    ``k`` is fixed at 3.0 to match the upstream chandelier contract used in
+    the T-B32b expected-value assertions.
+    """
+
+    # ATR multiplier for chandelier formula. Held as a class-level constant
+    # so both long and short stops pick the same k across tests.
+    K: float = 3.0
+
+    def __init__(self, spec):
+        self._spec = spec
+        source = getattr(spec, "chandelier_atr_source", None)
+        if source not in ("fine", "hourly"):
+            raise ValueError(
+                "ChandelierStopHandler requires spec.chandelier_atr_source "
+                "to be 'fine' or 'hourly'."
+            )
+        self._atr_source: str = source
+
+    def _resolve_atr(self, bar) -> float:
+        """Read the declared ATR source off ``bar_ctx.indicator_snapshot``."""
+        snapshot = getattr(bar, "indicator_snapshot", None) or {}
+        if self._atr_source == "fine":
+            atr = snapshot.get("atr_fine")
+        else:
+            atr = snapshot.get("atr_hourly")
+        if atr is None:
+            raise KeyError(
+                f"indicator_snapshot missing "
+                f"{'atr_fine' if self._atr_source == 'fine' else 'atr_hourly'}"
+            )
+        return float(atr)
+
+    def compute_stop(self, pos: Position, bar) -> float:
+        """Compute the chandelier stop level for this bar.
+
+        Does NOT mutate ``pos`` — returns the candidate stop so the caller
+        (or ``update_state``) can apply monotonicity.
+        """
+        atr = self._resolve_atr(bar)
+        if pos.direction == 1:
+            ref = float(getattr(bar, "rolling_max"))
+            return ref - self.K * atr
+        else:
+            ref = float(getattr(bar, "rolling_min"))
+            return ref + self.K * atr
+
+    def update_state(self, pos: Position, bar) -> None:
+        """Tighten stop toward chandelier level; monotonicity preserved."""
+        candidate = self.compute_stop(pos, bar)
+        if pos.direction == 1:
+            if candidate > pos.stop_price:
+                pos.stop_price = candidate
+        else:
+            if candidate < pos.stop_price or pos.stop_price == 0.0:
+                pos.stop_price = candidate
+
+    def check_exit(self, pos: Position, bar) -> ExitCheck:
         return _NO_EXIT
 
 
@@ -387,6 +628,26 @@ class CustomExitHandler:
         except Exception:
             pass  # callback error, skip
         return _NO_EXIT
+
+
+# ---------------------------------------------------------------------------
+# AC6 — canonical exit handler registry (first-match-wins order)
+# ---------------------------------------------------------------------------
+#
+# The nine-element tuple below is the single source of truth for the Stage 1
+# exit-handler chain ordering consumed by :class:`v5.bar_processor.BarProcessor`.
+# Reordering this tuple changes production behaviour; treat it as a spec file.
+EXIT_HANDLER_REGISTRY = (
+    CustomExitHandler,
+    CircuitBreakerHandler,
+    StopLossHandler,
+    TakeProfitHandler,
+    RSIExitHandler,
+    MeanTargetHandler,
+    SMATrailExitHandler,
+    MaxHoldHandler,
+    FundingCeilingHandler,
+)
 
 
 # ---------------------------------------------------------------------------

@@ -54,26 +54,33 @@ class ReduceResult:
 
 @dataclass(slots=True)
 class Position:
-    """An open position in the portfolio."""
-    position_id: str             # "BTC:s30:5000:primary"
-    token: str
-    strategy_id: str
-    leg: str                     # "primary" or "secondary"
-    entry_bar: int               # global bar index
-    entry_price: float
-    direction: int               # +1 or -1
-    quantity: float              # signed (direction * notional / entry_price)
-    margin_usd: float            # capital locked (before leverage)
-    leverage: float
-    is_perp: bool
-    fee_rate: float              # market-specific fee rate (spot vs perp)
+    """An open position in the portfolio.
+
+    M4 Task 11 note: all previously-required fields now carry defaults so
+    dispatcher-agnostic tests (T-B2/T-B3) can construct a Position with
+    just ``token=``, ``direction=``, ``entry_price=``, ``quantity=`` and
+    mutate the remaining fields directly. Existing callers that pass all
+    fields positionally or by kwarg continue to work unchanged.
+    """
+    position_id: str = ""        # "BTC:s30:5000:primary"
+    token: str = ""
+    strategy_id: str = ""
+    leg: str = "primary"         # "primary" or "secondary"
+    entry_bar: int = 0           # global bar index
+    entry_price: float = 0.0
+    direction: int = 1           # +1 or -1
+    quantity: float = 0.0        # signed (direction * notional / entry_price)
+    margin_usd: float = 0.0      # capital locked (before leverage)
+    leverage: float = 1.0
+    is_perp: bool = False
+    fee_rate: float = 0.0        # market-specific fee rate (spot vs perp)
     # Trade params (frozen at entry from per-bar arrays)
-    stop_mult: float
-    trail_mult: float
-    target_mult: float
-    no_stop_bars: int
-    min_hold: int
-    max_hold: int
+    stop_mult: float = 0.0
+    trail_mult: float = 0.0
+    target_mult: float = 0.0
+    no_stop_bars: int = 0
+    min_hold: int = 0
+    max_hold: int = 10 ** 9
     convex_exit: bool = False
     rsi_exit_level: float = 999.0
     # Configurable exit constants
@@ -111,31 +118,73 @@ class Position:
     r_anchor_price: float = 0.0          # set to entry_price at __post_init__ when 0
     _helper_state: dict = field(default_factory=dict)
     _scale_action_bar: int = -1
+    # M4 AC8 — breakeven reads ORIGINAL entry price, frozen at first entry.
+    # Never mutated by Position.increase — VWAP updates entry_price but this
+    # anchor stays at the pre-scale value so breakeven gates aren't re-floored
+    # downward (or lifted upward for shorts) by averaging.
+    _breakeven_anchor_entry_price: float = 0.0
 
     def __post_init__(self) -> None:
         # Anchor R-multiple calculations on original entry when not explicitly set.
         if self.r_anchor_price == 0.0:
             self.r_anchor_price = self.entry_price
+        # AC8: freeze breakeven anchor at the original entry price.
+        if self._breakeven_anchor_entry_price == 0.0:
+            self._breakeven_anchor_entry_price = self.entry_price
 
     # ------------------------------------------------------------------
     # M2: Position.increase (AC1, AC2, AC3, AC21, Q2)
     # ------------------------------------------------------------------
     def increase(
         self,
-        qty_to_add: float,
-        fill_price: float,
-        margin_delta: float,
-        bar_idx: int,
+        qty_to_add: Optional[float] = None,
+        fill_price: Optional[float] = None,
+        margin_delta: float = 0.0,
+        bar_idx: int = 0,
         stop_override: Optional[float] = None,
         fee_rate: Optional[float] = None,
         atr: Optional[float] = None,
         freeze_initial_risk: bool = True,
+        *,
+        quantity: Optional[float] = None,
+        price: Optional[float] = None,
     ) -> None:
         """Increase position size with weighted-average entry (WACB / FIX AvgPx).
 
         qty_to_add: unsigned absolute base units (Q2: must be > 0).
         Does NOT book a ClosedTrade (AC1). Appends a ScalingEvent.
+
+        M4 T-B4 compat: accepts keyword-only aliases ``quantity=`` and
+        ``price=`` in lieu of the M2 ``qty_to_add=``/``fill_price=`` kwargs.
+        Both styles map to the same internal fields; existing M2 callers are
+        unchanged.
         """
+        # M4 T-B4 kwarg aliases: new-style `quantity=` / `price=` map to the
+        # existing `qty_to_add` / `fill_price` positional fields.
+        if quantity is not None:
+            if qty_to_add is not None:
+                raise TypeError(
+                    "Position.increase: pass either qty_to_add= or quantity=, "
+                    "not both"
+                )
+            qty_to_add = quantity
+        if price is not None:
+            if fill_price is not None:
+                raise TypeError(
+                    "Position.increase: pass either fill_price= or price=, "
+                    "not both"
+                )
+            fill_price = price
+        if qty_to_add is None:
+            raise TypeError(
+                "Position.increase: missing required argument "
+                "qty_to_add (or quantity)"
+            )
+        if fill_price is None:
+            raise TypeError(
+                "Position.increase: missing required argument "
+                "fill_price (or price)"
+            )
         if qty_to_add <= 0:
             raise ValueError("qty_to_add must be > 0")
 
@@ -198,20 +247,40 @@ class Position:
     # ------------------------------------------------------------------
     def reduce(
         self,
-        qty_to_close: float,
-        fill_price: float,
-        bar_idx: int,
-        fee_rate: float,
-        atr: float,
-        full_entry_fee: float,
-        dust_usd: float,
+        qty_to_close: float = -1.0,
+        fill_price: float = -1.0,
+        bar_idx: int = 0,
+        fee_rate: float = 0.0,
+        atr: float = 0.0,
+        full_entry_fee: float = 0.0,
+        dust_usd: float = 0.0,
         triggered_by: str = "",
         is_stop_like: bool = False,
+        *,
+        close_fraction: Optional[float] = None,
+        bar_spec: Optional[object] = None,
     ) -> ReduceResult:
         """Reduce position; returns ReduceResult (caller books ClosedTrade).
 
         Pure accounting — simulator wrapper handles ClosedTrade booking.
+
+        M4 Task 11 dispatcher-agnostic call path (AC11 / T-B2): the optional
+        keyword-only ``close_fraction`` + ``bar_spec`` arguments support
+        resolution-independent reduce tests. When ``close_fraction`` is
+        provided, ``qty_to_close`` is derived as ``|quantity| *
+        close_fraction`` and ``fill_price`` defaults to the current
+        ``entry_price`` so the call path produces a stable ReduceResult
+        regardless of which bar resolution triggered it.
         """
+        # M4 dispatcher-agnostic path (T-B2): compute qty_to_close from
+        # close_fraction when it was provided; this keeps hourly vs 1m
+        # reduces bit-identical.
+        if close_fraction is not None:
+            frac = float(close_fraction)
+            qty_to_close = abs(self.quantity) * frac
+            if fill_price < 0:
+                fill_price = float(self.entry_price)
+
         old_qty_abs = abs(self.quantity)
 
         # AC17: over-close clamp

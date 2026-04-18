@@ -32,6 +32,14 @@ logger = logging.getLogger(__name__)
 
 STATE_VERSION = 1
 
+# M4 schema version for the `write_paper_state` / `read_paper_state` API.
+# `STATE_VERSION` is preserved at 1 so M3's version-fetching code keeps
+# raising on mismatched legacy payloads (the deserialize_state path).
+# M4 adds a new payload shape carrying `pending_entries` — this constant
+# labels that shape so the reader can apply the legacy `_armed_tokens`
+# migration shim on older files (AC32).
+STATE_SCHEMA_VERSION = 2
+
 
 def make_position_id(token: str, strategy_id: str, tick_counter: int, leg: str) -> str:
     """Generate position ID: '{token}:{strategy_id}:{tick_counter}:{leg}'."""
@@ -235,14 +243,18 @@ def _write_rolling_cache_sidecar(registry, state_dir: str) -> tuple[str, str, di
     arrays: dict[str, np.ndarray] = {}
     metadata: dict[str, dict] = {}
     for cache in registry.all():
-        key_prefix = f"{cache.token}__{cache.bar_type.value}"
+        # AC20 M4: sidecar key uses BarSpec.label (e.g. "1h") — same on-disk
+        # string as the pre-M4 BarType(Enum).value, so sidecar format is
+        # bit-identical after the migration-alias swap.
+        bar_label = cache.bar_spec.label
+        key_prefix = f"{cache.token}__{bar_label}"
         # Each field becomes its own array in the .npz
         for fname, buf in cache._buf.items():
             arrays[f"{key_prefix}__{fname}"] = buf
         arrays[f"{key_prefix}__timestamps"] = cache._timestamps
         metadata[key_prefix] = {
             "token": cache.token,
-            "bar_type": cache.bar_type.value,
+            "bar_type": bar_label,
             "head": int(cache._head),
             "size": int(cache._size),
             "maxlen": int(cache.maxlen),
@@ -657,7 +669,15 @@ def _deserialize_engine_state_from_dir(engine, state_dir: str) -> None:
     if registry is None:
         return
 
-    from v5.rolling_cache import BarType
+    from v5.rolling_cache import BarType  # noqa: F401 — compat alias namespace
+    from v5.bar_spec import BarSpec
+
+    # Mapping from the legacy "1m"/"1h"/"1d" on-disk label back to BarSpec.
+    _LABEL_TO_BARSPEC = {
+        "1m": BarSpec.from_minutes(1),
+        "1h": BarSpec.from_minutes(60),
+        "1d": BarSpec.from_minutes(1440),
+    }
 
     try:
         npz = np.load(sidecar_path)
@@ -674,7 +694,7 @@ def _deserialize_engine_state_from_dir(engine, state_dir: str) -> None:
         for key_prefix, meta in metadata.items():
             token = meta.get("token") or key_prefix.split("__")[0]
             bt_val = meta.get("bar_type") or key_prefix.split("__")[1]
-            bar_type = BarType(bt_val)
+            bar_type = _LABEL_TO_BARSPEC[bt_val]
             cache = registry.subscribe(token, bar_type)
 
             # Buffers — each field had a dedicated array
@@ -1262,3 +1282,208 @@ def load_trade_log(path: str) -> list[ClosedTrade]:
         trades.append(trade)
 
     return trades
+
+
+# ---------------------------------------------------------------------------
+# M4 Task 10 — PendingEntry persistence (AC32) + schema bump
+# ---------------------------------------------------------------------------
+
+
+class _PaperState:
+    """Lightweight view over a paper_state.json payload.
+
+    Returned by :func:`read_paper_state`. Only the fields exercised by the
+    M4 AC32/AC26 acceptance tests are surfaced as attributes; the raw
+    payload is always available via ``.raw`` for callers that need the full
+    dict.
+    """
+
+    __slots__ = ("pending_entries", "schema_version", "raw", "positions")
+
+    def __init__(self, pending_entries=None, schema_version=STATE_SCHEMA_VERSION,
+                 raw=None, positions=None):
+        self.pending_entries = list(pending_entries or [])
+        self.schema_version = schema_version
+        self.raw = raw if raw is not None else {}
+        self.positions = list(positions or [])
+
+    # ------------------------------------------------------------------ #
+    # M4 Task 26 (AC26 T-B16) — class-style save/load convenience API    #
+    # ------------------------------------------------------------------ #
+
+    def save(self, path) -> None:
+        """Persist this paper state to ``path`` atomically.
+
+        Thin wrapper over :func:`write_paper_state` that forwards the
+        currently-attached ``positions`` / ``pending_entries`` / ``raw``
+        payload. Accepts the same ``str`` or ``PathLike`` argument as
+        ``write_paper_state``.
+        """
+        extra = {}
+        # Pass-through any pre-existing raw keys (tick_counter, timestamps,
+        # etc.) so the round-trip preserves custom fields — but skip the
+        # slots we already emit explicitly.
+        if isinstance(self.raw, dict):
+            for k, v in self.raw.items():
+                if k in ("schema_version", "pending_entries", "positions"):
+                    continue
+                extra[k] = v
+        write_paper_state(
+            path,
+            positions=self.positions,
+            pending_entries=self.pending_entries,
+            extra=extra or None,
+        )
+
+    @classmethod
+    def load(cls, path) -> "_PaperState":
+        """Load a paper state from ``path`` via :func:`read_paper_state`."""
+        return read_paper_state(path)
+
+
+# Public alias — M4 Task 26 (AC26 T-B16) exposes the class-style API that
+# the scale-cap crash-restart acceptance tests import as ``PaperState``.
+PaperState = _PaperState
+
+
+def _migrate_legacy_armed_tokens(raw: dict) -> list:
+    """AC32 legacy shim: convert pre-M4 ``_armed_tokens`` dict to PendingEntry
+    records in the ARMED state. Expected legacy shape::
+
+        {"_armed_tokens": {"<token>": {<arm-kwargs>}}}
+
+    Missing/unknown fields use neutral defaults so the migration never
+    crashes on best-effort input. Returns an empty list if no legacy data
+    is present or the migration fails cleanly.
+    """
+    from v5.pending_entry import PendingEntry, TriggerKind
+
+    legacy = raw.get("_armed_tokens")
+    if not legacy or not isinstance(legacy, dict):
+        return []
+
+    migrated: list = []
+    for token, payload in legacy.items():
+        if not isinstance(payload, dict):
+            continue
+        trigger_raw = payload.get("trigger", TriggerKind.PRICE_ABOVE.name)
+        try:
+            if isinstance(trigger_raw, str):
+                trigger = TriggerKind[trigger_raw]
+            else:
+                trigger = TriggerKind(int(trigger_raw))
+        except (KeyError, ValueError):
+            trigger = TriggerKind.PRICE_ABOVE
+        armed_at_raw = payload.get("armed_at")
+        armed_at = (
+            _dt.datetime.fromisoformat(armed_at_raw)
+            if isinstance(armed_at_raw, str) and armed_at_raw
+            else _dt.datetime.now(_dt.timezone.utc)
+        )
+        if armed_at.tzinfo is None:
+            armed_at = armed_at.replace(tzinfo=_dt.timezone.utc)
+        expires_at_raw = payload.get("expires_at")
+        if isinstance(expires_at_raw, str) and expires_at_raw:
+            expires_at = _dt.datetime.fromisoformat(expires_at_raw)
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=_dt.timezone.utc)
+        else:
+            expires_at = None
+        try:
+            pe = PendingEntry.arm(
+                strategy_id=payload.get("strategy_id", ""),
+                token=str(token),
+                direction=int(payload.get("direction", 1)),
+                trigger=trigger,
+                trigger_price=float(payload.get("trigger_price", 0.0)),
+                working_price_source=payload.get(
+                    "working_price_source", "last"
+                ),
+                armed_at=armed_at,
+                expires_at=expires_at,
+                sizing_ctx=payload.get("sizing_ctx") or {},
+                strategy_params=payload.get("strategy_params") or {},
+                window_end=float(payload.get("window_end", 0.0)),
+            )
+            migrated.append(pe)
+        except Exception:  # pragma: no cover - defensive
+            continue
+    return migrated
+
+
+def write_paper_state(path, *, positions=None, pending_entries=None, extra=None) -> None:
+    """Write an M4-schema paper_state.json atomically (AC32, AC26).
+
+    Args:
+        path: target path (str or PathLike).
+        positions: iterable of :class:`v5.position.Position` — persisted as a
+            top-level ``positions`` list via :func:`_serialize_position`.
+            Added for M4 Task 26 (AC26 T-B16: scale-cap crash-restart) so
+            ``pos._scale_action_bar`` survives a mid-hour restart.
+        pending_entries: iterable of :class:`PendingEntry` — persisted as a
+            top-level ``pending_entries`` list via :meth:`PendingEntry.to_json`.
+        extra: optional dict merged into the payload (e.g. tick_counter,
+            last_timestamp) so callers can piggyback on the same file.
+    """
+    payload: dict = {
+        "schema_version": STATE_SCHEMA_VERSION,
+        "pending_entries": [
+            pe.to_json() for pe in (pending_entries or [])
+        ],
+        "positions": [
+            _serialize_position(p) for p in (positions or [])
+        ],
+    }
+    if extra:
+        for k, v in extra.items():
+            if k in ("schema_version", "pending_entries", "positions"):
+                continue
+            payload[k] = v
+
+    target_path = str(path)
+    target_dir = os.path.dirname(target_path) or "."
+    os.makedirs(target_dir, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(dir=target_dir, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(json.dumps(payload, indent=2, default=str))
+            f.flush()
+            os.fsync(f.fileno())
+        os.rename(tmp_path, target_path)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
+def read_paper_state(path) -> _PaperState:
+    """Read an M4-schema paper_state.json (AC32/AC26) with legacy
+    ``_armed_tokens`` migration shim applied when the new
+    ``pending_entries`` key is absent.
+    """
+    from v5.pending_entry import PendingEntry
+
+    target_path = str(path)
+    with open(target_path) as f:
+        raw = json.load(f)
+
+    if "pending_entries" in raw:
+        pes = [PendingEntry.from_json(b) for b in raw["pending_entries"]]
+    else:
+        # Legacy pre-M4 file — apply the _armed_tokens shim.
+        pes = _migrate_legacy_armed_tokens(raw)
+
+    # M4 Task 26 (AC26 T-B16) — rehydrate Position records. Legacy payloads
+    # without the ``positions`` key deserialize to an empty list (tolerates
+    # v4 / pre-T10 files the same way the pending_entries key does).
+    positions = [_deserialize_position(d) for d in raw.get("positions", []) or []]
+
+    schema_version = int(raw.get("schema_version", 1))
+    return _PaperState(
+        pending_entries=pes,
+        schema_version=schema_version,
+        raw=raw,
+        positions=positions,
+    )

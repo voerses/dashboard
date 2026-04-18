@@ -1,24 +1,49 @@
-"""V5 — Pre-allocated numpy ring buffer cache (AC1, AC18-21)."""
+"""V5 — Pre-allocated numpy ring buffer cache (AC1, AC18-21, AC20, AC35).
+
+M4 extensions:
+  - AC20: RollingCache parameterized by BarSpec (sidecar key preserved).
+    BarType.ONE_MIN / ONE_HOUR / DAILY are migration aliases pointing at
+    the interned canonical BarSpec instances (identity-equal).
+  - AC35: maxlen_for_bar_spec(spec, role) returns role-aware lookback
+    (signal=250d, entry=7d, exit=2d).
+"""
 from __future__ import annotations
 
 import logging
-from enum import Enum
+import math
+from datetime import timedelta
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Literal, Optional, Union
 
 import numpy as np
 import pandas as pd
 
+from v5.bar_spec import BarSpec
+
 logger = logging.getLogger(__name__)
 
 
-class BarType(Enum):
-    ONE_MIN = "1m"
-    ONE_HOUR = "1h"
-    DAILY = "1d"
+# ---------------------------------------------------------------------------
+# BarType — module-level migration alias. BarType.ONE_MIN / ONE_HOUR / DAILY
+# are identity-equal to the interned BarSpec.from_minutes(1/60/1440). This
+# preserves legacy `BarType.ONE_HOUR`-style imports during the migration.
+# ---------------------------------------------------------------------------
 
 
-_MAXLEN_BY_BAR: dict[BarType, int] = {
+class BarType:
+    """Legacy-compat alias container. Attributes ARE BarSpec instances
+    (identity-equal to BarSpec.from_minutes(1/60/1440))."""
+
+    ONE_MIN: BarSpec = BarSpec.from_minutes(1)
+    ONE_HOUR: BarSpec = BarSpec.from_minutes(60)
+    DAILY: BarSpec = BarSpec.from_minutes(1440)
+
+    def __init__(self, *_, **__):
+        raise TypeError("BarType is a namespace of BarSpec aliases; do not instantiate.")
+
+
+# Legacy default maxlens (M3 parity — keyed by the interned BarSpec instances)
+_MAXLEN_BY_BAR: dict[BarSpec, int] = {
     BarType.ONE_MIN: 1440,    # 24h
     BarType.ONE_HOUR: 6000,   # ~250d, covers 200-day lookback + warmup
     BarType.DAILY: 500,
@@ -28,13 +53,31 @@ _NS_PER_MIN = 60 * 1_000_000_000
 _NS_PER_HOUR = 3_600 * 1_000_000_000
 _NS_PER_DAY = 24 * _NS_PER_HOUR
 
-_BAR_PERIOD_NS: dict[BarType, int] = {
-    BarType.ONE_MIN: _NS_PER_MIN,
-    BarType.ONE_HOUR: _NS_PER_HOUR,
-    BarType.DAILY: _NS_PER_DAY,
+_FIELDS = ("close", "high", "low", "volume", "atr", "funding")
+
+# Role-aware lookback defaults for maxlen_for_bar_spec (AC35)
+_LOOKBACK_DAYS_BY_ROLE: dict[str, int] = {
+    "signal": 250,
+    "entry": 7,
+    "exit": 2,
 }
 
-_FIELDS = ("close", "high", "low", "volume", "atr", "funding")
+
+def maxlen_for_bar_spec(
+    spec: BarSpec, role: Literal["signal", "entry", "exit"],
+) -> int:
+    """Role-aware maxlen: ceil(lookback_days * 1440 / resolution_minutes).
+
+    Defaults: signal=250d, entry=7d, exit=2d. Raises ValueError on unknown role.
+    """
+    if role not in _LOOKBACK_DAYS_BY_ROLE:
+        raise ValueError(
+            f"Unknown role {role!r}; expected one of "
+            f"{sorted(_LOOKBACK_DAYS_BY_ROLE)}"
+        )
+    lookback_days = _LOOKBACK_DAYS_BY_ROLE[role]
+    minutes = lookback_days * 1440
+    return int(math.ceil(minutes / spec.resolution_minutes))
 
 
 def _coerce_ts_to_ns(ts) -> np.ndarray:
@@ -51,17 +94,56 @@ def _coerce_ts_to_ns(ts) -> np.ndarray:
 
 
 class RollingCache:
-    """Pre-allocated numpy ring buffer for one (token, BarType)."""
+    """Pre-allocated numpy ring buffer for one (token, BarSpec).
+
+    Accepts either `bar_spec=BarSpec(...)` (M4) or `bar_type=BarType.XXX` (M3
+    legacy). Both paths normalize to a BarSpec stored on ``self.bar_spec`` and
+    ``self.bar_type`` (aliased for M3 compatibility).
+    """
 
     def __init__(
         self,
         token: str,
-        bar_type: BarType,
+        bar_type: Optional[BarSpec] = None,
         maxlen: Optional[int] = None,
+        *,
+        bar_spec: Optional[BarSpec] = None,
+        lookback: Optional[timedelta] = None,
     ):
+        # Normalize bar_spec/bar_type; exactly one must be provided (and they
+        # may be the same instance via the BarType migration alias).
+        spec = bar_spec if bar_spec is not None else bar_type
+        if spec is None:
+            raise ValueError(
+                "RollingCache requires either bar_spec=... or bar_type=..."
+            )
+        if not isinstance(spec, BarSpec):
+            raise TypeError(
+                f"bar_spec/bar_type must be a BarSpec; got {type(spec).__name__}"
+            )
+
         self.token = token
-        self.bar_type = bar_type
-        self.maxlen = maxlen if maxlen is not None else _MAXLEN_BY_BAR[bar_type]
+        # Canonical attribute is `bar_spec`; `bar_type` kept for M3 parity.
+        self.bar_spec: BarSpec = spec
+        self.bar_type: BarSpec = spec
+
+        # Resolve maxlen: explicit > lookback -> derived > legacy default.
+        if maxlen is not None:
+            resolved_maxlen = int(maxlen)
+        elif lookback is not None:
+            # Derive from lookback timedelta and BarSpec resolution.
+            total_minutes = lookback.total_seconds() / 60.0
+            resolved_maxlen = max(1, int(math.ceil(
+                total_minutes / spec.resolution_minutes
+            )))
+        elif spec in _MAXLEN_BY_BAR:
+            resolved_maxlen = _MAXLEN_BY_BAR[spec]
+        else:
+            # Conservative fallback for non-legacy BarSpecs without lookback:
+            # ~250 days at this resolution.
+            resolved_maxlen = maxlen_for_bar_spec(spec, "signal")
+
+        self.maxlen = resolved_maxlen
         self._buf = {
             f: np.zeros(self.maxlen, dtype=np.float32) for f in _FIELDS
         }
@@ -69,6 +151,15 @@ class RollingCache:
         self._head = 0  # next write slot
         self._size = 0  # bars written, capped at maxlen
         self.seeded_through_ts_ns: int = 0
+
+    # -----------------------------------------------------------------
+    # Sidecar key — AC20: f"{token}__{bar_spec.label}" preserves legacy
+    # "1m"/"1h"/"1d" sidecar filenames on disk.
+    # -----------------------------------------------------------------
+
+    @property
+    def sidecar_key(self) -> str:
+        return f"{self.token}__{self.bar_spec.label}"
 
     # -----------------------------------------------------------------
     # Writes
@@ -85,14 +176,14 @@ class RollingCache:
                     f"non-monotonic bar: got {ts_ns}, last={last_ts}"
                 )
             # AC20 gap detect on append
-            period = _BAR_PERIOD_NS.get(self.bar_type, 0)
+            period = self.bar_spec.period_ns
             if period > 0:
                 gap = ts_ns - last_ts
                 if gap > 2 * period:
                     logger.warning(
                         "RollingCache: bar gap/jump detected for %s/%s: "
                         "delta_ns=%d (expected=%d)",
-                        self.token, self.bar_type.value, gap, period,
+                        self.token, self.bar_spec.label, gap, period,
                     )
 
         slot = self._head
@@ -162,7 +253,7 @@ class RollingCache:
 
         # AC20: gap detection on seed — any consecutive diff > 1.5x bar_period
         if n >= 2:
-            period = _BAR_PERIOD_NS.get(self.bar_type, 0)
+            period = self.bar_spec.period_ns
             if period > 0:
                 diffs = np.diff(ts_ns)
                 gap_mask = diffs > int(1.5 * period)
@@ -170,7 +261,7 @@ class RollingCache:
                 if n_gaps > 0:
                     logger.warning(
                         "RollingCache.seed: %d gaps detected for %s/%s",
-                        n_gaps, self.token, self.bar_type.value,
+                        n_gaps, self.token, self.bar_spec.label,
                     )
 
         # Keep only last maxlen rows
@@ -226,8 +317,8 @@ class RollingCache:
     def reseed_from_parquet(
         self,
         token: str,
-        bar_type: BarType,
-        load_fn: Callable[[str, BarType], pd.DataFrame],
+        bar_type: BarSpec,
+        load_fn: Callable[[str, BarSpec], pd.DataFrame],
     ) -> None:
         """Atomic reseed: clear ring, call load_fn(token, bar_type) -> pd.DataFrame,
         seed() from it. load_fn is a callable the caller provides so this
@@ -244,12 +335,12 @@ class RollingCache:
 
 
 class RollingCacheRegistry:
-    """Per-engine registry of RollingCache instances keyed by (token, BarType)."""
+    """Per-engine registry of RollingCache instances keyed by (token, BarSpec)."""
 
     def __init__(self):
-        self._caches: dict[tuple[str, BarType], RollingCache] = {}
+        self._caches: dict[tuple[str, BarSpec], RollingCache] = {}
 
-    def subscribe(self, token: str, bar_type: BarType) -> RollingCache:
+    def subscribe(self, token: str, bar_type: BarSpec) -> RollingCache:
         """Explicit subscription gateway — prevents subscribe-after-publish races.
         Idempotent: returns existing cache if already subscribed."""
         key = (token, bar_type)
@@ -257,7 +348,7 @@ class RollingCacheRegistry:
             self._caches[key] = RollingCache(token=token, bar_type=bar_type)
         return self._caches[key]
 
-    def get(self, token: str, bar_type: BarType) -> Optional[RollingCache]:
+    def get(self, token: str, bar_type: BarSpec) -> Optional[RollingCache]:
         """Read-only accessor; returns None if not subscribed."""
         return self._caches.get((token, bar_type))
 
@@ -266,11 +357,11 @@ class RollingCacheRegistry:
         strategy_specs,
         data_dir: str,
         max_lookback_bars: int,
-        load_fn: Optional[Callable[[str, BarType], pd.DataFrame]] = None,
+        load_fn: Optional[Callable[[str, BarSpec], pd.DataFrame]] = None,
     ) -> None:
         """One-shot cold-start: for every (token, bar_type) strategies need,
         subscribe + seed."""
-        needs: set[tuple[str, BarType]] = set()
+        needs: set[tuple[str, BarSpec]] = set()
         for spec in strategy_specs or []:
             tokens = getattr(spec, "tokens", None) or []
             bar_types = getattr(spec, "bar_types", None) or []
@@ -287,18 +378,18 @@ class RollingCacheRegistry:
             except Exception as exc:
                 logger.warning(
                     "RollingCacheRegistry.seed_all: load_fn failed for "
-                    "%s/%s: %s", token, bar_type.value, exc,
+                    "%s/%s: %s", token, bar_type.label, exc,
                 )
                 continue
             cache.seed(df)
 
     def check_parquet_drift(
         self,
-        load_fn: Optional[Callable[[str, BarType], pd.DataFrame]] = None,
-    ) -> list[tuple[str, BarType]]:
+        load_fn: Optional[Callable[[str, BarSpec], pd.DataFrame]] = None,
+    ) -> list[tuple[str, BarSpec]]:
         """Return the list of (token, bar_type) keys whose caches lag the
         parquet."""
-        drifted: list[tuple[str, BarType]] = []
+        drifted: list[tuple[str, BarSpec]] = []
         if load_fn is None:
             return drifted
         for key, cache in self._caches.items():
@@ -319,3 +410,51 @@ class RollingCacheRegistry:
 
     def all(self) -> list[RollingCache]:
         return list(self._caches.values())
+
+
+# ---------------------------------------------------------------------------
+# Projected memory budget (AC35). Exported via v5.bar_processor as well for
+# the "pre-run assertion at sim init" hook.
+# ---------------------------------------------------------------------------
+
+_BYTES_PER_CELL = 4       # float32
+_FIELDS_PER_BAR = len(_FIELDS)  # 6
+_MEMORY_BUDGET_MB = 1200  # 1.2 GB ceiling (AC35)
+
+
+def compute_projected_memory_mb(strategies, tokens) -> float:
+    """Project RSS (MB) required to hold rolling caches for every
+    (strategy, role, token) subscription.
+
+    Sums ``maxlen * fields * bytes_per_cell * tokens`` across each strategy's
+    declared ``bar_subscriptions`` (keys are role names, values are BarSpecs).
+    ``tokens`` may be a list (or other sized iterable) — its length is used.
+    """
+    try:
+        n_tokens = len(tokens)
+    except TypeError:
+        n_tokens = int(tokens)
+
+    total_bytes = 0
+    for strategy in strategies or []:
+        subs = getattr(strategy, "bar_subscriptions", None) or {}
+        for role, spec in subs.items():
+            if spec is None:
+                continue
+            maxlen = maxlen_for_bar_spec(spec, role)
+            total_bytes += (
+                maxlen * _FIELDS_PER_BAR * _BYTES_PER_CELL * n_tokens
+            )
+    return total_bytes / (1024 * 1024)
+
+
+def assert_memory_budget(strategies, tokens, ceiling_mb: int = _MEMORY_BUDGET_MB) -> float:
+    """Assertion helper for sim init — raises MemoryError when projection
+    exceeds the 1.2 GB ceiling. Returns the projection for telemetry."""
+    projected = compute_projected_memory_mb(strategies, tokens)
+    if projected > ceiling_mb:
+        raise MemoryError(
+            f"Projected rolling-cache memory {projected:.1f} MB exceeds "
+            f"ceiling {ceiling_mb} MB"
+        )
+    return projected
