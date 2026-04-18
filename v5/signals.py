@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import copy
 import inspect
+import logging
 import os
 import sys
 from dataclasses import dataclass, field
@@ -28,6 +29,25 @@ from v5.data_loader import load_token_data, load_token_data_cached, discover_tok
 
 
 DATA_DIR = str(_project_root / "data")
+logger = logging.getLogger(__name__)
+
+# conviction→priority migration shim: warn once per strategy_id per process
+_shim_warned: set[str] = set()
+
+
+def _log_shim_warning_once(strategy_id: str) -> None:
+    """Log a one-shot WARNING when a strategy's conviction_score is auto-mapped to priority.
+
+    Part of the conviction→priority refactor migration shim (AC4). Remove
+    together with the conviction_score field in a future milestone.
+    """
+    if strategy_id not in _shim_warned:
+        _shim_warned.add(strategy_id)
+        logger.warning(
+            "strategy %s uses legacy conviction_score; auto-mapping to priority "
+            "(will be removed in a future milestone). Migrate to emit priority directly.",
+            strategy_id,
+        )
 
 
 @dataclass
@@ -55,7 +75,8 @@ class TokenSignals:
     max_hold: int
     edge: float
     leverage: np.ndarray
-    conviction_score: Optional[np.ndarray] = None  # per-bar [0,1] signal strength for entry prioritization
+    conviction_score: Optional[np.ndarray] = None  # DEPRECATED: per-bar [0,1] signal strength; migrated to `priority` via the conviction→priority shim
+    priority: Optional[np.ndarray] = None           # per-bar int32 entry priority (higher = executes first); auto-derived from conviction_score when not set
     trail_schedule: Optional[np.ndarray] = None
     time_trail_schedule: Optional[np.ndarray] = None
     max_trail_mult: Optional[np.ndarray] = None
@@ -120,6 +141,18 @@ class TokenSignals:
     raw_entry_count: int = 0          # before liquidity mask
     post_liquidity_count: int = 0     # after liquidity mask
     post_walkforward_count: int = 0   # after WF mask
+
+    def __post_init__(self):
+        # conviction→priority migration shim (AC4). Fires on any TokenSignals
+        # construction — whether via precompute_strategy_signals or directly in
+        # a test. If priority is None and conviction_score is populated,
+        # auto-derive priority and emit one warning per strategy_id per process.
+        if self.priority is None and self.conviction_score is not None:
+            self.priority = np.round(
+                np.clip(np.asarray(self.conviction_score, dtype=np.float64), 0.0, 1.0)
+                * 1_000_000
+            ).astype(np.int32)
+            _log_shim_warning_once(self.strategy_id)
 
 
 def _rolling_funding_zscore(funding: np.ndarray, lookback: int = 168) -> np.ndarray:
@@ -494,13 +527,22 @@ def precompute_strategy_signals(
             sr_convex_multipliers = tuple(getattr(sr, 'convex_multipliers', (2.0, 1.5, 0.3)))
             sr_bear_target_mult = float(getattr(sr, 'bear_target_mult', 0.0))
             sr_bear_max_hold = int(getattr(sr, 'bear_max_hold', 0))
-            # Conviction score: use explicit if provided, else None.
-            # This auto-derivation eliminates seed sensitivity in ranked conviction mode
-            # by giving each entry a differentiating conviction value based on its sizing signal.
+            # Conviction score: use explicit if provided by strategy, else None.
+            # (Previously had a fallback `sm / max(sm_max, 1e-10)` that normalized
+            # from size_multiplier — removed in M1 AC11 sizing purge. The dead line
+            # was never reachable because it referenced `sm`/`sm_max` that no longer
+            # exist in this scope — AC10 cleanup.)
             sr_conviction = None
             if getattr(sr, 'conviction_score', None) is not None:
                 sr_conviction = _to_array(sr.conviction_score, n_safe)
-                sr_conviction = sm / max(sm_max, 1e-10)  # normalize to [0, 1]
+
+            # Priority field: strategies may emit priority directly. If they do,
+            # we pass through. If they emit only conviction_score, the shim in
+            # TokenSignals.__post_init__ will auto-derive priority on the
+            # constructed TokenSignals below — no work needed here beyond extracting.
+            sr_priority = None
+            if getattr(sr, 'priority', None) is not None:
+                sr_priority = np.asarray(sr.priority[:n_safe], dtype=np.int32)
             sr_sec_leverage = float(getattr(sr, 'secondary_leverage', 1.0))
             sr_capital_split = float(getattr(sr, 'capital_split', 0.5))
             sr_sec_stop = float(sr.secondary_stop_mult) if sr.secondary_stop_mult is not None else None
@@ -608,6 +650,7 @@ def precompute_strategy_signals(
                 edge=sr_edge,
                 leverage=sr_leverage,
                 conviction_score=sr_conviction,
+                priority=sr_priority,
                 trail_schedule=trail_sched,
                 time_trail_schedule=time_trail_sched,
                 max_trail_mult=max_trail,

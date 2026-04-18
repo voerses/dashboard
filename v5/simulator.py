@@ -1236,15 +1236,19 @@ def _process_entries(
     if not candidates:
         return
 
-    # Order candidates by conviction score descending — highest conviction gets capital first.
-    def _get_conviction(c):
-        sid, tok, sig = c
+    # Order candidates by (priority DESC, strategy_id ASC, token ASC).
+    # Priority is the new v5-native field (int32). Legacy strategies emit
+    # conviction_score which is auto-mapped to priority by signals.py's shim.
+    # Deterministic tie-break on (strategy_id, token) for reproducibility.
+    def _sort_key(idx):
+        sid, tok, sig = candidates[idx]
         bm = bar_maps[tok]
         lb = int(bm[global_bar])
-        if sig.conviction_score is not None and 0 <= lb < len(sig.conviction_score):
-            return float(sig.conviction_score[lb])
-        return 1.0  # no conviction data → neutral priority
-    indices = sorted(range(len(candidates)), key=lambda i: _get_conviction(candidates[i]), reverse=True)
+        prio = 0
+        if sig.priority is not None and 0 <= lb < len(sig.priority):
+            prio = int(sig.priority[lb])
+        return (-prio, sid, tok)  # priority DESC via neg, strategy_id/token ASC
+    indices = sorted(range(len(candidates)), key=_sort_key)
 
     # Cache resolved sizing per strategy (resolve once, not per candidate)
     _resolved_sizing_cache: dict = {}
