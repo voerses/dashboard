@@ -1,0 +1,16 @@
+{
+  "total_return": -0.10105249999999998,
+  "sharpe": 0.0012637653657447284,
+  "sortino": 0.0012752703835027625,
+  "calmar": -0.954331816043734,
+  "max_drawdown": -0.3611859375,
+  "_meta": {
+    "source": "v4/portfolio_backtest.py",
+    "cmd": "python v4/portfolio_backtest.py --strategy s524m_nofilter --months 3 --capital 100000 --market perp --conviction-mode ranked --max-portfolio-positions 30 --skip-wf --end-date 2025-12-31T23:00:00 --seed 42",
+    "window": "Q-DEC4 (2025-10-01 to 2025-12-31)",
+    "universe": "v4 default perp universe (236 tokens, 206 loaded, 101 with signals)",
+    "total_trades": 113,
+    "win_rate_pct": 46.017699115044245,
+    "recorded_at": "2026-04-19"
+  }
+}

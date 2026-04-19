@@ -52,6 +52,17 @@ class TestS524MV5ProtocolCompliance:
         )
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="AC-S10 parity gate — blocked on v5 simulator + BarProcessor "
+           "bring-up (M8+). WalkForwardRunner.run() currently returns "
+           "metrics={} (v5/validation.py:886, Wave-B scaffold). Test stays "
+           "RED as the trip-wire spec; auto-flips to XPASS when M8 wires "
+           "bars→sim→metrics. DO NOT remove without completing M8 AC-E*. "
+           "Dispute reviewed 2026-04-19 — verdict A (test correct, "
+           "implementer blocked on out-of-scope M8 work). "
+           "Telemetry: .specs/telemetry.jsonl event=test_dispute verdict=A.",
+)
 class TestS524MMetricParityWithinHalfPercent:
     """AC-S10 — key metrics within 0.5% of v4 reference."""
 

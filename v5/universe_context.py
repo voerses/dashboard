@@ -18,10 +18,17 @@ from typing import Any, Callable, Literal, Optional
 
 import numpy as np
 
+import itertools
+
 from v5.clock import Clock, LiveClock
 from v5.data.instruments import InstrumentRegistry
 from v5.data.streams import Venue
 from v5.testing import TestClock
+
+
+# Process-wide monotonic UniverseContext identifier — see build_test() for
+# rationale (id() recycling under GC causes cross-fold cache contamination).
+_CTX_UID_COUNTER = itertools.count(1)
 
 
 # ============================================================
@@ -818,11 +825,16 @@ class UniverseContext:
             data=data, portfolio=portfolio, clock=clock, orders=orders,
             fold_id=fold_id, fold_window=fold_window,
         )
-        # Stash lifecycle config on the ctx via object.__setattr__ (frozen)
+        # Stash lifecycle config on the ctx via object.__setattr__ (frozen).
+        # `ctx_uid` is a process-wide monotonic identifier — never reused,
+        # unlike id() which Python recycles after GC. v5.regimes caches
+        # (and any other per-ctx memoization) key on ctx_uid to avoid
+        # cross-fold contamination when ids recycle.
         object.__setattr__(ctx, "_lifecycle_config", {
             "strategies": strategies or [],
             "bars": bars,
             "quarantine_threshold": quarantine_threshold,
+            "ctx_uid": next(_CTX_UID_COUNTER),
             **kwargs,
         })
         return ctx

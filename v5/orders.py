@@ -62,11 +62,34 @@ from typing import Any, Iterable, Literal
 
 _LOGGER = logging.getLogger(__name__)
 
-# AC38 — de-dup set for the mark-trigger backtest audit log entry. Keyed by
-# ``id(order)`` so multiple ``on_backtest_bar`` calls against the same
-# Order instance emit exactly one log line per position. Distinct
-# Order instances (one per position) each emit their own entry.
-_MARK_AUDIT_EMITTED: set[int] = set()
+# AC38 — de-dup set for the mark-trigger backtest audit log entry.
+# Keyed by Order.order_id (FIX ClOrdID(11)) — guaranteed unique per armed
+# Order via the auto-generated monotonic counter (see `_next_order_id`
+# below). "Exactly one entry per position" holds across the session.
+#
+# History: a plain set keyed by id() suppressed BTC audit lines under
+# id-reuse (observed full-suite 2026-04-19). A tuple key on
+# (strategy_id, token, armed_at) suppressed legitimate re-emissions when
+# tests shared those fields. WeakSet failed on Order.__hash__ (sizing_ctx
+# dict → unhashable). order_id counter-based is the correct long-term
+# design — it matches the FIX spec for ClOrdID uniqueness.
+_MARK_AUDIT_EMITTED: set[str] = set()
+
+
+# Module-level monotonic counter for auto-generated order_ids. Never
+# repeats within a process lifetime — perfect for dedup. Reset happens
+# only on process restart (tests share a process; still distinct).
+import itertools
+_next_order_id = itertools.count(1)
+
+
+def _gen_order_id(strategy_id: str, token: str) -> str:
+    """Generate a unique FIX ClOrdID(11) when caller passed order_id=''.
+
+    Format: ``{strategy_id}-{token}-{monotonic_counter}`` — human-readable
+    for logs while guaranteed unique per process.
+    """
+    return f"{strategy_id}-{token}-{next(_next_order_id)}"
 
 
 class TriggerType(IntEnum):
@@ -501,7 +524,7 @@ class Order:
             reject_reason=None,
             strategy_params=dict(strategy_params) if strategy_params else {},
             window_end=window_end,
-            order_id=order_id,
+            order_id=order_id or _gen_order_id(strategy_id, token),
             legs=tuple(legs),
             fill_policy=fill_policy,
             contingency=contingency,
@@ -694,9 +717,8 @@ class Order:
         working price sources fall straight through to :meth:`on_price`.
         """
         if self.working_price_source == "mark":
-            key = id(self)
-            if key not in _MARK_AUDIT_EMITTED:
-                _MARK_AUDIT_EMITTED.add(key)
+            if self.order_id not in _MARK_AUDIT_EMITTED:
+                _MARK_AUDIT_EMITTED.add(self.order_id)
                 _LOGGER.info(
                     "AC38 mark-trigger fallback: token=%s strategy=%s "
                     "using bar close=%.10g in lieu of mark (position=%s)",

@@ -22,7 +22,20 @@ _cache: dict[tuple[int, int], Any] = {}
 
 
 def _ctx_id(ctx) -> int:
-    """Canonical context identity — `id()` per design §13 L2."""
+    """Canonical context identity.
+
+    Prefers the monotonic `ctx_uid` stamped on `_lifecycle_config` at
+    `UniverseContext.build_test()` time (process-wide unique, never
+    reused). Falls back to `id(ctx)` per design §13 L2 when `ctx_uid`
+    isn't available (e.g., caller built ctx directly).
+
+    History: `id()` alone caused full-suite flakes — Python recycles ids
+    after GC, so a fresh ctx could inherit a prior ctx's cached call
+    count via id collision (observed 2026-04-19 full-suite run).
+    """
+    cfg = getattr(ctx, "_lifecycle_config", None)
+    if isinstance(cfg, dict) and "ctx_uid" in cfg:
+        return int(cfg["ctx_uid"])
     return id(ctx)
 
 

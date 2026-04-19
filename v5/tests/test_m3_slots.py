@@ -108,6 +108,67 @@ class TestAC8SlotsApplied:
 
 
 # ===================================================================
+# AC15a — entry slots persist through mutation (non-cascade sibling of AC15b)
+# ===================================================================
+
+
+class TestAC15aEntrySlotsPersist:
+    """Per-instance mutation of slotted entry fields must stay on __slots__,
+    never silently fall back to __dict__ (which slots=True should forbid).
+
+    Non-cascade companion to TestAC15bM2Regression (enumerated by AC-H1 row
+    in test_m7_pre_existing_13.py — does NOT spawn a pytest subprocess).
+    """
+
+    def _make_position(self):
+        from v5.position import Position
+        return Position(
+            position_id="BTC:s30:5:primary",
+            token="BTC", strategy_id="s30", leg="primary",
+            entry_bar=0, entry_price=100.0, direction=1,
+            quantity=1.0, margin_usd=100.0, leverage=1.0,
+            is_perp=True, fee_rate=0.0005,
+            stop_mult=2.0, trail_mult=3.0, target_mult=5.0,
+            no_stop_bars=6, min_hold=6, max_hold=720,
+            stop_price=90.0, highest=100.0, lowest=100.0,
+            initial_risk=10.0,
+        )
+
+    def test_entry_price_mutation_persists_on_slots(self):
+        pos = self._make_position()
+        pos.entry_price = 105.5
+        assert pos.entry_price == 105.5
+        assert not hasattr(pos, "__dict__")
+
+    def test_quantity_mutation_persists_on_slots(self):
+        pos = self._make_position()
+        pos.quantity = 2.5
+        assert pos.quantity == 2.5
+        assert not hasattr(pos, "__dict__")
+
+    def test_setattr_on_unknown_attribute_raises(self):
+        """slots=True must reject attributes outside the declared slot set."""
+        pos = self._make_position()
+        with pytest.raises(AttributeError):
+            pos.nonexistent_field = 42  # type: ignore[attr-defined]
+
+    def test_entry_slots_survive_scaling_event_append(self):
+        """Appending ScalingEvent to scaling_events must not spawn __dict__."""
+        from v5.position import ScalingEvent
+        pos = self._make_position()
+        ev = ScalingEvent(
+            bar=5, kind="reduce", fill_price=100.0, qty_delta=-1.0,
+            requested_qty_delta=-1.0, margin_delta=-100.0,
+            fill_notional=100.0, entry_fee_delta=0.0, exit_fee=0.05,
+            slippage_bps=1.0, atr_at_event=5.0, is_stop_like=False,
+        )
+        pos.scaling_events.append(ev)
+        assert len(pos.scaling_events) == 1
+        assert pos.entry_price == 100.0  # original slot value intact
+        assert not hasattr(pos, "__dict__")
+
+
+# ===================================================================
 # AC15c — slots + field(default_factory=...) composability
 # ===================================================================
 

@@ -81,25 +81,27 @@ class TestTM527CrossLegAtomicityRationale:
 
 
 class TestTM528FixSerializationStubs:
-    """T-M5-28: FIX serialization helpers raise NotImplementedError in M5."""
+    """T-M5-28: FIX serialization helpers.
 
-    def test_order_status_to_fix_ordstatus_not_implemented(self):
-        """T-M5-28: OrderStatus.FILLED.to_fix_ordstatus() raises NotImplementedError."""
+    M5 shipped these as `NotImplementedError` stubs. M7 Wave C implemented
+    them as real FIX wire serializers (commit 58895bf). Tests updated to
+    assert the current behavior per CLAUDE.md meta-rule #1 (code over specs).
+    """
+
+    def test_order_status_to_fix_ordstatus_implemented(self):
+        """T-M5-28 (M7 evolution): OrderStatus.FILLED → FIX OrdStatus(39)='2'."""
         from v5.orders import OrderStatus
-        with pytest.raises(NotImplementedError):
-            OrderStatus.FILLED.to_fix_ordstatus()
+        assert OrderStatus.FILLED.to_fix_ordstatus() == "2"
 
-    def test_trigger_type_to_fix_trigger_type_not_implemented(self):
-        """T-M5-28: TriggerType.PRICE_ABOVE.to_fix_trigger_type() raises."""
+    def test_trigger_type_to_fix_trigger_type_implemented(self):
+        """T-M5-28 (M7 evolution): TriggerType.PRICE_ABOVE → FIX TriggerType(1100)=4."""
         from v5.orders import TriggerType
-        with pytest.raises(NotImplementedError):
-            TriggerType.PRICE_ABOVE.to_fix_trigger_type()
+        assert TriggerType.PRICE_ABOVE.to_fix_trigger_type() == 4
 
-    def test_trigger_type_to_fix_price_direction_not_implemented(self):
-        """T-M5-28: TriggerType.PRICE_ABOVE.to_fix_trigger_price_direction() raises."""
+    def test_trigger_type_to_fix_price_direction_implemented(self):
+        """T-M5-28 (M7 evolution): PRICE_ABOVE → TriggerPriceDirection(1109)='U' (Up)."""
         from v5.orders import TriggerType
-        with pytest.raises(NotImplementedError):
-            TriggerType.PRICE_ABOVE.to_fix_trigger_price_direction()
+        assert TriggerType.PRICE_ABOVE.to_fix_trigger_price_direction() == "U"
 
 
 class TestTM529VenueOrderIdStub:
