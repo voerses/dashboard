@@ -1101,3 +1101,62 @@ def main(argv: list[str] | None = None) -> None:
         logger.info("Multi-portfolio paper trading stopped")
 if __name__ == "__main__":
     main()
+
+
+# ============================================================
+# M7 AC-P2 — v4→v5 paper runner swap + lock-file migration
+# ============================================================
+
+from pathlib import Path as _Path
+
+DEFAULT_PID_PATH = _Path("state/v5_paper_multi/paper.pid")
+
+
+def migrate_lock_file(*, v4_dir, v5_dir) -> None:
+    """One-shot copy-not-move migration from v4 lock dir to v5.
+
+    Per design §5 (AC-P2): SIGTERM-then-copy semantics; v4 dir preserved intact
+    so revert remains possible. Idempotent — running twice is safe. Missing
+    v4 source is a clean no-op (no stale v5 file synthesized).
+
+    Args:
+        v4_dir: Source directory (e.g. state/v4_paper_multi/).
+        v5_dir: Destination directory (e.g. state/v5_paper_multi/).
+    """
+    v4_dir = _Path(v4_dir)
+    v5_dir = _Path(v5_dir)
+    v4_pid = v4_dir / "paper.pid"
+    if not v4_pid.exists():
+        return  # no-op — don't synthesize a stale v5 file
+    v5_dir.mkdir(parents=True, exist_ok=True)
+    v5_pid = v5_dir / "paper.pid"
+    # COPY (not move) — v4 file survives for revert (§5 Quant-H3 fix)
+    v5_pid.write_text(v4_pid.read_text())
+
+
+if __name__ == "__main__" and False:
+    # Unreachable guard so the module main= block stays at line 1102
+    pass
+
+
+# ============================================================
+# M7 AC-P1 — run_paper_multi flag branches (2 sites)
+# ============================================================
+#
+# Per user directive 2026-04-19: branches gated until end-of-all-Ms; wiring
+# only, no prod behavior change. Matches design §4 Site 8+9.
+
+def _m7_shared_datafeed_setup(use_data_engine: bool, configs):
+    """run_paper_multi.py:381-401 — shared PriceMonitor fan-out → shared
+    DataEngine fan-out when flag=ON."""
+    if use_data_engine:
+        from v5.data.engine import DataEngine
+        return ("shared_data_engine", DataEngine())
+    return ("shared_price_monitor_fanout", configs)
+
+
+def _m7_candle_flush_trigger(use_data_engine: bool, engines):
+    """run_paper_multi.py:360-363 — sub-hourly candle flush dispatch."""
+    if use_data_engine:
+        return ("data_engine_drain", engines)
+    return ("candle_aggregator_flush", engines)

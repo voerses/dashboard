@@ -6,11 +6,17 @@ FIX vocabulary:
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, FrozenSet, List, Literal, Optional, Tuple
 
 from v5.data.exceptions import SymbolNotFound
 from v5.data.streams import DataKind, InstrumentId, Venue
+
+
+def _tm_import():
+    """Lazy TransportMode import — avoids circular import at module load."""
+    from v5.data.streams import TransportMode
+    return TransportMode
 
 _VALID_CONTRACT_SUBTYPES = frozenset({
     "perpetual", "quarterly", "dated", "european", "american",
@@ -66,6 +72,24 @@ class VenueCapabilities:
     has_trade_tape: bool
     rest_weight_budget_per_min: int
     supported_price_types: FrozenSet[Literal["LAST", "MID", "MARK", "INDEX"]]
+    # M7 AC-D15: which transport modes the venue supports. Additive field;
+    # strategies check symmetric to supports(DataKind.TRADE) via supports(mode).
+    # Default frozenset() keeps M6 callers working; Binance at connect()
+    # declares {PUSH, PULL_ONCE, PULL_SCHEDULED}.
+    supported_transport_modes: FrozenSet = field(default_factory=frozenset)
+
+    def supports(self, capability) -> bool:
+        """Unified capability query — works for DataKind OR TransportMode.
+
+        Returns True iff the capability is declared in the corresponding
+        supported_* set.
+        """
+        from v5.data.streams import DataKind as _DK, TransportMode as _TM
+        if isinstance(capability, _DK):
+            return capability in self.supported_data_kinds
+        if isinstance(capability, _TM):
+            return capability in self.supported_transport_modes
+        return False
 
 
 # Canonical-token → venue-symbol aliases for 1000-prefix micro-cap tokens.
@@ -125,6 +149,11 @@ class InstrumentRegistry:
             has_trade_tape=True,
             rest_weight_budget_per_min=1200,
             supported_price_types=frozenset({"LAST", "MARK", "INDEX"}),
+            supported_transport_modes=frozenset({
+                # Binance is a live venue — PUSH via WS, PULL_ONCE + PULL_SCHEDULED
+                # via REST. No REPLAY (that's ParquetReplayClient's domain).
+                _tm_import().PUSH, _tm_import().PULL_ONCE, _tm_import().PULL_SCHEDULED,
+            }),
         )
         self._capabilities[Venue.BINANCE] = caps
 

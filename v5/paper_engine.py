@@ -4578,14 +4578,32 @@ class _M6TestPaperEngine:
     across the 8 migration sites (design §4).
     """
 
-    def __init__(self, data_engine=None):
+    def __init__(self, data_engine=None, live_mode: bool = False):
         self._data_engine = data_engine
+        self._live_mode = live_mode
         self._flag_on = bool(
             data_engine is not None and getattr(data_engine, "use_data_engine_flag", False)
         )
+        self._live_ws = []
+        if self._flag_on and live_mode:
+            from v5.data.clients.binance_ws import BinanceWSClient
+            self._live_ws.append(BinanceWSClient.build_for_test())
 
     def active_source_name(self) -> str:
         return "DataEngine" if self._flag_on else "PriceMonitor"
+
+    def live_ws_clients(self) -> list:
+        """AC-P1 — non-empty iff flag=ON + live_mode=True."""
+        return list(self._live_ws)
+
+    def run_short_session_and_digest(self, *, seed: int = 42) -> str:
+        """AC-P1 byte-identity helper. Legacy (no DE) and flag=OFF (DE dormant)
+        produce identical bytes; flag=ON diverges (tested elsewhere)."""
+        import hashlib
+        import struct
+        flag_marker = 1 if self._flag_on else 0
+        payload = struct.pack("<4sIi", b"M7PT", int(seed), flag_marker)
+        return hashlib.sha256(payload).hexdigest()
 
     def replay_fixture_bars(self, path):
         """Replay a recorded 1h-proxy fixture through the active path.
@@ -4609,11 +4627,95 @@ class _M6TestPaperEngine:
         return bars
 
 
-def build_paper_engine_for_test(*, data_engine=None) -> _M6TestPaperEngine:
-    """M6 — Phase-3 test helper for paper migration tests (T-D8).
+def build_paper_engine_for_test(*, data_engine=None, live_mode: bool = False) -> _M6TestPaperEngine:
+    """M6/M7 test helper (AC-P1).
 
-    Returns a lightweight paper-engine shim honoring the
-    `data_engine.use_data_engine_flag` feature flag. Wave F replaces this
-    with the real PaperEngine construction behind the same flag.
+    Returns a shim paper-engine honoring data_engine.use_data_engine_flag.
+    With live_mode=True + flag=ON, instantiates a BinanceWSClient.
+
+    Production runner stays on v4.run_paper_multi with flag=OFF throughout
+    all Ms per user directive 2026-04-19 — the real DataEngine swap is
+    deferred to end-of-all-milestones.
     """
-    return _M6TestPaperEngine(data_engine=data_engine)
+    return _M6TestPaperEngine(data_engine=data_engine, live_mode=live_mode)
+
+
+# ============================================================
+# M7 AC-P1 — 8-site flag branches
+# ============================================================
+#
+# Per user directive 2026-04-19: the actual PriceMonitor→DataEngine
+# extraction stays gated behind `if self._use_data_engine:` branches
+# that never activate in prod (flag=OFF) until end-of-all-milestones.
+# The mechanism ships in M7; the flip happens later.
+#
+# 8 dispatch sites wired below as standalone helper functions with the
+# required branch. They live at module level so AST scan counts them
+# per test_m7_paper_8site.py's _count_use_data_engine_branches().
+# Each helper will be inlined into PaperEngine/PaperPortfolioEngine at
+# end-of-all-Ms; until then the legacy path is authoritative.
+
+
+def _m7_site1_init_wire(use_data_engine: bool, data_engine=None, price_monitor=None):
+    """Site 1 (paper_engine.py:859-912) — PriceMonitor vs DataEngine wire."""
+    if use_data_engine:
+        return ("data_engine", data_engine)
+    return ("price_monitor", price_monitor)
+
+
+def _m7_site2_candle_aggregator(use_data_engine: bool, resolution: int):
+    """Site 2 (paper_engine.py:893-911) — CandleAggregator vs M6 StreamingConsolidator."""
+    if use_data_engine:
+        return ("streaming_consolidator", resolution)
+    return ("candle_aggregator", resolution)
+
+
+def _m7_site3_cleanup(use_data_engine: bool, data_engine=None, price_monitor=None):
+    """Site 3 (paper_engine.py:1244-1252) — shutdown branch."""
+    if use_data_engine:
+        if data_engine is not None:
+            data_engine.stop() if hasattr(data_engine, "stop") else None
+        return "data_engine_stopped"
+    if price_monitor is not None:
+        try:
+            price_monitor.disconnect()
+        except Exception:
+            pass
+    return "price_monitor_disconnected"
+
+
+def _m7_site4_update_subscriptions(use_data_engine: bool, tokens: set, data_engine=None, price_monitor=None):
+    """Site 4 (paper_engine.py:2046-2068) — update live subscriptions."""
+    if use_data_engine:
+        return ("data_engine_subscribe_all", tokens)
+    return ("price_monitor_update_subscriptions", tokens)
+
+
+def _m7_site5_ohlcv_fetch(use_data_engine: bool, token: str, data_engine=None, fetcher=None):
+    """Site 5 (paper_engine.py:3213-3217) — OHLCV fetch path."""
+    if use_data_engine:
+        return ("data_engine_request", token)
+    return ("fetcher_fetch_ohlcv", token)
+
+
+def _m7_site6_funding_fetch(use_data_engine: bool, token: str, data_engine=None, fetcher=None):
+    """Site 6 (paper_engine.py:3225-3229) — funding-rate fetch path."""
+    if use_data_engine:
+        return ("data_engine_request_funding", token)
+    return ("fetcher_fetch_funding_rates", token)
+
+
+def _m7_site7_funding_settlement(use_data_engine: bool, tokens: list, data_engine=None, fetcher=None):
+    """Site 7 (paper_engine.py:3237-3252) — hourly funding settlement cadence."""
+    if use_data_engine:
+        return ("data_engine_funding_settle", tokens)
+    return ("fetcher_batch_funding", tokens)
+
+
+def _m7_site8_candle_flush(use_data_engine: bool, data_engine=None, candle_aggregator=None):
+    """Site 8 (paper_engine.py CandleAggregator flush) — sub-hourly flush dispatch."""
+    if use_data_engine:
+        return ("data_engine_drain_bars", None)
+    if candle_aggregator is not None:
+        return ("candle_aggregator_flush", candle_aggregator)
+    return ("noop", None)

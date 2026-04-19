@@ -100,6 +100,13 @@ class TestRunPaperMultiIsTheProductionEntry:
         )
 
 
+@pytest.mark.xfail(
+    reason="Per user directive 2026-04-19: the actual v4→v5 runner swap in "
+    "tools/start_all_services.sh is deferred to end-of-all-milestones — "
+    "NOT M7. M7 Task 15 ships migrate_lock_file() + v5 lock-path constant; "
+    "the start script stays on v4 until all strategies are ported and the "
+    "v5 runner is fully vetted. These tests will flip GREEN at that cutover.",
+)
 class TestStartAllServicesReferencesV5:
     """AC-P2 — tools/start_all_services.sh uses v5 path."""
 

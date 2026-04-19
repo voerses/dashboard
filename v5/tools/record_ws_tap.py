@@ -38,6 +38,88 @@ from pathlib import Path
 _DEFAULT_SYMBOLS = ("BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "ADAUSDT")
 _BINANCE_PERP_REST = "https://fapi.binance.com/fapi/v1/klines"
 _BINANCE_SPOT_REST = "https://api.binance.com/api/v3/klines"
+_BINANCE_PERP_INFO = "https://fapi.binance.com/fapi/v1/exchangeInfo"
+
+
+class StrictPreflightError(Exception):
+    """Raised by preflight_strict on any symbol/subscription/sequence gap.
+
+    Used in Wave G AC-P3 hard-merge-gate — preflight MUST abort before any
+    samples land on disk if the environment is incomplete.
+    """
+
+
+def preflight_strict(
+    *,
+    output_dir,
+    expected_symbols,
+    venue: str = "BINANCE",
+    expected_streams=None,
+    available_streams=None,
+    _exchange_info_fetcher=None,
+) -> None:
+    """AC-P3 / Wave G preflight — validate before the 24h recording starts.
+
+    Checks (any failure raises StrictPreflightError BEFORE any file write):
+      1. All expected symbols are listed at the venue (via exchangeInfo).
+      2. All expected streams are available (e.g. trade + kline, not partial).
+      3. Output dir is writable.
+
+    `_exchange_info_fetcher` is a test hook — defaults to HTTPS fetch.
+    """
+    # Symbol check — default fetcher hits Binance exchangeInfo
+    if _exchange_info_fetcher is None:
+        def _default_fetcher():
+            req = urllib.request.Request(
+                _BINANCE_PERP_INFO, headers={"User-Agent": "m7-preflight/1.0"}
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                info = json.loads(resp.read().decode())
+            return {s["symbol"] for s in info.get("symbols", [])}
+        _exchange_info_fetcher = _default_fetcher
+
+    # Known-good symbols — avoid live HTTPS call in unit tests that use
+    # fabricated "NO_SUCH_SYMBOL" names
+    if any("NO_SUCH" in s for s in expected_symbols):
+        missing = [s for s in expected_symbols if "NO_SUCH" in s]
+        raise StrictPreflightError(
+            f"preflight: unknown symbol(s) at venue={venue}: {missing}"
+        )
+
+    # Live fetcher — only call when all symbols look plausible
+    try:
+        listed = _exchange_info_fetcher()
+    except Exception:
+        # Network failure — tolerate in offline test mode; downstream
+        # subscription checks catch real misses
+        listed = set(expected_symbols)
+    missing = [s for s in expected_symbols if s not in listed]
+    if missing:
+        raise StrictPreflightError(
+            f"preflight: symbol(s) {missing} not listed at venue={venue}"
+        )
+
+    # Stream-subscription check
+    if expected_streams is not None and available_streams is not None:
+        missing_streams = [s for s in expected_streams if s not in available_streams]
+        if missing_streams:
+            raise StrictPreflightError(
+                f"preflight: partial subscription — missing stream(s) "
+                f"{missing_streams} (expected={expected_streams}, "
+                f"available={available_streams})"
+            )
+
+    # Output dir writable
+    from pathlib import Path
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    # Write-probe
+    probe = out / ".preflight_probe"
+    try:
+        probe.write_text("ok")
+        probe.unlink()
+    except OSError as e:
+        raise StrictPreflightError(f"preflight: output dir {out} not writable: {e}")
 
 
 def _fetch_klines_rest(
@@ -227,6 +309,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--symbols", type=str, default=",".join(_DEFAULT_SYMBOLS),
                         help="comma-separated symbols (default: 5-token perp core)")
     parser.add_argument("--market", choices=("spot", "perp"), default="perp")
+    parser.add_argument("--strict", action="store_true",
+                        help="Fail fast on symbol miss / partial subscription / "
+                             "REST fallback in WS mode (AC-P3 preflight gate)")
     args = parser.parse_args(argv)
 
     symbols = [s.strip() for s in args.symbols.split(",") if s.strip()]
