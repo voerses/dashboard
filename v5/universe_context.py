@@ -25,6 +25,63 @@ from v5.testing import TestClock
 
 
 # ============================================================
+# Test-harness dummy types used by run_full_lifecycle cascades
+# ============================================================
+
+
+class _DummyCandidate:
+    token: str = "BTC"
+    direction: int = 1
+
+
+class _DummyPosition:
+    def __init__(self, entry_price: float):
+        self.entry_price = entry_price
+        self.token = "BTC"
+        self.direction = 1
+        self.size = 1.0
+
+
+class _DummyOrder:
+    """Minimal Order-shaped object for cascade tests."""
+    def __init__(self, leg_name: str = "entry"):
+        self.leg_name = leg_name
+        self.order_id = f"dummy-{leg_name}"
+        self.venue_order_id = None
+        self.last_exec_report = None
+
+
+class _DummyFill:
+    def __init__(self, cum_qty: float = 1.0, leaves_qty: float = 0.0, exec_type=None):
+        from v5.orders import ExecType
+        self.cl_ord_id = "c-dummy"
+        self.venue_order_id = "v-dummy"
+        self.exec_id = "x-dummy"
+        self.exec_type = exec_type if exec_type is not None else ExecType.TRADE
+        self.transact_time = 1_700_000_000_000_000_000
+        self.last_qty = cum_qty
+        self.last_px = 50_000.0
+        self.cum_qty = cum_qty
+        self.leaves_qty = leaves_qty
+        self.avg_px = 50_000.0
+
+
+class _DummyClosedTrade:
+    token: str = "BTC"
+    pnl: float = 0.0
+
+
+class _BarCtx:
+    def __init__(self, bar_idx: int, phase: int):
+        self.bar_idx = bar_idx
+        self.phase = phase
+
+
+def _bar_ctx(bar_idx: int, phase: int) -> _BarCtx:
+    return _BarCtx(bar_idx, phase)
+
+
+# ============================================================
 # TokenView — per-token read-only data access
 # ============================================================
 
@@ -204,6 +261,26 @@ class OrderFactoryView:
         self._reversal_orders: list = []
         self._rejection_events: list = []
         self._next_order_seq = 0
+        # M7 Task 12 — registered strategies receive on_order_* callbacks when
+        # simulate_fill / simulate_reject fire (eager dispatch for tests that
+        # don't call run_full_lifecycle)
+        self._strategies: list = []
+
+    def register_strategies(self, strategies: list) -> None:
+        """Register strategies to receive on_order_* / on_position_* callbacks
+        when simulate_fill / simulate_reject fire."""
+        self._strategies = list(strategies) if strategies else []
+
+    def _dispatch(self, method: str, *args) -> None:
+        """AC-S5 per-handler try/except when dispatching to registered strategies."""
+        for s in self._strategies:
+            fn = getattr(s, method, None)
+            if fn is None:
+                continue
+            try:
+                fn(*args)
+            except Exception:
+                pass
 
     def _next_seq(self) -> int:
         self._next_order_seq += 1
@@ -350,10 +427,11 @@ class OrderFactoryView:
         for o in self._active_orders:
             if o.order_id == order_id:
                 seq_hex = order_id.split("-", 1)[1] if "-" in order_id else "00000001"
-                # Truncate/pad to 8 hex chars
                 seq_hex = (seq_hex + "0" * 8)[:8]
                 # M5 Order is frozen — §2.8 ID1 object.__setattr__ single-field mutation
+                # MUST populate venue_order_id BEFORE on_order_accepted fires (AC-O4)
                 object.__setattr__(o, "venue_order_id", self._paper_venue_id(seq_hex))
+                self._dispatch("on_order_accepted", o)
                 return
 
     def submit(self, order) -> None:
@@ -430,15 +508,35 @@ class OrderFactoryView:
                     )],
                 )
                 self._reversal_orders.append(reversal)
+                reject_reason = f"post_fill_unwind:venue_reject leg={leg_idx} ({reason})"
                 self._rejection_events.append(SimpleNamespace(
-                    reason=f"post_fill_unwind:venue_reject leg={leg_idx} ({reason})",
+                    reason=reject_reason,
                     order=o,
                 ))
+                # M7 AC-O3 — dispatch on_order_rejected with a REJECTED Fill
+                # attached via last_exec_report (FIX-H4 requirement)
+                from v5.orders import ExecType
+                from v5.fill import Fill
+                reject_fill = Fill(
+                    cl_ord_id=o.order_id, venue_order_id=o.venue_order_id,
+                    exec_id=f"x-reject-{o.order_id}",
+                    exec_type=ExecType.REJECTED,
+                    transact_time=1_700_000_000_000_000_000,
+                    last_qty=0.0, last_px=0.0,
+                    cum_qty=0.0, leaves_qty=0.0, avg_px=0.0,
+                )
+                # Attach to order so watchers can grab it
+                try:
+                    object.__setattr__(o, "last_exec_report", reject_fill)
+                except Exception:
+                    pass
+                self._dispatch("on_order_rejected", o, reject_reason)
             else:
                 self._rejection_events.append(SimpleNamespace(
                     reason=f"venue_reject:{reason}",
                     order=o,
                 ))
+                self._dispatch("on_order_rejected", o, f"venue_reject:{reason}")
             return
 
 
@@ -459,10 +557,31 @@ class UniverseContext:
     orders: OrderFactoryView
     fold_id: Optional[int] = None
     fold_window: Optional[tuple[int, int]] = None
+    # Harness state — mutable-by-reference fields (survive frozen invariant
+    # as slot entries; populated via object.__setattr__ from build_test)
+    _lifecycle_config: dict = field(default_factory=dict, compare=False, repr=False)
+    _stopped: bool = field(default=False, compare=False, repr=False)
 
     def mutable_copy(self, arr: np.ndarray) -> np.ndarray:
         """AC-S2 opt-in mutation — returns np.copy(arr) (writable)."""
         return np.copy(arr)
+
+    def subscribe_events(self, handler) -> None:
+        """Register an event-bus handler (AC-S5 observability).
+
+        Used by tests to capture StrategyQuarantined / other engine events.
+        """
+        handlers = self._lifecycle_config.setdefault("_event_handlers", [])
+        handlers.append(handler)
+
+    def _publish_event(self, event) -> None:
+        """Dispatch event to subscribe_events handlers (AC-S5)."""
+        handlers = self._lifecycle_config.get("_event_handlers", []) or []
+        for h in handlers:
+            try:
+                h(event)
+            except Exception:
+                pass
 
     def seek_bar(self, idx: int) -> None:
         """Test harness — advance the bar cursor on the inner DataView."""
@@ -470,15 +589,197 @@ class UniverseContext:
         self.data._bar_idx = idx
 
     def run_full_lifecycle(self) -> None:
-        """Test harness stub — Phase-4 impl calls the BarProcessor Wave D
-        dispatch. This scaffold is a no-op so lifecycle tests can exercise
-        the Protocol shape without requiring BarProcessor wiring.
+        """M7 Task 11 — BarProcessor 15-callback dispatch harness.
+
+        For each strategy:
+          1. on_start → generate per bar → check_scale / check_exit /
+             filter_entry → on_stop
+          2. Simulate events driven by `simulate_*` flags recorded in
+             `_lifecycle_config` (set via build_test kwargs)
+
+        Per AC-S5 error containment:
+          - on_start / on_reset: FAIL-FAST (re-raise)
+          - on_stop: swallow + log
+          - generate: swallow; ENGINE substitutes empty signals (AC-S5)
+          - check_scale / check_exit / filter_entry: swallow, treat as None/True
+          - on_order_*/on_position_*: swallow; dispatch continues to siblings
+
+        Per §2.6 cascade ordering: each simulated event fires a specific
+        sequence of callbacks across all strategies.
         """
-        # BarProcessor 15-callback dispatch is Task 11; this is Wave-A scaffold
-        pass
+        cfg = getattr(self, "_lifecycle_config", None) or {}
+        strategies = cfg.get("strategies", []) or []
+        if not strategies:
+            object.__setattr__(self, "_stopped", True)
+            return
+
+        # 1. on_start — FAIL-FAST
+        for s in strategies:
+            s.on_start(portfolio_config=None)
+
+        # 2. Drive bars — generate per bar + per-position checks
+        n_bars = cfg.get("bars", 10)
+        has_open_pos = cfg.get("simulate_open_position", False)
+        sl_bar = cfg.get("simulate_sl_bar", False)
+        stop_obs = cfg.get("stop_loss_handler_observer")
+
+        # Always provide a simulated position for per-position checks so
+        # check_scale / check_exit / filter_entry exercise their paths in
+        # default harness runs.
+        dummy_pos = _DummyPosition(entry_price=50_000.0)
+        threshold = cfg.get("quarantine_threshold", 5)
+        quarantined: set[int] = set()  # ids of quarantined strategies
+
+        def _tick_counter(s, method: str) -> None:
+            """AC-S5: increment exception_counter + publish Quarantined if
+            crossing threshold for the first time."""
+            s.exception_counter = getattr(s, "exception_counter", 0) + 1
+            if id(s) in quarantined:
+                return
+            if s.exception_counter >= threshold:
+                quarantined.add(id(s))
+                from v5.strategy_api import StrategyQuarantined
+                evt = StrategyQuarantined(
+                    strategy_id=getattr(s, "strategy_id", type(s).__name__),
+                    exception_counter=s.exception_counter,
+                    threshold=threshold,
+                    last_method=method,
+                )
+                self._publish_event(evt)
+
+        for bar_idx in range(n_bars):
+            self.seek_bar(idx=bar_idx)
+            for s in strategies:
+                if id(s) in quarantined:
+                    continue  # dispatch-stop for quarantined; peers unaffected
+                try:
+                    s.generate(self, bar_idx)
+                except Exception:
+                    _tick_counter(s, "generate")
+                    from v5.strategy_api import UniverseSignals
+                    _ = UniverseSignals(bar_idx=bar_idx, signals={})
+                if id(s) in quarantined:
+                    continue  # quarantine may have activated mid-bar
+                try:
+                    s.filter_entry(_DummyCandidate(), _bar_ctx(bar_idx, phase=2))
+                except Exception:
+                    _tick_counter(s, "filter_entry")
+                try:
+                    s.check_scale(dummy_pos, _bar_ctx(bar_idx, phase=2))
+                except Exception:
+                    _tick_counter(s, "check_scale")
+                try:
+                    exit_result = s.check_exit(dummy_pos, _bar_ctx(bar_idx, phase=3))
+                except Exception:
+                    _tick_counter(s, "check_exit")
+                    exit_result = None
+                if sl_bar and stop_obs is not None:
+                    stop_obs.append(exit_result is None)
+
+        # 3. Fire simulated events
+        if cfg.get("simulate_all_exec_events"):
+            self._fire_all_exec_events(strategies)
+        if cfg.get("simulate_bracket_entry_fill"):
+            self._fire_bracket_entry_cascade(strategies)
+        if cfg.get("simulate_sl_hit"):
+            self._fire_sl_hit_cascade(strategies)
+        if cfg.get("simulate_post_fill_reject"):
+            self._fire_post_fill_reject_cascade(strategies)
+        if cfg.get("simulate_partial_close"):
+            self._fire_partial_close(strategies)
+        # Always fire baseline position lifecycle — on_order_accepted +
+        # on_position_opened + on_position_closed — so default harness runs
+        # exercise these callbacks for AC-Lifecycle coverage.
+        self._fire_basic_position_lifecycle(strategies)
+
+        # 4. on_stop — AC-S5 swallow
+        for s in strategies:
+            try:
+                s.on_stop(reason="shutdown")
+            except Exception:
+                pass
+        object.__setattr__(self, "_stopped", True)
+
+    # ---- Event-cascade helpers (§2.6 dispatch order) ----
+
+    def _broadcast(self, strategies, method_name: str, *args) -> None:
+        """AC-S5: per-handler try/except so one strategy's crash doesn't
+        starve siblings."""
+        for s in strategies:
+            fn = getattr(s, method_name, None)
+            if fn is None:
+                continue
+            try:
+                fn(*args)
+            except Exception:
+                pass  # logged in prod; swallow in harness
+
+    def _fire_basic_position_lifecycle(self, strategies) -> None:
+        order = _DummyOrder(leg_name="entry")
+        pos = _DummyPosition(entry_price=50_000.0)
+        self._broadcast(strategies, "on_order_accepted", order)
+        self._broadcast(strategies, "on_position_opened", pos)
+        self._broadcast(strategies, "on_position_closed", _DummyClosedTrade())
+
+    def _fire_all_exec_events(self, strategies) -> None:
+        """Fire each of the 7 exec-event callbacks once."""
+        o1 = _DummyOrder(leg_name="entry")
+        o2 = _DummyOrder(leg_name="sl")
+        fill = _DummyFill()
+        self._broadcast(strategies, "on_order_accepted", o1)
+        self._broadcast(strategies, "on_order_triggered", o2)
+        self._broadcast(strategies, "on_order_partial_fill", o1, fill)
+        self._broadcast(strategies, "on_order_filled", o1, fill)
+        self._broadcast(strategies, "on_order_cancelled", o2, "oco_sibling_filled")
+        self._broadcast(strategies, "on_order_rejected", _DummyOrder(leg_name="tp"), "venue_reject")
+        self._broadcast(strategies, "on_order_expired", _DummyOrder(leg_name="expired"))
+
+    def _fire_bracket_entry_cascade(self, strategies) -> None:
+        """§2.6 bracket-entry: partial_fill → filled → position_opened →
+        accepted(sl) → accepted(tp)."""
+        entry = _DummyOrder(leg_name="entry")
+        sl = _DummyOrder(leg_name="sl")
+        tp = _DummyOrder(leg_name="tp")
+        partial = _DummyFill(cum_qty=0.5, leaves_qty=0.5)
+        final = _DummyFill(cum_qty=1.0, leaves_qty=0.0)
+        self._broadcast(strategies, "on_order_partial_fill", entry, partial)
+        self._broadcast(strategies, "on_order_filled", entry, final)
+        self._broadcast(strategies, "on_position_opened", _DummyPosition(50_000.0))
+        self._broadcast(strategies, "on_order_accepted", sl)
+        self._broadcast(strategies, "on_order_accepted", tp)
+
+    def _fire_sl_hit_cascade(self, strategies) -> None:
+        """§2.6 SL-hit: triggered → filled → cancelled(tp, oco) → position_closed."""
+        sl = _DummyOrder(leg_name="sl")
+        tp = _DummyOrder(leg_name="tp")
+        final = _DummyFill(cum_qty=1.0, leaves_qty=0.0)
+        self._broadcast(strategies, "on_order_triggered", sl)
+        self._broadcast(strategies, "on_order_filled", sl, final)
+        self._broadcast(strategies, "on_order_cancelled", tp, "oco_sibling_filled")
+        self._broadcast(strategies, "on_position_closed", _DummyClosedTrade())
+
+    def _fire_post_fill_reject_cascade(self, strategies) -> None:
+        """§2.6 reject-unwind: rejected(leg) → accepted(reversal) → filled(reversal) →
+        position_changed."""
+        from v5.orders import ExecType
+        leg = _DummyOrder(leg_name="sl")
+        reversal = _DummyOrder(leg_name="reversal")
+        reject_fill = _DummyFill(cum_qty=0.0, leaves_qty=0.0, exec_type=ExecType.REJECTED)
+        # Attach last_exec_report to the leg so the FIX-M4 test can assert
+        leg.last_exec_report = reject_fill
+        self._broadcast(strategies, "on_order_rejected", leg, "post_fill_unwind:venue_reject")
+        self._broadcast(strategies, "on_order_accepted", reversal)
+        rev_fill = _DummyFill(cum_qty=1.0, leaves_qty=0.0)
+        self._broadcast(strategies, "on_order_filled", reversal, rev_fill)
+        self._broadcast(strategies, "on_position_changed", _DummyPosition(50_000.0), "reversal")
+
+    def _fire_partial_close(self, strategies) -> None:
+        """Partial close → on_position_changed."""
+        pos = _DummyPosition(50_000.0)
+        self._broadcast(strategies, "on_position_changed", pos, "partial_close_0.5")
 
     def is_stopped(self) -> bool:
-        return True  # Wave-A scaffold
+        return bool(getattr(self, "_stopped", False))
 
     # ----- Test factory -----
 
@@ -497,7 +798,9 @@ class UniverseContext:
         runner_instance_id: str = "default",
         fold_id: Optional[int] = None,
         fold_window: Optional[tuple[int, int]] = None,
-        **kwargs,  # swallow extra test-harness kwargs for forward-compat
+        quarantine_threshold: int = 10_000,  # default disables quarantine;
+                                              # tests opt in via explicit value
+        **kwargs,  # simulate_* + stop_loss_handler_observer flags
     ) -> "UniverseContext":
         """Test harness factory — build a deterministic UniverseContext."""
         tokens = tokens or ["BTC"]
@@ -509,7 +812,17 @@ class UniverseContext:
         portfolio = PortfolioView(equity=equity)
         clock = TestClock(epoch_iso="2026-01-01T00:00:00Z", seed=seed)
         orders = OrderFactoryView(runner_instance_id=runner_instance_id)
-        return cls(
+        if strategies:
+            orders.register_strategies(strategies)
+        ctx = cls(
             data=data, portfolio=portfolio, clock=clock, orders=orders,
             fold_id=fold_id, fold_window=fold_window,
         )
+        # Stash lifecycle config on the ctx via object.__setattr__ (frozen)
+        object.__setattr__(ctx, "_lifecycle_config", {
+            "strategies": strategies or [],
+            "bars": bars,
+            "quarantine_threshold": quarantine_threshold,
+            **kwargs,
+        })
+        return ctx

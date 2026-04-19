@@ -47,6 +47,25 @@ class BinanceRESTClient:
         TransportMode.PULL_ONCE, TransportMode.PULL_SCHEDULED,
     })
 
+    @classmethod
+    def build_for_test(cls) -> "BinanceRESTClient":
+        """Test-only constructor with no-arg default state (M7 Task 13)."""
+        return cls()
+
+    def on_venue_ack(self, response: dict, order) -> None:
+        """M7 AC-O4 — REST venue-ack → Order.venue_order_id assignment.
+
+        FIX OrderID(37) arrives on POST /fapi/v1/order response as `orderId`.
+        Per design §2.8 ID1, uses object.__setattr__ to preserve M5 frozen invariant.
+        """
+        venue_id = response.get("orderId") or response.get("order_id")
+        if venue_id is None:
+            raise ValueError(f"BinanceREST ack missing orderId: {response}")
+        try:
+            object.__setattr__(order, "venue_order_id", str(venue_id))
+        except Exception:
+            order.venue_order_id = str(venue_id)
+
     def __init__(self, bus: Optional[MessageBus] = None):
         self._bus = bus
         self._weight_budget: int = _BINANCE_WEIGHT_CAP_PER_MIN

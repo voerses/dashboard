@@ -150,6 +150,29 @@ class BinanceWSClient:
                 return s
         return None
 
+    @classmethod
+    def build_for_test(cls) -> "BinanceWSClient":
+        """Test-only constructor with no-arg default state (M7 Task 13)."""
+        return cls()
+
+    def on_venue_ack(self, event: Dict[str, Any], order) -> None:
+        """M7 AC-O4 — Binance venue-ack → Order.venue_order_id assignment.
+
+        FIX OrderID(37) arrives on ExecutionReport events. Per design §2.8 ID1,
+        we use object.__setattr__ to preserve M5's frozen=True invariant.
+
+        Event shape (typical):
+          {"msg_type": "ExecutionReport", "order_id": "12345", "cl_ord_id": "c-1", ...}
+        """
+        venue_id = event.get("order_id") or event.get("i")
+        if venue_id is None:
+            raise ValueError(f"BinanceWS ack missing OrderID(37): {event}")
+        try:
+            object.__setattr__(order, "venue_order_id", str(venue_id))
+        except Exception:
+            # SimpleNamespace or any non-slots object — direct assignment works
+            order.venue_order_id = str(venue_id)
+
     def _inject_aggtrade_frame(self, frame: Dict[str, Any]) -> None:
         """Parse a Binance aggTrade frame and deliver Trade event to handler.
 

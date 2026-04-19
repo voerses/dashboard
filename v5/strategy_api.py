@@ -109,6 +109,18 @@ class ExitCheck:
     price: Optional[float] = None
 
 
+@dataclass
+class StrategyQuarantined:
+    """Event published when a strategy's exception_counter crosses the
+    configured threshold. Engine stops dispatching to that strategy;
+    peers unaffected. (AC-S5 observability per design §2.7.)
+    """
+    strategy_id: str
+    exception_counter: int
+    threshold: int
+    last_method: str = ""
+
+
 @runtime_checkable
 class Strategy(Protocol):
     """Unified Strategy contract — 19 Protocol methods.
