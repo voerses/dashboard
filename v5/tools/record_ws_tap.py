@@ -110,29 +110,109 @@ def _record_rest(
 def _record_ws(
     output: Path, duration_s: int, symbols: list[str], market: str,
 ) -> int:
-    """WS-mode: open live connection, record for duration_s seconds.
+    """WS-mode: open live Binance WS connection, record for duration_s seconds.
 
-    Requires the `websockets` package and real wall-clock time. If running
-    in an environment without `websockets`, fall back to REST-mode with a
-    clear warning.
+    Uses websocket-client (same library v4/price_monitor.py uses). Subscribes
+    to <symbol>@kline_1m + <symbol>@aggTrade streams combined, records every
+    frame with local ts_init nanoseconds.
     """
     try:
-        import websockets  # noqa: F401
+        import websocket
     except ImportError:
         print(
-            "[record_ws_tap] websockets package not available — falling back to REST mode",
+            "[record_ws_tap] websocket-client not available — falling back to REST",
             file=sys.stderr,
         )
         return _record_rest(output, duration_s, symbols, market)
 
-    # Full WS implementation would open wss://fstream.binance.com, subscribe to
-    # <symbol>@kline_1m + <symbol>@aggTrade streams, and record frames until
-    # duration_s elapses. Not run here because 24h blocks this session.
-    print(
-        "[record_ws_tap] WS mode not yet implemented in this scaffold. Use --mode rest.",
-        file=sys.stderr,
+    import threading
+    import time
+
+    base_url = (
+        "wss://fstream.binance.com/stream"
+        if market == "perp"
+        else "wss://stream.binance.com:9443/stream"
     )
-    return _record_rest(output, duration_s, symbols, market)
+    # Build combined-stream URL: ?streams=sym1@kline_1m/sym1@aggTrade/...
+    stream_names = []
+    for s in symbols:
+        stream_names.append(f"{s.lower()}@kline_1m")
+        stream_names.append(f"{s.lower()}@aggTrade")
+    url = f"{base_url}?streams={'/'.join(stream_names)}"
+
+    output.mkdir(parents=True, exist_ok=True)
+    date_tag = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    ws_path = output / f"binance_ws_tap_{date_tag}.jsonl"
+
+    frame_count = [0]
+    fh = ws_path.open("w")
+    stop_flag = threading.Event()
+
+    def on_message(ws, message):
+        # Record as-received with local ingest time
+        ts_init_ns = time.time_ns()
+        record = {"ts_init_ns": ts_init_ns, "raw": message}
+        fh.write(json.dumps(record) + "\n")
+        frame_count[0] += 1
+
+    def on_error(ws, error):
+        print(f"[record_ws_tap] WS error: {error}", file=sys.stderr)
+
+    def on_close(ws, code, msg):
+        print(f"[record_ws_tap] WS closed: code={code} msg={msg}")
+
+    def on_open(ws):
+        print(f"[record_ws_tap] WS connected to {len(stream_names)} streams")
+
+    ws = websocket.WebSocketApp(
+        url,
+        on_open=on_open,
+        on_message=on_message,
+        on_error=on_error,
+        on_close=on_close,
+    )
+
+    # Run WS in a thread so we can stop it after duration_s
+    thread = threading.Thread(
+        target=ws.run_forever,
+        kwargs={"ping_interval": 20, "ping_timeout": 10},
+        daemon=True,
+    )
+    thread.start()
+
+    try:
+        start = time.time()
+        while time.time() - start < duration_s:
+            time.sleep(1)
+            if frame_count[0] > 0 and int(time.time() - start) % 30 == 0:
+                print(f"[record_ws_tap] {frame_count[0]} frames at t={int(time.time()-start)}s")
+    except KeyboardInterrupt:
+        print("[record_ws_tap] interrupted — closing WS")
+    finally:
+        stop_flag.set()
+        ws.close()
+        thread.join(timeout=5)
+        fh.close()
+
+    # Also fetch REST snapshot for the same window
+    print("[record_ws_tap] fetching REST snapshot for paired backfill...")
+    rest_path = output / f"binance_rest_tap_{date_tag}.jsonl"
+    minutes = max(1, duration_s // 60 + 1)
+    all_rest: list[dict] = []
+    for sym in symbols:
+        try:
+            records = _fetch_klines_rest(sym, minutes, market)
+            all_rest.extend(records)
+        except Exception as e:
+            print(f"[record_ws_tap] WARN REST {sym}: {e}", file=sys.stderr)
+    all_rest.sort(key=lambda r: (r["ts_event"], r["stream"]))
+    with rest_path.open("w") as f:
+        for r in all_rest:
+            f.write(json.dumps(r, sort_keys=True) + "\n")
+
+    print(f"[record_ws_tap] WS wrote {frame_count[0]} frames → {ws_path}")
+    print(f"[record_ws_tap] REST wrote {len(all_rest)} klines → {rest_path}")
+    return 0 if frame_count[0] > 0 else 1
 
 
 def main(argv: list[str] | None = None) -> int:
