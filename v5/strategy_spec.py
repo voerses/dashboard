@@ -47,9 +47,17 @@ class StrategySpec:
     bar_subscriptions: dict = field(default_factory=dict)
     # T28 / AC30 — warm-up gate: number of signal_resolution bars that must
     # be observed before this strategy's ``on_signal`` callback is allowed
-    # to fire, and before any PendingEntry it owns can transition
+    # to fire, and before any Order it owns can transition
     # ARMED -> TRIGGERED. Stage 1 (exits) is NOT gated by warmup.
     warmup_bars: int = 0
+    # T-M5-13 / AC13: feature flag gating combined primary/secondary migration
+    # from the M2 ``linked_position_id`` path to the M5 ``Order.legs`` multi-leg
+    # path. Defaults to False — combined strategies continue using M2 semantics
+    # until explicitly opted in. When True, ``trigger_combined_entry`` emits an
+    # ``Order(legs=[primary, secondary], contingency=OCO)`` and both Positions
+    # carry the same ``order_id``. See design.md §"Combined primary/secondary
+    # migration" + F6 (coexistence lifetime through M9).
+    use_multi_leg_orders: bool = False
 
     def __init__(
         self,
@@ -57,11 +65,13 @@ class StrategySpec:
         bar_subscriptions: dict | None = None,
         *,
         warmup_bars: int = 0,
+        use_multi_leg_orders: bool = False,
         **extra: Any,
     ):
         self.strategy_id = strategy_id
         self.bar_subscriptions = dict(bar_subscriptions or {})
         self.warmup_bars = int(warmup_bars)
+        self.use_multi_leg_orders = bool(use_multi_leg_orders)
 
         # T14 / AC29 — role constraint: signal.period_ns >= entry.period_ns.
         # A strategy that requests a finer signal resolution than its entry

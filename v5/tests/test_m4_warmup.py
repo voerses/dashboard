@@ -79,10 +79,10 @@ class TestAC30WarmupBlocksOnSignal:
 
 
 class TestAC30Stage3BlockedDuringWarmup:
-    """AC30: no PendingEntry can transition ARMED -> TRIGGERED before on_signal fires."""
+    """AC30: no Order can transition ARMED -> TRIGGERED before on_signal fires."""
 
     def test_no_pending_entries_armed_during_warmup(self):
-        """AC30: PendingEntry list remains empty during warmup."""
+        """AC30: Order list remains empty during warmup."""
         from v5.bar_processor import BarProcessor
         pending_entries: list = []
         _drive_bars(BarProcessor(strategies=[_strategy_needing_warmup(50)]),

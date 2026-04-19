@@ -123,6 +123,17 @@ class Position:
     # anchor stays at the pre-scale value so breakeven gates aren't re-floored
     # downward (or lifted upward for shorts) by averaging.
     _breakeven_anchor_entry_price: float = 0.0
+    # M5 F9 — Order → Position identity back-links.
+    # ``order_id`` maps to FIX OrderID(37) analog (back-link to parent Order).
+    # ``leg_ref_id`` maps to FIX LegRefID(654) (back-link to specific Leg).
+    # Both default to None so existing 21 importers are unaffected (additive).
+    order_id: Optional[str] = None
+    leg_ref_id: Optional[str] = None
+    # M5 F9 — internal chain pointer for ``book_closed_trade``.
+    # Records the position_id of the most recently booked ClosedTrade so the
+    # next booking's ``parent_position_id`` threads the scale chain
+    # (T-M5-12: ``ct2.parent_position_id == ct1.position_id``).
+    _last_closed_trade_id: Optional[str] = None
 
     def __post_init__(self) -> None:
         # Anchor R-multiple calculations on original entry when not explicitly set.
@@ -388,6 +399,93 @@ class Position:
             is_stop_like=is_stop_like,
         )
 
+    # ------------------------------------------------------------------
+    # M5 F9 — identity chain helper: construct ClosedTrade from ReduceResult.
+    # ------------------------------------------------------------------
+    def book_closed_trade(
+        self,
+        result: "ReduceResult",
+        *,
+        bar_idx: int = 0,
+        triggered_by: str = "",
+        exit_reason: Optional[str] = None,
+        exit_timestamp: str = "",
+    ) -> "ClosedTrade":
+        """Construct a ClosedTrade from a ReduceResult, advancing the identity
+        chain (M5 F9).
+
+        Side effects:
+          * Increments ``self.scale_count`` (1-based).
+          * Updates ``self._last_closed_trade_id`` so the *next* booking's
+            ``parent_position_id`` points at the prior scale in the chain
+            (T-M5-12: ``ct2.parent_position_id == ct1.position_id``).
+
+        The parent on the first booking is ``self.position_id`` (the root);
+        subsequent bookings chain via the previously booked position_id.
+
+        The F9 back-link fields (``order_id``, ``leg_ref_id``) are copied
+        verbatim from ``self`` — so Order → Position → ClosedTrade traces
+        via matching order_id and leg_ref_id.
+        """
+        self.scale_count += 1
+        # Determine parent_position_id — chain or root.
+        prior = getattr(self, "_last_closed_trade_id", None)
+        parent_id = prior if prior else self.position_id
+        new_position_id = f"{self.position_id}{result.suffix}"
+
+        if exit_reason is None:
+            exit_reason = (
+                "dust_promoted_reduce" if result.is_terminal else "partial_reduce"
+            )
+
+        # pnl net of fees + funding (matches book_reduce convention in simulator).
+        net_pnl = result.gross_pnl - result.exit_fee - result.closed_funding
+
+        # Read exit_price from the just-appended reduce ScalingEvent.
+        exit_price = (
+            float(self.scaling_events[-1].fill_price)
+            if self.scaling_events else float(self.entry_price)
+        )
+
+        trade = ClosedTrade(
+            position_id=new_position_id,
+            token=self.token,
+            strategy_id=self.strategy_id,
+            leg=self.leg,
+            entry_bar=self.entry_bar,
+            exit_bar=bar_idx,
+            entry_price=self.entry_price,
+            exit_price=exit_price,
+            direction=self.direction,
+            margin_usd=result.closed_margin,
+            pnl=net_pnl,
+            funding_cost=result.closed_funding,
+            entry_fee=result.partial_entry_fee_to_book,
+            exit_fee=result.exit_fee,
+            hold_bars=bar_idx - self.entry_bar,
+            exit_reason=exit_reason,
+            is_perp=self.is_perp,
+            entry_timestamp=self.entry_timestamp,
+            exit_timestamp=exit_timestamp,
+            limit_price=self.limit_price,
+            limit_placed_at=self.limit_placed_at,
+            stop_limit_price=self.stop_limit_price,
+            fill_source=self.fill_source,
+            parent_position_id=parent_id,
+            exec_seq=self.scale_count,
+            exec_type="reduce",
+            is_terminal=bool(result.is_terminal),
+            triggered_by=triggered_by,
+            has_scaling=True,
+            scaling_events=list(self.scaling_events),
+            # M5 F9 — back-link fields copied from the Position.
+            order_id=self.order_id,
+            leg_ref_id=self.leg_ref_id,
+        )
+        # Advance the chain pointer for the next booking.
+        self._last_closed_trade_id = new_position_id
+        return trade
+
 
 @dataclass(slots=True)
 class ClosedTrade:
@@ -426,6 +524,11 @@ class ClosedTrade:
     triggered_by: str = ""
     has_scaling: bool = False
     scaling_events: list = field(default_factory=list)
+    # M5 F9 — Order → Position → ClosedTrade identity back-links.
+    # Copied from Position.order_id / Position.leg_ref_id at close; both
+    # default to None so M2 tests (21 importers) remain unaffected.
+    order_id: Optional[str] = None
+    leg_ref_id: Optional[str] = None
 
 
 class PositionManager:

@@ -32,13 +32,17 @@ logger = logging.getLogger(__name__)
 
 STATE_VERSION = 1
 
-# M4 schema version for the `write_paper_state` / `read_paper_state` API.
+# M4/M5 schema version for the `write_paper_state` / `read_paper_state` API.
 # `STATE_VERSION` is preserved at 1 so M3's version-fetching code keeps
 # raising on mismatched legacy payloads (the deserialize_state path).
-# M4 adds a new payload shape carrying `pending_entries` — this constant
-# labels that shape so the reader can apply the legacy `_armed_tokens`
-# migration shim on older files (AC32).
-STATE_SCHEMA_VERSION = 2
+#
+# M4 (v2): added the `pending_entries` payload shape so the reader could
+#   apply the legacy `_armed_tokens` migration shim on older files (AC32).
+# M5 (v3): renamed `pending_entries` → `open_orders` (design F4), added
+#   M5 multi-leg Order fields (legs, fill_policy, contingency,
+#   linked_order_id, time_in_force, venue_order_id) and Position identity
+#   back-links (order_id, leg_ref_id). See `_migrate_v2_to_v3`.
+STATE_SCHEMA_VERSION = 3
 
 
 def make_position_id(token: str, strategy_id: str, tick_counter: int, leg: str) -> str:
@@ -135,6 +139,10 @@ def _serialize_position(pos: Position) -> dict:
         # first rung fire (quant reviewer flagged). Coerce sets → sorted lists
         # here at the serialize boundary.
         "_helper_state": _json_safe(pos._helper_state),
+        # M5 F9 — Position identity back-links (schema v3). Both default None
+        # so a v2 Position (no back-links) roundtrips as `None`.
+        "order_id": pos.order_id,
+        "leg_ref_id": pos.leg_ref_id,
     }
     # Sub-hourly entry window_end for re-entry prevention across restarts
     window_end = getattr(pos, '_window_end', 0.0)
@@ -158,24 +166,24 @@ def _deserialize_position(d: dict) -> Position:
         max_trail_mult_arr = np.array(d["max_trail_mult_arr"], dtype=np.float64)
 
     pos = Position(
-        position_id=d["position_id"],
-        token=d["token"],
-        strategy_id=d["strategy_id"],
-        leg=d["leg"],
-        entry_bar=d["entry_bar"],
-        entry_price=d["entry_price"],
-        direction=d["direction"],
-        quantity=d["quantity"],
-        margin_usd=d["margin_usd"],
-        leverage=d["leverage"],
-        is_perp=d["is_perp"],
-        fee_rate=d["fee_rate"],
-        stop_mult=d["stop_mult"],
-        trail_mult=d["trail_mult"],
-        target_mult=d["target_mult"],
-        no_stop_bars=d["no_stop_bars"],
-        min_hold=d["min_hold"],
-        max_hold=d["max_hold"],
+        position_id=d.get("position_id", ""),
+        token=d.get("token", ""),
+        strategy_id=d.get("strategy_id", ""),
+        leg=d.get("leg", "primary"),
+        entry_bar=d.get("entry_bar", 0),
+        entry_price=d.get("entry_price", 0.0),
+        direction=d.get("direction", 1),
+        quantity=d.get("quantity", 0.0),
+        margin_usd=d.get("margin_usd", 0.0),
+        leverage=d.get("leverage", 1.0),
+        is_perp=d.get("is_perp", False),
+        fee_rate=d.get("fee_rate", 0.0),
+        stop_mult=d.get("stop_mult", 0.0),
+        trail_mult=d.get("trail_mult", 0.0),
+        target_mult=d.get("target_mult", 0.0),
+        no_stop_bars=d.get("no_stop_bars", 0),
+        min_hold=d.get("min_hold", 0),
+        max_hold=d.get("max_hold", 10 ** 9),
         convex_exit=d.get("convex_exit", False),
         rsi_exit_level=d.get("rsi_exit_level", 999.0),
         trail_schedule=trail_schedule,
@@ -218,6 +226,10 @@ def _deserialize_position(d: dict) -> Position:
     if isinstance(helper_state, dict):
         pos._helper_state = dict(helper_state)
     # else: Position.__init__ already set _helper_state = {} (default factory)
+    # M5 F9 — restore identity back-links (schema v3). Defaults to None for
+    # v2 payloads that never carried these fields.
+    pos.order_id = d.get("order_id", None)
+    pos.leg_ref_id = d.get("leg_ref_id", None)
     return pos
 
 
@@ -1285,7 +1297,7 @@ def load_trade_log(path: str) -> list[ClosedTrade]:
 
 
 # ---------------------------------------------------------------------------
-# M4 Task 10 — PendingEntry persistence (AC32) + schema bump
+# M4 Task 10 — Order persistence (AC32) + schema bump
 # ---------------------------------------------------------------------------
 
 
@@ -1296,6 +1308,11 @@ class _PaperState:
     M4 AC32/AC26 acceptance tests are surfaced as attributes; the raw
     payload is always available via ``.raw`` for callers that need the full
     dict.
+
+    M5 addition: dict-like access (``[]``, ``.get()``) delegates to
+    ``self.raw`` so callers that want to inspect the migrated payload
+    directly (e.g. the v3 migration tests assert ``migrated.get(
+    "schema_version") == 3``) can treat the return value as a mapping.
     """
 
     __slots__ = ("pending_entries", "schema_version", "raw", "positions")
@@ -1306,6 +1323,19 @@ class _PaperState:
         self.schema_version = schema_version
         self.raw = raw if raw is not None else {}
         self.positions = list(positions or [])
+
+    # ------------------------------------------------------------------ #
+    # M5 — dict-like facade for v3 migration assertions.                  #
+    # ------------------------------------------------------------------ #
+
+    def __getitem__(self, key):
+        return self.raw[key]
+
+    def __contains__(self, key) -> bool:
+        return key in self.raw
+
+    def get(self, key, default=None):
+        return self.raw.get(key, default)
 
     # ------------------------------------------------------------------ #
     # M4 Task 26 (AC26 T-B16) — class-style save/load convenience API    #
@@ -1346,8 +1376,62 @@ class _PaperState:
 PaperState = _PaperState
 
 
+def _migrate_v2_to_v3(raw: dict) -> dict:
+    """Migrate a paper_state payload from schema v2 to v3 in place (M5 F9).
+
+    Idempotent: a v3+ payload is returned unchanged. The migration:
+
+      * Bumps ``schema_version`` to 3.
+      * Renames ``pending_entries`` → ``open_orders`` (design §F4).
+      * Adds M5 defaults to each Order dict:
+          - ``legs = []``                         (single-leg fallback)
+          - ``fill_policy = "unwind_on_reject"``  (LegFillPolicy.value)
+          - ``contingency = 0``                   (ContingencyType.NONE)
+          - ``linked_order_id = None``
+          - ``time_in_force = "1"``               (TimeInForce.GTC.value)
+          - ``venue_order_id = None``
+      * Adds Position identity defaults (``order_id = None``,
+        ``leg_ref_id = None``) to each Position dict.
+
+    Callers pass the mutated dict through ``_PaperState`` so tests that
+    treat the return as a mapping can inspect the migrated fields
+    directly (T-M5-10).
+    """
+    if int(raw.get("schema_version", 1)) >= 3:
+        return raw
+
+    # Positions: populate the F9 back-link defaults.
+    for pos in raw.get("positions", []) or []:
+        if not isinstance(pos, dict):
+            continue
+        pos.setdefault("order_id", None)
+        pos.setdefault("leg_ref_id", None)
+
+    # Rename pending_entries → open_orders (design §F4). If both keys are
+    # present (defensive), preserve open_orders (already v3-shape) and drop
+    # the legacy key.
+    if "pending_entries" in raw and "open_orders" not in raw:
+        raw["open_orders"] = raw.pop("pending_entries")
+    elif "pending_entries" in raw and "open_orders" in raw:
+        raw.pop("pending_entries", None)
+
+    # Add M5 defaults to each Order dict.
+    for order in raw.get("open_orders", []) or []:
+        if not isinstance(order, dict):
+            continue
+        order.setdefault("legs", [])
+        order.setdefault("fill_policy", "unwind_on_reject")
+        order.setdefault("contingency", 0)
+        order.setdefault("linked_order_id", None)
+        order.setdefault("time_in_force", "1")
+        order.setdefault("venue_order_id", None)
+
+    raw["schema_version"] = 3
+    return raw
+
+
 def _migrate_legacy_armed_tokens(raw: dict) -> list:
-    """AC32 legacy shim: convert pre-M4 ``_armed_tokens`` dict to PendingEntry
+    """AC32 legacy shim: convert pre-M4 ``_armed_tokens`` dict to Order
     records in the ARMED state. Expected legacy shape::
 
         {"_armed_tokens": {"<token>": {<arm-kwargs>}}}
@@ -1356,7 +1440,7 @@ def _migrate_legacy_armed_tokens(raw: dict) -> list:
     crashes on best-effort input. Returns an empty list if no legacy data
     is present or the migration fails cleanly.
     """
-    from v5.pending_entry import PendingEntry, TriggerKind
+    from v5.orders import Order, TriggerType
 
     legacy = raw.get("_armed_tokens")
     if not legacy or not isinstance(legacy, dict):
@@ -1366,14 +1450,14 @@ def _migrate_legacy_armed_tokens(raw: dict) -> list:
     for token, payload in legacy.items():
         if not isinstance(payload, dict):
             continue
-        trigger_raw = payload.get("trigger", TriggerKind.PRICE_ABOVE.name)
+        trigger_raw = payload.get("trigger", TriggerType.PRICE_ABOVE.name)
         try:
             if isinstance(trigger_raw, str):
-                trigger = TriggerKind[trigger_raw]
+                trigger = TriggerType[trigger_raw]
             else:
-                trigger = TriggerKind(int(trigger_raw))
+                trigger = TriggerType(int(trigger_raw))
         except (KeyError, ValueError):
-            trigger = TriggerKind.PRICE_ABOVE
+            trigger = TriggerType.PRICE_ABOVE
         armed_at_raw = payload.get("armed_at")
         armed_at = (
             _dt.datetime.fromisoformat(armed_at_raw)
@@ -1390,7 +1474,7 @@ def _migrate_legacy_armed_tokens(raw: dict) -> list:
         else:
             expires_at = None
         try:
-            pe = PendingEntry.arm(
+            pe = Order.arm(
                 strategy_id=payload.get("strategy_id", ""),
                 token=str(token),
                 direction=int(payload.get("direction", 1)),
@@ -1411,8 +1495,9 @@ def _migrate_legacy_armed_tokens(raw: dict) -> list:
     return migrated
 
 
-def write_paper_state(path, *, positions=None, pending_entries=None, extra=None) -> None:
-    """Write an M4-schema paper_state.json atomically (AC32, AC26).
+def write_paper_state(path, *, positions=None, pending_entries=None,
+                      open_orders=None, extra=None) -> None:
+    """Write an M4/M5-schema paper_state.json atomically (AC32, AC26, AC9).
 
     Args:
         path: target path (str or PathLike).
@@ -1420,15 +1505,20 @@ def write_paper_state(path, *, positions=None, pending_entries=None, extra=None)
             top-level ``positions`` list via :func:`_serialize_position`.
             Added for M4 Task 26 (AC26 T-B16: scale-cap crash-restart) so
             ``pos._scale_action_bar`` survives a mid-hour restart.
-        pending_entries: iterable of :class:`PendingEntry` — persisted as a
-            top-level ``pending_entries`` list via :meth:`PendingEntry.to_json`.
+        pending_entries: legacy alias for ``open_orders`` kept for M4
+            backward compatibility. Schema v3 renames this key to
+            ``open_orders`` (design §F4). If both are provided ``open_orders``
+            wins.
+        open_orders: iterable of :class:`Order` — persisted as a top-level
+            ``open_orders`` list via :meth:`Order.to_json` (schema v3).
         extra: optional dict merged into the payload (e.g. tick_counter,
             last_timestamp) so callers can piggyback on the same file.
     """
+    orders_iter = open_orders if open_orders is not None else pending_entries
     payload: dict = {
         "schema_version": STATE_SCHEMA_VERSION,
-        "pending_entries": [
-            pe.to_json() for pe in (pending_entries or [])
+        "open_orders": [
+            pe.to_json() for pe in (orders_iter or [])
         ],
         "positions": [
             _serialize_position(p) for p in (positions or [])
@@ -1436,7 +1526,8 @@ def write_paper_state(path, *, positions=None, pending_entries=None, extra=None)
     }
     if extra:
         for k, v in extra.items():
-            if k in ("schema_version", "pending_entries", "positions"):
+            if k in ("schema_version", "open_orders",
+                     "pending_entries", "positions"):
                 continue
             payload[k] = v
 
@@ -1459,21 +1550,41 @@ def write_paper_state(path, *, positions=None, pending_entries=None, extra=None)
 
 
 def read_paper_state(path) -> _PaperState:
-    """Read an M4-schema paper_state.json (AC32/AC26) with legacy
-    ``_armed_tokens`` migration shim applied when the new
-    ``pending_entries`` key is absent.
+    """Read an M4/M5-schema paper_state.json (AC32/AC26/AC9).
+
+    Migration order:
+      1. Legacy pre-M4 (``_armed_tokens`` key) → synthesize ``pending_entries``
+         via :func:`_migrate_legacy_armed_tokens` (kept as Order objects).
+      2. v2 → v3 (``pending_entries`` key, no M5 fields) →
+         :func:`_migrate_v2_to_v3` renames to ``open_orders`` and populates
+         M5 defaults in place on the raw dict.
+      3. v3 native (``open_orders`` key) — no migration needed.
+
+    Returned :class:`_PaperState` is dict-like over the migrated raw
+    payload (``state["positions"]``, ``state.get("schema_version")``) so
+    v3 migration assertions can inspect the payload directly.
     """
-    from v5.pending_entry import PendingEntry
+    from v5.orders import Order
 
     target_path = str(path)
     with open(target_path) as f:
         raw = json.load(f)
 
-    if "pending_entries" in raw:
-        pes = [PendingEntry.from_json(b) for b in raw["pending_entries"]]
+    # Pre-M4 legacy shim: synthesize Order objects from _armed_tokens.
+    if "pending_entries" not in raw and "open_orders" not in raw:
+        legacy_pes = _migrate_legacy_armed_tokens(raw)
     else:
-        # Legacy pre-M4 file — apply the _armed_tokens shim.
-        pes = _migrate_legacy_armed_tokens(raw)
+        legacy_pes = None
+
+    # v2 → v3 migration (idempotent).
+    _migrate_v2_to_v3(raw)
+
+    # Deserialize Order objects from the post-migration `open_orders`
+    # (or fall back to the legacy-synthesized list).
+    if legacy_pes is not None:
+        pes = legacy_pes
+    else:
+        pes = [Order.from_json(b) for b in raw.get("open_orders", []) or []]
 
     # M4 Task 26 (AC26 T-B16) — rehydrate Position records. Legacy payloads
     # without the ``positions`` key deserialize to an empty list (tolerates

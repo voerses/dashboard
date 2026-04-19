@@ -339,7 +339,7 @@ def _bar_ts(bar: Mapping) -> int:
 
 
 def _pe_priority_key(pe) -> tuple:
-    """Priority order for Stage 3 PendingEntry dispatch (AC25 step 6)."""
+    """Priority order for Stage 3 Order dispatch (AC25 step 6)."""
     return (pe.armed_at, pe.strategy_id, pe.token)
 
 
@@ -379,7 +379,26 @@ class BarProcessor:
         event_recorder: Optional[Callable[[str, int], None]] = None,
         strategies: Optional[Sequence] = None,
         stats_enabled: bool = False,
+        exit_resolution: Optional[BarSpec] = None,
+        trigger_check_callback: Optional[Callable] = None,
+        strategy_spec: Optional[Any] = None,
     ) -> None:
+        # M5 AC10 / T-M5-14 — trigger-check cadence is driven by the
+        # strategy's declared ``exit`` bar_subscription. Priority:
+        #   1. Explicit ``exit_resolution`` kwarg.
+        #   2. ``strategy_spec.bar_subscriptions["exit"]`` when supplied.
+        # If neither is given we leave ``self.exit_resolution = None`` —
+        # callers that do not drive :meth:`on_bar_event` (M4 path) never
+        # consult it. Silently defaulting to 1m is FORBIDDEN by AC10.
+        _resolved_exit: Optional[BarSpec] = exit_resolution
+        if _resolved_exit is None and strategy_spec is not None:
+            subs = getattr(strategy_spec, "bar_subscriptions", None) or {}
+            spec_exit = subs.get("exit") if isinstance(subs, Mapping) else None
+            if spec_exit is not None:
+                _resolved_exit = spec_exit
+        self.exit_resolution: Optional[BarSpec] = _resolved_exit
+        self._trigger_check_callback: Optional[Callable] = trigger_check_callback
+        self._strategy_spec = strategy_spec
         self._handlers_registry = list(handlers_registry) if handlers_registry else None
         # AC5/AC6 — registry-based Stage 1 dispatch. When a custom registry is
         # not provided, fall back to the canonical ``EXIT_HANDLER_REGISTRY``
@@ -451,8 +470,63 @@ class BarProcessor:
     def register_position(self, pos) -> None:
         self._positions.append(pos)
 
-    def register_pending_entry(self, pe) -> None:
+    def register_order(self, pe) -> None:
         self._pending_entries.append(pe)
+
+    # ------------------------------------------------------------------ #
+    # M5 AC10 / T-M5-14 — trigger-check cadence via exit_resolution      #
+    # ------------------------------------------------------------------ #
+
+    def on_bar_event(
+        self,
+        *,
+        ts_ns: int,
+        resolution: BarSpec,
+        bar_data: Mapping[str, Any],
+    ) -> None:
+        """Dispatch a bar event; only invoke trigger-check at exit cadence.
+
+        Per M5 AC10, Order triggers are checked at the cadence declared by
+        each strategy's ``bar_subscriptions["exit"]`` — NOT on every 1m
+        bar. A strategy with ``exit=BarSpec.from_minutes(60)`` only checks
+        triggers once per hour; a strategy with ``exit=BarSpec.from_minutes(1)``
+        checks every minute. No hardcoded 1m default.
+
+        The method compares the incoming ``resolution`` against
+        ``self.exit_resolution`` (set at construction from the explicit
+        kwarg or inferred from ``strategy_spec.bar_subscriptions["exit"]``).
+        On match, the registered ``trigger_check_callback`` is invoked
+        with the bar payload and registered orders.
+
+        Args:
+            ts_ns: bar close timestamp (epoch ns).
+            resolution: the :class:`BarSpec` of the incoming bar.
+            bar_data: the bar's OHLCV / indicator payload (passed through
+                to the trigger-check callback without interpretation).
+        """
+        if self.exit_resolution is None:
+            return
+        # Match by period_ns — interned BarSpec instances compare by value
+        # but we defend against callers who construct fresh instances.
+        incoming_ns = int(getattr(resolution, "period_ns", 0) or 0)
+        expected_ns = int(getattr(self.exit_resolution, "period_ns", 0) or 0)
+        if incoming_ns != expected_ns:
+            return
+        cb = self._trigger_check_callback
+        if cb is None:
+            return
+        try:
+            cb(
+                ts_ns=int(ts_ns),
+                resolution=resolution,
+                bar_data=bar_data,
+                orders=tuple(self._pending_entries),
+            )
+        except Exception:
+            # Observability / dispatch errors must not crash the bar loop.
+            # The callback is responsible for its own error handling; we
+            # swallow here to match the defensive pattern used elsewhere.
+            pass
 
     # ------------------------------------------------------------------ #
     # Look-ahead guard (AC15)                                            #
@@ -778,7 +852,7 @@ class BarProcessor:
         if pending_seq:
             for pe in sorted(pending_seq, key=_pe_priority_key):
                 self._record_stage("stage_3", 0)
-                self._maybe_transition_pending_entry(pe, bar_ctx)
+                self._maybe_transition_order(pe, bar_ctx)
         else:
             self._record_stage("stage_3", -1)
         _emit(self._event_recorder, "stage_3", ts_ns)
@@ -960,18 +1034,18 @@ class BarProcessor:
             except Exception:
                 pass
 
-    def _maybe_transition_pending_entry(self, pe, bar_ctx) -> None:
-        """AC30 — evaluate PE trigger only once the owning strategy has warmed.
+    def _maybe_transition_order(self, pe, bar_ctx) -> None:
+        """AC30 — evaluate Order trigger only once the owning strategy has warmed.
 
-        No-op when no strategies are registered (legacy callers). For a
-        pending entry belonging to a strategy still in warm-up, the ARMED
+        No-op when no strategies are registered (legacy callers). For an
+        order belonging to a strategy still in warm-up, the ARMED
         state is preserved and no transition is recorded. Transitions that
         do run bump the optional ``stats.pending_transitions`` counter so
         tests can audit them.
         """
         if not self._strategies:
             return
-        owner = self._find_strategy_for_pending_entry(pe)
+        owner = self._find_strategy_for_order(pe)
         if owner is not None and not self._warmup_on_signal_fired.get(id(owner), False):
             # Warm-up gate: strategy hasn't fired on_signal yet.
             return
@@ -990,12 +1064,12 @@ class BarProcessor:
                 self.stats.pending_transitions.get(key, 0) + 1
             )
 
-    def _find_strategy_for_pending_entry(self, pe):
+    def _find_strategy_for_order(self, pe):
         """Return the registered strategy whose ``strategy_id`` matches ``pe``.
 
         Falls back to the first registered strategy when no id match exists —
         the AC30 warm-up tests register a single strategy and expect its
-        warm-up gate to apply to any pending entries in flight.
+        warm-up gate to apply to any orders in flight.
         """
         pe_sid = getattr(pe, "strategy_id", None)
         if pe_sid is not None:

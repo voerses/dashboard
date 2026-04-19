@@ -1,15 +1,14 @@
-"""M4 — PendingEntry persistence + consolidator rehydration.
+"""M4 — Order persistence + consolidator rehydration.
 
 Covers:
-  - AC32 T-B21: PendingEntry full state roundtrips through paper_state.json
+  - AC32 T-B21: Order full state roundtrips through paper_state.json
     across crash-restart (state, expires_at, sizing_ctx, trigger,
     working_price_source, filled_qty, leaves_qty).
   - AC27 T-B17: Paper consolidator state rehydrates from tick sidecar
     (v5_state/ticks.log) deterministically; tick retention cap =
     2 * max(exit_bar_period_ns, 1h); mid-replay crash is idempotent.
 
-All tests MUST FAIL today — v5.pending_entry and v5.paper_state (M4 schema)
-do not exist yet.
+M5 rename: imports now target v5.orders (formerly v5.pending_entry).
 """
 from __future__ import annotations
 
@@ -29,28 +28,28 @@ def _dt(s: str) -> datetime:
     return datetime.fromisoformat(s).replace(tzinfo=timezone.utc)
 
 
-class TestTB21PendingEntryRoundtrip:
-    """AC32 T-B21: full PendingEntry state roundtrips through serialization."""
+class TestTB21OrderRoundtrip:
+    """AC32 T-B21: full Order state roundtrips through serialization."""
 
     def test_armed_state_roundtrip(self, tmp_path):
-        """ARMED PendingEntry serializes + deserializes byte-identically."""
-        from v5.pending_entry import PendingEntry, PendingState, TriggerKind
+        """ARMED Order serializes + deserializes byte-identically."""
+        from v5.orders import Order, OrderStatus, TriggerType
 
-        pe = PendingEntry.arm(
+        pe = Order.arm(
             strategy_id="s524", token="BTC", direction=1,
-            trigger=TriggerKind.PRICE_ABOVE, trigger_price=100.5,
+            trigger=TriggerType.PRICE_ABOVE, trigger_price=100.5,
             working_price_source="last",
             armed_at=_dt("2026-04-01T00:00:00"),
             expires_at=_dt("2026-04-01T04:00:00"),
             sizing_ctx={"notional": 10_000.0, "risk_usd": 500.0},
         )
         blob = pe.to_json()
-        restored = PendingEntry.from_json(blob)
-        assert restored.state == PendingState.ARMED
+        restored = Order.from_json(blob)
+        assert restored.state == OrderStatus.ARMED
         assert restored.strategy_id == "s524"
         assert restored.token == "BTC"
         assert restored.direction == 1
-        assert restored.trigger == TriggerKind.PRICE_ABOVE
+        assert restored.trigger == TriggerType.PRICE_ABOVE
         assert restored.trigger_price == 100.5
         assert restored.working_price_source == "last"
         assert restored.armed_at == _dt("2026-04-01T00:00:00")
@@ -60,11 +59,11 @@ class TestTB21PendingEntryRoundtrip:
 
     def test_partially_filled_roundtrip(self):
         """PARTIALLY_FILLED preserves filled_qty and leaves_qty across restart."""
-        from v5.pending_entry import PendingEntry, PendingState, TriggerKind
+        from v5.orders import Order, OrderStatus, TriggerType
 
-        pe = PendingEntry.arm(
+        pe = Order.arm(
             strategy_id="s1", token="BTC", direction=1,
-            trigger=TriggerKind.PRICE_ABOVE, trigger_price=100.0,
+            trigger=TriggerType.PRICE_ABOVE, trigger_price=100.0,
             working_price_source="last",
             armed_at=_dt("2026-04-01T00:00:00"),
             expires_at=None,
@@ -74,42 +73,42 @@ class TestTB21PendingEntryRoundtrip:
         pe = pe.on_fill(filled_qty=0.4, leaves_qty=0.6)
 
         blob = pe.to_json()
-        restored = PendingEntry.from_json(blob)
-        assert restored.state == PendingState.PARTIALLY_FILLED
+        restored = Order.from_json(blob)
+        assert restored.state == OrderStatus.PARTIALLY_FILLED
         assert restored.filled_qty == 0.4
         assert restored.leaves_qty == 0.6
 
     def test_rejected_reason_roundtrip(self):
         """REJECTED preserves reject_reason across restart."""
-        from v5.pending_entry import PendingEntry, PendingState, TriggerKind
+        from v5.orders import Order, OrderStatus, TriggerType
 
-        pe = PendingEntry.arm(
+        pe = Order.arm(
             strategy_id="s1", token="BTC", direction=1,
-            trigger=TriggerKind.PRICE_ABOVE, trigger_price=100.0,
+            trigger=TriggerType.PRICE_ABOVE, trigger_price=100.0,
             working_price_source="last",
             armed_at=_dt("2026-04-01T00:00:00"),
             expires_at=None, sizing_ctx={},
         )
         pe = pe.on_price(101.0).release(capital_ok=False)
-        assert pe.state == PendingState.REJECTED
-        restored = PendingEntry.from_json(pe.to_json())
-        assert restored.state == PendingState.REJECTED
+        assert pe.state == OrderStatus.REJECTED
+        restored = Order.from_json(pe.to_json())
+        assert restored.state == OrderStatus.REJECTED
         assert restored.reject_reason == "risk_on_release"
 
     def test_paper_state_file_contains_pending_entries(self, tmp_path):
-        """AC32: paper_state.json carries PendingEntry list as top-level key
+        """AC32: paper_state.json carries Order list as top-level key
         AND all enumerated fields (state, expires_at, sizing_ctx, trigger,
         working_price_source, filled_qty, leaves_qty) roundtrip with known
         non-default values."""
-        from v5.pending_entry import PendingEntry, PendingState, TriggerKind
+        from v5.orders import Order, OrderStatus, TriggerType
         from v5.paper_state import write_paper_state, read_paper_state
 
-        # Build a PendingEntry with known non-default values on each field
+        # Build an Order with known non-default values on each field
         # and progress through RELEASED -> PARTIALLY_FILLED so filled_qty /
         # leaves_qty are both non-zero.
-        pe = PendingEntry.arm(
+        pe = Order.arm(
             strategy_id="s1", token="BTC", direction=1,
-            trigger=TriggerKind.MARK_BELOW, trigger_price=100.0,
+            trigger=TriggerType.MARK_BELOW, trigger_price=100.0,
             working_price_source="mark",
             armed_at=_dt("2026-04-01T00:00:00"),
             expires_at=_dt("2026-04-01T04:00:00"),
@@ -125,12 +124,12 @@ class TestTB21PendingEntryRoundtrip:
         pe_r = restored.pending_entries[0]
         assert pe_r.token == "BTC"
         # AC32 enumerated fields:
-        assert pe_r.state == PendingState.PARTIALLY_FILLED
+        assert pe_r.state == OrderStatus.PARTIALLY_FILLED
         assert pe_r.expires_at == _dt("2026-04-01T04:00:00")
         assert pe_r.sizing_ctx == {
             "qty": 1.0, "notional": 10000.0, "margin_usd": 3000.0,
         }
-        assert pe_r.trigger == TriggerKind.MARK_BELOW
+        assert pe_r.trigger == TriggerType.MARK_BELOW
         assert pe_r.working_price_source == "mark"
         assert pe_r.filled_qty == 0.35
         assert pe_r.leaves_qty == 0.65

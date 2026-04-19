@@ -2,7 +2,7 @@
 
 Covers:
   - AC31 T-B23: 48-hour MTF tick fixture replays through both backtest and
-    paper code paths; diff of ClosedTrade archive + PendingEntry log = 0 bytes
+    paper code paths; diff of ClosedTrade archive + Order log = 0 bytes
     for hourly-only, within AC41 tolerances for sub-hourly.
   - AC37 T-B29: minute_exits parity fixture (>=50 trades previously resolved
     by minute_exits.py) reproduces trade-archive bit-identically under

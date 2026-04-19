@@ -85,29 +85,29 @@ def _current_4h_window_end() -> float:
 
 
 # ------------------------------------------------------------------
-# M4 Task 16b (flip) — PendingEntry <-> legacy cand-dict adapters
+# M4 Task 16b (flip) — Order <-> legacy cand-dict adapters
 # ------------------------------------------------------------------
 #
 # The primary storage for armed orders in :class:`PaperPortfolioEngine`
-# is a ``dict[(sid, token), PendingEntry]``. Legacy consumers (dashboard,
+# is a ``dict[(sid, token), Order]``. Legacy consumers (dashboard,
 # state.json schema writer, ``paper_utils.restore_state``, and
 # ``run_paper_multi._update_shared_subscriptions``) still expect the
 # pre-M4 "cand dict" shape — a flat dict with the strategy-specific
 # level/direction/exit-handler params. These two helpers bridge the
 # shapes losslessly: every field written in :meth:`_cache_armed_levels`
-# lives in ``pe.strategy_params`` and is echoed back when the back-compat
+# lives in ``order.strategy_params`` and is echoed back when the back-compat
 # ``_armed_tokens`` property is read.
 
 
 def _pe_to_cand_dict(pe) -> dict:
-    """Re-materialize the legacy cand-dict from a :class:`PendingEntry`.
+    """Re-materialize the legacy cand-dict from an :class:`Order`.
 
     Returns a fresh dict containing every strategy_params entry plus the
-    core PendingEntry fields that the legacy dict surfaced directly.
+    core Order fields that the legacy dict surfaced directly.
     """
     d: dict = dict(pe.strategy_params) if pe.strategy_params else {}
     # Core fields — override any stale strategy_params copies so the
-    # PendingEntry state is authoritative.
+    # Order state is authoritative.
     d["level"] = float(pe.trigger_price)
     d["direction"] = int(pe.direction)
     d["window_end"] = float(pe.window_end)
@@ -120,19 +120,19 @@ def _pe_to_cand_dict(pe) -> dict:
     return d
 
 
-def _cand_dict_to_pe(sid: str, token: str, cand: dict) -> "PendingEntry":
-    """Wrap a legacy cand-dict into a :class:`PendingEntry`.
+def _cand_dict_to_pe(sid: str, token: str, cand: dict) -> "Order":
+    """Wrap a legacy cand-dict into an :class:`Order`.
 
     Used by the restore path and the legacy ``_deserialize_armed_tokens``
     output. Every field of ``cand`` is stored in ``strategy_params`` so
     round-tripping through :func:`_pe_to_cand_dict` is lossless.
     """
-    from v5.pending_entry import PendingEntry, TriggerKind
+    from v5.orders import Order, TriggerType
     from datetime import datetime as _dt_cls, timezone as _tz
     direction = int(cand.get("direction", 1)) or 1
     trigger = (
-        TriggerKind.PRICE_ABOVE if direction == 1
-        else TriggerKind.PRICE_BELOW
+        TriggerType.PRICE_ABOVE if direction == 1
+        else TriggerType.PRICE_BELOW
     )
     placed_at = cand.get("limit_placed_at") or ""
     try:
@@ -151,7 +151,7 @@ def _cand_dict_to_pe(sid: str, token: str, cand: dict) -> "PendingEntry":
     # strategy_params carries the full legacy payload so _pe_to_cand_dict
     # can rebuild the dict verbatim. sig_ref (non-serializable) is kept
     # in strategy_params as well — the JSON persistence path drops it.
-    return PendingEntry.arm(
+    return Order.arm(
         strategy_id=str(sid),
         token=str(token),
         direction=1 if direction == 1 else -1,
@@ -331,7 +331,7 @@ def replay_paper_ticks(
 ) -> None:
     """Replay a recorded tick stream through the paper engine's
     :class:`BarProcessor` path, producing a deterministic trade archive +
-    optional PendingEntry log.
+    optional Order log.
 
     Used by the M4 shadow-replay parity tests (AC19 / AC31). Each tick in
     the JSONL stream is fed through the same ``BarContext`` builder and
@@ -349,7 +349,7 @@ def replay_paper_ticks(
         initial_state_path: optional paper_state.json to seed positions.
         output_path / output_state / output_archive: where to emit the
             resulting trade archive or state snapshot.
-        pe_log_path: optional path to emit the PendingEntry transition
+        pe_log_path: optional path to emit the Order transition
             log (one JSON blob per line).
         seed: RNG seed for deterministic replay (default 42).
         hourly_only: if True, sub-hourly code paths are skipped — this is
@@ -937,15 +937,15 @@ class PaperPortfolioEngine:
         self._hist_cache: dict[tuple[str, str], "pd.DataFrame"] = {}
 
         # Armed order tracking (sub-hourly entry observability).
-        # M4 Task 16b (flip): :class:`v5.pending_entry.PendingEntry` is now the
+        # M4 Task 16b (flip): :class:`v5.orders.Order` is now the
         # primary write storage for armed orders. ``_armed_tokens`` is a
         # read-only back-compat property that re-materializes the legacy
         # dict-shape payload (level, close_val, atr_val, stop_mult, ...) from
-        # each ``PendingEntry.strategy_params`` so dashboards, state.json
+        # each ``Order.strategy_params`` so dashboards, state.json
         # serializers, and ``paper_utils.restore_state`` keep working. The
         # ``_armed_tokens_lock`` protects ``_pending_entries`` + the filled-4H
         # window cache; reuse it for every (sid, token) write.
-        self._pending_entries: dict[tuple[str, str], "PendingEntry"] = {}
+        self._pending_entries: dict[tuple[str, str], "Order"] = {}
         # T16b flip: RLock permits the back-compat ``_armed_tokens`` property
         # to be read from within an outer lock context (external callers such
         # as ``run_paper_multi._update_shared_subscriptions`` acquire the lock
@@ -955,6 +955,11 @@ class PaperPortfolioEngine:
         self._last_expired_orders: list[dict] = []
         self._armed_log_lock = threading.Lock()
         self._armed_log_path = os.path.join(config.state_dir, "armed_log.jsonl")
+        # M5 AC11 — OrdersLog wires the new audit log (orders_log.jsonl) with
+        # dual-write back-compat to armed_log.jsonl for legacy events.
+        # Created lazily on first write so tests constructing a stubbed
+        # PaperEngine without a writable state_dir do not crash at import.
+        self._orders_log: "OrdersLog | None" = None
 
         # Track filled 4H windows to prevent re-entry after stop-out.
         # Matches backtest's _first_cross_only: one entry per 4H window per token.
@@ -2067,16 +2072,37 @@ class PaperPortfolioEngine:
     # ------------------------------------------------------------------
 
     def _log_armed_event(self, event: dict) -> None:
-        """Append one event to armed_log.jsonl (thread-safe).
+        """Append one event via :class:`v5.orders_log.OrdersLog` (AC11).
 
-        Events: armed, expired, filled, skipped.
-        Non-fatal — observability should never crash the engine.
+        The OrdersLog writer handles the dual-write policy (F11): legacy
+        events (``armed``/``filled``/``expired``/``skipped``/etc.) mirror
+        to BOTH ``orders_log.jsonl`` (new, preferred) AND
+        ``armed_log.jsonl`` (back-compat, dropped in M10). New M5 events
+        (``leg_filled``/``leg_rejected``/etc.) go to ``orders_log.jsonl``
+        only — pre-M5 readers cannot interpret them.
+
+        Non-fatal — observability should never crash the engine; the
+        OrdersLog class swallows OSError internally.
         """
+        # Lazily construct on first write so tests that stub the engine
+        # without a writable state_dir don't fault at __init__.
         with self._armed_log_lock:
+            if self._orders_log is None:
+                try:
+                    from v5.orders_log import OrdersLog
+                    self._orders_log = OrdersLog(root=self.config.state_dir)
+                except Exception:
+                    # Fallback to legacy direct-write if OrdersLog cannot init.
+                    try:
+                        with open(self._armed_log_path, "a") as f:
+                            f.write(json.dumps(event, default=str) + "\n")
+                    except OSError:
+                        pass
+                    return
             try:
-                with open(self._armed_log_path, "a") as f:
-                    f.write(json.dumps(event, default=str) + "\n")
-            except OSError:
+                self._orders_log.append(event)
+            except Exception:
+                # Defensive: never crash the engine on audit-log failure.
                 pass
 
     def _rotate_armed_log(self) -> None:
@@ -2094,7 +2120,7 @@ class PaperPortfolioEngine:
             pass
 
     # ------------------------------------------------------------------
-    # M4 Task 16b (flip) — PendingEntry is the primary store; _armed_tokens
+    # M4 Task 16b (flip) — Order is the primary store; _armed_tokens
     # is a read-only back-compat view.
     # ------------------------------------------------------------------
 
@@ -2102,10 +2128,10 @@ class PaperPortfolioEngine:
     def _armed_tokens(self) -> dict[tuple[str, str], dict]:
         """Back-compat read-only view over ``_pending_entries``.
 
-        Returns a fresh dict rebuilt from each PendingEntry's
+        Returns a fresh dict rebuilt from each Order's
         ``strategy_params`` (which carries the legacy cand-dict payload
         written by :meth:`_cache_armed_levels`), merged with a few core
-        PendingEntry fields (``level``, ``direction``, ``window_end``,
+        Order fields (``level``, ``direction``, ``window_end``,
         ``limit_placed_at``, ``tick_counter``). Mutating the returned dict
         does NOT affect the underlying store — all write paths must use
         ``_pending_entries`` directly under ``_armed_tokens_lock``.
@@ -2122,8 +2148,8 @@ class PaperPortfolioEngine:
         return out
 
     def _serialize_pending_entries(self) -> list[dict]:
-        """T16b / AC32 — serialize every armed order as a
-        :class:`PendingEntry` JSON blob via :meth:`PendingEntry.to_json`.
+        """T16b / AC32 — serialize every armed order as an
+        :class:`Order` JSON blob via :meth:`Order.to_json`.
         """
         with self._armed_tokens_lock:
             return [pe.to_json() for pe in self._pending_entries.values()]
@@ -2131,19 +2157,19 @@ class PaperPortfolioEngine:
     @staticmethod
     def _deserialize_pending_entries(
         data: list[dict],
-    ) -> dict[tuple[str, str], "PendingEntry"]:
+    ) -> dict[tuple[str, str], "Order"]:
         """Inverse of :meth:`_serialize_pending_entries`; also tolerates
         the pre-M4 legacy ``armed_tokens`` schema by wrapping each legacy
         dict via :meth:`_cand_dict_to_pe`.
 
         Returns an empty dict on empty input.
         """
-        from v5.pending_entry import PendingEntry
-        result: dict[tuple[str, str], "PendingEntry"] = {}
+        from v5.orders import Order
+        result: dict[tuple[str, str], "Order"] = {}
         for blob in data or []:
             if "state" in blob and "trigger" in blob:
                 try:
-                    pe = PendingEntry.from_json(blob)
+                    pe = Order.from_json(blob)
                     result[(pe.strategy_id, pe.token)] = pe
                     continue
                 except (KeyError, ValueError):

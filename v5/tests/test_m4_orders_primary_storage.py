@@ -9,10 +9,10 @@ These tests assert the STRUCTURAL invariants that the behavioural tests cannot
 see — guarding against silent architectural regression in later milestones.
 
 ACs reinforced:
-  - AC4  Paper zero-duplication: backing storage IS the PendingEntry state
+  - AC4  Paper zero-duplication: backing storage IS the Order state
          machine, not a dict that gets adapted on read.
-  - AC13 Every open via PendingEntry state machine.
-  - AC32 PendingEntry persistence (serialization goes through to_json/from_json,
+  - AC13 Every open via Order state machine.
+  - AC32 Order persistence (serialization goes through to_json/from_json,
          not the legacy 40+ field dict schema).
 """
 from __future__ import annotations
@@ -45,26 +45,26 @@ class TestT16bPrimaryStorage:
         assert isinstance(engine._pending_entries, dict)
 
     def test_pending_entries_is_typed_pending_entry(self):
-        """AC13: the primary storage maps tuples to PendingEntry instances
+        """AC13: the primary storage maps tuples to Order instances
         (not dicts). If a later refactor flipped back to dict-of-dicts, this
         structural check would catch it immediately — behavioural tests would
         still pass but the type contract would be broken."""
         from v5.paper_engine import PaperPortfolioEngine
-        from v5.pending_entry import PendingEntry
+        from v5.orders import Order
 
-        # The attribute type annotation should be (or imply) PendingEntry
+        # The attribute type annotation should be (or imply) Order
         # Use MRO + attribute inspection — we can't rely on runtime types of
         # an empty dict, so instead we verify that the PaperPortfolioEngine
-        # source declares the type annotation with PendingEntry.
+        # source declares the type annotation with Order.
         src = PAPER_ENGINE_PATH.read_text()
-        # The init line should declare dict[..., PendingEntry] (or equivalent)
+        # The init line should declare dict[..., Order] (or equivalent)
         assert re.search(
-            r"_pending_entries\s*[:=].*PendingEntry|"
-            r"_pending_entries\s*:\s*Dict.*PendingEntry",
+            r"_pending_entries\s*[:=].*Order|"
+            r"_pending_entries\s*:\s*Dict.*Order",
             src,
         ), (
             "Expected `_pending_entries` to be type-annotated with "
-            "PendingEntry. If this fails, storage may have silently reverted "
+            "Order. If this fails, storage may have silently reverted "
             "to dict-of-dicts."
         )
 

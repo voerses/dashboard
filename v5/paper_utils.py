@@ -177,7 +177,7 @@ def restore_state(engine: PaperPortfolioEngine, config) -> None:
         restored, expired_on_restore = PaperPortfolioEngine._deserialize_armed_tokens(armed_data)
         if restored:
             # T16b flip: _pending_entries is the primary store. Wrap every
-            # legacy cand-dict into a PendingEntry via the shared adapter
+            # legacy cand-dict into an Order via the shared adapter
             # so the back-compat _armed_tokens property sees it.
             with engine._armed_tokens_lock:
                 engine._pending_entries = {

@@ -190,36 +190,36 @@ class TestAC38MarkTriggerBacktestFallback:
 
     def test_mark_predicate_evaluates_against_close(self):
         """working_price_source='mark' in backtest evaluates vs bar_ctx.close."""
-        from v5.pending_entry import PendingEntry, PendingState, TriggerKind
+        from v5.orders import Order, OrderStatus, TriggerType
         from datetime import datetime, timezone
 
-        pe = PendingEntry.arm(
+        pe = Order.arm(
             strategy_id="s1", token="BTC", direction=1,
-            trigger=TriggerKind.MARK_ABOVE, trigger_price=100.0,
+            trigger=TriggerType.MARK_ABOVE, trigger_price=100.0,
             working_price_source="mark",
             armed_at=datetime(2026, 4, 1, tzinfo=timezone.utc),
             expires_at=None, sizing_ctx={},
         )
         # In backtest, mark == close per AC38.
         pe2 = pe.on_backtest_bar(close=101.0)
-        assert pe2.state == PendingState.TRIGGERED
+        assert pe2.state == OrderStatus.TRIGGERED
 
     def test_audit_log_entry_emitted_in_backtest(self, caplog):
         """AC38: each backtest evaluation against a mark trigger emits exactly
         one audit log entry per position (keyed by position/pending_id)."""
-        from v5.pending_entry import PendingEntry, TriggerKind
+        from v5.orders import Order, TriggerType
         from datetime import datetime, timezone
 
-        pe_btc = PendingEntry.arm(
+        pe_btc = Order.arm(
             strategy_id="s1", token="BTC", direction=1,
-            trigger=TriggerKind.MARK_ABOVE, trigger_price=100.0,
+            trigger=TriggerType.MARK_ABOVE, trigger_price=100.0,
             working_price_source="mark",
             armed_at=datetime(2026, 4, 1, tzinfo=timezone.utc),
             expires_at=None, sizing_ctx={},
         )
-        pe_eth = PendingEntry.arm(
+        pe_eth = Order.arm(
             strategy_id="s1", token="ETH", direction=1,
-            trigger=TriggerKind.MARK_ABOVE, trigger_price=100.0,
+            trigger=TriggerType.MARK_ABOVE, trigger_price=100.0,
             working_price_source="mark",
             armed_at=datetime(2026, 4, 1, tzinfo=timezone.utc),
             expires_at=None, sizing_ctx={},
