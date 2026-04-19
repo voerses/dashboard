@@ -70,8 +70,16 @@ class TestFlagOnProxyParity:
                 "the parity assertion exercises the real M6 path."
             )
 
-    def test_flag_on_bit_identical_bars_over_1h_proxy(self):
-        """With flag=True, DataEngine delivers bit-identical bars as flag=False."""
+    def test_flag_wiring_returns_fixture_bars(self):
+        """Flag mechanism wires cleanly: both flag=OFF and flag=ON paths return
+        the same parsed fixture bars via the helper's JSONL decode path.
+
+        NOTE: this is a WIRING test, not a real bit-identity test. Real
+        bit-identity (v4 PriceMonitor vs M6 DataEngine over the same recorded
+        WS tape) requires Task 17's 8-site PaperEngine dispatch + a real 24h
+        live WS recording — see brief §"Shadow Replay Ops Runbook" for the
+        production hard-merge-gate. That work is deferred past M6 scope.
+        """
         self._require_fixture()
         from v5.data.engine import DataEngine
         from v5.paper_engine import build_paper_engine_for_test

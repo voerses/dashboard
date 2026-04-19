@@ -388,19 +388,27 @@ class DataEngine:
         output_path,
         seed: int = 42,
     ) -> None:
-        """Deterministic backtest entry point.
+        """**M6 STUB** — deterministic backtest entry point.
 
-        Flag-gated by `use_data_engine_flag`: when True, this writes a
-        deterministic trade-archive binary (header + inputs-hash) so the
-        parity test can hash and compare against the checked-in reference
-        digest. The real M5-equivalent trade simulation is deferred — this
-        routes through ParquetReplayClient shape so the wiring is exercised
-        but no strategy logic runs yet.
+        This is NOT the real backtest. It writes a 32-byte deterministic
+        header (magic + inputs + seed) so the Wave-F parity test can hash
+        and compare against the checked-in reference digest. The wiring
+        (ParquetReplayClient → DataEngine) is validated, but no strategy
+        logic runs.
 
-        Wave-F real impl: iterate ParquetReplayClient.replay() across tokens,
-        feed bars through strategies (when M7 wires them), collect Order
-        lifecycle events via M5 orders.py, write the trade archive.
+        Other backtest entry points (DO NOT confuse):
+          - v5.backtest.run_backtest_mtf — M5 paper-adjacent facade
+          - v5.simulator.run_backtest_mtf — the real simulation engine
+          - v5.portfolio_backtest.run_backtest — portfolio-level wrapper
+
+        Real impl lands in M7 when the strategy API is redesigned to wire
+        bars from DataEngine → on_bar → M5 Order lifecycle → trade archive.
         """
+        _log.warning(
+            "DataEngine.run_backtest is an M6 STUB — 32-byte header only, no "
+            "simulation. Use v5.simulator.run_backtest_mtf for real backtests "
+            "until M7 wires DataEngine → strategy → Order path."
+        )
         from pathlib import Path as _Path
         import struct
         out = _Path(output_path)

@@ -1,0 +1,9 @@
+# Track large compressed fixture recordings via Git LFS.
+# Real 24h Binance WS + REST tap recordings are ~50 MB compressed.
+# Uncompressed JSONL fixtures stay in-tree at normal size (~2.5 MB today).
+*.jsonl.zst filter=lfs diff=lfs merge=lfs -text
+*.jsonl.gz filter=lfs diff=lfs merge=lfs -text
+
+# Keep .parquet out of LFS for now — the data/ dir is gitignored anyway,
+# but fixtures/ parquet (if any grows) should be LFS.
+v5/tests/fixtures/**/*.parquet filter=lfs diff=lfs merge=lfs -text

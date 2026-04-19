@@ -82,6 +82,10 @@ def main() -> int:
     for sym in SYMBOLS:
         records_24h.extend(_jsonl_records_for_last_n(sym, 1440))
     records_24h.sort(key=lambda r: (r["ts_event"], r["stream"]))
+    # Both ws_tap and rest_tap get the same records intentionally — the
+    # shadow-replay harness is a structural stub today; real impl will diff
+    # WS frames against REST backfill when real paired recordings land.
+    # Do NOT assume ws_tap != rest_tap in future code that reads these.
     _write_jsonl(out_24h / "binance_ws_tap_synthetic.jsonl", records_24h)
     _write_jsonl(out_24h / "binance_rest_tap_synthetic.jsonl", records_24h)
     print(f"wrote {len(records_24h)} records to {out_24h}")
