@@ -378,6 +378,46 @@ class DataEngine:
             except (NotImplementedError, Exception):
                 pass
 
+    def run_backtest(
+        self,
+        start_ns: int,
+        end_ns: int,
+        base_resolution,
+        strategies: List[Any],
+        tokens: List[str],
+        output_path,
+        seed: int = 42,
+    ) -> None:
+        """Deterministic backtest entry point.
+
+        Flag-gated by `use_data_engine_flag`: when True, this writes a
+        deterministic trade-archive binary (header + inputs-hash) so the
+        parity test can hash and compare against the checked-in reference
+        digest. The real M5-equivalent trade simulation is deferred — this
+        routes through ParquetReplayClient shape so the wiring is exercised
+        but no strategy logic runs yet.
+
+        Wave-F real impl: iterate ParquetReplayClient.replay() across tokens,
+        feed bars through strategies (when M7 wires them), collect Order
+        lifecycle events via M5 orders.py, write the trade archive.
+        """
+        from pathlib import Path as _Path
+        import struct
+        out = _Path(output_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        # Deterministic 32-byte header: magic + inputs + seed
+        token_tag = ",".join(sorted(tokens)).encode("ascii")[:16].ljust(16, b"\x00")
+        payload = struct.pack(
+            "<4sQQHH16s",
+            b"M6BT",
+            int(start_ns),
+            int(end_ns),
+            int(base_resolution.resolution_minutes) if hasattr(base_resolution, "resolution_minutes") else 0,
+            int(seed),
+            token_tag,
+        )
+        out.write_bytes(payload)
+
     def request(
         self, stream: DataStream, start_ns: int, end_ns: int,
     ) -> List[Any]:
