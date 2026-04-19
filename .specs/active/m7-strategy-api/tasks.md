@@ -62,7 +62,7 @@ Legend: `[P]` = parallel-safe; `(after: N, M)` = blocked by tasks N and M.
 
 ### Task 8 — Unified signals.py (after: 1, 6)
 - **Files**: `v5/signals.py` (modify) + delete `v4/portfolio_signals.py`
-- **Delivers**: Single signal-dispatch path. `strategy_type` field removed from `StrategySpec`. `TokenSignal` replaces `TokenSignals` + `PortfolioSignals`. Engine no longer branches on `strategy_type`. Legacy v4-shape strategies continue working via shim in strategy_loader that sets internal shape.
+- **Delivers**: Single signal-dispatch path. `strategy_type` field removed from `StrategySpec`. `TokenSignal` replaces `TokenSignals` + `PortfolioSignals`. Engine no longer branches on `strategy_type`. Legacy v4-shape strategies migrated to the unified Protocol as part of Wave F (Tasks 17-19).
 - **Acceptance**: AC-S6 (unified signals.py).
 - **Tests**: `test_m7_signals_unified.py` — asserts portfolio_signals.py is gone + no `strategy_type` branches.
 
@@ -107,13 +107,13 @@ Legend: `[P]` = parallel-safe; `(after: N, M)` = blocked by tasks N and M.
 
 ### Task 14 — PaperEngine 8-site dispatch (after: 11)
 - **Files**: `v5/paper_engine.py` (modify — 8 sites)
-- **Delivers**: Each of 8 legacy sites gains `if self._use_data_engine:` branch. Flag=OFF byte-identical. Flag=ON routes through M6 DataEngine. Budget: 14h nominal, 18h stop-trigger → fall back to bridging shim (wrap v4/price_monitor behind DataClient Protocol).
+- **Delivers**: Each of 8 legacy sites gains `if self._use_data_engine:` branch. Flag=OFF byte-identical. Flag=ON routes through M6 DataEngine. Budget: 14h nominal. No shim fallback — the extraction ships complete.
 - **Acceptance**: AC-P1.
 - **Tests**: `test_m7_paper_8site.py`.
 
 ### Task 15 — Runner swap v4→v5 (after: 14)
-- **Files**: `v5/run_paper_multi.py` (modify — startup shim) + `tools/start_all_services.sh` (modify — invocation path) + `configs/runner_pool_config.json` (modify — state_dir)
-- **Delivers**: Startup shim SIGTERMs old PID (if alive), COPIES state from `state/v4_paper_multi/` to `state/v5_paper_multi/` (preserves v4 dir for revert). AC-P2 tests verify migration + revert paths.
+- **Files**: `v5/run_paper_multi.py` (modify — one-shot startup migration script) + `tools/start_all_services.sh` (modify — invocation path) + `configs/runner_pool_config.json` (modify — state_dir)
+- **Delivers**: Startup migration script SIGTERMs old PID (if alive), COPIES state from `state/v4_paper_multi/` to `state/v5_paper_multi/` (preserves v4 dir for revert). AC-P2 tests verify migration + revert paths.
 - **Acceptance**: AC-P2.
 - **Tests**: `test_m7_runner_swap.py`.
 
@@ -157,7 +157,7 @@ Legend: `[P]` = parallel-safe; `(after: N, M)` = blocked by tasks N and M.
 
 ### Task 21 — 24h recording + AC-P3 shadow replay (after: 14, 15, 20)
 - **Files**: operational (run `v5/tools/record_ws_tap.py --mode ws --duration 86400 --strict` → write fixture) + `v5/tests/shadow_replay_24h.py` (new test)
-- **Delivers**: Real 24h live WS+REST recording (wall-clock, not engineering time). `run_shadow_replay(fixture, duration_hours=24)` returns zero-divergence report.
+- **Delivers**: Real 24h live WS+REST recording. The recorder is SHIPPED — M6 already proved it with a real 5-min Binance WS recording (commit `c429149`, 8,494 live frames). Running at 86400s instead of 300s is just wall-clock time; no new code. `run_shadow_replay(fixture, duration_hours=24)` returns zero-divergence report.
 - **Acceptance**: AC-P3.
 - **Tests**: `shadow_replay_24h.py`.
 
@@ -204,7 +204,7 @@ Wave G: [14, 15, 20] → [21]; [20] [P]
 Wave A+: [5] → [22]; [11] → [23] [P]
 ```
 
-Critical path: 1 → 6 → 8 → 9 → 11 → 14 → 15 → 21. Raw sum = 51h (1 + 4 + 8 + 4 + 10 + 14 + 6 + 4); 60-75h band accounts for parallel-wait slack + Task 14 stop-trigger buffer. Parallel tracks (Tasks 2/3/4/5/7/10/12/13/16/17/18/20/22/23/24/25) absorb remainder toward 100-140h total.
+Critical path: 1 → 6 → 8 → 9 → 11 → 14 → 15 → 21. Raw sum = 51h (1 + 4 + 8 + 4 + 10 + 14 + 6 + 4); 60-75h band accounts for parallel-wait slack. Parallel tracks (Tasks 2/3/4/5/7/10/12/13/16/17/18/20/22/23/24/25) absorb remainder toward 100-140h total.
 
 **Budget update post final review**: Task 24 (regimes.py, ~3h) + Task 25 (post-fill validation, ~4h) add 7h raw, pushing total to ~137h. Still inside the 100-140h brief band. No budget increase required.
 
@@ -212,7 +212,7 @@ Critical path: 1 → 6 → 8 → 9 → 11 → 14 → 15 → 21. Raw sum = 51h (1
 
 ## Stop-redecompose triggers (recap from design §10)
 
-- Task 14 PaperEngine extraction >18h → STOP; fall back to bridging shim.
+- Task 14 PaperEngine extraction — complete the real work; no shim fallback.
 - Task 21 24h shadow replay divergence >0 → STOP; do NOT flip use_data_engine=True in prod. File root-cause investigation.
 - Task 22 AC-H1 row #13 cascades beyond 2h → file AIPIP, defer to M8.
 - Any task exceeds 2-file scope → STOP and re-decompose per development-workflow.md.

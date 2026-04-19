@@ -713,7 +713,7 @@ def __init__(self, config: PaperConfig, *, price_monitor=None, data_engine=None)
 
 ### Stop-trigger discipline (brief §AC-P1)
 
-Design §10 stop-trigger: if the full rewrite exceeds 18h invested, fall back to **bridging shim** — wrap `v4/price_monitor.py` behind `DataClient` Protocol. Preserves 831 LOC of WS battle-hardening at the cost of carrying legacy through M8+. Tradeoff: shim risk (v3-style freeze through M8) vs. completion risk (subtle WS reconnect bug in rewrite). Shim sunset AIPIP required if carried past M8 per M6 design.
+Task 14 ships the full extraction. No shim fallback — the `BinanceWSClient` + `BinanceRESTClient` (M6-shipped) own the WS multiplex + reconnect path going forward. Any v4 PriceMonitor edge case surfaced during extraction is re-implemented in M6 clients, not bridged.
 
 ---
 
@@ -724,7 +724,7 @@ Phase-2 audit located lock creation at `v5/paper_utils.py:354-372` (`acquire_pid
 ### Migration plan — copy-not-move semantics (Quant reviewer H3 fix)
 
 1. **Config**: `configs/runner_pool_config.json` gains `state_dir: state/v5_paper_multi` (previously `state/v4_paper_multi`).
-2. **Startup shim** in `v5/run_paper_multi.py`:
+2. **One-shot startup migration script** in `v5/run_paper_multi.py`:
    - Read old PID from `state/v4_paper_multi/paper.pid` if present
    - SIGTERM old process (if PID alive)
    - Wait up to 30s for clean shutdown; escalate to SIGKILL if still alive
@@ -797,8 +797,8 @@ Total: ~6h floor, 10h ceiling if row #13 cascades.
 13. Order.venue_order_id population in DataEngine live mode (AC-O4)
 
 ### Wave E — PaperEngine Migration (Task 17)
-14. PaperEngine 8-site dispatch (AC-P1). 14h nominal, 18h stop-trigger.
-15. Runner swap migration shim (AC-P2)
+14. PaperEngine 8-site dispatch (AC-P1). 14h nominal. No shim fallback.
+15. Runner swap one-shot migration script (AC-P2)
 16. VenueCapabilities.supported_transport_modes additive field (AC-D15)
 
 ### Wave F — Reference Strategy Migration
@@ -852,7 +852,7 @@ Same isolated-subagent pattern as M6 Phase 3 (per `.claude/rules/subagent-patter
 
 **Breaking (requires strategy migrations, but no current strategies use v5 Protocol yet)**:
 - `strategy_type` field removal from StrategySpec — touches v4/config.py:189 (39+ importers). **Handled**: removed only AFTER s524m/s513/s523c migrated; v4-shaped strategies kept working via legacy loader path that sets `strategy_type` internally.
-- `v5/signals.py` replaces both `v5/signals.py` + `v4/portfolio_signals.py` — adds unified surface; old surfaces kept as import-redirect shims until post-M10 sunset.
+- `v5/signals.py` replaces both `v5/signals.py` + `v4/portfolio_signals.py` — adds unified surface. Legacy imports updated in-place (no redirect shims).
 
 **High-risk (OUT OF SCOPE)**:
 - `v5/simulator.py` — 31 importers. M7 only exports `_process_entries` for test visibility (single-line AC-H1 fix); no behavioral changes.
@@ -866,7 +866,7 @@ Same isolated-subagent pattern as M6 Phase 3 (per `.claude/rules/subagent-patter
 
 | Risk | Trigger | Response |
 |---|---|---|
-| AC-P1 BinanceWS extraction blows 18h budget | Time tracking per-task exceeds 18h | Fall back to bridging shim (wrap v4/price_monitor behind DataClient Protocol). File AIPIP for shim sunset by end-M8. |
+| AC-P1 BinanceWS extraction complexity | Task 14 exceeds nominal 14h | Stay on task; re-implement any v4 edge case in M6 BinanceWSClient directly. No shim fallback — the work ships complete per user directive 2026-04-19. |
 | 24h shadow replay diverges | `ohlcv_divergence_count > 0` | STOP. Do NOT flip use_data_engine=True in prod. File root-cause investigation. |
 | Strategy Protocol too large (15 callbacks overwhelming) | User pushback during reference strategy migration | De-scope: drop the 3 position-lifecycle hooks (opened/changed/closed) from MVP, ship as M8 addendum. |
 | Module-level mutable state in s524m_nofilter breaks fold isolation | AC-V1 WF test reveals fold N+1 sees fold N's cache | Refactor s524m port to keep all state on self (already in 5h budget). |

@@ -218,9 +218,9 @@ Rewriting production strategies (s513, s523c, s524m) for v5. Reconciled estimate
 
 ### AC-P: Paper engine migration + runner swap
 
-14. **AC-P1 — Full 8-site PaperEngine dispatch (Task 17)**: each of the 8 legacy sites in `v5/paper_engine.py` + 2 in `v5/run_paper_multi.py` gains an `if self._use_data_engine:` branch. Flag=OFF remains byte-identical to pre-M6. Flag=ON routes through `DataEngine`/`BinanceWSClient`/`BinanceRESTClient`. Design §10 stop-trigger: if full rewrite exceeds 18h, fall back to bridging shim (wrap v4 PriceMonitor behind `DataClient` Protocol) — preserves battle-hardening at cost of 831 legacy LOC.
+14. **AC-P1 — Full 8-site PaperEngine dispatch (Task 17)**: each of the 8 legacy sites in `v5/paper_engine.py` + 2 in `v5/run_paper_multi.py` gains an `if self._use_data_engine:` branch. Flag=OFF remains byte-identical to pre-M6. Flag=ON routes through `DataEngine`/`BinanceWSClient`/`BinanceRESTClient`. This is real extraction work — no fallback shim, no stop-trigger. Budget is 14h nominal; the work ships complete.
 
-15. **AC-P2 — v4→v5 paper runner swap**: `v5/run_paper_multi.py` becomes the production runner. Lock file path migrates from `state/v4_paper_multi/paper.pid` to `state/v5_paper_multi/paper.pid`. Startup migration shim reads old state once and writes to new path. `tools/start_all_services.sh` updated.
+15. **AC-P2 — v4→v5 paper runner swap**: `v5/run_paper_multi.py` becomes the production runner. Lock file path migrates from `state/v4_paper_multi/paper.pid` to `state/v5_paper_multi/paper.pid`. A one-shot startup migration script reads old state once and writes to new path. `tools/start_all_services.sh` updated.
 
 16. **AC-P3 — 24h shadow replay hard merge gate**: genuine 24h live WS+REST recording (not 5-min synthetic) diffed via `run_shadow_replay` returns `ohlcv_divergence_count == 0`. Gates the production `use_data_engine=True` flip. Recording via `v5/tools/record_ws_tap.py --mode ws --duration 86400`.
 
@@ -296,7 +296,7 @@ Per-strategy v4 → v5 migration (user-driven; reference only):
 | view_state + dashboard integration | 4 |
 | M5 carryover — FIX wire serializers + `_order_reject_event` + venue_order_id + Fill triple (AC-O2/O3/O4/O5) | 10 |
 | M5 carryover — `arm` + `arm_bracket` factories (AC-O1) | 4 |
-| M6 carryover — Task 17 full 8-site PaperEngine dispatch (AC-P1) | 14 (18h stop-trigger) |
+| M6 carryover — Task 17 full 8-site PaperEngine dispatch (AC-P1) | 14 |
 | M6 carryover — v4→v5 paper runner swap (AC-P2) | 6 |
 | M6 carryover — 24h live WS recording + hard merge gate verification (AC-P3) | 4 (plus wall-clock 24h for the recording itself) |
 | M6 carryover — VenueCapabilities.supported_transport_modes (AC-D15) | 1 |
@@ -305,7 +305,7 @@ Per-strategy v4 → v5 migration (user-driven; reference only):
 | Documentation | 4 |
 | **Raw total** | **130** |
 
-**Banded estimate: 100-140h.** Absorbs Task 17 stop-trigger + wall-clock 24h recording (not counted as engineering time).
+**Banded estimate: 100-140h.** Includes wall-clock 24h recording (operational, not engineering time — recorder shipped in M6 via `v5/tools/record_ws_tap.py --mode ws`).
 
 ---
 
@@ -316,7 +316,7 @@ Per-strategy v4 → v5 migration (user-driven; reference only):
 - All v5 tests pass (including the 13 cleared failures from AC-H1)
 - Walk-forward validation produces identical fold results when run through v5/validation.py
 - 24h shadow replay (AC-P3) shows `ohlcv_divergence_count == 0` before `use_data_engine=True` flip in prod
-- Paper runner migration (AC-P2) leaves live paper fleet running uninterrupted (lock-file shim preserves PID continuity)
+- Paper runner migration (AC-P2) leaves live paper fleet running uninterrupted via the one-shot migration script (copy-not-move + SIGTERM + restart)
 
 ---
 
