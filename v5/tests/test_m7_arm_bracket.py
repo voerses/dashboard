@@ -48,12 +48,23 @@ class TestArmSingleLeg:
         assert isinstance(order, Order)
 
     def test_arm_order_has_single_leg(self, ctx):
+        """M5 AC3 invariant (discovered Phase-4): single-leg Order uses
+        legs=() (empty tuple); bare Order fields carry single-leg semantics.
+        Multi-leg requires ≥2 legs. `len(legs) == 1` raises ValueError at
+        Order.__post_init__. Test amended to match M5 shipped convention.
+        """
         from v5.orders import TriggerType
         order = ctx.orders.arm(
             symbol="BTC", direction="LONG", size=1.0,
             trigger=TriggerType.PRICE_ABOVE, trigger_price=50_000.0,
         )
-        assert len(order.legs) == 1
+        assert len(order.legs) == 0, (
+            "M5 AC3: single-leg Order uses legs=() — bare fields carry semantics"
+        )
+        # Single-leg invariants live on bare Order fields
+        assert order.direction == 1
+        assert order.trigger == TriggerType.PRICE_ABOVE
+        assert order.trigger_price == 50_000.0
 
     def test_arm_published_to_bus(self, ctx):
         from v5.orders import TriggerType

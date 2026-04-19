@@ -100,7 +100,7 @@ class TestAC10PortfolioConstraints:
         records the pre-clamp intent; qty_delta records the executed size."""
         from v5.config import PortfolioConfig, StrategySpec
         from v5.simulator import SimulationState, _dispatch_scale_action
-        from v5.signals import TokenSignals
+        from v5.signals import TokenBarArrays
         from v5.exit_handlers import BarContext
 
         pos = _make_position(margin_usd=1_000.0, entry_price=100.0, quantity=10.0)
@@ -121,7 +121,7 @@ class TestAC10PortfolioConstraints:
 
         n_bars = 20
         close_arr = np.full(n_bars, 100.0, dtype=np.float64)
-        sig = TokenSignals(
+        sig = TokenBarArrays(
             token="BTC", strategy_id="s30", n_bars=n_bars,
             timestamps=np.arange(n_bars, dtype=np.int64),
             entry_mask=np.zeros(n_bars, dtype=bool),
@@ -162,7 +162,7 @@ class TestAC10PortfolioConstraints:
         no ScalingEvent recorded."""
         from v5.config import PortfolioConfig
         from v5.simulator import SimulationState, _dispatch_scale_action
-        from v5.signals import TokenSignals
+        from v5.signals import TokenBarArrays
         from v5.exit_handlers import BarContext
 
         pos = _make_position(margin_usd=100.0, entry_price=100.0, quantity=1.0)
@@ -180,7 +180,7 @@ class TestAC10PortfolioConstraints:
         action = ScaleAction(qty_delta=+1_000_000.0, reason="huge")
         n_bars = 20
         close_arr = np.full(n_bars, 100.0, dtype=np.float64)
-        sig = TokenSignals(
+        sig = TokenBarArrays(
             token="BTC", strategy_id="s30", n_bars=n_bars,
             timestamps=np.arange(n_bars, dtype=np.int64),
             entry_mask=np.zeros(n_bars, dtype=bool),
@@ -223,7 +223,7 @@ class TestAC18PerBarInvocationCap:
     def test_scale_action_bar_updated_on_fire(self):
         from v5.config import PortfolioConfig
         from v5.simulator import SimulationState, _dispatch_scale_action
-        from v5.signals import TokenSignals
+        from v5.signals import TokenBarArrays
         from v5.exit_handlers import BarContext
 
         pos = _make_position(margin_usd=1_000.0, entry_price=100.0, quantity=10.0)
@@ -235,7 +235,7 @@ class TestAC18PerBarInvocationCap:
 
         n_bars = 20
         close_arr = np.full(n_bars, 100.0, dtype=np.float64)
-        sig = TokenSignals(
+        sig = TokenBarArrays(
             token="BTC", strategy_id="s30", n_bars=n_bars,
             timestamps=np.arange(n_bars, dtype=np.int64),
             entry_mask=np.zeros(n_bars, dtype=bool),
@@ -289,7 +289,7 @@ class TestAC24aListExecution:
         """Actions are applied in list order, each seeing state mutated by prior."""
         from v5.config import PortfolioConfig
         from v5.simulator import SimulationState, _dispatch_scale_action
-        from v5.signals import TokenSignals
+        from v5.signals import TokenBarArrays
         from v5.exit_handlers import BarContext
 
         pos = _make_position(quantity=10.0, margin_usd=1_000.0)
@@ -301,7 +301,7 @@ class TestAC24aListExecution:
 
         n_bars = 20
         close_arr = np.full(n_bars, 100.0, dtype=np.float64)
-        sig = TokenSignals(
+        sig = TokenBarArrays(
             token="BTC", strategy_id="s30", n_bars=n_bars,
             timestamps=np.arange(n_bars, dtype=np.int64),
             entry_mask=np.zeros(n_bars, dtype=bool),
@@ -338,7 +338,7 @@ class TestAC24aListExecution:
         """If action N causes terminal close, actions N+1.. are dropped."""
         from v5.config import PortfolioConfig
         from v5.simulator import SimulationState, _dispatch_scale_action
-        from v5.signals import TokenSignals
+        from v5.signals import TokenBarArrays
         from v5.exit_handlers import BarContext
 
         pos = _make_position(quantity=10.0, margin_usd=1_000.0)
@@ -350,7 +350,7 @@ class TestAC24aListExecution:
 
         n_bars = 20
         close_arr = np.full(n_bars, 100.0, dtype=np.float64)
-        sig = TokenSignals(
+        sig = TokenBarArrays(
             token="BTC", strategy_id="s30", n_bars=n_bars,
             timestamps=np.arange(n_bars, dtype=np.int64),
             entry_mask=np.zeros(n_bars, dtype=bool),
@@ -494,11 +494,11 @@ class TestAC28bStressOnStopLike:
         """book_reduce with is_stop_like=True applies stress_adv_multiplier."""
         from v5.config import PortfolioConfig
         from v5.simulator import SimulationState, book_reduce
-        from v5.signals import TokenSignals
+        from v5.signals import TokenBarArrays
 
         n_bars = 20
         close_arr = np.full(n_bars, 100.0, dtype=np.float64)
-        sig = TokenSignals(
+        sig = TokenBarArrays(
             token="BTC", strategy_id="s30", n_bars=n_bars,
             timestamps=np.arange(n_bars, dtype=np.int64),
             entry_mask=np.zeros(n_bars, dtype=bool),
@@ -558,7 +558,7 @@ class TestOQ1EpsilonShortCircuit:
         """A tiny action should not append a ScalingEvent nor mutate state."""
         from v5.config import PortfolioConfig
         from v5.simulator import SimulationState, _dispatch_scale_action
-        from v5.signals import TokenSignals
+        from v5.signals import TokenBarArrays
         from v5.exit_handlers import BarContext
 
         pos = _make_position(quantity=10.0)
@@ -573,7 +573,7 @@ class TestOQ1EpsilonShortCircuit:
 
         n_bars = 20
         close_arr = np.full(n_bars, 100.0, dtype=np.float64)
-        sig = TokenSignals(
+        sig = TokenBarArrays(
             token="BTC", strategy_id="s30", n_bars=n_bars,
             timestamps=np.arange(n_bars, dtype=np.int64),
             entry_mask=np.zeros(n_bars, dtype=bool),
@@ -618,10 +618,10 @@ def _make_signal(
     rolling_adv: float = 1e9,
     close_val: float = 100.0,
 ):
-    """Return a fully-populated TokenSignals for tests below."""
-    from v5.signals import TokenSignals
+    """Return a fully-populated TokenBarArrays for tests below."""
+    from v5.signals import TokenBarArrays
     close_arr = np.full(n_bars, close_val, dtype=np.float64)
-    return TokenSignals(
+    return TokenBarArrays(
         token="BTC", strategy_id="s30", n_bars=n_bars,
         timestamps=np.arange(n_bars, dtype=np.int64),
         entry_mask=np.zeros(n_bars, dtype=bool),

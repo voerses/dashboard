@@ -56,7 +56,7 @@ def _make_test_config(seed: int = 42) -> PaperConfig:
 def _make_synthetic_signals():
     """Build deterministic synthetic signals for testing."""
     import pandas as pd
-    from v5.signals import TokenSignals
+    from v5.signals import TokenBarArrays
 
     n_bars = 200
     timestamps = pd.date_range("2024-01-01", periods=n_bars, freq="1h").values
@@ -67,7 +67,7 @@ def _make_synthetic_signals():
     entry_mask[100] = True
     entry_mask[150] = True
 
-    return TokenSignals(
+    return TokenBarArrays(
         token="BTC",
         strategy_id="s56",
         n_bars=n_bars,

@@ -158,7 +158,7 @@ class TestStressADVMultiplier:
         """
         from v5.position import Position, PositionManager
         from v5.simulator import SimulationState, _close_position, _process_exits
-        from v5.signals import TokenSignals
+        from v5.signals import TokenBarArrays
         import pandas as pd
 
         config = PortfolioConfig(

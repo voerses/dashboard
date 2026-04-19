@@ -26,7 +26,7 @@ from datetime import datetime, timezone
 from .config import PortfolioConfig, StrategySpec, resolve_sizing
 from .orders import Order, OrderStatus, TriggerType
 from .position import Position, ClosedTrade, PositionManager, ScalingEvent
-from .signals import TokenSignals
+from .signals import TokenBarArrays
 from .sizing import compute_slippage_bps, get_sizing_model, get_slippage_model
 from .exit_handlers import (
     BarContext, build_exit_chain, run_exit_handlers,
@@ -200,7 +200,7 @@ class SimulationState:
 
 
 def build_unified_index(
-    all_signals: dict[str, dict[str, TokenSignals]],
+    all_signals: dict[str, dict[str, TokenBarArrays]],
     base_resolution: "object | None" = None,
 ) -> tuple[np.ndarray, dict[str, np.ndarray]]:
     """Build unified DatetimeIndex and bar maps at ``base_resolution`` cadence.
@@ -218,7 +218,7 @@ def build_unified_index(
     on every grid bar.
 
     Args:
-        all_signals: ``{strategy_id: {token: TokenSignals}}``
+        all_signals: ``{strategy_id: {token: TokenBarArrays}}``
         base_resolution: optional :class:`BarSpec`. When present, the
             unified grid is generated at this resolution's cadence and
             ``bar_maps`` are computed against the token's existing (coarser)
@@ -715,7 +715,7 @@ def _dispatch_single_scale_action(
     pos: Position,
     action: ScaleAction,
     bar_ctx: BarContext,
-    sig: TokenSignals,
+    sig: TokenBarArrays,
     config: PortfolioConfig,
 ) -> bool:
     """Execute ONE ScaleAction. Returns True when the action terminal-closed
@@ -869,7 +869,7 @@ def _dispatch_scale_action(
     pos: Position,
     action,
     bar_ctx: BarContext,
-    sig: TokenSignals,
+    sig: TokenBarArrays,
     config: PortfolioConfig,
 ) -> bool:
     """Execute a single ScaleAction or an ordered list[ScaleAction].
@@ -935,7 +935,7 @@ def dispatch_scale_check(
     pos: Position,
     scale_fn,
     bar_ctx: BarContext,
-    sig: TokenSignals,
+    sig: TokenBarArrays,
     config: PortfolioConfig,
 ) -> bool:
     """AC25: invoke a strategy ``scale_check_fn`` with strict/non-strict
@@ -965,7 +965,7 @@ def dispatch_scale_check(
     return _dispatch_scale_action(state, pos, result, bar_ctx, sig, config)
 
 
-def _get_bar_data(sig: TokenSignals, local_bar: int, is_primary: bool = True, use_perp: bool | None = None):
+def _get_bar_data(sig: TokenBarArrays, local_bar: int, is_primary: bool = True, use_perp: bool | None = None):
     """Get price/indicator data for a bar, choosing primary or secondary arrays.
 
     Args:
@@ -994,7 +994,7 @@ def _get_bar_data(sig: TokenSignals, local_bar: int, is_primary: bool = True, us
 
 def _process_exits(
     state: SimulationState,
-    all_signals: dict[str, dict[str, TokenSignals]],
+    all_signals: dict[str, dict[str, TokenBarArrays]],
     bar_maps: dict[str, np.ndarray],
     global_bar: int,
     config: PortfolioConfig,
@@ -1188,7 +1188,7 @@ def _compute_total_unrealized(
 
 def _stage1_trigger_armed_orders(
     state: SimulationState,
-    all_signals: dict[str, dict[str, TokenSignals]],
+    all_signals: dict[str, dict[str, TokenBarArrays]],
     bar_maps: dict[str, np.ndarray],
     global_bar: int,
     config: PortfolioConfig,
@@ -1202,7 +1202,7 @@ def _stage1_trigger_armed_orders(
     :class:`v5.orders.Order` state machine.
 
     When an armed Order's trigger fires, Stage 1 injects the entry onto
-    ``TokenSignals.entry_mask`` so Stage 2 (``_stage2_process_new_signals``)
+    ``TokenBarArrays.entry_mask`` so Stage 2 (``_stage2_process_new_signals``)
     re-picks it up and opens the Position at this bar's price. Orders whose
     expiry window has passed are dropped (the legacy
     ``max_pending_bars`` rule).
@@ -1266,7 +1266,7 @@ def _stage1_trigger_armed_orders(
             still_armed.append(order)
             continue
 
-        # Triggered — inject entry signal onto TokenSignals so Stage 2
+        # Triggered — inject entry signal onto TokenBarArrays so Stage 2
         # opens the Position at this bar's close.
         sig.entry_mask[local_bar] = True
         sig.direction[local_bar] = int(order.direction)
@@ -1288,14 +1288,14 @@ def _stage1_trigger_armed_orders(
         if sig.armed_levels is not None and local_bar < len(sig.armed_levels):
             sig.armed_levels[local_bar] = np.nan
         # Order consumed — drop from the armed queue. Stage 2 opens the
-        # Position via the TokenSignals entry_mask mutation above.
+        # Position via the TokenBarArrays entry_mask mutation above.
 
     state.open_orders = still_armed
 
 
 def _stage2_process_new_signals(
     state: SimulationState,
-    all_signals: dict[str, dict[str, TokenSignals]],
+    all_signals: dict[str, dict[str, TokenBarArrays]],
     strategy_specs: dict[str, StrategySpec],
     bar_maps: dict[str, np.ndarray],
     global_bar: int,
@@ -1305,7 +1305,7 @@ def _stage2_process_new_signals(
 ):
     """M5 Stage 2/3 — process new entry signals + open Positions.
 
-    Reads ``TokenSignals.entry_mask`` (populated either organically by the
+    Reads ``TokenBarArrays.entry_mask`` (populated either organically by the
     strategy at this bar OR injected by Stage 1 from an armed
     :class:`v5.orders.Order`), applies portfolio-level constraints, and
     opens Positions. Armed-but-not-yet-triggered signals are arm-queued as
@@ -1320,7 +1320,7 @@ def _stage2_process_new_signals(
     total_unrealized = _compute_total_unrealized(state, all_signals, bar_maps, global_bar)
 
     # Build candidate list
-    candidates: list[tuple[str, str, TokenSignals]] = []  # (strategy_id, token, signals)
+    candidates: list[tuple[str, str, TokenBarArrays]] = []  # (strategy_id, token, signals)
 
     for strategy_id, token_signals in all_signals.items():
         for token, sig in token_signals.items():
@@ -1971,7 +1971,7 @@ def _stage2_process_new_signals(
 
 def _process_margin_calls(
     state: SimulationState,
-    all_signals: dict[str, dict[str, TokenSignals]],
+    all_signals: dict[str, dict[str, TokenBarArrays]],
     bar_maps: dict[str, np.ndarray],
     global_bar: int,
     config: PortfolioConfig,
@@ -2031,7 +2031,7 @@ def _process_margin_calls(
 
 def _process_orders(
     state: SimulationState,
-    all_signals: dict[str, dict[str, TokenSignals]],
+    all_signals: dict[str, dict[str, TokenBarArrays]],
     strategy_specs: dict[str, StrategySpec],
     bar_maps: dict[str, np.ndarray],
     global_bar: int,
@@ -2049,7 +2049,7 @@ def _process_orders(
       * **Stage 1** — ARMED :class:`Order` instances on ``state.open_orders``
         are tested against the current bar. Orders whose trigger fires
         transition ARMED -> TRIGGERED and inject their entry onto
-        :class:`TokenSignals` (preserves legacy pending-entries conversion).
+        :class:`TokenBarArrays` (preserves legacy pending-entries conversion).
         Orders past ``max_pending_bars`` are dropped (EXPIRED).
       * **Stage 2** — every bar that has an ``entry_mask[local_bar] == True``
         becomes a candidate. Organic signals and Stage 1 injections are
@@ -2086,7 +2086,7 @@ def _process_orders(
 
 def _record_equity_snapshot(
     state: SimulationState,
-    all_signals: dict[str, dict[str, TokenSignals]],
+    all_signals: dict[str, dict[str, TokenBarArrays]],
     bar_maps: dict[str, np.ndarray],
     global_bar: int,
     timestamp,
@@ -2110,14 +2110,14 @@ def _record_equity_snapshot(
 
 
 def simulate_portfolio(
-    all_signals: dict[str, dict[str, TokenSignals]],
+    all_signals: dict[str, dict[str, TokenBarArrays]],
     strategy_specs: dict[str, StrategySpec],
     config: PortfolioConfig,
 ) -> SimulationState:
     """Run bar-by-bar portfolio simulation.
 
     Args:
-        all_signals: {strategy_id: {token: TokenSignals}}
+        all_signals: {strategy_id: {token: TokenBarArrays}}
         strategy_specs: {strategy_id: StrategySpec}
         config: Portfolio configuration
 
@@ -2153,7 +2153,7 @@ def simulate_portfolio(
 
 def _close_all_remaining(
     state: SimulationState,
-    all_signals: dict[str, dict[str, TokenSignals]],
+    all_signals: dict[str, dict[str, TokenBarArrays]],
     bar_maps: dict[str, np.ndarray],
     last_bar: int,
     config: PortfolioConfig,

@@ -25,7 +25,7 @@ import pytest
 from v5.config import PortfolioConfig, StrategySpec
 from v5.position import Position, ClosedTrade, PositionManager
 from v5.sizing import compute_position_size, compute_slippage_bps
-from v5.signals import TokenSignals
+from v5.signals import TokenBarArrays
 from v5.simulator import (
     SimulationState,
     RejectionStats,
@@ -37,7 +37,7 @@ from v5.simulator import (
 
 
 # ---------------------------------------------------------------------------
-# Helpers: build synthetic TokenSignals
+# Helpers: build synthetic TokenBarArrays
 # ---------------------------------------------------------------------------
 
 def _make_timestamps(n: int, start: str = "2024-01-01") -> np.ndarray:
@@ -92,8 +92,8 @@ def _make_token_signals(
     sec_no_stop_bars: int | None = None,
     sec_min_hold: int | None = None,
     sec_max_hold: int | None = None,
-) -> TokenSignals:
-    """Build a synthetic TokenSignals for testing."""
+) -> TokenBarArrays:
+    """Build a synthetic TokenBarArrays for testing."""
     timestamps = _make_timestamps(n_bars, start_ts)
 
     if close_array is None:
@@ -131,7 +131,7 @@ def _make_token_signals(
             sec_entry[entry_bar] = True  # default: same bar
         sec_dir = np.full(n_bars, secondary_direction, dtype=np.int8)
 
-    return TokenSignals(
+    return TokenBarArrays(
         token=token,
         strategy_id=strategy_id,
         n_bars=n_bars,

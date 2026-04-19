@@ -693,7 +693,7 @@ def _align_higher_to_lower(higher_idx, higher_vals, lower_idx):
 # The utility is a pure helper so it can be unit-tested directly (AC22) and
 # wired into any cross-sectional call site that either:
 #   (a) has access to the RollingCacheRegistry (paper-engine concept), or
-#   (b) has TokenSignals objects from which `.timestamps[-1]` can be read.
+#   (b) has TokenBarArrays objects from which `.timestamps[-1]` can be read.
 # Scope note: the current M1-stubbed portfolio_signals.py does not yet invoke
 # cross-sectional rank at runtime; Task 13/14 parity+soak will catch any
 # regression once that path is reactivated.

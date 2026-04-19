@@ -2,12 +2,12 @@
 
 Covers ACs from brief.md:
 
-- AC1: TokenSignals has a `priority: np.ndarray | None = None` field, default None.
+- AC1: TokenBarArrays has a `priority: np.ndarray | None = None` field, default None.
 - AC2: Simulator orders entry candidates by (priority DESC, strategy_id ASC, token ASC)
        — observable through the execution/processing order at the dispatch boundary.
 - AC3: Tie-break deterministic — identical priority sorts by
        (strategy_id ASC, token ASC).
-- AC4: Migration shim: at TokenSignals construction, if `conviction_score is not None`
+- AC4: Migration shim: at TokenBarArrays construction, if `conviction_score is not None`
        AND `priority is None`, auto-derive
        `priority = np.round(np.clip(conviction_score, 0.0, 1.0) * 1_000_000).astype(np.int32)`.
        One warning per strategy_id per process (captured via caplog).
@@ -23,7 +23,7 @@ Covers ACs from brief.md:
         now flow through; `sr_conviction` must reflect the explicit
         strategy-emitted conviction_score (not the sm-normalized override).
 
-All tests MUST FAIL against HEAD (pre-refactor): `TokenSignals.priority`
+All tests MUST FAIL against HEAD (pre-refactor): `TokenBarArrays.priority`
 attribute is absent, `tools.migrate_conviction` module does not exist,
 `RejectionStats` still gates on the pre-refactor layout, and
 `signals.py:500-503` still unconditionally overwrites the explicit
@@ -56,7 +56,7 @@ GOLDEN_LOG_PATH = SPEC_DIR / "golden_events.jsonl"
 
 
 # ---------------------------------------------------------------------------
-# Helpers: TokenSignals fixture matching the current constructor surface.
+# Helpers: TokenBarArrays fixture matching the current constructor surface.
 # We only populate the fields the type requires — additional fields (like the
 # new `priority` field) are exercised through keyword argument passing below.
 # ---------------------------------------------------------------------------
@@ -70,13 +70,13 @@ def _make_signal(
     priority: Optional[np.ndarray] = None,
     pass_priority: bool = False,
 ):
-    """Construct a TokenSignals covering all current required fields.
+    """Construct a TokenBarArrays covering all current required fields.
 
     `pass_priority=True` forces the keyword argument to be passed (even when
     None), so constructors that have not yet added the field will raise
     TypeError — which is the expected RED state today for AC1/AC4.
     """
-    from v5.signals import TokenSignals  # local import (fails fast in subagent)
+    from v5.signals import TokenBarArrays  # local import (fails fast in subagent)
 
     close_arr = np.full(n_bars, 100.0, dtype=np.float64)
     kwargs = dict(
@@ -106,32 +106,32 @@ def _make_signal(
         kwargs["conviction_score"] = conviction_score
     if pass_priority or priority is not None:
         kwargs["priority"] = priority
-    return TokenSignals(**kwargs)
+    return TokenBarArrays(**kwargs)
 
 
 # ===========================================================================
-# AC1 — TokenSignals.priority field exists, default None
+# AC1 — TokenBarArrays.priority field exists, default None
 # ===========================================================================
 
 class TestAC1PriorityField:
-    """AC1: `TokenSignals.priority: np.ndarray | None = None` field exists."""
+    """AC1: `TokenBarArrays.priority: np.ndarray | None = None` field exists."""
 
     def test_ac1_priority_field_declared_on_dataclass(self):
-        """`priority` must appear among TokenSignals dataclass fields."""
-        from v5.signals import TokenSignals
-        field_names = {f.name for f in dataclasses.fields(TokenSignals)}
+        """`priority` must appear among TokenBarArrays dataclass fields."""
+        from v5.signals import TokenBarArrays
+        field_names = {f.name for f in dataclasses.fields(TokenBarArrays)}
         assert "priority" in field_names, (
-            f"TokenSignals is missing `priority` field. "
+            f"TokenBarArrays is missing `priority` field. "
             f"Fields present: {sorted(field_names)}"
         )
 
     def test_ac1_priority_default_is_none(self):
-        """Constructing TokenSignals without priority yields priority=None."""
+        """Constructing TokenBarArrays without priority yields priority=None."""
         sig = _make_signal()
         assert sig.priority is None
 
     def test_ac1_priority_accepts_explicit_array(self):
-        """Constructing TokenSignals with priority keyword stores the array."""
+        """Constructing TokenBarArrays with priority keyword stores the array."""
         arr = np.array([1, 2, 3] + [0] * 17, dtype=np.int32)
         sig = _make_signal(priority=arr)
         assert sig.priority is not None
@@ -331,7 +331,7 @@ class TestAC3PrioritySortTieBreak:
 # ===========================================================================
 
 class TestAC4MigrationShimAutoDerive:
-    """AC4: TokenSignals construction auto-derives priority from
+    """AC4: TokenBarArrays construction auto-derives priority from
     conviction_score when priority is None."""
 
     def test_ac4_auto_derive_from_conviction_score(self):
@@ -562,26 +562,26 @@ class TestAC10DeadCodeRepair:
     Pre-refactor: line 502 computes `sr_conviction = _to_array(sr.conviction_score,
     n_safe)` but line 503 unconditionally overwrites with `sm / sm_max`.
     Post-refactor: the explicit conviction_score path must actually flow into
-    the produced TokenSignals (no unconditional overwrite).
+    the produced TokenBarArrays (no unconditional overwrite).
 
     We detect the bug via end-to-end behavior: precompute_strategy_signals
     called with a StrategySpec whose strategy_fn emits a distinctive
-    conviction_score array must yield a TokenSignals.priority (derived via
+    conviction_score array must yield a TokenBarArrays.priority (derived via
     AC4 shim) that reflects that explicit array, not an sm-normalized override.
     """
 
     def test_ac10_explicit_conviction_score_reaches_priority(self, tmp_path, monkeypatch):
         """If strategy emits distinct conviction_score values, the produced
-        TokenSignals must preserve them (through the AC4 shim -> priority),
+        TokenBarArrays must preserve them (through the AC4 shim -> priority),
         not replace them with sm-normalized values."""
         # This test deliberately reaches the precomputation pipeline via a
         # lightweight synthetic strategy. If the pipeline cannot run in
         # isolation without real data, the test is still useful as a RED
         # sentinel: it will fail on import/setup until the dead-code is
         # fixed AND the AC4 shim threads conviction_score -> priority.
-        from v5.signals import TokenSignals
+        from v5.signals import TokenBarArrays
 
-        # Synthesize a TokenSignals constructed as if from the precompute
+        # Synthesize a TokenBarArrays constructed as if from the precompute
         # pipeline's repaired branch: explicit conviction_score provided
         # without an explicit priority. We assert that the AC4 shim (which
         # depends on the dead-code branch producing a usable

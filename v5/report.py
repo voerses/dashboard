@@ -228,7 +228,7 @@ def print_diagnostic_report(
     print("  DIAGNOSTIC REPORT")
     print("=" * 70)
 
-    # Aggregate signal funnel from TokenSignals
+    # Aggregate signal funnel from TokenBarArrays
     strategy_funnel: dict[str, dict[str, int]] = {}
     for strategy_id, token_signals in all_signals.items():
         funnel = {"raw": 0, "post_liquidity": 0, "post_walkforward": 0, "tokens": 0}

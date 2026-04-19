@@ -193,8 +193,9 @@ class PortfolioView:
 class OrderFactoryView:
     """Strategy-facing order factory (AC-O1).
 
-    `arm(...)` single-leg, `arm_bracket(entry, sl, tp)` three-leg with
-    OTO_BRACKET + OTO contingency. Both publish via M5 pre-fill atomic path.
+    `arm(...)` single-leg: constructs real M5 Order via Order.arm().
+    `arm_bracket(entry, sl, tp)` three-leg: constructs Order with OTO_BRACKET
+    + OTO contingency per M5 pre-fill atomic path.
     """
 
     def __init__(self, runner_instance_id: str = "default"):
@@ -204,58 +205,129 @@ class OrderFactoryView:
         self._rejection_events: list = []
         self._next_order_seq = 0
 
-    def arm(self, **kwargs):
-        """Stub — real implementation in Task 9. Returns a test-shaped Order."""
-        from types import SimpleNamespace
+    def _next_seq(self) -> int:
         self._next_order_seq += 1
-        order = SimpleNamespace(
-            order_id=f"order-{self._next_order_seq:08x}",
-            venue_order_id=None,
-            legs=[SimpleNamespace(
-                trigger_price=kwargs.get("trigger_price"),
-                target_qty=kwargs.get("size", 0.0),
-                direction=kwargs.get("direction", "LONG"),
-            )],
-            **{k: v for k, v in kwargs.items() if k not in ("trigger_price", "size", "direction")},
+        return self._next_order_seq
+
+    @staticmethod
+    def _direction_int(direction) -> int:
+        if isinstance(direction, int):
+            return direction
+        return 1 if str(direction).upper() == "LONG" else -1
+
+    def arm(
+        self,
+        *,
+        symbol: str,
+        direction,
+        size: float,
+        trigger=None,
+        trigger_price: float = None,
+        strategy_id: str = "test",
+        market: str = "perp",
+        **kwargs,
+    ):
+        """Single-leg order — constructs M5 Order.arm(...). Publishes to active list."""
+        from datetime import datetime, timezone
+        from v5.orders import Order, TriggerType
+        dir_int = self._direction_int(direction)
+        if trigger is None:
+            trigger = TriggerType.PRICE_ABOVE if dir_int == 1 else TriggerType.PRICE_BELOW
+        seq = self._next_seq()
+        order_id = f"order-{seq:08x}"
+        order = Order.arm(
+            strategy_id=strategy_id,
+            token=symbol,
+            direction=dir_int,
+            trigger=trigger,
+            trigger_price=float(trigger_price or 0.0),
+            working_price_source="last",
+            armed_at=datetime.now(timezone.utc),
+            expires_at=None,
+            sizing_ctx={"target_size": size, "market": market},
+            order_id=order_id,
         )
         self._active_orders.append(order)
         return order
 
-    def arm_bracket(self, entry_spec: dict, sl_spec: dict, tp_spec: dict, **kwargs):
-        """Stub — real implementation in Task 9."""
-        from types import SimpleNamespace
-        self._next_order_seq += 1
-        # Basic side validation for LIMIT/STOP entries (skip for MARKET)
+    def arm_bracket(
+        self,
+        entry_spec: dict,
+        sl_spec: dict,
+        tp_spec: dict,
+        fill_policy=None,
+        strategy_id: str = "test",
+    ):
+        """Three-leg bracket. Validates sides (skipped for MARKET entries per
+        design §2.2); constructs Order with OTO_BRACKET + OTO contingency."""
+        from datetime import datetime, timezone
+        from v5.orders import (
+            Order, Leg, TriggerType, LegStatus, LegFillPolicy, ContingencyType,
+        )
+        dir_int = self._direction_int(entry_spec.get("direction", "LONG"))
+        size = entry_spec["size"]
+        market = entry_spec.get("market", "perp")
         entry_price = entry_spec.get("trigger_price")
-        direction = entry_spec.get("direction", "LONG")
-        if entry_price is not None:
-            sl = sl_spec.get("trigger_price")
-            tp = tp_spec.get("trigger_price")
-            if direction == "LONG":
-                if sl is not None and sl >= entry_price:
-                    raise ValueError(f"LONG bracket: SL {sl} must be below entry {entry_price}")
-                if tp is not None and tp <= entry_price:
-                    raise ValueError(f"LONG bracket: TP {tp} must be above entry {entry_price}")
+        sl_price = sl_spec.get("trigger_price")
+        tp_price = tp_spec.get("trigger_price")
+        order_type = entry_spec.get("order_type", "STOP").upper()
+
+        # AC-O1 side validation — skipped for MARKET entries (§2.2 defer-to-fill)
+        if order_type != "MARKET" and entry_price is not None:
+            if dir_int == 1:  # LONG
+                if sl_price is not None and sl_price >= entry_price:
+                    raise ValueError(
+                        f"LONG bracket: SL {sl_price} must be below entry {entry_price}"
+                    )
+                if tp_price is not None and tp_price <= entry_price:
+                    raise ValueError(
+                        f"LONG bracket: TP {tp_price} must be above entry {entry_price}"
+                    )
             else:  # SHORT
-                if sl is not None and sl <= entry_price:
-                    raise ValueError(f"SHORT bracket: SL {sl} must be above entry {entry_price}")
-                if tp is not None and tp >= entry_price:
-                    raise ValueError(f"SHORT bracket: TP {tp} must be below entry {entry_price}")
-        order = SimpleNamespace(
-            order_id=f"order-{self._next_order_seq:08x}",
-            venue_order_id=None,
-            legs=[
-                SimpleNamespace(trigger_price=entry_spec.get("trigger_price"),
-                                target_qty=entry_spec["size"], direction=direction),
-                SimpleNamespace(trigger_price=sl_spec.get("trigger_price"),
-                                target_qty=entry_spec["size"],
-                                direction="SHORT" if direction == "LONG" else "LONG"),
-                SimpleNamespace(trigger_price=tp_spec.get("trigger_price"),
-                                target_qty=entry_spec["size"],
-                                direction="SHORT" if direction == "LONG" else "LONG"),
-            ],
-            contingency=None,
-            fill_policy=kwargs.get("fill_policy"),
+                if sl_price is not None and sl_price <= entry_price:
+                    raise ValueError(
+                        f"SHORT bracket: SL {sl_price} must be above entry {entry_price}"
+                    )
+                if tp_price is not None and tp_price >= entry_price:
+                    raise ValueError(
+                        f"SHORT bracket: TP {tp_price} must be below entry {entry_price}"
+                    )
+
+        seq = self._next_seq()
+        order_id = f"order-{seq:08x}"
+        entry_leg = Leg(
+            leg_ref_id="entry", symbol=entry_spec["symbol"], market=market,
+            venue="BINANCE", direction=dir_int, target_qty=size,
+            order_type=order_type.lower() if order_type != "MARKET" else "market",
+            trigger_price=entry_price,
+            status=LegStatus.ARMED,
+        )
+        sl_leg = Leg(
+            leg_ref_id="sl", symbol=entry_spec["symbol"], market=market,
+            venue="BINANCE", direction=-dir_int, target_qty=size,
+            order_type="stop", trigger_price=sl_price,
+            status=LegStatus.ARMED,
+        )
+        tp_leg = Leg(
+            leg_ref_id="tp", symbol=entry_spec["symbol"], market=market,
+            venue="BINANCE", direction=-dir_int, target_qty=size,
+            order_type="limit", limit_price=tp_price, trigger_price=tp_price,
+            status=LegStatus.ARMED,
+        )
+        order = Order.arm(
+            strategy_id=strategy_id,
+            token=entry_spec["symbol"],
+            direction=dir_int,
+            trigger=TriggerType.PRICE_ABOVE if dir_int == 1 else TriggerType.PRICE_BELOW,
+            trigger_price=float(entry_price or 0.0),
+            working_price_source="last",
+            armed_at=datetime.now(timezone.utc),
+            expires_at=None,
+            sizing_ctx={"target_size": size, "market": market},
+            legs=(entry_leg, sl_leg, tp_leg),
+            fill_policy=fill_policy if fill_policy is not None else LegFillPolicy.OTO_BRACKET,
+            contingency=ContingencyType.OTO,
+            order_id=order_id,
         )
         self._active_orders.append(order)
         return order
@@ -269,17 +341,105 @@ class OrderFactoryView:
     def last_rejection_event(self):
         return self._rejection_events[-1] if self._rejection_events else None
 
+    def _paper_venue_id(self, seq_hex: str) -> str:
+        if self._runner_instance_id == "default":
+            return f"paper-{seq_hex}"
+        return f"paper-{self._runner_instance_id}-{seq_hex}"
+
     def simulate_ack(self, order_id: str) -> None:
         for o in self._active_orders:
             if o.order_id == order_id:
-                # AC-O4 paper ack — use design §2.8 ID1 object.__setattr__ contract;
-                # SimpleNamespace allows direct attribute mutation so this is simpler
-                seq_hex = order_id.split("-", 1)[1]  # 8-hex suffix from order_id
-                if self._runner_instance_id == "default":
-                    o.venue_order_id = f"paper-{seq_hex}"
-                else:
-                    o.venue_order_id = f"paper-{self._runner_instance_id}-{seq_hex}"
+                seq_hex = order_id.split("-", 1)[1] if "-" in order_id else "00000001"
+                # Truncate/pad to 8 hex chars
+                seq_hex = (seq_hex + "0" * 8)[:8]
+                # M5 Order is frozen — §2.8 ID1 object.__setattr__ single-field mutation
+                object.__setattr__(o, "venue_order_id", self._paper_venue_id(seq_hex))
                 return
+
+    def submit(self, order) -> None:
+        """Register a caller-constructed Order (for tests that bypass arm_bracket)."""
+        self._active_orders.append(order)
+
+    def simulate_fill(self, order_id: str, leg_idx: int, qty: float, price: float) -> None:
+        """Test hook — record a fill event on a leg. Real fill lifecycle is
+        Wave D (Task 12) via BarProcessor + M5 Leg transitions."""
+        # Post-fill re-validation for MARKET entries per design §2.2
+        for o in self._active_orders:
+            if getattr(o, "order_id", None) != order_id:
+                continue
+            if leg_idx >= len(o.legs):
+                return
+            leg = o.legs[leg_idx]
+            # MARKET entry re-validation: check sibling SL/TP sides against fill price
+            if leg.leg_ref_id == "entry" and leg.order_type == "market":
+                from types import SimpleNamespace
+                for sib in o.legs[1:]:
+                    sib_price = sib.trigger_price
+                    if sib_price is None:
+                        continue
+                    is_sl = sib.leg_ref_id == "sl"
+                    if o.direction == 1:  # LONG: SL < fill, TP > fill
+                        if is_sl and sib_price >= price:
+                            self._rejection_events.append(SimpleNamespace(
+                                reason=f"post_fill_unwind:mis_sided_sl sl={sib_price} fill={price}",
+                                order=o,
+                            ))
+                            return
+                        if not is_sl and sib_price <= price:
+                            self._rejection_events.append(SimpleNamespace(
+                                reason=f"post_fill_unwind:mis_sided_tp tp={sib_price} fill={price}",
+                                order=o,
+                            ))
+                            return
+                    else:  # SHORT: SL > fill, TP < fill
+                        if is_sl and sib_price <= price:
+                            self._rejection_events.append(SimpleNamespace(
+                                reason=f"post_fill_unwind:mis_sided_sl_short sl={sib_price} fill={price}",
+                                order=o,
+                            ))
+                            return
+                        if not is_sl and sib_price >= price:
+                            self._rejection_events.append(SimpleNamespace(
+                                reason=f"post_fill_unwind:mis_sided_tp_short tp={sib_price} fill={price}",
+                                order=o,
+                            ))
+                            return
+            return
+
+    def simulate_reject(self, order_id: str, leg_idx: int, reason: str) -> None:
+        """Test hook — trigger a venue-reject on a leg.
+
+        AC-O3: cascade fires under UNWIND_ON_REJECT and OTO_BRACKET (both
+        policies imply "close sibling on reject"). BEST_EFFORT / ALL_OR_NONE
+        do NOT cascade.
+        """
+        from v5.orders import LegFillPolicy
+        from types import SimpleNamespace
+        cascade_policies = (LegFillPolicy.UNWIND_ON_REJECT, LegFillPolicy.OTO_BRACKET)
+        for o in self._active_orders:
+            if getattr(o, "order_id", None) != order_id:
+                continue
+            if o.fill_policy in cascade_policies and len(o.legs) >= 2:
+                # Build reversal order mirroring the sibling (leg 0)
+                entry_leg = o.legs[0]
+                reversal = SimpleNamespace(
+                    order_id=f"reversal-{o.order_id}",
+                    legs=[SimpleNamespace(
+                        direction="SHORT" if entry_leg.direction == 1 else "LONG",
+                        target_qty=entry_leg.target_qty,
+                    )],
+                )
+                self._reversal_orders.append(reversal)
+                self._rejection_events.append(SimpleNamespace(
+                    reason=f"post_fill_unwind:venue_reject leg={leg_idx} ({reason})",
+                    order=o,
+                ))
+            else:
+                self._rejection_events.append(SimpleNamespace(
+                    reason=f"venue_reject:{reason}",
+                    order=o,
+                ))
+            return
 
 
 # ============================================================

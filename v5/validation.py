@@ -313,8 +313,8 @@ def _run_cpcv_v4(strategy_id: str, ticker: str,
         # Mask entries to test bars only
         masked_entries = result.entry_mask[:fold_len].copy() & test_only_mask[:fold_len]
 
-        # Build TokenSignals manually for this fold
-        from v5.signals import TokenSignals, _to_array, _copy_f32
+        # Build TokenBarArrays manually for this fold
+        from v5.signals import TokenBarArrays, _to_array, _copy_f32
         from v5.universe import get_fee_rate, get_maint_margin_rate
 
         p_close = ctx.ind_1h['close'][:fold_len].astype(np.float32)
@@ -330,7 +330,7 @@ def _run_cpcv_v4(strategy_id: str, ticker: str,
             p_funding = ctx.funding_1h[:fold_len].astype(np.float32)
         p_rsi = ctx.ind_1h['rsi'][:fold_len].astype(np.float32) if 'rsi' in ctx.ind_1h else None
 
-        ts = TokenSignals(
+        ts = TokenBarArrays(
             token=ticker,
             strategy_id=strategy_id,
             n_bars=fold_len,

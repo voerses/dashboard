@@ -19,7 +19,7 @@ from typing import Any, Mapping, Optional, Protocol, runtime_checkable
 import numpy as np
 
 from .position import Position
-from .signals import TokenSignals
+from .signals import TokenBarArrays
 
 
 # Empty immutable indicator snapshot — default for BarContext when no MTF
@@ -212,7 +212,7 @@ class TrailingStopHandler:
     Two calling conventions:
 
       1. Engine integration (pre-M4): ``TrailingStopHandler(sig)`` where
-         ``sig`` is a :class:`TokenSignals`. Reads trail parameters from the
+         ``sig`` is a :class:`TokenBarArrays`. Reads trail parameters from the
          :class:`Position` (frozen at entry) and consumes per-bar indicators
          off ``BarContext``.
 
@@ -227,7 +227,7 @@ class TrailingStopHandler:
 
     def __init__(
         self,
-        sig: Optional[TokenSignals] = None,
+        sig: Optional[TokenBarArrays] = None,
         *,
         trail_schedule: Optional[list[tuple[float, float]]] = None,
     ):
@@ -475,7 +475,7 @@ class StopLossHandler:
 class TakeProfitHandler:
     """Take-profit check, regime-conditional (tighter target in bear)."""
 
-    def __init__(self, sig: TokenSignals):
+    def __init__(self, sig: TokenBarArrays):
         self._sig = sig
 
     def update_state(self, pos: Position, bar: BarContext) -> None:
@@ -509,7 +509,7 @@ class TakeProfitHandler:
 class RSIExitHandler:
     """RSI-based exit (symmetric: longs exit on high RSI, shorts on low)."""
 
-    def __init__(self, sig: TokenSignals):
+    def __init__(self, sig: TokenBarArrays):
         self._sig = sig
 
     def update_state(self, pos: Position, bar: BarContext) -> None:
@@ -532,7 +532,7 @@ class RSIExitHandler:
 class MeanTargetHandler:
     """Mean-target exit for convex strategies only."""
 
-    def __init__(self, sig: TokenSignals):
+    def __init__(self, sig: TokenBarArrays):
         self._sig = sig
 
     def update_state(self, pos: Position, bar: BarContext) -> None:
@@ -559,7 +559,7 @@ class SMATrailExitHandler:
     no_stop_bars protection window.
     """
 
-    def __init__(self, sig: TokenSignals):
+    def __init__(self, sig: TokenBarArrays):
         self._sig = sig
 
     def update_state(self, pos: Position, bar: BarContext) -> None:
@@ -585,7 +585,7 @@ class SMATrailExitHandler:
 class MaxHoldHandler:
     """Max hold exit — forces exit after N bars held."""
 
-    def __init__(self, sig: TokenSignals):
+    def __init__(self, sig: TokenBarArrays):
         self._sig = sig
 
     def update_state(self, pos: Position, bar: BarContext) -> None:
@@ -656,7 +656,7 @@ EXIT_HANDLER_REGISTRY = (
 
 def build_exit_chain(
     pos: Position,
-    sig: TokenSignals,
+    sig: TokenBarArrays,
     spec,  # StrategySpec — avoid import cycle by duck typing
     state=None,
     config=None,

@@ -81,7 +81,7 @@ class SizingRequest:
 @dataclass
 class TokenSignal:
     """Per-token signal output from Strategy.generate(). Unifies v4's
-    TokenSignals (per-token) + PortfolioSignals (portfolio) per AC-S6.
+    TokenBarArrays (per-token) + PortfolioSignals (portfolio) per AC-S6.
     """
     token: str
     direction: int = 0                  # 1 long / -1 short / 0 none

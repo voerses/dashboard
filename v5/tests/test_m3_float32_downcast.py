@@ -19,7 +19,7 @@ These tests guard against regression as well as validate the downcast. Some
 float64 assertions (prices/fees) are sentinel-green today — they catch a
 regression where the refactor accidentally demotes a currency field.
 
-All tests MUST FAIL today for the float32 side — TokenSignals construction
+All tests MUST FAIL today for the float32 side — TokenBarArrays construction
 does not downcast these arrays yet.
 
 Seed: 42.
@@ -39,12 +39,12 @@ if str(_project_root) not in sys.path:
 
 
 def _make_token_signals(n: int = 20):
-    """Construct a TokenSignals with arrays typed float64 so downcast can
+    """Construct a TokenBarArrays with arrays typed float64 so downcast can
     be observed at the boundary (construction must downcast the listed
     fields to float32 per AC9)."""
-    from v5.signals import TokenSignals
+    from v5.signals import TokenBarArrays
     close_f64 = np.full(n, 100.0, dtype=np.float64)
-    return TokenSignals(
+    return TokenBarArrays(
         token="BTC", strategy_id="s30", n_bars=n,
         timestamps=np.arange(n, dtype=np.int64),
         entry_mask=np.zeros(n, dtype=bool),
@@ -79,7 +79,7 @@ def _make_token_signals(n: int = 20):
 # ===================================================================
 
 class TestAC9Float32Fields:
-    """Fields downcast to float32 at TokenSignals construction."""
+    """Fields downcast to float32 at TokenBarArrays construction."""
 
     def test_trail_schedule_is_float32(self):
         sig = _make_token_signals()
@@ -185,10 +185,10 @@ class TestAC9DowncastActuallyHappens:
 
     def test_input_float64_becomes_float32(self):
         """Feeding float64 to the listed fields must result in float32 storage."""
-        from v5.signals import TokenSignals
+        from v5.signals import TokenBarArrays
         n = 20
         close_f64 = np.full(n, 100.0, dtype=np.float64)
-        sig = TokenSignals(
+        sig = TokenBarArrays(
             token="BTC", strategy_id="s30", n_bars=n,
             timestamps=np.arange(n, dtype=np.int64),
             entry_mask=np.zeros(n, dtype=bool),

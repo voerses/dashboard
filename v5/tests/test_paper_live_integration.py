@@ -64,7 +64,7 @@ class TestSignalRecomputation:
     """Signal recomputation covers the current bar (AC10c)."""
 
     def test_recomputed_signals_cover_current_bar(self):
-        """After recomputing signals, the last bar in each TokenSignals
+        """After recomputing signals, the last bar in each TokenBarArrays
         should correspond to the current tick's data.
 
         Per-bar arrays like stop_mult, trail_mult, leverage, etc. must have

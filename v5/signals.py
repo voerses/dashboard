@@ -27,6 +27,12 @@ from v5.engine import Engine, MarketType, _load_strategy_fn, _load_strategy_requ
 from v5.universe import get_all_tradeable
 from v5.data_loader import load_token_data, load_token_data_cached, discover_tokens_from_data, infer_data_end_date as _infer_end
 
+# M7 AC-S6 re-exports — unified signal types live in strategy_api but callers
+# expect to import them from v5.signals. Re-exported here; portfolio_signals.py
+# deleted. Legacy `TokenSignals` (plural) renamed to `TokenBarArrays` to avoid
+# naming collision with the new per-bar TokenSignal (singular).
+from v5.strategy_api import TokenSignal, UniverseSignals, SizingRequest  # noqa: F401
+
 
 DATA_DIR = str(_project_root / "data")
 logger = logging.getLogger(__name__)
@@ -51,7 +57,7 @@ def _log_shim_warning_once(strategy_id: str) -> None:
 
 
 @dataclass(slots=True)
-class TokenSignals:
+class TokenBarArrays:
     """Lightweight signal arrays for one token under one strategy."""
     token: str
     strategy_id: str
@@ -145,7 +151,7 @@ class TokenSignals:
     def __post_init__(self):
         # AC9: downcast non-precision-critical float arrays to float32 at
         # construction time. Prices / ATR / PnL stay float64 elsewhere on
-        # Position/ClosedTrade; these TokenSignals arrays are sizing/trail/
+        # Position/ClosedTrade; these TokenBarArrays arrays are sizing/trail/
         # score signals where 1e-7 precision is acceptable.
         for _fld in (
             "trail_schedule", "time_trail_schedule", "max_trail_mult",
@@ -155,7 +161,7 @@ class TokenSignals:
             if _v is not None and isinstance(_v, np.ndarray) and _v.dtype != np.float32:
                 object.__setattr__(self, _fld, _v.astype(np.float32))
 
-        # AC4 conviction→priority migration shim. Fires on any TokenSignals
+        # AC4 conviction→priority migration shim. Fires on any TokenBarArrays
         # construction — whether via precompute_strategy_signals or directly.
         # If priority is None and conviction_score is populated, auto-derive
         # priority and emit one warning per strategy_id per process.
@@ -232,7 +238,7 @@ def precompute_strategy_signals(
     hist_cache: dict | None = None,
     eng_spot: Optional[Engine] = None,
     eng_perp: Optional[Engine] = None,
-) -> dict[str, TokenSignals]:
+) -> dict[str, TokenBarArrays]:
     """Precompute signal arrays for one strategy across all tokens.
 
     Args:
@@ -295,7 +301,7 @@ def precompute_strategy_signals(
             return ctx
         return eng._build_context(token, df, **kwargs)
 
-    results: dict[str, TokenSignals] = {}
+    results: dict[str, TokenBarArrays] = {}
 
     for token in tokens:
         try:
@@ -547,8 +553,8 @@ def precompute_strategy_signals(
 
             # Priority field: strategies may emit priority directly. If they do,
             # we pass through. If they emit only conviction_score, the shim in
-            # TokenSignals.__post_init__ will auto-derive priority on the
-            # constructed TokenSignals below — no work needed here beyond extracting.
+            # TokenBarArrays.__post_init__ will auto-derive priority on the
+            # constructed TokenBarArrays below — no work needed here beyond extracting.
             sr_priority = None
             if getattr(sr, 'priority', None) is not None:
                 sr_priority = np.asarray(sr.priority[:n_safe], dtype=np.int32)
@@ -636,7 +642,7 @@ def precompute_strategy_signals(
             if p_funding is not None and len(p_funding) > 0:
                 _funding_zscore = _rolling_funding_zscore(p_funding, lookback=168)
 
-            ts = TokenSignals(
+            ts = TokenBarArrays(
                 token=token,
                 strategy_id=strategy_spec.strategy_id,
                 n_bars=n_safe,

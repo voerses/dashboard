@@ -109,23 +109,36 @@ class TestGenericMultiLegPostFillValidation:
 
     def test_arm_with_legs_kwarg_also_triggers_post_fill_validation(self, ctx):
         """Manual Order construction (bypassing arm_bracket factory) STILL
-        gets post-fill validation — it's Order-level, not factory-level."""
-        from v5.orders import Order, Leg, LegFillPolicy, ContingencyType, TriggerType
-        from v5.data.streams import InstrumentId, Venue
+        gets post-fill validation — it's Order-level, not factory-level.
 
-        inst = InstrumentId(symbol="BTCUSDT", venue=Venue.BINANCE, asset_class="perp")
+        M5 Order has many required fields (strategy_id, token, direction,
+        trigger, trigger_price, armed_at, sizing_ctx, state, ...) — use the
+        Order.arm() factory for construction even though we're avoiding the
+        bracket-specific factory wrapper.
+        """
+        from datetime import datetime, timezone
+        from v5.orders import (
+            Order, Leg, LegFillPolicy, LegStatus, ContingencyType, TriggerType,
+        )
+
         entry_leg = Leg(
-            leg_ref_id="entry", symbol="BTC", market="perp", direction=1,
-            target_qty=1.0, size_share=1.0, order_type="MARKET",
-            trigger_price=None,  # MARKET — unknown at arm time
+            leg_ref_id="entry", symbol="BTC", market="perp", venue="BINANCE",
+            direction=1, target_qty=1.0, size_share=1.0, order_type="market",
+            trigger_price=None,  # MARKET
+            status=LegStatus.ARMED,
         )
         sl_leg = Leg(
-            leg_ref_id="sl", symbol="BTC", market="perp", direction=-1,
-            target_qty=1.0, size_share=1.0, order_type="STOP",
+            leg_ref_id="sl", symbol="BTC", market="perp", venue="BINANCE",
+            direction=-1, target_qty=1.0, size_share=1.0, order_type="stop",
             trigger_price=49_500.0,
+            status=LegStatus.ARMED,
         )
-        # Construct Order directly (no factory sugar)
-        order = Order(
+        order = Order.arm(
+            strategy_id="test", token="BTC", direction=1,
+            trigger=TriggerType.PRICE_ABOVE, trigger_price=50_000.0,
+            working_price_source="last",
+            armed_at=datetime.now(timezone.utc),
+            expires_at=None, sizing_ctx={},
             legs=(entry_leg, sl_leg),
             fill_policy=LegFillPolicy.UNWIND_ON_REJECT,
             contingency=ContingencyType.OTO,
@@ -134,6 +147,5 @@ class TestGenericMultiLegPostFillValidation:
         ctx.orders.simulate_fill(order.order_id, leg_idx=0, qty=1.0, price=49_000.0)
         rejection = ctx.orders.last_rejection_event()
         assert rejection is not None, (
-            "Post-fill validation must apply to ANY multi-leg Order with MARKET entry — "
-            "not just bracket-factory-constructed ones"
+            "Post-fill validation must apply to ANY multi-leg Order with MARKET entry"
         )

@@ -26,7 +26,7 @@ import pytest
 from v5.config import PortfolioConfig, StrategySpec
 from v5.position import Position, PositionManager
 from v5.simulator import SimulationState, _process_exits, _close_position
-from v5.signals import TokenSignals
+from v5.signals import TokenBarArrays
 from v5.universe import get_liquidation_fee_rate, EXCHANGE_LIQUIDATION_FEE
 
 
@@ -106,8 +106,8 @@ def _make_token_signals(
     high_array: np.ndarray | None = None,
     low_array: np.ndarray | None = None,
     funding_rate: float = 0.0,
-) -> TokenSignals:
-    """Build synthetic TokenSignals for liquidation tests."""
+) -> TokenBarArrays:
+    """Build synthetic TokenBarArrays for liquidation tests."""
     timestamps = _make_timestamps(n_bars)
     if close_array is None:
         close_array = np.full(n_bars, close_price, dtype=np.float64)
@@ -126,7 +126,7 @@ def _make_token_signals(
     stop_arr = np.full(n_bars, 2.0, dtype=np.float64)
     trail_arr = np.full(n_bars, 3.0, dtype=np.float64)
 
-    return TokenSignals(
+    return TokenBarArrays(
         token=token,
         strategy_id=strategy_id,
         n_bars=n_bars,

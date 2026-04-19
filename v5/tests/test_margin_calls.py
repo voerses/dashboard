@@ -26,7 +26,7 @@ import pytest
 from v5.config import PortfolioConfig, StrategySpec
 from v5.position import Position, PositionManager
 from v5.simulator import SimulationState, _process_margin_calls, _process_exits
-from v5.signals import TokenSignals
+from v5.signals import TokenBarArrays
 
 
 # ---------------------------------------------------------------------------
@@ -104,8 +104,8 @@ def _make_token_signals(
     n_bars: int = 20,
     close_price: float = 100.0,
     funding_rate: float = 0.0,
-) -> TokenSignals:
-    """Build synthetic TokenSignals for margin-call tests."""
+) -> TokenBarArrays:
+    """Build synthetic TokenBarArrays for margin-call tests."""
     timestamps = _make_timestamps(n_bars)
     close_array = np.full(n_bars, close_price, dtype=np.float64)
     high_array = close_array + 1.0
@@ -121,7 +121,7 @@ def _make_token_signals(
     stop_arr = np.full(n_bars, 2.0, dtype=np.float64)
     trail_arr = np.full(n_bars, 3.0, dtype=np.float64)
 
-    return TokenSignals(
+    return TokenBarArrays(
         token=token,
         strategy_id=strategy_id,
         n_bars=n_bars,

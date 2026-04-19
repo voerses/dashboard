@@ -2013,7 +2013,7 @@ class PaperPortfolioEngine:
         so each strategy gets its own ATR values.
         """
         from v5.simulator import _get_bar_data
-        from v5.signals import TokenSignals
+        from v5.signals import TokenBarArrays
 
         self._cached_bar_data.clear()
         for sid, token_sigs in all_signals.items():
@@ -2943,7 +2943,7 @@ class PaperPortfolioEngine:
 
         Clear ALL positions' exit_handlers before processing so they rebuild
         with fresh signal data via lazy init (simulator.py:456). In paper mode,
-        precompute_strategy_signals() creates NEW TokenSignals each tick with
+        precompute_strategy_signals() creates NEW TokenBarArrays each tick with
         +1 bar. Handlers holding old sig refs would IndexError on
         RSIExitHandler, MeanTargetHandler, or chandelier lookback.
 

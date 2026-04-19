@@ -88,12 +88,29 @@ class TriggerType(IntEnum):
     BAR_CLOSE   = 6   # fire on next bar close of declared entry/exit resolution
 
     def to_fix_trigger_type(self) -> int:
-        """Return FIX TriggerType(1100) integer code. M7 wire serialization."""
-        raise NotImplementedError("FIX wire serialization lands in M7")
+        """Return FIX TriggerType(1100) integer code (M7 AC-O2).
+
+        All PRICE/MARK variants map to FIX TriggerType=4 "PriceMovement".
+        Distinction between them (spot vs mark, above vs below) is carried
+        separately via TriggerPriceDirection(1109) and venue-level routing.
+        """
+        if self in (TriggerType.PRICE_ABOVE, TriggerType.PRICE_BELOW,
+                    TriggerType.MARK_ABOVE, TriggerType.MARK_BELOW):
+            return 4
+        # TIME_AT / BAR_CLOSE — no standard FIX TriggerType analog
+        raise NotImplementedError(
+            f"{self.name}: no FIX TriggerType(1100) analog (engine-internal only)"
+        )
 
     def to_fix_trigger_price_direction(self) -> str:
-        """Return FIX TriggerPriceDirection(1109) code ('U' or 'D'). M7."""
-        raise NotImplementedError("FIX wire serialization lands in M7")
+        """Return FIX TriggerPriceDirection(1109) — 'U' (up/above) or 'D' (down/below)."""
+        if self in (TriggerType.PRICE_ABOVE, TriggerType.MARK_ABOVE):
+            return "U"
+        if self in (TriggerType.PRICE_BELOW, TriggerType.MARK_BELOW):
+            return "D"
+        raise NotImplementedError(
+            f"{self.name}: no FIX TriggerPriceDirection(1109) analog"
+        )
 
 
 class ExecType(str, Enum):
@@ -136,8 +153,35 @@ class OrderStatus(IntEnum):
     CANCELLED        = 8   # explicitly cancelled (signal flip, etc.)
 
     def to_fix_ordstatus(self) -> str:
-        """Return FIX OrdStatus(39) single-char wire code. M7 wire serialization."""
-        raise NotImplementedError("FIX wire serialization lands in M7")
+        """Return FIX OrdStatus(39) single-char wire code (M7 AC-O2).
+
+        Engine-internal states (ARMED/TRIGGERED/RELEASED) map to OrdStatus='A'
+        "Pending New" per G8 decision + audit-log annotation via fix_custom_tag.
+        """
+        mapping = {
+            OrderStatus.ARMED:            "A",
+            OrderStatus.TRIGGERED:        "A",
+            OrderStatus.RELEASED:         "A",
+            OrderStatus.PARTIALLY_FILLED: "1",
+            OrderStatus.FILLED:           "2",
+            OrderStatus.CANCELLED:        "4",
+            OrderStatus.REJECTED:         "8",
+            OrderStatus.EXPIRED:          "C",
+        }
+        return mapping[self]
+
+    @property
+    def fix_custom_tag(self) -> int:
+        """Engine-internal custom tag 9001-9003 for ARMED/TRIGGERED/RELEASED
+        (G8 decision — audit-log annotation attached to OrdStatus='A')."""
+        tags = {
+            OrderStatus.ARMED:     9001,
+            OrderStatus.TRIGGERED: 9002,
+            OrderStatus.RELEASED: 9003,
+        }
+        if self in tags:
+            return tags[self]
+        return 0  # no custom tag for terminal states
 
 
 class LegStatus(IntEnum):
@@ -157,8 +201,21 @@ class LegStatus(IntEnum):
     REJECTED         = 7   # constraint/atomicity failure at release
 
     def to_fix_ordstatus(self) -> str:
-        """Return FIX OrdStatus(39) single-char wire code. M7 wire serialization."""
-        raise NotImplementedError("FIX wire serialization lands in M7")
+        """Return FIX OrdStatus(39) single-char wire code (M7 AC-O2).
+
+        LegStatus engine-internal ARMED/WORKING map to OrdStatus='A' per
+        same G8 pattern as Order-level. Terminal states map to standard FIX.
+        """
+        mapping = {
+            LegStatus.ARMED:            "A",
+            LegStatus.WORKING:          "A",
+            LegStatus.PARTIALLY_FILLED: "1",
+            LegStatus.FILLED:           "2",
+            LegStatus.CANCELLED:        "4",
+            LegStatus.REJECTED:         "8",
+            LegStatus.EXPIRED:          "C",
+        }
+        return mapping[self]
 
 
 class LegFillPolicy(Enum):
@@ -297,6 +354,12 @@ class Order:
     # writer consumes them via ``emitted_events()`` / ``emitted_closed_trades()``).
     _events: list = field(default_factory=list, compare=False, repr=False)
     _closed_trades: list = field(default_factory=list, compare=False, repr=False)
+    # M7 AC-O2: audit log for engine-internal state transitions (ARMED/
+    # TRIGGERED/RELEASED → OrdStatus='A' + custom tag 9001-9003). Populated
+    # by transition methods when they advance `state`; NOT persisted via to_json.
+    fix_audit_log: list = field(default_factory=list, compare=False, repr=False)
+    # M7 AC-O3: last exec report for on_order_rejected / on_order_filled surfacing.
+    last_exec_report: object = field(default=None, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         # Invariant (AC3 / T-M5-20): legs tuple is either empty (single-leg
@@ -342,6 +405,51 @@ class Order:
                     pass
                 else:
                     object.__setattr__(self, "state", derived)
+
+    def log_fix_state_change(self, new_state: "OrderStatus") -> None:
+        """Append a FIX audit-log entry describing a state transition (AC-O2).
+
+        Format: "<state_name>:OrdStatus=<wire_char>:tag=<custom_tag>".
+        ARMED/TRIGGERED/RELEASED get custom-tag annotations (9001/9002/9003).
+        Terminal states are logged without a tag.
+
+        Mutates the fix_audit_log list in-place (list is mutable-by-reference;
+        frozen dataclass invariant preserved).
+        """
+        wire = new_state.to_fix_ordstatus()
+        tag = new_state.fix_custom_tag
+        entry = f"{new_state.name}:OrdStatus={wire}"
+        if tag:
+            entry += f":tag={tag}"
+        self.fix_audit_log.append(entry)
+
+    @classmethod
+    def build_for_test(cls, *, order_id: int = 0x00000001, **overrides) -> "Order":
+        """Test-only factory for M7 unit tests needing a shaped Order without
+        wiring full sizing_ctx. Accepts order_id as int or str.
+        """
+        from datetime import datetime, timezone
+        oid = f"order-{order_id:08x}" if isinstance(order_id, int) else str(order_id)
+        defaults = dict(
+            strategy_id="test",
+            token="BTC",
+            direction=1,
+            trigger=TriggerType.PRICE_ABOVE,
+            trigger_price=50_000.0,
+            working_price_source="last",
+            armed_at=datetime.now(timezone.utc),
+            expires_at=None,
+            sizing_ctx={},
+            state=OrderStatus.ARMED,
+            filled_qty=0.0,
+            leaves_qty=0.0,
+            reject_reason=None,
+            strategy_params={},
+            window_end=0.0,
+            order_id=oid,
+        )
+        defaults.update(overrides)
+        return cls(**defaults)
 
     @classmethod
     def arm(

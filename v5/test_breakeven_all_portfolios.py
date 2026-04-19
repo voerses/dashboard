@@ -3,7 +3,7 @@
 
 Precomputes signals once (shared cache), then runs each portfolio twice:
   1. Baseline (no breakeven)
-  2. BE=0.5 (breakeven_atr=0.5 injected into all TokenSignals)
+  2. BE=0.5 (breakeven_atr=0.5 injected into all TokenBarArrays)
 
 Prints a comparison table and saves results to JSON.
 """
@@ -185,7 +185,7 @@ def simulate_portfolio_dynamic(all_signals, strategy_specs, config, allocator):
 
 
 def set_breakeven(all_signals, breakeven_atr):
-    """Set breakeven_atr on all TokenSignals in all strategies."""
+    """Set breakeven_atr on all TokenBarArrays in all strategies."""
     for sid, token_sigs in all_signals.items():
         for token, sig in token_sigs.items():
             sig.breakeven_atr = breakeven_atr

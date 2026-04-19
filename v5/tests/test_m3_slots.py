@@ -1,7 +1,7 @@
 """M3 acceptance tests — @dataclass(slots=True) on 5 dataclasses.
 
 Covers:
-  - AC8: Position, ClosedTrade, BarContext, TokenSignals, ScalingEvent all
+  - AC8: Position, ClosedTrade, BarContext, TokenBarArrays, ScalingEvent all
     use `@dataclass(slots=True)` — instances have `__slots__`, no `__dict__`.
   - AC15c: slots + field(default_factory=...) compatibility —
     pickle.dumps/loads roundtrip, copy.deepcopy roundtrip, all fields preserved.
@@ -103,8 +103,8 @@ class TestAC8SlotsApplied:
         assert not hasattr(bc, "__dict__")
 
     def test_token_signals_has_slots(self):
-        from v5.signals import TokenSignals
-        assert hasattr(TokenSignals, "__slots__")
+        from v5.signals import TokenBarArrays
+        assert hasattr(TokenBarArrays, "__slots__")
 
 
 # ===================================================================
