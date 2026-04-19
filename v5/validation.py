@@ -790,3 +790,97 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+
+# ============================================================
+# M7 — WalkForwardRunner (AC-V1)
+# ============================================================
+#
+# Unified WF outer loop used by v5/portfolio_backtest + v5/run_paper_multi.
+# Fresh Strategy instance per fold by default (reuse_instance=True opts
+# into on_reset()-between-folds mode). Strategies NEVER see WF masks —
+# signal generation runs on fold-scoped data only.
+
+from typing import Callable, List, Optional, Sequence
+
+
+class WalkForwardRunner:
+    """Outer-loop walk-forward orchestrator (M7 AC-V1)."""
+
+    def __init__(
+        self,
+        strategy_factory: Callable[[], object],
+        n_folds: int,
+        train_bars: int,
+        oos_bars: int,
+        reuse_instance: bool = False,
+        validation_window: Optional[str] = None,
+    ):
+        self.strategy_factory = strategy_factory
+        self.n_folds = n_folds
+        self.train_bars = train_bars
+        self.oos_bars = oos_bars
+        self.reuse_instance = reuse_instance
+        self.validation_window = validation_window
+
+    def run(self, tokens: Sequence[str], seed: int = 0) -> "WalkForwardResult":
+        """Execute N folds. Returns aggregated result.
+
+        Fresh-per-fold (default): new strategy instance every fold.
+        Reuse mode: same instance across folds; on_reset() between each.
+        """
+        from v5.universe_context import UniverseContext
+
+        fold_results: List[object] = []
+        strategy = None
+
+        for fold_idx in range(self.n_folds):
+            if self.reuse_instance:
+                if strategy is None:
+                    strategy = self.strategy_factory()
+                    strategy.on_start(portfolio_config=None)
+                else:
+                    strategy.on_reset()
+            else:
+                strategy = self.strategy_factory()
+                strategy.on_start(portfolio_config=None)
+
+            # Build fold-scoped ctx. WF fold boundaries populate fold_id/window.
+            # Strategy.generate(ctx, ...) never sees masks — only fold-scoped data.
+            fold_start = fold_idx * (self.train_bars + self.oos_bars)
+            fold_end = fold_start + self.train_bars + self.oos_bars
+            ctx = UniverseContext.build_test(
+                tokens=list(tokens),
+                bars=fold_end + 10,  # +10 buffer for bar indexing
+                seed=seed + fold_idx,  # fold-scoped seed
+                fold_id=fold_idx,
+                fold_window=(fold_start, fold_end),
+            )
+
+            # Drive one generate() call per OOS bar (stubbed — Phase-4 Wave B
+            # scaffold; Wave E wires BarProcessor for real multi-bar runs)
+            for bar_idx in range(self.train_bars, self.train_bars + self.oos_bars):
+                try:
+                    strategy.generate(ctx, bar_idx)
+                except Exception:
+                    # AC-S5 error containment — logged in production path via
+                    # BarProcessor; here we tolerate so the runner doesn't abort
+                    pass
+
+            if not self.reuse_instance:
+                strategy.on_stop(reason="fold_complete")
+
+            fold_results.append({
+                "fold_id": fold_idx,
+                "fold_window": (fold_start, fold_end),
+            })
+
+        if self.reuse_instance and strategy is not None:
+            strategy.on_stop(reason="wf_complete")
+
+        class WalkForwardResult:
+            def __init__(self, folds, metrics):
+                self.folds = folds
+                self.metrics = metrics
+
+        return WalkForwardResult(folds=fold_results, metrics={})
