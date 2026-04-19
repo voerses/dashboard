@@ -185,9 +185,13 @@ class TestAC01DirectoryExists:
         (run_sentinel, sentinel_metrics, breach_detector, stop_store,
         paper_shadow), leaving 41 files to copy -- including __init__.py.
         """
+        # M1 shipped with 41; M2/M3/M4/M5/M6/M7 added modules (orders, dust_handler,
+        # orders_log, backtest, streaming_consolidator, rolling_cache, candle_aggregator,
+        # bar_processor, clock, strategy_api extensions, fill, indicators, universe_context,
+        # etc.). Floor is 41 (M1 guarantee); ceiling not pinned — new modules are additive.
         py_files = list(V5_DIR.glob("*.py"))
-        assert len(py_files) == 41, (
-            f"Expected 41 .py files in v5/, found {len(py_files)}: "
+        assert len(py_files) >= 41, (
+            f"Expected ≥ 41 .py files in v5/ (M1 floor); found {len(py_files)}: "
             f"{sorted(f.name for f in py_files)}"
         )
 
@@ -256,8 +260,13 @@ class TestAC04DeadFilesAbsent:
 # AC5 + AC10: pytest v5/tests/ passes
 # ===================================================================
 
+@pytest.mark.spawns_pytest_subprocess
 class TestAC05And10TestSuitePass:
-    """AC5+AC10: pytest v5/tests/ runs with 0 failures, 0 errors."""
+    """AC5+AC10: pytest v5/tests/ runs with 0 failures, 0 errors.
+
+    Marked `spawns_pytest_subprocess` — conftest auto-skips at depth>=2
+    to prevent infinite recursion.
+    """
 
     def test_ac05_v5_tests_pass(self):
         """pytest v5/tests/ -x -q must exit with code 0.

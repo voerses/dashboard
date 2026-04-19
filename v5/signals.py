@@ -540,10 +540,7 @@ def precompute_strategy_signals(
             sr_bear_target_mult = float(getattr(sr, 'bear_target_mult', 0.0))
             sr_bear_max_hold = int(getattr(sr, 'bear_max_hold', 0))
             # Conviction score: use explicit if provided by strategy, else None.
-            # (Previously had a fallback `sm / max(sm_max, 1e-10)` that normalized
-            # from size_multiplier — removed in M1 AC11 sizing purge. The dead line
-            # was never reachable because it referenced `sm`/`sm_max` that no longer
-            # exist in this scope — AC10 cleanup.)
+            # (Legacy fallback normalization was removed in M1 AC11 sizing purge.)
             sr_conviction = None
             if getattr(sr, 'conviction_score', None) is not None:
                 sr_conviction = _to_array(sr.conviction_score, n_safe)

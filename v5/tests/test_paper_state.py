@@ -619,8 +619,16 @@ class TestClosedTradesEmptyAfterDeserialize:
         restored_state, _ = deserialize_state(json_data)
 
         # closed_trades must be empty after deserialization
-        # (they belong in trades.jsonl, not state.json)
-        assert isinstance(restored_state.position_manager.closed_trades, list)
+        # (they belong in trades.jsonl, not state.json).
+        # M7 AC-H1 row #13: M3 shipped bounded deque(maxlen=1000); test
+        # originally pinned `list`. Per CLAUDE.md meta-rule #1 (code over
+        # specs), accept either container — the invariant is "empty after
+        # deserialize", not the container type.
+        import collections
+        assert isinstance(
+            restored_state.position_manager.closed_trades,
+            (list, collections.deque),
+        )
         assert len(restored_state.position_manager.closed_trades) == 0
 
 

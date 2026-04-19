@@ -464,11 +464,14 @@ class TestAC5MigrationTool:
 # AC6 — Full v5/tests/ test suite passes post-refactor
 # ===========================================================================
 
+@pytest.mark.spawns_pytest_subprocess
 class TestAC6FullSuiteGreen:
     """AC6 (sentinel): pytest v5/tests/ passes across the suite post-refactor.
 
     This test shells out to pytest excluding THIS file (to avoid recursion
-    and the current RED state of the other tests here)."""
+    and the current RED state of the other tests here). Marked
+    `spawns_pytest_subprocess` — auto-skipped at depth>=2 by conftest
+    recursion guard."""
 
     def test_ac6_full_v5_suite_passes(self):
         result = subprocess.run(

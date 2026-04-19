@@ -96,6 +96,25 @@ class TriggerType(IntEnum):
         raise NotImplementedError("FIX wire serialization lands in M7")
 
 
+class ExecType(str, Enum):
+    """FIX ExecType(150) — what an ExecutionReport describes (M7 AC-O5).
+
+    FIX-standard values (9 total). Partial vs final fill is disambiguated via
+    OrdStatus(39): OrdStatus=1 (PartiallyFilled) vs OrdStatus=2 (Filled).
+    Strategy-level dispatch uses `on_order_partial_fill` vs `on_order_filled`
+    callback names.
+    """
+    NEW = "0"               # order accepted by venue
+    TRADE = "F"             # fill (partial or final; use OrdStatus to distinguish)
+    CANCELED = "4"
+    REJECTED = "8"
+    TRIGGERED = "L"         # ARMED → TRIGGERED (pre-fill predicate hit)
+    EXPIRED = "C"
+    TRADE_CANCEL = "H"      # cancel a prior fill (venue bust)
+    TRADE_CORRECT = "G"     # correct a prior fill (venue amendment)
+    ORDER_STATUS = "I"      # status response (no trade)
+
+
 class OrderStatus(IntEnum):
     """Order lifecycle state (AC32).
 

@@ -208,8 +208,14 @@ class TestAC15cSlotsDefaultFactoryCompat:
 # AC15b — M2 regression guard
 # ===================================================================
 
+@pytest.mark.spawns_pytest_subprocess
 class TestAC15bM2Regression:
-    """After M3 changes (slots/float32/incremental), M2 tests still pass 145/145."""
+    """After M3 changes (slots/float32/incremental), M2 tests still pass 145/145.
+
+    Marked `spawns_pytest_subprocess` — conftest auto-skips at depth>=2
+    to prevent infinite recursion when the full v5 suite gets re-run inside
+    another meta-test's subprocess.
+    """
 
     def test_m2_test_suite_passes(self):
         """Run `pytest v5/tests/test_m2_*.py` as a subprocess; must be green.

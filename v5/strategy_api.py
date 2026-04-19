@@ -1,13 +1,35 @@
-"""V5 Portfolio Backtest — Strategy-facing API (ScaleAction, LinkedScalePolicy).
+"""V5 Portfolio Backtest — Strategy-facing API.
 
-Re-exports :class:`v5.strategy_spec.StrategySpec` so downstream callers can
-import the strategy-facing surface from a single module.
+Legacy (pre-M7): `ScaleAction`, `LinkedScalePolicy`, and re-exports
+`StrategySpec`. Preserved verbatim — high blast radius (31+ importers via
+v5/simulator.py).
+
+M7 additions (AC-S1): `Strategy` Protocol with 19 callbacks,
+`BaseStrategy` default impls, `UniverseSignals` / `TokenSignal` /
+`SizingRequest` / `ExitCheck` supporting types.
+
+Per AC-S5 error containment contract (engine-level — enforced by BarProcessor):
+  - `on_start` / `on_reset` → FAIL-FAST (engine aborts on exception)
+  - `on_stop` → logged; shutdown continues
+  - `generate` → logged; engine substitutes EMPTY_SIGNALS
+  - `check_scale` / `check_exit` → logged; treated as `return None`
+  - `filter_entry` → logged; treated as `return True` (fail-open)
+  - `on_order_*` / `on_position_*` → logged; dispatch continues
+  - `view_state` → logged; dashboard shows {"error": ...}
 """
+from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any, Literal, Optional, Protocol, runtime_checkable
 
+from v5.data.streams import Subscription
 from v5.strategy_spec import StrategySpec  # noqa: F401 — re-export
+
+
+# =============================================================
+# Legacy types (pre-M7, preserved for simulator.py compatibility)
+# =============================================================
 
 
 @dataclass
@@ -37,3 +59,172 @@ class LinkedScalePolicy(Enum):
     INDEPENDENT = "independent"
     PROPORTIONAL = "proportional"
     ABSOLUTE = "absolute"
+
+
+# =============================================================
+# M7 Strategy API — Unified Protocol + supporting types (AC-S1)
+# =============================================================
+
+
+@dataclass
+class SizingRequest:
+    """Per-bar sizing intent baked into TokenSignal (M7 stub; M8 extends).
+
+    Fields needed for s524m parity (leverage pre-indexed per brief §78-88).
+    """
+    intent: Literal["FIXED_FRACTION", "FIXED_NOTIONAL", "RISK_PER_TRADE"] = "FIXED_FRACTION"
+    fraction_of_equity: float = 0.0
+    leverage: float = 1.0
+    # M8 extends: reduce_only, margin_mode, notional_usd, risk_budget
+
+
+@dataclass
+class TokenSignal:
+    """Per-token signal output from Strategy.generate(). Unifies v4's
+    TokenSignals (per-token) + PortfolioSignals (portfolio) per AC-S6.
+    """
+    token: str
+    direction: int = 0                  # 1 long / -1 short / 0 none
+    priority: Optional[float] = None    # ranking only; NOT sizing
+    sizing: Optional[SizingRequest] = None
+    # Optional per-trade params
+    stop_mult: float = 0.0
+    trail_mult: float = 0.0
+    target_mult: float = 0.0
+    min_hold: int = 0
+    max_hold: int = 0
+
+
+@dataclass
+class UniverseSignals:
+    """Whole-universe signal output per bar."""
+    bar_idx: int = 0
+    signals: dict[str, TokenSignal] = field(default_factory=dict)
+
+
+@dataclass
+class ExitCheck:
+    """Returned by Strategy.check_exit() to request a position exit."""
+    reason: str
+    price: Optional[float] = None
+
+
+@runtime_checkable
+class Strategy(Protocol):
+    """Unified Strategy contract — 19 Protocol methods.
+
+    15 event callbacks + 4 declaration/query methods (`required_data`,
+    `generate`, `check_scale`, `check_exit`, `filter_entry`).
+
+    Protocol is `@runtime_checkable`; `isinstance(obj, Strategy)` checks
+    that all 19 methods are present (PEP 544 duck typing).
+    """
+
+    # Lifecycle (3) — FAIL-FAST on on_start/on_reset
+    def on_start(self, portfolio_config) -> None: ...
+    def on_stop(self, reason: str) -> None: ...
+    def on_reset(self) -> None: ...
+
+    # Data declaration (1)
+    def required_data(self) -> list[Subscription]: ...
+
+    # Signal generation (1)
+    def generate(self, ctx, bar_idx: int) -> UniverseSignals: ...
+
+    # Per-position per-bar checks (3)
+    def check_scale(self, pos, bar_ctx) -> Optional[ScaleAction]: ...
+    def check_exit(self, pos, bar_ctx) -> Optional[ExitCheck]: ...
+    def filter_entry(self, candidate, bar_ctx) -> bool: ...
+
+    # FIX-aligned execution event callbacks (7) — maps to ExecType(150) states
+    def on_order_accepted(self, order) -> None: ...
+    def on_order_rejected(self, order, reason: str) -> None: ...
+    def on_order_cancelled(self, order, reason: str) -> None: ...
+    def on_order_triggered(self, order) -> None: ...
+    def on_order_partial_fill(self, order, fill) -> None: ...
+    def on_order_filled(self, order, fill) -> None: ...
+    def on_order_expired(self, order) -> None: ...
+
+    # Position lifecycle (3)
+    def on_position_opened(self, position) -> None: ...
+    def on_position_changed(self, position, delta) -> None: ...
+    def on_position_closed(self, closed_trade) -> None: ...
+
+    # Introspection (1)
+    def view_state(self) -> dict: ...
+
+
+class BaseStrategy:
+    """Default no-op implementations for all 19 Protocol methods.
+
+    Strategies inherit this to override only the methods they need.
+    `generate()` MUST be overridden (raises NotImplementedError).
+    """
+
+    exception_counter: int = 0   # AC-S5 observability; BarProcessor increments
+
+    # Lifecycle
+    def on_start(self, portfolio_config) -> None:
+        return None
+
+    def on_stop(self, reason: str) -> None:
+        return None
+
+    def on_reset(self) -> None:
+        return None
+
+    # Data declaration
+    def required_data(self) -> list[Subscription]:
+        return []
+
+    # Signal generation — MUST be overridden
+    def generate(self, ctx, bar_idx: int) -> UniverseSignals:
+        raise NotImplementedError(
+            f"{type(self).__name__} must override generate() to produce UniverseSignals"
+        )
+
+    # Per-position checks
+    def check_scale(self, pos, bar_ctx) -> Optional[ScaleAction]:
+        return None
+
+    def check_exit(self, pos, bar_ctx) -> Optional[ExitCheck]:
+        return None
+
+    def filter_entry(self, candidate, bar_ctx) -> bool:
+        return True
+
+    # Exec event callbacks — 7 no-op defaults
+    def on_order_accepted(self, order) -> None:
+        return None
+
+    def on_order_rejected(self, order, reason: str = "") -> None:
+        return None
+
+    def on_order_cancelled(self, order, reason: str = "") -> None:
+        return None
+
+    def on_order_triggered(self, order) -> None:
+        return None
+
+    def on_order_partial_fill(self, order, fill=None) -> None:
+        return None
+
+    def on_order_filled(self, order, fill=None) -> None:
+        return None
+
+    def on_order_expired(self, order) -> None:
+        return None
+
+    # Position lifecycle — 3 no-op defaults
+    def on_position_opened(self, position) -> None:
+        return None
+
+    def on_position_changed(self, position, delta=None) -> None:
+        return None
+
+    def on_position_closed(self, closed_trade) -> None:
+        return None
+
+    # Introspection
+    def view_state(self) -> dict:
+        return {}

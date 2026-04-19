@@ -239,10 +239,9 @@ class PortfolioConfig:
     # interned ``BarSpec.from_minutes(60)``.
     #
     # When set, the override is validated against the coarsest strategy
-    # ``exit`` subscription: ``base_resolution.period_ns`` MUST be
-    # ``<= min(strategy.exit_resolutions).period_ns``. Violation raises
-    # ``ValueError`` at resolution time — a coarser base cannot drive a
-    # finer exit handler.
+    # ``exit`` subscription via the per-strategy exit BarSpec lookup.
+    # Violation raises ``ValueError`` at resolution time — a coarser base
+    # cannot drive a finer exit handler.
     base_resolution: Optional["BarSpec"] = None
 
     def __post_init__(self):

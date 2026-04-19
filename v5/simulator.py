@@ -2848,3 +2848,11 @@ def run_combined_strategy_archive(state: "SimulationState") -> list:
                 ),
             })
     return archive
+
+
+# M7 AC-H1: legacy-name alias for paper_engine.py:3042 compatibility.
+# `_process_entries` + `_process_pending_entries` were unified into
+# `_process_orders` during M5. Paper_engine still references the old name.
+# Alias here avoids touching paper_engine (blast-radius) while preserving
+# the unified implementation.
+_process_entries = _process_orders
