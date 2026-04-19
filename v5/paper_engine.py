@@ -4555,3 +4555,65 @@ class AlertManager:
 # ``PaperEngine = PaperPortfolioEngine`` is intentionally removed here so
 # the shim is the exported symbol. Full integration of PaperPortfolioEngine
 # with BarProcessor lands in Task 16a.
+
+
+# ---------------------------------------------------------------------------
+# M6 — test-only helper for paper migration tests (Task 17 scaffold).
+#
+# Wave F wires the full 8-site flag-branch dispatch into PaperEngine /
+# PaperPortfolioEngine. The helper below lets Phase-3 acceptance tests
+# exercise the flag mechanism (T-D8 flag=OFF path) without pulling in the
+# full paper runner infrastructure (which requires state lock, venue
+# config, real PriceMonitor, etc.).
+# ---------------------------------------------------------------------------
+
+class _M6TestPaperEngine:
+    """Minimal M6 paper-engine shim for Phase-3 tests.
+
+    Honors `data_engine.use_data_engine_flag`:
+      - False → reports active_source_name()=='PriceMonitor' (legacy path)
+      - True  → reports active_source_name()=='DataEngine'  (M6 path)
+
+    Wave F promotes this into the real PaperEngine.__init__ dispatch
+    across the 8 migration sites (design §4).
+    """
+
+    def __init__(self, data_engine=None):
+        self._data_engine = data_engine
+        self._flag_on = bool(
+            data_engine is not None and getattr(data_engine, "use_data_engine_flag", False)
+        )
+
+    def active_source_name(self) -> str:
+        return "DataEngine" if self._flag_on else "PriceMonitor"
+
+    def replay_fixture_bars(self, path):
+        """Replay a recorded 1h-proxy fixture through the active path.
+
+        Wave F: real implementation decodes the JSONL fixture and routes
+        through either PriceMonitor (flag=OFF) or DataEngine (flag=ON).
+        For Phase 3 RED gate this raises unless a fixture is present.
+        """
+        import json
+        from pathlib import Path as _Path
+        p = _Path(path)
+        if not p.exists():
+            raise FileNotFoundError(f"replay fixture not found: {p}")
+        bars = []
+        with p.open() as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                bars.append(json.loads(line))
+        return bars
+
+
+def build_paper_engine_for_test(*, data_engine=None) -> _M6TestPaperEngine:
+    """M6 — Phase-3 test helper for paper migration tests (T-D8).
+
+    Returns a lightweight paper-engine shim honoring the
+    `data_engine.use_data_engine_flag` feature flag. Wave F replaces this
+    with the real PaperEngine construction behind the same flag.
+    """
+    return _M6TestPaperEngine(data_engine=data_engine)

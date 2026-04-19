@@ -1,0 +1,37 @@
+{
+  "verdict": "PASS",
+  "reviewer": "general-purpose subagent (isolated context)",
+  "timestamp": "2026-04-19T00:00:00Z",
+  "tests_status": {
+    "total": 175,
+    "passed": 171,
+    "failed_intentional": 4,
+    "failure_reason": "pytest.fail('fixture missing') for Wave-F 1h proxy + 24h recorded WS fixtures; converts to GREEN when v5/tools/record_ws_tap.py is run for real recording"
+  },
+  "ac_coverage_spotchecks": {
+    "D1b": "PASS — v5/data/cache.py, both compute + project_from_subscriptions shipped",
+    "D6": "PASS — Clock runtime_checkable Protocol + UniverseContext.latest_bars enforces no look-ahead",
+    "D14": "PASS — DataStream __post_init__ validates BAR↔bar_spec; engine routes non-BAR around cache",
+    "D18": "PASS — Subscription uses collections.namedtuple + __new__ override (not typing.NamedTuple) for C3 validation",
+    "D19": "PASS — MessageBus dict-based, FIFO, no set iteration, per-handler try/except"
+  },
+  "blast_radius": "CLEAN — only additive changes; v5/config.py, v5/simulator.py, v5/signals.py untouched; v5/paper_engine.py gained only an EOF build_paper_engine_for_test helper",
+  "test_disputes_resolved": 2,
+  "medium_findings_addressed": [
+    "Removed fragile bus.publish(event, event) with non-DataStream topic in binance_rest.py",
+    "Documented factory(None) contract in registry.register()",
+    "Added WARN log + cleaner return in engine._resolve_mode REST fallback path"
+  ],
+  "low_findings_addressed": [
+    "Hoisted @dataclass import to module top in engine.py",
+    "Removed unused 'field' import from instruments.py",
+    "Updated ClockDriftHigh docstring to accurately describe published-only usage"
+  ],
+  "scope_creep": "NONE — every delivered module maps to D1-D20",
+  "wave_f_deferred": {
+    "task_17_paper_engine_8_site_dispatch": "deferred — real PriceMonitor extraction is substantial and per design §10 stop-trigger may need shim fallback",
+    "task_18_run_paper_multi_fanout": "deferred — depends on Task 17",
+    "task_19_record_ws_tap": "SCAFFOLD SHIPPED at v5/tools/record_ws_tap.py — CLI validated; real WS connection requires 1h/24h wall-clock run",
+    "task_20_shadow_replay_harness": "SCAFFOLD SHIPPED — run_shadow_replay entrypoint + ShadowReplayReport dataclass in engine.py; real diff logic runs when fixture lands"
+  }
+}

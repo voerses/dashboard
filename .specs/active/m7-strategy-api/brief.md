@@ -4,6 +4,20 @@
 
 ---
 
+## Meta-Rule: design over code (M5-M10 v5 rebuild mode)
+
+This milestone operates under the **design over code** meta-rule, inherited from the M5-M10 collective v5 rebuild policy. The v5 rebuild is a redesign, not incremental maintenance. Legacy behaviors exposed by the rebuild are **fixed, not preserved**, unless a hard parity gate explicitly requires preservation (e.g. hourly-only trade archives bit-identical per AC14).
+
+**Consequences**:
+- Hourly-only strategies: bit-identical backtest preservation (AC14-style).
+- Non-trivial migrations: shadow-replay validation (AC41-style, 4 ULP / 5 bps / 10 bps tolerances) with documented per-strategy deltas in `fleet_behavior_delta.md`.
+- Determinism (AC24-style within-build): absolute.
+- Sign-off thresholds for documented behavior changes: ≤20 bps auto / 20-100 bps quant / >100 bps design review.
+
+**Sunset**: meta-rule applies to M5-M10 (the v5 rebuild). Post-M10 reverts to CLAUDE.md default (`code over specs`).
+
+---
+
 ## Problem
 
 v4 strategies interact with the engine through multiple inconsistent interfaces:
@@ -168,3 +182,42 @@ Per-strategy v4 -> v5 migration cost (user-driven, not part of M7 scope — refe
 - Unified signal path produces identical results for both per-token-style and portfolio-style strategies
 - All v5 tests pass
 - Walk-forward validation produces identical fold results when run through v5/validation.py
+
+---
+
+## M4 Impact (scope refinement — triple subscription is starting point)
+
+M4 introduces `StrategySpec.bar_subscriptions: dict[str, BarSpec]` with three canonical keys `{signal, entry, exit}`. M7 must decide whether to freeze this triple or extend to fully-generic named subscriptions. This brief requires revision before M7 starts:
+
+- **Key decision for M7**: freeze the triple OR extend to generic N-role subscriptions (Lean-style `subscribe(role, spec)` where role is any string like `regime`, `alpha`, `risk`). Recommendation: extend — professional stacks use 3-5 roles routinely (Jane Street / Two Sigma multi-horizon alpha stacks). Backward-compatible: existing triple strategies still work if `{signal, entry, exit}` are reserved canonical names.
+- **Callback surface formalization** (new M7 scope):
+  - `on_signal(bar, context)` — fires on `signal` bar close
+  - `on_entry_bar(bar, pending)` — fires on `entry` bar close
+  - `on_exit_bar(bar, positions)` — fires on `exit` bar close
+  - `on_armed`, `on_triggered`, `on_filled`, `on_expired`, `on_rejected`, `on_cancelled` — PendingEntry state-transition hooks
+  - `on_scale(pos, ctx)` — Stage 2 scaling hook
+- **PendingEntry integration**: strategies emit `PendingEntry` via a factory (`self.arm(...)`) instead of populating dicts directly. Strategies do not mutate the state enum — they observe via callbacks.
+- **Role-to-callback routing is engine's job**: strategy declares subscriptions; engine dispatches the right callback based on which bar's close fired.
+- **~5-8 new ACs needed** for callback contract, subscription registry, invalid-subscription validation, strategy-facade API surface.
+- **Preserve M4 invariants**: role constraint (`signal.period >= entry.period`), default normalization, look-ahead safety.
+
+---
+
+## M5 Impact — Additional work M5 leaves for M7
+
+M5 ships `v5/orders.py` with FIX-aligned Order / Leg / OrderStatus / TriggerType / LegFillPolicy / ContingencyType / TimeInForce, but defers venue-side wire serialization + post-fill unwind hook to M7. Items M7 must address (per M5 design.md Round 2):
+
+- **FIX wire serialization helpers** — `OrderStatus.to_fix_ordstatus()`, `TriggerType.to_fix_trigger_type()` and `to_fix_trigger_price_direction()`, `LegStatus.to_fix_ordstatus()` are stubbed in M5 (`raise NotImplementedError`). M7 fills them when adding venue submission. Need explicit FIX 39 wire-mapping spec for engine-internal states ARMED/TRIGGERED/RELEASED (no direct FIX equivalent — likely map to "0 New" + audit log annotation; M7 decides convention).
+- **`_order_reject_event` hook** — M5 designs the UNWIND_ON_REJECT cascade but the venue-rejection entry point is M7 scope. M5 covers the pre-fill atomic path only. M7 wires the post-fill entry point so live trading can handle venue REJECTED exec reports that arrive after a sibling leg already filled.
+- **`Order.venue_order_id: str | None`** population — M5 ships the field as a stub (always None in paper/backtest). M7 wires venue-ack population for live mode (FIX OrderID(37)).
+- **Strategy-facing bracket order API** — strategies should call `self.arm_bracket(entry=..., sl=..., tp=...)` which constructs `Order(legs=[entry, sl, tp], fill_policy=OTO_BRACKET, contingency=OTO)`. M7 owns the strategy-side factory surface on top of M5's `Order` primitives.
+
+## M6 Impact — Additional work M6 leaves for M7
+
+M6 ships `v5/data/` with `DataEngine`, `DataClientRegistry`, `MessageBus`, `MultiInstrumentCache`, Clock Protocol + LiveClock, gap detection, BinanceWSClient + BinanceRESTClient + ParquetReplayClient, and a feature-flagged paper migration. Items deferred to M7 (per M6 design.md §15):
+
+- **AC-D6 AST scan in strategy loader** — M6 ships `Clock` Protocol + `LiveClock` + prohibition text in docstrings. M7 wires the AST-based enforcement into `v5/engine.py::_load_strategy_fn` (or its M7 replacement) — raising at strategy `__init__` if the source contains direct `time.time()` / `time.time_ns()` / `datetime.now()` / `time.monotonic()` / `time.perf_counter()`. Test target: strategy with banned call raises at load, not first tick.
+- **`PaperConfig.use_data_engine` → True live rollout** — M6 ships flag + 24h shadow replay hard merge gate. M7 flips the flag per-strategy after live ops review once the paper runner swaps from v4 to v5. The v4→v5 paper runner swap is M7's scope; M6 only validates the architecture bit-identically against the recording.
+- **`VenueCapabilities.supported_transport_modes` field** — additive field M7 can add when strategies need `venue.supports(TransportMode.PUSH)` symmetry with `venue.supports(DataKind.TRADE)`. Not M6 blocker; M7 adds when the strategy API requires it.
+- **`arm_bracket(entry, sl, tp)` factory** (from M5 carryover) — now that M6 ships the data pipeline, M7 can exercise bracket arming on real bar events end-to-end (`bar.on_bar → arm_bracket → M5 Order pre-fill atomic → bus publish`).
+- **Backtest `use_data_engine` default flip** — M6 ships `BacktestConfig.use_data_engine: bool = False`. M9+ flips default to True once the vectorised numpy-array path is rebuilt via MessageBus dispatch without a latency regression.
