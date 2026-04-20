@@ -297,16 +297,55 @@ Rollback plan per cluster: A (revert wiring commit + reinstate xfails). B (each 
 - AC-S10 positive-assertion guards run BEFORE tolerance comparisons to reject silent-zero scaffolding.
 - Memory-growth test (AC #8) = 24h replay fixture + RSS/tracemalloc asserts (NOT live soak).
 
-## 13. Open questions — NEED USER DECISION BEFORE PHASE 3
+## 13. Open questions — RESOLVED 2026-04-20 via quant-prop-shop expert review
 
-1. **RESOLVED 2026-04-20** — s524m baseline regenerated year-by-year via v4 engine. Per-year total_returns: 2022=+176.0%, 2023=+263.5%, 2024=+69.4%, 2025=+491.0%, Q1-2026=+39.4%. Annual sum = +1039.3% (close to memory's 1,094% but data has since grown; JSON metrics stored at `results/v4/s524m_12mo_100k_metrics.json` after each run). AC-S10 parity pattern: run v5 year-by-year (5 runs), assert per-metric tolerances on EACH year, assert annual sum matches v4's 1039.3% ±0.5%. Fixture at `v5/tests/fixtures/m7_s524m_parity/v4_reference_metrics.json` becomes a 5-element array (one per year) — Phase 3 regenerates it using the command template in brief AC-S10.
+### Q1 — s524m baseline [RESOLVED]
+Per-year v4 runs: 2022=+176.0%, 2023=+263.5%, 2024=+69.4%, 2025=+491.0%, Q1-2026=+39.4%. Annual sum = +1039.3%. AC-S10 parity pattern: 5 per-year runs × per-metric tolerance classes; annual sum matches v4 ±0.5%. Fixture at `v5/tests/fixtures/m7_s524m_parity/v4_reference_metrics.json` becomes a 5-element array — Phase 3 regenerates it.
 
-2. **Bridge-signal builder field inventory.** Confirm full 40-field `TokenBarArrays` can be synthesized from `ctx.data._arrays[token]` alone. If `atr`, `rolling_adv`, `per_bar_is_perp` or combined-strategy fields assembled ONLY in `precompute_strategy_signals`, cleanest wiring is to route bridge output through `precompute_strategy_signals`' post-processing. **Needs design signoff before committing.**
+### Q2 — Bridge-signal builder field source [MODIFIED]
+Start with (a) synthesize from `ctx.data._arrays[token]` directly (DataEngine as single market-data source of truth), but **add a hard per-field byte-hash diff gate** before touching Cluster B. `precompute_strategy_signals` outputs are strategy-layer overlays (analogous to FIX `StrategyParameters 957/958`), not authoritative market data — do NOT merge them into the bridge source.
 
-3. **`sizing_legacy.compute_size` initial input.** Is the clamp pipeline self-sufficient (`notional = equity × fraction`) or does it require an upstream `compute_size()` value? Verification at `v5/sizing/` needed before `sizing_legacy.py` delete.
+**Phase-3 deliverable** (BEFORE bridge edit lands):
+- Add fixture `test_token_bar_arrays_field_inventory.py` that diffs `set(TokenBarArrays.__dataclass_fields__)` vs `set(ctx.data._arrays[tok].keys())`. Land a MARKDOWN gap table in `reviews/` directory.
+- Single-token smoke (design §3.3) byte-hashes EACH of 40 fields individually (not whole-object). Per-field hashing tells which field diverges when metrics drift.
+- Fallback (b) `precompute_strategy_signals` post-processing permitted ONLY if the gap table shows ≥3 fields missing from ctx.data — document the split in `ARCHITECTURE.md`.
 
-4. **WalkForwardRunner M8 vs M9 unification.** Can single `__init__` switch replace `__new__` dispatch without breaking ~30 existing M8-xfail callers? Assume yes; verify by running full AC-S10 suite before commit.
+### Q3 — `sizing_legacy.py` delete [ACCEPTED — with prerequisites]
+Clamp pipeline IS self-sufficient via `SizingIntent.FIXED_FRACTION` at `v5/sizing/intents.py:31,81`. Current `simulator.py:1562-1586` uses `FIXED_NOTIONAL` and feeds `compute_size()` output — that's legacy carryover, not a pipeline requirement. `_LegacyKellySizing.compute_size` at `sizing_legacy.py:42-57` is already duplicated by clamp #1 (adv_cap) + clamp #2 (concentration).
 
-5. **`use_data_engine` flag removability.** If third-party tooling sets `use_data_engine=False`, removing breaks them. Recommend: keep flag, make `True` default, `DeprecatedPathError` on `False` for one release — OR delete outright. **User preference?**
+**Phase-3 deliverables** (test-FIRST):
+- `test_sizing_fixed_fraction_equivalence.py`: 1000 seeded `(equity, adv, edge, lev)` tuples — clamp pipeline with `FIXED_FRACTION` produces byte-identical notional to `_LegacyKellySizing.compute_size()`.
+- Migrate `simulator.py:1562,1912` + `paper_engine.py:1629` to `FIXED_FRACTION`.
+- **Also delete** `except Exception: pass` at `simulator.py:1645-1648` — it currently MASKS clamp-pipeline failures (silent sizing bypass).
+- Only THEN delete `sizing_legacy.py`.
 
-6. **AC #25 smoke test practicality.** 30-60 min wall-clock is long for pytest. Options: (a) `@pytest.mark.slow` opt-in, (b) TestClock-accelerated synthetic WS traffic. **User preference?**
+### Q4 — WalkForwardRunner unification [DEFERRED to AFTER Cluster A]
+Keep `__new__` dispatch through Cluster A. Unify only after AC-S10 bridge is green. Use **explicit mode-string** (`WalkForwardRunner(mode="cpcv", ...)` vs `mode="m8_legacy"`) or `isinstance(config, ValidationConfig)` check — NOT kwarg-sniffing.
+
+**Risk**: M8 callers pass `config=portfolio_config` (a `PortfolioConfig`, not `ValidationConfig`). Current `__new__` dispatches by kwarg-name precision — losing that risks misrouting a PortfolioConfig-carrying M8 call into the M9 runner.
+
+**Phase-3 deliverables**:
+- Grep ALL `WalkForwardRunner(` callsites; include notebooks + analysis scripts.
+- Lock dispatch semantics in `test_walkforward_runner_dispatch_table.py` with 4-row parametrize (M8 shape / M9 shape / ambiguous / invalid) BEFORE deleting `__new__`.
+
+### Q5 — `use_data_engine=False` flag [ACCEPTED — delete outright + scrub stubs]
+Internal plumbing flag with zero external consumers. NO DEFERRALS → delete flag + False branch entirely.
+
+**Phase-3 deliverables** (beyond design §6 D-19):
+- After delete, scrub 8 `_m7_siteN_*` stub functions at `paper_engine.py:4659-4719` — the `use_data_engine: bool` parameter becomes vestigial. Don't leave stubs accepting a flag they no longer honor.
+- Delete assertion in `test_m6_paper_migration.py:30` that checks default is `False`.
+- D-19 gate (206-token × 5-year byte-identical TokenBarArrays on BOTH paths) MUST pass before delete commit.
+
+### Q6 — AC #25 WS smoke [PUSHED BACK — split into two deliverables]
+**The TestClock-accelerated approach tests your own mock, not the Binance rate limit.** Rate limits are wall-clock phenomena enforced on Binance's edge servers; accelerating synthetic time doesn't exercise the token bucket. Solution: split AC #25 into two:
+
+**AC #25a (pytest, fast, deterministic)** — BACKOFF RETRY LOGIC:
+- `test_m10_ws_backoff_retry.py` verifies the `[30, 60, 120]` backoff sequence at `paper_engine.py:857` fires correctly given a mocked 429 response.
+- Fast, hermetic, tests YOUR code.
+
+**AC #25b (operator smoke script, NOT pytest)** — LIVE WS RATE-LIMIT SMOKE:
+- New `tools/ws_ratelimit_parallel_smoke.sh` — operator runs against Binance live endpoint for 30 min at cutover time.
+- Documented in `MIGRATION.md` as step 6.5.
+- NOT part of the pytest suite. NOT gated by wall-clock.
+
+**Brief AC #25 update required**: replace single 30-60 min wall-clock pytest test with AC #25a (fast pytest retry test) + AC #25b (operator runbook script). Update brief before Phase 3.

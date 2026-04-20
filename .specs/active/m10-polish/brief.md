@@ -411,10 +411,10 @@ Note on FixedBudgetPolicy: removed from M9 scope per user directive; not deferre
         * Every `active_position.position_id` appears at most once; every `open_order.order_id` appears at most once
     - `test_m10_state_corruption.py` corrupts a state file (wrong schema, mutated checksum, duplicate position_id) and asserts load raises with a user-actionable message.
 
-25. **Parallel-run WS rate-limit collision guard** (smoke-only, NOT 48h):
-    - During the AC #12 short parallel-ops smoke window, both v4 + v5 runners share the Binance WS rate-limit budget.
-    - `test_m10_ws_ratelimit_parallel.py` starts both runners, monitors `/srv/data/ws_errors.jsonl` for the smoke window (30-60 min), and asserts `count(429 errors) == 0`.
-    - If 429s appear: the v5 runner must back off via existing WS-client retry logic; test captures and reports the backoff latency. Non-zero 429s do NOT block M10 as long as the backoff path works.
+25. **WS rate-limit handling — split into pytest (retry logic) + operator smoke (live)**:
+    - **Rationale (quant expert review 2026-04-20)**: Binance WS rate limits are wall-clock phenomena enforced on the exchange edge; TestClock-accelerated tests would only exercise your own mock. Split into two deliverables.
+    - **AC #25a — pytest unit test (fast, deterministic)**: `test_m10_ws_backoff_retry.py` verifies the `[30, 60, 120]` backoff sequence at `paper_engine.py:857` fires correctly given a mocked 429 response. Covers YOUR retry code. In the normal pytest suite.
+    - **AC #25b — operator smoke script (live, NOT pytest)**: `tools/ws_ratelimit_parallel_smoke.sh` — operator runs against Binance live endpoint for 30 min during cutover (both v4 + v5 runners alive). Monitors `/srv/data/ws_errors.jsonl`; asserts `count(429) == 0` OR backoff triggered. Documented in `MIGRATION.md` as step 6.5 (connection verification). NOT gated by wall-clock inside pytest.
 
 26. **Zero test warnings** (743 → 0):
     - Baseline measured 2026-04-20: 1761 passed with **743 warnings** (UserWarning ×~739, PytestCollectionWarning ×3, Pandas4Warning ×1).
