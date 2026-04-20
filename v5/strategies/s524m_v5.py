@@ -51,6 +51,7 @@ import pandas as pd
 from v5.strategy_api import (
     BaseStrategy,
     ExitCheck,
+    SizingIntent,
     SizingRequest,
     TokenSignal,
     UniverseSignals,
@@ -248,7 +249,7 @@ class S524M(BaseStrategy):
                 direction=direction,
                 priority=priority,
                 sizing=SizingRequest(
-                    intent="FIXED_FRACTION",
+                    intent=SizingIntent.FIXED_FRACTION,
                     fraction_of_equity=size_multiplier / self.MAX_POSITIONS_HINT,
                     leverage=leverage,
                 ),

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import List
 
-from v5.strategy_api import BaseStrategy, SizingRequest, TokenSignal, UniverseSignals
+from v5.strategy_api import BaseStrategy, SizingIntent, SizingRequest, TokenSignal, UniverseSignals
 
 
 # Regime constants mirror v4/engine.py — copied to avoid legacy engine import
@@ -193,7 +193,7 @@ class S513TripleTriggerSwing(BaseStrategy):
             direction=direction,
             priority=float(adx),  # stronger trend → higher priority
             sizing=SizingRequest(
-                intent="FIXED_FRACTION",
+                intent=SizingIntent.FIXED_FRACTION,
                 fraction_of_equity=1.0 / 25.0,  # modest sizing; portfolio caps elsewhere
                 leverage=self.LEVERAGE,
             ),

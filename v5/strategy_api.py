@@ -66,16 +66,12 @@ class LinkedScalePolicy(Enum):
 # =============================================================
 
 
-@dataclass
-class SizingRequest:
-    """Per-bar sizing intent baked into TokenSignal (M7 stub; M8 extends).
-
-    Fields needed for s524m parity (leverage pre-indexed per brief §78-88).
-    """
-    intent: Literal["FIXED_FRACTION", "FIXED_NOTIONAL", "RISK_PER_TRADE"] = "FIXED_FRACTION"
-    fraction_of_equity: float = 0.0
-    leverage: float = 1.0
-    # M8 extends: reduce_only, margin_mode, notional_usd, risk_budget
+# M8 — SizingIntent + SizingRequest are now owned by v5.sizing.intents.
+# Re-exported here so existing M7 imports keep working. Design-over-code:
+# the enum promotion from Literal → (str, Enum) is a type-hygiene upgrade;
+# runtime string values ("FIXED_FRACTION"/"FIXED_NOTIONAL") are preserved
+# so paper-state JSON roundtrip remains byte-identical.
+from v5.sizing.intents import SizingIntent, SizingRequest  # noqa: F401
 
 
 @dataclass

@@ -27,6 +27,7 @@ import pandas as pd
 from v5.strategy_api import (
     BaseStrategy,
     ExitCheck,
+    SizingIntent,
     SizingRequest,
     TokenSignal,
     UniverseSignals,
@@ -215,7 +216,7 @@ class S523CGrowth(BaseStrategy):
             direction=direction,
             priority=priority,
             sizing=SizingRequest(
-                intent="FIXED_FRACTION",
+                intent=SizingIntent.FIXED_FRACTION,
                 fraction_of_equity=1.0 / self.MAX_POSITIONS_HINT,
                 leverage=self.LEVERAGE,
             ),
