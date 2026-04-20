@@ -1168,6 +1168,103 @@ class Order:
         if market_state is not None and config is not None:
             from v5.sizing.allocation import SharedPoolPolicy
             from v5.sizing.clamps import run_clamp_pipeline
+
+            sizing_req = self.sizing_ctx.get("sizing") if isinstance(
+                self.sizing_ctx, dict
+            ) else None
+
+            # M8 Task 25 — reduce_only overfill semantics (AC-Sz8).
+            # Binance venue extension: reduce_only=True rejects orders
+            # that would open or flip direction. Partial-fill for the
+            # portion that legitimately reduces; rejected overage emits
+            # a separate ExecType.REJECTED event.
+            if sizing_req is not None and getattr(sizing_req, "reduce_only", False):
+                # Read current position quantity for this symbol
+                current_qty = 0.0
+                probe = getattr(market_state, "current_position_qty", None)
+                if callable(probe):
+                    # Tests use current_position_qty(token); older code
+                    # paths may use zero-arg. Try both.
+                    try:
+                        current_qty = float(probe(self.token))
+                    except TypeError:
+                        try:
+                            current_qty = float(probe())
+                        except Exception:
+                            current_qty = 0.0
+                    except Exception:
+                        current_qty = 0.0
+                else:
+                    current_qty = float(getattr(market_state, "_state", {}).get(
+                        "current_position_qty", 0.0
+                    ))
+                # reduce_only order direction is opposite the position.
+                # Order size from sizing_ctx target_size (qty).
+                order_qty = float(self.sizing_ctx.get("target_size", 0.0))
+                # Direction check: order.direction must be opposite current
+                # position sign. Long position (qty>0) → reduce_only SHORT
+                # (direction=-1) expected. If order tries to open same
+                # side or flip, reject entirely.
+                if current_qty == 0.0:
+                    return self._transit(
+                        OrderStatus.REJECTED,
+                        reject_reason="reduce_only_overfill",
+                    )
+                # Current is long (qty>0) → valid reduce direction is -1.
+                # Current is short (qty<0) → valid reduce direction is +1.
+                expected_reduce_dir = -1 if current_qty > 0 else 1
+                if self.direction != expected_reduce_dir:
+                    return self._transit(
+                        OrderStatus.REJECTED,
+                        reject_reason="reduce_only_overfill",
+                    )
+                pos_abs = abs(current_qty)
+                if order_qty > pos_abs:
+                    # Partial: fill up to pos_abs, reject the overage.
+                    overage = order_qty - pos_abs
+                    self._events.append({
+                        "exec_type": ExecType.TRADE,
+                        "last_qty": pos_abs,
+                        "cum_qty": pos_abs,
+                        "leaves_qty": 0.0,
+                        "reason": "reduce_only_partial",
+                    })
+                    self._events.append({
+                        "exec_type": ExecType.REJECTED,
+                        "last_qty": 0.0,
+                        "leaves_qty": overage,
+                        "reason": "reduce_only_overfill",
+                    })
+                    return self._transit(
+                        OrderStatus.PARTIALLY_FILLED,
+                        reject_reason="reduce_only_overfill",
+                        filled_qty=pos_abs,
+                        leaves_qty=overage,
+                    )
+
+            # M8 Task 32 — aggregate fraction×leverage ≤ 1.0 pre-clamp
+            # (brief §M7 Impact item 2). Runs BEFORE the 6-clamp pipeline.
+            # Escape hatch: `SizingRequest.allow_over_leveraged=True`.
+            if sizing_req is not None and not getattr(
+                sizing_req, "allow_over_leveraged", False
+            ):
+                existing_sum = 0.0
+                probe = getattr(
+                    market_state, "active_position_leverage_sum", None,
+                )
+                if callable(probe):
+                    try:
+                        existing_sum = float(probe(self.strategy_id))
+                    except Exception:
+                        existing_sum = 0.0
+                frac = float(sizing_req.fraction_of_equity or 0.0)
+                lev = float(sizing_req.leverage or 1.0)
+                marginal = frac * lev
+                if existing_sum + marginal > 1.0 + 1e-9:
+                    return self._transit(
+                        OrderStatus.REJECTED,
+                        reject_reason="over_leveraged",
+                    )
             # run_clamp_pipeline handles its own AC-Sz7 error containment
             # (catches clamp exceptions → REJECTED with reject_reason
             # "clamp_error_<name>" + emits error-path binding-log entry).

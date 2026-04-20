@@ -368,9 +368,15 @@ def run_clamp_pipeline(
     clamp_values["min_size"] = float(config.min_position_usd)
     if below_min:
         new_order = order._transit(OrderStatus.REJECTED, reject_reason="min_size")
+        # Binding-log keeps the FIRST reducer's name (free_capital, adv_cap, …)
+        # if any earlier clamp already cut below requested. Pure min-size
+        # rejects (no prior reducer) stamp binding="min_size". This matches
+        # the design §3d clause: "binding_constraint records the FIRST
+        # clamp to reduce below requested (not last)."
+        log_binding = binding if binding != "none" else "min_size"
         log = _build_log(
             order, sizing, requested_fraction, requested_notional_logged,
-            clamp_values, binding="min_size", filled_notional=0.0,
+            clamp_values, binding=log_binding, filled_notional=0.0,
             fill_price=0.0, slippage_bps=0.0,
         )
         _emit_binding_log(config, log)
@@ -384,7 +390,6 @@ def run_clamp_pipeline(
     except Exception as e:
         return _error_return("liquidation_distance", e)
     clamp_values["liquidation_distance"] = liq_bps
-    clamp_values["liq_distance"] = liq_bps  # alias for older test paths
     if liq_rejected:
         new_order = order._transit(
             OrderStatus.REJECTED, reject_reason="liquidation_distance",

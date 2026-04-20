@@ -242,7 +242,7 @@ class TestLiquidationDistanceClamp:
             ),
         )
         # Tier 1 MMR is 0.50%; at 10x, liq distance ≈ (1/10 - 0.005) = 9.50% = 950 bps
-        tier1_liq_bps = log["clamp_values"]["liq_distance"]
+        tier1_liq_bps = log["clamp_values"]["liquidation_distance"]
         assert tier1_liq_bps == pytest.approx(950.0, rel=1e-4)
 
     def test_tier2_80k_notional_at_10x_leverage_uses_tier2_mmr(self, ctx):
@@ -264,7 +264,7 @@ class TestLiquidationDistanceClamp:
             ),
         )
         # Tier 2 MMR is 0.65%; at 10x, liq distance ≈ (1/10 - 0.0065) = 9.35% = 935 bps
-        tier2_liq_bps = log["clamp_values"]["liq_distance"]
+        tier2_liq_bps = log["clamp_values"]["liquidation_distance"]
         assert tier2_liq_bps == pytest.approx(935.0, rel=1e-4)
 
     def test_tier_spanning_liq_distance_differs_at_same_leverage(self, ctx):
@@ -292,8 +292,8 @@ class TestLiquidationDistanceClamp:
                 mmr_schedule=BINANCE_BTCUSDT_MMR_SCHEDULE,
             ),
         )
-        t1_dist = log_t1["clamp_values"]["liq_distance"]
-        t2_dist = log_t2["clamp_values"]["liq_distance"]
+        t1_dist = log_t1["clamp_values"]["liquidation_distance"]
+        t2_dist = log_t2["clamp_values"]["liquidation_distance"]
         assert t1_dist != pytest.approx(t2_dist), (
             f"Tier 1 and tier 2 must produce DIFFERENT liquidation distances "
             f"at same leverage (MMR differs); got t1={t1_dist} t2={t2_dist}"

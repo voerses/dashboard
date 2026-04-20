@@ -394,6 +394,35 @@ class PortfolioView:
         self.open_positions: list = []
         self.closed_trades_today: list = []
 
+    def open_manual(
+        self,
+        *,
+        symbol: str,
+        direction,
+        qty: float,
+        entry_price: float,
+    ) -> None:
+        """Test-harness helper — inject an open position without running the
+        full Order lifecycle. Used by M8 reduce_only/overfill tests that
+        need an existing book to size against. Not a production API."""
+        from types import SimpleNamespace
+        dir_int = 1 if (direction == "LONG" or direction == 1) else -1
+        pos = SimpleNamespace(
+            token=symbol,
+            direction=dir_int,
+            quantity=float(qty) * dir_int,  # signed quantity
+            entry_price=float(entry_price),
+        )
+        self.open_positions.append(pos)
+
+    def position_qty(self, symbol: str) -> float:
+        """Signed quantity for `symbol` (long positive, short negative)."""
+        return sum(
+            getattr(p, "quantity", 0.0)
+            for p in self.open_positions
+            if getattr(p, "token", None) == symbol
+        )
+
 
 # ============================================================
 # OrderFactoryView — ctx.orders.arm() / arm_bracket()
@@ -613,24 +642,34 @@ class OrderFactoryView:
 
         seq = self._next_seq()
         order_id = f"order-{seq:08x}"
+        # M8 Task 24 — populate per-leg sizing_ctx["margin_usd"] so the
+        # free-capital clamp sees OTOCO aggregation = entry + max(siblings).
+        # Entry margin uses full notional; SL/TP use adverse-excursion
+        # distance × qty (loss-cap on stop / profit-target on limit).
+        entry_notional = float(entry_price or 0.0) * float(size)
+        sl_margin = abs(float(entry_price or 0.0) - float(sl_price or 0.0)) * float(size) if sl_price is not None else 0.0
+        tp_margin = abs(float(tp_price or 0.0) - float(entry_price or 0.0)) * float(size) if tp_price is not None else 0.0
         entry_leg = Leg(
             leg_ref_id="entry", symbol=entry_spec["symbol"], market=market,
             venue="BINANCE", direction=dir_int, target_qty=size,
             order_type=order_type.lower() if order_type != "MARKET" else "market",
             trigger_price=entry_price,
             status=LegStatus.ARMED,
+            sizing_ctx={"margin_usd": entry_notional, "market": market},
         )
         sl_leg = Leg(
             leg_ref_id="sl", symbol=entry_spec["symbol"], market=market,
             venue="BINANCE", direction=-dir_int, target_qty=size,
             order_type="stop", trigger_price=sl_price,
             status=LegStatus.ARMED,
+            sizing_ctx={"margin_usd": sl_margin, "market": market},
         )
         tp_leg = Leg(
             leg_ref_id="tp", symbol=entry_spec["symbol"], market=market,
             venue="BINANCE", direction=-dir_int, target_qty=size,
             order_type="limit", limit_price=tp_price, trigger_price=tp_price,
             status=LegStatus.ARMED,
+            sizing_ctx={"margin_usd": tp_margin, "market": market},
         )
         order = Order.arm(
             strategy_id=strategy_id,
@@ -815,6 +854,14 @@ class UniverseContext:
     # as slot entries; populated via object.__setattr__ from build_test)
     _lifecycle_config: dict = field(default_factory=dict, compare=False, repr=False)
     _stopped: bool = field(default=False, compare=False, repr=False)
+
+    @property
+    def positions(self) -> "PortfolioView":
+        """Alias for `portfolio`. M8 tests reach for `ctx.positions` for
+        position-level operations (open_manual test-harness helper,
+        position_qty lookups). Structurally the same view — aliasing
+        avoids breaking tests that expect either name."""
+        return self.portfolio
 
     def mutable_copy(self, arr: np.ndarray) -> np.ndarray:
         """AC-S2 opt-in mutation — returns np.copy(arr) (writable)."""
