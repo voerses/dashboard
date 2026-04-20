@@ -212,6 +212,11 @@ class PortfolioConfig:
     max_slip_bps: float = 300           # max slippage cap in basis points
     max_sizing_equity: Optional[float] = None  # cap portfolio equity used for position sizing (None = uncapped)
     sizing_defaults: SizingDefaults = field(default_factory=SizingDefaults)
+    # M8 rollback flag (design §5.2). Default False → legacy
+    # sizing_model.compute_size path (pre-M8 behavior preserved). Set
+    # True → Order.release_atomic clamp pipeline with 6-clamp sequence
+    # + binding-log JSONL. Flag preserved until M9 post-paper validation.
+    use_m8_clamps: bool = False
     # Maximum rows to keep in hist_cache per token (0 = unlimited for backtest)
     cache_max_rows: int = 0
     # Delayed/armed entry: signal fires on bar B, actual entry on bar B + entry_delay_bars.

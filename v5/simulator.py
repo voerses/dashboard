@@ -1568,6 +1568,67 @@ def _stage2_process_new_signals(
             leverage=lev_val,
         )
 
+        # M8 Task 22 — clamp pipeline path (config.use_m8_clamps=True).
+        # Ships alongside legacy sizing_model.compute_size; the flag
+        # controls which produces the final notional. Rollback protocol
+        # per design §5.2. Legacy path is default-on until M9 paper
+        # validation; M8 green-light for opt-in in tests + research.
+        if getattr(config, "use_m8_clamps", False) and pos_usd > 0:
+            try:
+                from v5.sizing.allocation import SharedPoolPolicy
+                from v5.sizing.clamps import ClampsConfig, run_clamp_pipeline
+                from v5.sizing.intents import SizingIntent, SizingRequest
+                from v5.orders import Order, TriggerType
+                # Minimal single-leg Order for release_atomic.
+                m8_req = SizingRequest(
+                    intent=SizingIntent.FIXED_NOTIONAL,
+                    notional_usd=float(pos_usd),
+                    leverage=float(lev_val),
+                )
+                # armed_at uses the deterministic base epoch (2026-01-01)
+                # per AC24 — no wall-clock reads in the simulator path.
+                m8_order = Order.arm(
+                    strategy_id=strategy_id, token=sig.token,
+                    direction=int(sig.direction[local_bar]),
+                    trigger=TriggerType.PRICE_ABOVE,
+                    trigger_price=float(close_val),
+                    working_price_source="last",
+                    armed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                    expires_at=None,
+                    sizing_ctx={
+                        "target_size": float(pos_usd) / max(float(close_val), 1e-10),
+                        "market": "perp" if spec.market == "perp" else "spot",
+                        "sizing": m8_req,
+                    },
+                )
+
+                class _SimMktState:
+                    def adv(self, t): return adv_val
+                    def rolling_adv(self, t, window_hours=24): return adv_val
+                    def mark_price(self, t): return close_val
+                    def equity(self, sid): return strategy_equity
+                    def liquidation_distance(self, p, l): return 10_000.0
+
+                _, m8_log = run_clamp_pipeline(
+                    m8_order,
+                    available_capital_usd=strategy_equity,
+                    market_state=_SimMktState(),
+                    policy=SharedPoolPolicy(),
+                    config=ClampsConfig(
+                        adv_cap_pct=config.adv_cap_pct,
+                        concentration_limit=config.concentration_limit,
+                        min_position_usd=config.min_position_usd,
+                        min_liquidation_distance_bps=100.0,
+                    ),
+                )
+                # Clamp pipeline produces `filled_notional` (post-clamp).
+                # Let legacy slippage apply separately; only swap pos_usd.
+                pos_usd = float(m8_log.get("filled_notional", pos_usd))
+            except Exception:
+                # AC-Sz7 — clamp errors don't crash the backtest loop.
+                # Fall through to legacy pos_usd from sizing_model.
+                pass
+
         direction = int(sig.direction[local_bar])
         if direction == 0:
             state.rejections.direction_zero += 1
