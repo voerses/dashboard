@@ -37,6 +37,26 @@ _CTX_UID_COUNTER = itertools.count(1)
 # runner_instance_id prefix further namespaces across runners.
 _ORDER_SEQ_COUNTER = itertools.count(1)
 
+# Process-wide quarantine registry. Keyed on id(strategy) — stable for the
+# lifetime of the Strategy object. Used by _broadcast/_dispatch in place of
+# a `_quarantined` attribute so slotted Strategy subclasses that don't
+# reserve a slot for the attribute are still quarantine-able (round-5
+# Quant MAJOR: attribute-based flag silently failed under __slots__).
+# A strategy cannot un-quarantine itself because the registry is set-valued
+# and mutation is engine-side only.
+_QUARANTINED_STRATEGIES: set[int] = set()
+
+
+def _mark_quarantined(strategy) -> None:
+    """Engine-side quarantine: adds the strategy's id to the process-wide
+    registry. Safe for slotted Strategy subclasses — no attribute write."""
+    _QUARANTINED_STRATEGIES.add(id(strategy))
+
+
+def _is_quarantined(strategy) -> bool:
+    """Query the process-wide quarantine registry for a Strategy object."""
+    return id(strategy) in _QUARANTINED_STRATEGIES
+
 
 # ============================================================
 # Test-harness dummy types used by run_full_lifecycle cascades
@@ -369,15 +389,14 @@ class OrderFactoryView:
         """AC-S5 per-handler try/except when dispatching to registered strategies.
 
         Bumps `exception_counter` on the offending strategy so the
-        quarantine threshold eventually fires. Honors per-strategy
-        `_quarantined` flag — once set (by run_full_lifecycle's tick
-        counter, or externally), this dispatcher stops invoking the
-        strategy entirely. Round-4 Quant MAJOR: dispatch-stop was only
-        honored inside run_full_lifecycle; broadcast paths kept invoking
-        quarantined strategies and mutating counters indefinitely.
+        quarantine threshold eventually fires. Honors the process-wide
+        quarantine registry (_QUARANTINED_STRATEGIES) — works for slotted
+        Strategy subclasses where an attribute-based `_quarantined` flag
+        would silently fail (round-5 Quant MAJOR). A strategy cannot
+        un-quarantine itself: registry mutation is engine-side only.
         """
         for s in self._strategies:
-            if getattr(s, "_quarantined", False):
+            if _is_quarantined(s):
                 continue
             fn = getattr(s, method, None)
             if fn is None:
@@ -779,18 +798,17 @@ class UniverseContext:
 
         def _tick_counter(s, method: str) -> None:
             """AC-S5: increment exception_counter + publish Quarantined if
-            crossing threshold for the first time. Also sets `_quarantined`
-            attribute on the strategy so _broadcast/_dispatch (outside
-            this scope) honor the dispatch-stop (round-4 Quant MAJOR)."""
+            crossing threshold for the first time. Registers the strategy
+            in the process-wide quarantine registry so _broadcast and
+            _dispatch (outside this scope) skip it. Registry is id-keyed,
+            not attribute-based — slotted Strategy subclasses don't need
+            to reserve a `_quarantined` slot (round-5 Quant MAJOR)."""
             s.exception_counter = getattr(s, "exception_counter", 0) + 1
             if id(s) in quarantined:
                 return
             if s.exception_counter >= threshold:
                 quarantined.add(id(s))
-                try:
-                    s._quarantined = True
-                except Exception:
-                    pass  # defensive for non-standard strategy objects
+                _mark_quarantined(s)
                 from v5.strategy_api import StrategyQuarantined
                 evt = StrategyQuarantined(
                     strategy_id=getattr(s, "strategy_id", type(s).__name__),
@@ -857,17 +875,15 @@ class UniverseContext:
 
     def _broadcast(self, strategies, method_name: str, *args) -> None:
         """AC-S5 per-handler try/except. Bumps `exception_counter` on
-        crash and respects the per-strategy `_quarantined` flag.
+        crash and respects the process-wide quarantine registry.
 
-        Round-4 Quant MAJOR: earlier version kept invoking quarantined
-        strategies' optional callbacks (because the `quarantined` set
-        lived in `run_full_lifecycle`'s local scope, unreachable from
-        here). Now both `_dispatch` and `_broadcast` skip any strategy
-        with `_quarantined=True`, matching the spec "quarantined → no
-        further dispatch".
+        Earlier attribute-based approach silently failed under slotted
+        Strategy subclasses (round-5 Quant MAJOR: id-keyed registry is
+        slot-safe and strategy-side-tamper-proof — a strategy cannot
+        reset its own quarantine status by mutating `self._quarantined`).
         """
         for s in strategies:
-            if getattr(s, "_quarantined", False):
+            if _is_quarantined(s):
                 continue
             fn = getattr(s, method_name, None)
             if fn is None:

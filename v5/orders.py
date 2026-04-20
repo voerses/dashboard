@@ -85,21 +85,46 @@ import itertools
 _next_order_id = itertools.count(1)
 
 
+def _process_namespace_tag() -> str:
+    """Per-process namespace tag mixed into auto-generated ClOrdIDs so two
+    runners running on the same venue don't both mint `s1-BTC-1`.
+
+    Uses PID + a random nonce for uniqueness across concurrent runners.
+    Kept short (6 hex chars = 24 bits ≈ 16M space) to preserve budget
+    under Binance's 36-char newClientOrderId cap.
+    """
+    import os
+    global _PROCESS_TAG
+    try:
+        return _PROCESS_TAG
+    except NameError:
+        pass
+    import secrets
+    _PROCESS_TAG = f"{os.getpid() & 0xFFFF:04x}{secrets.token_hex(1)}"
+    return _PROCESS_TAG
+
+
+_PROCESS_TAG: str  # populated lazily by _process_namespace_tag()
+
+
 def _gen_order_id(strategy_id: str, token: str) -> str:
     """Generate a unique FIX ClOrdID(11) when caller passed order_id=''.
 
-    Format: ``{strategy_id}-{token}-{monotonic_counter}`` — human-readable
-    for logs while guaranteed unique per process. Capped at 36 chars to
-    satisfy Binance venue constraints (newClientOrderId max 36 chars);
-    if the concatenated form exceeds 36, the strategy_id is truncated
-    (token + counter are load-bearing for uniqueness; strategy_id is
-    cosmetic in the venue namespace).
+    Format: ``{strategy_id}-{token}-{process_tag}-{counter}`` —
+    human-readable for logs, FIX-unique within a process AND across
+    concurrent processes (runner collision fix, round-5 FIX MAJOR).
+
+    Capped at 36 chars to satisfy Binance venue constraints
+    (newClientOrderId max 36 chars); if the concatenated form exceeds
+    36, the strategy_id is truncated — token + process_tag + counter
+    are load-bearing for uniqueness.
     """
     seq = next(_next_order_id)
-    candidate = f"{strategy_id}-{token}-{seq}"
+    tag = _process_namespace_tag()
+    candidate = f"{strategy_id}-{token}-{tag}-{seq}"
     if len(candidate) <= 36:
         return candidate
-    tail = f"-{token}-{seq}"
+    tail = f"-{token}-{tag}-{seq}"
     head_budget = max(1, 36 - len(tail))
     return f"{strategy_id[:head_budget]}{tail}"
 
