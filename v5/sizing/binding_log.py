@@ -55,8 +55,42 @@ def write_sizing_fill_entry(
     entry.setdefault("order_id", getattr(order, "order_id", ""))
     entry.setdefault("symbol", getattr(order, "token", ""))
     entry.setdefault("strategy_id", getattr(order, "strategy_id", ""))
+    # M9 C-9: FIX StrategyID(1098) dual-stamp — mirrors strategy_id.
+    # `fix_1099` (StrategyParameters) placeholder reserved for M10 routing
+    # payload (typed strategy-type hints for venue-side gateway).
+    entry.setdefault("fix_1098", entry["strategy_id"])
+    entry.setdefault("fix_1099", None)
 
     target = Path(path) if path is not None else DEFAULT_LOG_PATH
     target.parent.mkdir(parents=True, exist_ok=True)
     with open(target, "a", encoding="utf-8") as f:
         f.write(json.dumps(entry, default=str) + "\n")
+
+
+class BindingLogWriter:
+    """M9 C-9 convenience wrapper for test fixtures. Thin facade over
+    `write_sizing_fill_entry` that buffers a single file handle + exposes
+    `.write(record)` / `.close()` API."""
+
+    def __init__(self, log_path: Path):
+        self.log_path = Path(log_path)
+        self.log_path.parent.mkdir(parents=True, exist_ok=True)
+        self._fh = open(self.log_path, "a", encoding="utf-8")
+
+    def write(self, record: Dict[str, Any]) -> None:
+        """Write a single JSONL entry. Auto-fills fix_1098 from strategy_id
+        and fix_1099=None placeholder per M9 C-9."""
+        entry = dict(record)
+        entry.setdefault("fix_1098", entry.get("strategy_id", ""))
+        entry.setdefault("fix_1099", None)
+        self._fh.write(json.dumps(entry, default=str) + "\n")
+        self._fh.flush()
+
+    def close(self) -> None:
+        self._fh.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()

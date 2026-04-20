@@ -54,15 +54,20 @@ class IndicatorCache:
         fn: Callable,
         token: str,
         bar_idx: int,
+        timeframe: str = "1h",
         **params,
     ) -> Any:
-        """Compute or return cached indicator value."""
+        """Compute or return cached indicator value.
+
+        M9 C-3: `timeframe` is part of the cache key to prevent MTF
+        collisions — e.g., `ema(20)` at bar_idx=N on 1h vs 1m data are
+        different series and must NOT share a cache slot."""
         qname = fn.__qualname__
         if qname not in self._registered:
             self.register(fn)
 
         frozen = self._freeze_params(fn, params)
-        key = (token, qname, frozen, bar_idx)
+        key = (token, timeframe, qname, frozen, bar_idx)
         if key in self._cache:
             self.stats.hits += 1
             return self._cache[key]

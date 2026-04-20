@@ -214,10 +214,12 @@ class TokenView:
         arrays: dict[str, np.ndarray],
         bar_idx: int = 0,
         indicator_cache=None,
+        timeframe: str = "1h",
     ):
         self._token = token
         self._bar_idx = bar_idx
         self._cache = indicator_cache
+        self._timeframe = timeframe
         # Store read-only views (slice up to current bar_idx + 1 for
         # AC-D6 no-look-ahead invariant; fall back to full array for bar_idx
         # at or beyond last bar)
@@ -259,6 +261,7 @@ class TokenView:
         from v5.indicators import ema_fn
         return self._cache.compute(
             ema_fn, token=self._token, bar_idx=self._bar_idx,
+            timeframe=self._timeframe,
             arr=self._arrays[col], n=n, col=col,
         )
 
@@ -266,6 +269,7 @@ class TokenView:
         from v5.indicators import sma_fn
         return self._cache.compute(
             sma_fn, token=self._token, bar_idx=self._bar_idx,
+            timeframe=self._timeframe,
             arr=self._arrays[col], n=n, col=col,
         )
 
@@ -287,6 +291,7 @@ class DataView:
         listings: Optional[dict[str, int]] = None,
         delistings: Optional[dict[str, int]] = None,
         registry_extra: Optional[list[str]] = None,
+        timeframe: str = "1h",
     ):
         from v5.indicators import IndicatorCache
         self._default_venue = default_venue
@@ -296,8 +301,14 @@ class DataView:
         self._delistings = dict(delistings or {})
         self._registry_extra = tuple(registry_extra or ())
         self._indicator_cache = IndicatorCache()
-        # Synthetic bar data — float32 arrays for deterministic tests
-        rng = np.random.default_rng(seed)
+        self._timeframe = timeframe
+        # Synthetic bar data — float32 arrays for deterministic tests.
+        # M9 C-3: mix timeframe into the seed so different timeframes
+        # produce genuinely different price paths (stable / deterministic
+        # but distinct — required for MTF cache-key test to verify values
+        # actually differ across timeframes).
+        tf_offset = sum(ord(c) for c in timeframe) * 7919  # stable prime
+        rng = np.random.default_rng(seed + tf_offset)
         self._arrays: dict[str, dict[str, np.ndarray]] = {}
         for t in tokens_seed:
             close = 50_000.0 + rng.normal(0, 100, size=bars).astype(np.float32)
@@ -322,6 +333,7 @@ class DataView:
             symbol, self._arrays[symbol],
             bar_idx=self._bar_idx,
             indicator_cache=self._indicator_cache,
+            timeframe=self._timeframe,
         )
 
     def indicators(self, symbol: str, resolution: str = "1h",
@@ -863,6 +875,68 @@ class UniverseContext:
         avoids breaking tests that expect either name."""
         return self.portfolio
 
+    def per_token(self, symbol: str, venue=None) -> "TokenView":
+        """Delegates to `ctx.data.per_token(symbol)`. M9 C-3 convenience
+        — strategies call `ctx.per_token(t).ema(20)` directly rather
+        than `ctx.data.per_token(...)`."""
+        return self.data.per_token(symbol, venue=venue)
+
+    @property
+    def market_indices(self) -> dict:
+        """M9 C-4 cross-sectional data namespace for regime detection /
+        dynamic allocation. Canonical keys:
+
+          - BTC_CLOSE_1D — daily BTC close
+          - BTC_CLOSE_1H — hourly BTC close
+          - TOTAL2 — market cap excluding BTC
+          - TOTAL3 — market cap excluding BTC + ETH
+          - DXY — US Dollar Index
+          - BTC_DOMINANCE — BTC market share %
+          - REGIME_FLAG_1D — precomputed daily regime int (0-4)
+
+        Populated from parquets (or synthetic for tests). Strategies that
+        don't need regime never read this; non-empty by construction so
+        `ctx.market_indices["KEY"]` access pattern is stable.
+
+        Cached in `_lifecycle_config` dict (frozen/slotted dataclass
+        workaround — the lifecycle_config is the escape-hatch scratchpad
+        established by M7 for this exact pattern)."""
+        lc = self._lifecycle_config
+        cached = lc.get("_market_indices_cache")
+        if cached is not None:
+            return cached
+        cache = self._build_market_indices()
+        lc["_market_indices_cache"] = cache
+        return cache
+
+    def _build_market_indices(self) -> dict:
+        """M9 C-4: populate canonical keys. Defaults to synthetic arrays
+        derived from DataView's seed when real parquets aren't loaded
+        (test-harness ergonomics)."""
+        import numpy as np
+        # Use the DataView's seed + bar count to produce deterministic
+        # synthetic indices for tests. Production wiring (via DataEngine)
+        # replaces this with parquet-loaded arrays.
+        try:
+            bars = int(getattr(self.data, "_arrays", {}).get(
+                next(iter(self.data._tokens_seed), "BTC"), {"close": [0.0] * 200}
+            )["close"].__len__())
+        except Exception:
+            bars = 200
+        rng = np.random.default_rng(seed=17)  # stable seed for test contexts
+        out = {
+            "BTC_CLOSE_1D": 50_000.0 + rng.normal(0, 500, size=bars),
+            "BTC_CLOSE_1H": 50_000.0 + rng.normal(0, 100, size=bars),
+            "TOTAL2": 1_500_000_000_000.0 + rng.normal(0, 50e9, size=bars),
+            "TOTAL3": 800_000_000_000.0 + rng.normal(0, 25e9, size=bars),
+            "DXY": 100.0 + rng.normal(0, 1, size=bars),
+            "BTC_DOMINANCE": 50.0 + rng.normal(0, 2, size=bars),
+            "REGIME_FLAG_1D": np.array(
+                [(i // 24) % 5 for i in range(bars)], dtype=np.int8
+            ),
+        }
+        return out
+
     def mutable_copy(self, arr: np.ndarray) -> np.ndarray:
         """AC-S2 opt-in mutation — returns np.copy(arr) (writable)."""
         return np.copy(arr)
@@ -1118,6 +1192,7 @@ class UniverseContext:
         fold_window: Optional[tuple[int, int]] = None,
         quarantine_threshold: int = 10_000,  # default disables quarantine;
                                               # tests opt in via explicit value
+        timeframe: str = "1h",  # M9 C-3: MTF-safe cache key + data path
         **kwargs,  # simulate_* + stop_loss_handler_observer flags
     ) -> "UniverseContext":
         """Test harness factory — build a deterministic UniverseContext."""
@@ -1126,6 +1201,7 @@ class UniverseContext:
             tokens_seed=tokens, bars=bars, seed=seed,
             listings=listings, delistings=delistings,
             registry_extra=registry_extra,
+            timeframe=timeframe,
         )
         portfolio = PortfolioView(equity=equity)
         clock = TestClock(epoch_iso="2026-01-01T00:00:00Z", seed=seed)
@@ -1148,4 +1224,9 @@ class UniverseContext:
             "ctx_uid": next(_CTX_UID_COUNTER),
             **kwargs,
         })
+        # M9 C-3: seek to last bar so `ctx.per_token(t).ema(n)` computes on
+        # the full bar history by default (test-harness ergonomics).
+        # Strategies in production use explicit seek_bar() per loop iteration.
+        if bars > 0:
+            ctx.seek_bar(bars - 1)
         return ctx

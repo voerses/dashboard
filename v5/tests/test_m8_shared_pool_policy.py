@@ -74,17 +74,27 @@ class TestAllocationStateTypedDict:
     """AllocationState TypedDict exposes exactly 4 fields."""
 
     def test_allocation_state_typeddict_has_4_fields(self):
+        """M8 invariant: the 4 core fields exist.
+
+        M9 test-dispute #2 (reviewer-approved): M9 C-9 extends AllocationState
+        with `market_snapshot` per brief AC #13. Relaxed from 'exactly 4' to
+        'at least these 4' — preserves the M8 contract that the 4 core
+        fields exist, without blocking M9's documented extension. Telemetry:
+        see .specs/telemetry.jsonl test_dispute event.
+        """
         from v5.sizing.allocation import AllocationState
         # TypedDict annotations are accessible via __annotations__
         fields = set(AllocationState.__annotations__.keys())
-        expected = {
+        m8_core = {
             "available_margin",
             "per_strategy_equity",
             "rolling_pnl_24h",
             "current_positions_notional",
         }
-        assert fields == expected, (
-            f"AllocationState must expose exactly {expected}; got {fields}"
+        missing = m8_core - fields
+        assert not missing, (
+            f"AllocationState must expose the 4 M8 core fields {m8_core}; "
+            f"missing: {missing}"
         )
 
     def test_allocation_state_constructable(self):

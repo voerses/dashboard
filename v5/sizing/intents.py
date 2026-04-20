@@ -28,6 +28,9 @@ class SizingIntent(str, Enum):
 
     FIXED_FRACTION = "FIXED_FRACTION"
     FIXED_NOTIONAL = "FIXED_NOTIONAL"
+    # M9: alias for FIXED_FRACTION — quant-literature name "fraction of equity"
+    # preserved for strategy authors who prefer it. Same enum member value.
+    FRACTION_OF_EQUITY = "FIXED_FRACTION"
 
 
 _VALID_MARGIN_MODES = frozenset({"isolated", "cross"})

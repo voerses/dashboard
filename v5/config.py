@@ -103,10 +103,19 @@ def resolve_sizing(defaults: SizingDefaults, overrides: dict) -> SizingDefaults:
 @dataclass
 class StrategySpec:
     """Specification for one strategy in the portfolio."""
-    strategy_id: str              # e.g. "s30"
+    strategy_id: str = ""         # e.g. "s30"; may be set via name= alias
     weight: float = 1.0           # fraction of portfolio equity
     max_positions: int = 15       # per-strategy position limit
     market: str = "combined"      # "spot", "perp", "combined"
+    # M9 C-1: slot-reservation guarantee. Arbitration pre-fills up to N
+    # slots for this strategy BEFORE cross-strategy contention runs.
+    # Effective guarantee = min(min_slot_guarantee, max_positions,
+    # deduped_candidate_count post-Phase 3.05). Unused reserved slots
+    # are NOT released to cross-strategy pool (deterministic
+    # over-allocation per Millennium-pod convention).
+    min_slot_guarantee: int = 0
+    # M9 compat alias — tests may pass `name=`; collapses to strategy_id.
+    name: str = ""
     # Per-strategy risk controls (0 = disabled)
     circuit_breaker_r: float = 0.0               # emergency exit at Nx initial risk (e.g. 4.0)
     # ADV-scaled position sizing
@@ -140,6 +149,14 @@ class StrategySpec:
     scale_check_fn: object = None
 
     def __post_init__(self):
+        # M9 compat: accept `name=` as alias for `strategy_id=`
+        if self.name and not self.strategy_id:
+            self.strategy_id = self.name
+        elif self.strategy_id and not self.name:
+            self.name = self.strategy_id
+        if not self.strategy_id:
+            raise ValueError("StrategySpec requires strategy_id (or name alias)")
+
         if isinstance(self.max_positions_per_symbol, bool):
             raise ValueError(
                 f"max_positions_per_symbol must be an integer, got bool"
@@ -195,6 +212,20 @@ class StrategySpec:
 # PortfolioConfig
 # ---------------------------------------------------------------------------
 
+class ConfigError(Exception):
+    """M9 C-9: raised when a config field that cannot be safely hot-swapped
+    is mutated (e.g., capital_allocation_policy with non-empty position
+    book). Paper-mode reload footgun guard."""
+    pass
+
+
+def _default_arbitration_policy():
+    """Lazy default factory for PortfolioConfig.arbitration_policy —
+    avoids circular import at config.py module load time."""
+    from v5.arbitration import RandomShuffle
+    return RandomShuffle()
+
+
 @dataclass
 class PortfolioConfig:
     """Portfolio-level configuration for the backtest."""
@@ -248,9 +279,65 @@ class PortfolioConfig:
     # Violation raises ``ValueError`` at resolution time — a coarser base
     # cannot drive a finer exit handler.
     base_resolution: Optional["BarSpec"] = None
+    # M9 C-1: pluggable SignalArbitrationPolicy. Default = RandomShuffle
+    # (fairness-first, prevents starvation on uncalibrated priorities).
+    arbitration_policy: object = field(default_factory=_default_arbitration_policy)
+    # M9 C-5: list of RiskComponent instances run at Phase 3.0 pre-arbitration.
+    # Empty list = no risk checks (default). Strategies opt in via config.
+    risk_components: list = field(default_factory=list)
+    # M9 C-9: pluggable CapitalAllocationPolicy (M8 shipped SharedPoolPolicy).
+    # Free-capital clamp reads this instead of hardcoded SharedPoolPolicy.
+    capital_allocation_policy: object = None  # post-init sets default to avoid circular import
 
     def __post_init__(self):
         if self.signal_mode not in ("full", "incremental"):
             raise ValueError(
                 f"signal_mode must be 'full' or 'incremental', got {self.signal_mode!r}"
             )
+        # M9 AC #3(g): sum(min_slot_guarantee) must not exceed max_portfolio_positions.
+        # Prevents deterministic over-reservation that would starve all strategies.
+        total_guarantees = sum(
+            int(getattr(s, "min_slot_guarantee", 0) or 0)
+            for s in (self.strategies or [])
+        )
+        if total_guarantees > self.max_portfolio_positions:
+            raise ValueError(
+                f"sum(min_slot_guarantee)={total_guarantees} exceeds "
+                f"max_portfolio_positions={self.max_portfolio_positions}; "
+                f"reduce guarantees or raise max_portfolio_positions"
+            )
+        # M9 C-9: lazy default for capital_allocation_policy (avoid circular
+        # import at config.py module load time).
+        if self.capital_allocation_policy is None:
+            from v5.sizing.allocation import SharedPoolPolicy
+            object.__setattr__(
+                self, "capital_allocation_policy", SharedPoolPolicy()
+            )
+        # Position-book attach point (None until engine attaches). Used by
+        # hot-swap protection in __setattr__ to block policy changes mid-run.
+        object.__setattr__(self, "_position_book", None)
+
+    def _attach_position_book(self, book) -> None:
+        """M9 C-9 test hook — engine (or test) attaches a position-book
+        reference so `capital_allocation_policy` hot-swap can check
+        whether open positions exist."""
+        object.__setattr__(self, "_position_book", book)
+
+    def __setattr__(self, name, value):
+        """M9 C-9 hot-swap protection: policy changes with a non-empty
+        position book raise ConfigError. Paper-mode reload footgun guard.
+        Other fields pass through normally."""
+        if name == "capital_allocation_policy":
+            book = getattr(self, "_position_book", None)
+            if book is not None:
+                try:
+                    empty = len(book) == 0 or bool(book.is_empty())
+                except Exception:
+                    empty = False
+                if not empty:
+                    raise ConfigError(
+                        "Cannot hot-swap capital_allocation_policy with "
+                        "non-empty position book (paper-mode reload footgun). "
+                        "Stop and restart the runner with the new policy."
+                    )
+        object.__setattr__(self, name, value)

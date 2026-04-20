@@ -24,12 +24,18 @@ class AllocationState(TypedDict):
     Intentionally minimal — policies should NOT need to peek at individual
     position data. Forward-compat: preserves ability to restrict further
     in M10 multi-tenant work.
+
+    M9 C-9: `market_snapshot` extension — populated by engine at bar_close
+    with canonical market_indices keys (BTC_CLOSE_1D, TOTAL2, REGIME_FLAG_1D
+    etc.). Enables user-written dynamic allocators (e.g. DynamicRegimeAllocator)
+    to read cross-sectional state WITHOUT direct UniverseContext access.
     """
 
     available_margin: float
     per_strategy_equity: Dict[str, float]
     rolling_pnl_24h: Dict[str, float]
     current_positions_notional: Dict[str, float]
+    market_snapshot: Dict[str, float]
 
 
 @runtime_checkable

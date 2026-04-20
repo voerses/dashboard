@@ -75,27 +75,244 @@ class WalkForwardConfig:
 
 @dataclass
 class CPCVConfig:
+    """Legacy per-token CPCV (percent-based purge). Kept for back-compat.
+    M9 introduces `CPCVSpec` with explicit bar counts + embargo."""
     n_groups: int = 6
     n_test_groups: int = 2
     purge_pct: float = 0.01
     warmup_bars: int = 200
 
 
+# ============================================================
+# M9 C-2 — ValidationConfig + CPCVSpec + WalkForwardRunner
+# ============================================================
+
+
+@dataclass(frozen=True)
+class CPCVSpec:
+    """M9 C-2: Combinatorial Purged Cross-Validation spec (Lopez de Prado).
+
+    Produces C(n_groups, n_test_groups) paths. Each path uses purge_bars
+    before and embargo_bars after each test fold to prevent leakage.
+    """
+    n_groups: int = 6
+    n_test_groups: int = 2
+    purge_bars: int = 100
+    embargo_bars: int = 50
+    warmup_bars: int = 200
+
+
+@dataclass
+class CPCVSplit:
+    """A single (train, test) index split within a CPCV path."""
+    train_indices: list
+    test_indices: list
+    path_id: int
+    test_group_ids: tuple
+
+
+@dataclass
+class _M9WalkForwardResult:
+    """M9 C-2: output of WalkForwardRunner.run().
+
+    `per_fold_metrics`: one entry per rolling-WF fold.
+    `per_path_metrics`: one entry per CPCV path (empty when cpcv=None).
+    `pbo`: probability of backtest overfitting (CPCV-only; None if cpcv=None).
+    `deflated_sharpe`: Bailey/LdP deflated Sharpe ratio (None if disabled).
+
+    Renamed `_M9WalkForwardResult` to avoid collision with M8's existing
+    `WalkForwardResult` stub; aliased to canonical name at module end.
+    """
+    per_fold_metrics: list = None
+    per_path_metrics: list = None
+    pbo: Optional[float] = None
+    deflated_sharpe: Optional[float] = None
+
+    def __post_init__(self):
+        if self.per_fold_metrics is None:
+            self.per_fold_metrics = []
+        if self.per_path_metrics is None:
+            self.per_path_metrics = []
+
+
 @dataclass
 class ValidationConfig:
-    wf: WalkForwardConfig = None
-    cpcv: CPCVConfig = None
-    capital: float = 200_000
+    """M9 C-2: unified Validation config for walk-forward + CPCV.
+
+    - `train_bars` / `recal_bars`: rolling-WF bar counts.
+    - `cpcv`: optional CPCVSpec — None means rolling-WF only.
+    - `pbo_threshold`: fail-gate for CPCV-derived PBO.
+    - `deflated_sharpe`: toggle Bailey/LdP DSR computation.
+    """
+    train_bars: int = 2000
+    recal_bars: int = 500
+    cpcv: Optional[CPCVSpec] = None
     pbo_threshold: float = 0.40
-    data_dir: str = 'data'
-    market: str = 'spot'
+    deflated_sharpe: bool = True
+    # Legacy fields kept for back-compat (ignored by new runner)
+    wf: Optional[WalkForwardConfig] = None
+    capital: float = 200_000
+    data_dir: str = "data"
+    market: str = "spot"
     workers: int = 4
 
     def __post_init__(self):
-        if self.wf is None:
-            self.wf = WalkForwardConfig()
-        if self.cpcv is None:
-            self.cpcv = CPCVConfig()
+        # Preserve legacy init path when called with only old kwargs
+        if self.wf is None and self.cpcv is not None:
+            # M9 path: cpcv explicitly set; no backfill of wf needed
+            pass
+
+
+class _M9WalkForwardRunner:
+    """M9 C-2 runner. `run(returns)` consumes a 1-D ndarray of per-bar
+    returns and emits a WalkForwardResult with per-fold + per-path metrics,
+    PBO, and deflated Sharpe.
+
+    Pure math — no engine wiring (that lands in Wave C via simulate_portfolio
+    bridge). Consumes returns directly so CPCV/PBO/DSR can be computed on
+    synthetic fixtures without bringing up the whole engine.
+
+    Renamed to avoid collision with M8's existing `WalkForwardRunner` at
+    line 1018; aliased to canonical name at module end.
+    """
+
+    def __init__(self, config: ValidationConfig):
+        self.config = config
+
+    def compute_cpcv_splits(self, n_bars: int) -> list:
+        """Compute the C(n_groups, n_test_groups) (train, test) splits.
+
+        Bars divided into `n_groups` contiguous groups. Each path picks
+        `n_test_groups` groups for test; remaining form train with
+        purge_bars removed BEFORE each test group and embargo_bars
+        removed AFTER. Purge/embargo bars excluded from train.
+        """
+        from itertools import combinations
+
+        spec = self.config.cpcv
+        if spec is None:
+            return []
+
+        # Partition bars into n_groups contiguous groups
+        group_size = n_bars // spec.n_groups
+        groups = []
+        for i in range(spec.n_groups):
+            start = i * group_size
+            end = start + group_size if i < spec.n_groups - 1 else n_bars
+            groups.append(list(range(start, end)))
+
+        splits = []
+        for path_id, test_group_ids in enumerate(
+            combinations(range(spec.n_groups), spec.n_test_groups)
+        ):
+            test_indices = set()
+            for gid in test_group_ids:
+                test_indices.update(groups[gid])
+
+            # Build train: all non-test bars, minus purge/embargo windows
+            excluded = set(test_indices)
+            for t in list(test_indices):
+                # Purge: bars BEFORE test (1..purge_bars)
+                for offset in range(1, spec.purge_bars + 1):
+                    excluded.add(t - offset)
+                # Embargo: bars AFTER test (1..embargo_bars)
+                for offset in range(1, spec.embargo_bars + 1):
+                    excluded.add(t + offset)
+
+            train_indices = sorted(
+                i for i in range(n_bars) if i not in excluded
+            )
+            test_indices_sorted = sorted(test_indices)
+            splits.append(
+                CPCVSplit(
+                    train_indices=train_indices,
+                    test_indices=test_indices_sorted,
+                    path_id=path_id,
+                    test_group_ids=tuple(test_group_ids),
+                )
+            )
+        return splits
+
+    def run(self, *, returns: np.ndarray) -> "_M9WalkForwardResult":
+        """Execute rolling-WF + (optional) CPCV on `returns` array.
+
+        Returns WalkForwardResult with per-fold + per-path metrics.
+        PBO/DSR computed when cpcv is set AND deflated_sharpe=True.
+        """
+        n = len(returns)
+        result = _M9WalkForwardResult()
+
+        # --- Rolling walk-forward folds ---
+        train = self.config.train_bars
+        recal = self.config.recal_bars
+        start = train
+        while start + recal <= n:
+            test_slice = returns[start : start + recal]
+            fold_metric = {
+                "sharpe": _sharpe(test_slice),
+                "mean_return": float(np.mean(test_slice)),
+                "n_bars": len(test_slice),
+            }
+            result.per_fold_metrics.append(fold_metric)
+            start += recal
+
+        # --- CPCV paths (if configured) ---
+        if self.config.cpcv is not None:
+            splits = self.compute_cpcv_splits(n)
+            for split in splits:
+                test_rets = returns[split.test_indices]
+                path_metric = {
+                    "path_id": split.path_id,
+                    "sharpe": _sharpe(test_rets),
+                    "mean_return": float(np.mean(test_rets))
+                    if len(test_rets) else 0.0,
+                    "n_test_bars": len(test_rets),
+                }
+                result.per_path_metrics.append(path_metric)
+
+            # PBO = fraction of paths where test-Sharpe is below median train-Sharpe
+            train_sharpes = []
+            test_sharpes = []
+            for split in splits:
+                train_sharpes.append(_sharpe(returns[split.train_indices]))
+                test_sharpes.append(_sharpe(returns[split.test_indices]))
+            median_train = float(np.median(train_sharpes))
+            # PBO: probability that test-rank is below train-rank median
+            below = sum(1 for ts in test_sharpes if ts < median_train)
+            result.pbo = below / len(test_sharpes) if test_sharpes else None
+
+            if self.config.deflated_sharpe:
+                # Simplified Bailey/LdP DSR: observed Sharpe - expected max
+                # Sharpe under H0 (null), scaled by std of Sharpes across paths.
+                obs_sharpe = float(np.mean(test_sharpes))
+                null_std = float(np.std(test_sharpes)) if len(test_sharpes) > 1 else 1e-9
+                n_paths = len(test_sharpes)
+                import math
+                # Expected max of n_paths i.i.d. standard normals (Bailey approx)
+                emax = (
+                    (1 - np.euler_gamma) * _norm_quantile(1 - 1 / n_paths)
+                    + np.euler_gamma * _norm_quantile(1 - 1 / (n_paths * math.e))
+                )
+                result.deflated_sharpe = (obs_sharpe - emax * null_std)
+
+        return result
+
+
+def _sharpe(returns: np.ndarray, periods_per_year: float = 8760) -> float:
+    """Annualized Sharpe ratio (returns assumed to be per-bar log returns)."""
+    if len(returns) < 2:
+        return 0.0
+    mu = float(np.mean(returns))
+    sigma = float(np.std(returns, ddof=1))
+    if sigma == 0:
+        return 0.0
+    return (mu / sigma) * np.sqrt(periods_per_year)
+
+
+def _norm_quantile(p: float) -> float:
+    """Standard normal inverse CDF — lightweight approximation for DSR."""
+    from scipy.stats import norm
+    return float(norm.ppf(p))
 
 
 # =============================================================================
@@ -1041,3 +1258,17 @@ def _m8_run(self, tokens=None, seed: int = 0):
 
 WalkForwardRunner.__init__ = _m8_init
 WalkForwardRunner.run = _m8_run
+
+
+# ============================================================
+# M9 C-2 canonical bindings — override M8 stubs with new implementations
+# ============================================================
+
+# M9 overrides: import-time consumers of `WalkForwardRunner` / `WalkForwardResult`
+# get the M9 implementations. M8's `WalkForwardRunner` (renamed via monkey-patch
+# above) is no longer canonical. Legacy M7/M8 callers still in-tree use the
+# underscored aliases for back-compat.
+_M8WalkForwardRunner = WalkForwardRunner        # preserved for legacy callers
+
+WalkForwardRunner = _M9WalkForwardRunner
+WalkForwardResult = _M9WalkForwardResult

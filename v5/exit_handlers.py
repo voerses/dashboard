@@ -14,12 +14,19 @@ from __future__ import annotations
 
 import types
 from dataclasses import dataclass, field
-from typing import Any, Mapping, Optional, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Mapping, Optional, Protocol, runtime_checkable
 
 import numpy as np
 
 from .position import Position
 from .signals import TokenBarArrays
+# M9 C-1 re-export so tests can import StateView from exit_handlers
+from .risk import StateView  # noqa: F401
+
+# Import UniverseContext directly so typing.get_type_hints() resolves the
+# forward-reference annotation on BarContext.ctx. There is no import cycle
+# (universe_context.py does not import exit_handlers).
+from v5.universe_context import UniverseContext  # noqa: F401
 
 
 # Empty immutable indicator snapshot — default for BarContext when no MTF
@@ -45,16 +52,32 @@ class BarContext:
         Canonical key 'atr_hourly' carries hourly-frozen ATR per AC40.
       - ts_ns (AC15): sim clock timestamp; used by BarProcessor look-ahead
         assertion at callback emission time.
+
+    M9 additions (C-1 / C-5 reactive sizing surface — AC #14):
+      - ctx: UniverseContext reference — enables strategies to call
+        `bar_ctx.ctx.per_token().atr()` or `v5.regimes.detect_crisis()`
+        directly from `check_exit` / `check_scale` without stashing
+        self._ctx at `generate()` time.
+      - state_view: StateView read-only portfolio snapshot with
+        `equity, portfolio_dd_pct, open_positions_count,
+        total_notional_usd, per_strategy_equity, per_symbol_exposure,
+        bars_since_last_fill`.
+      - bar_idx: global bar index (alternative to hourly_bar_index when
+        strategy wants the raw int).
+      - regime: now Optional[int] (was int); C-4 deletes engine-populated
+        regime — strategies read `bar_ctx.ctx.market_indices[...]` or
+        call `v5.regimes.detect_crisis(bar_ctx.ctx, bar_ctx.bar_idx)`
+        directly. Kept for back-compat; None is the M9 default.
     """
-    close: float
-    high: float
-    low: float
-    atr: float
-    rsi: float           # NaN if unavailable
-    regime: int           # 0=CRISIS, 1=QUIET, 2=UPTREND, 3=RANGE, 4=DOWNTREND
-    bars_held: int
-    local_bar: int
-    funding_val: float    # hourly funding rate (0 for spot)
+    close: float = 0.0
+    high: float = 0.0
+    low: float = 0.0
+    atr: float = 0.0
+    rsi: float = float('nan')           # NaN if unavailable
+    regime: Optional[int] = None           # M9: legacy; strategies call v5.regimes.detect_*
+    bars_held: int = 0
+    local_bar: int = 0
+    funding_val: float = 0.0    # hourly funding rate (0 for spot)
     # Extended fields for custom exit handlers (NaN if unavailable)
     volume: float = float('nan')
     vol_20: float = float('nan')     # 20-period rolling volatility
@@ -66,6 +89,10 @@ class BarContext:
         default_factory=lambda: _EMPTY_INDICATOR_SNAPSHOT
     )
     ts_ns: int = 0
+    # M9 C-1 / C-5 reactive sizing surface (AC #14)
+    bar_idx: int = 0
+    ctx: "Optional[UniverseContext]" = None  # forward ref — see TYPE_CHECKING block
+    state_view: Optional[StateView] = None
 
 
 @dataclass

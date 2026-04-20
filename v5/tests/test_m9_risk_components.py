@@ -36,19 +36,29 @@ if str(_project_root) not in sys.path:
 
 def _candidate(strategy_id: str, token: str, notional_usd: float = 10_000.0,
                fraction_of_equity: float = 0.05):
-    """Minimal EntryCandidate carrying a SizingRequest."""
+    """Minimal EntryCandidate carrying a SizingRequest.
+
+    Test-authoring note (M9 test-dispute #1): helper previously set both
+    fraction_of_equity AND notional_usd on SizingRequest which violates
+    the M8 XOR invariant. Fixed: construct request with fraction; attach
+    notional_usd as a separate candidate field for risk-component lookup.
+    Reviewer-approved during Phase 3 → 4 transition (fix is pure authoring
+    — no AC assertion modified)."""
     from v5.arbitration import EntryCandidate
     from v5.sizing.intents import SizingIntent, SizingRequest
-    return EntryCandidate(
+    cand = EntryCandidate(
         strategy_id=strategy_id,
         token=token,
         priority=1.0,
         sizing=SizingRequest(
             intent=SizingIntent.FRACTION_OF_EQUITY,
             fraction_of_equity=fraction_of_equity,
-            notional_usd=notional_usd,
         ),
     )
+    # Attach notional_usd separately for risk components that size-check
+    # candidate notional directly (e.g. MaxGrossExposure).
+    cand.notional_usd = notional_usd
+    return cand
 
 
 def _sim_state(
