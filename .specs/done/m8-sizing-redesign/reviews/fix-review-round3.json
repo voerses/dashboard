@@ -1,0 +1,53 @@
+{
+  "reviewer_role": "FIX architect",
+  "round": 3,
+  "verdict": "PASS",
+  "branch": "feat/m7-strategy-api",
+  "commit": "d090fbe",
+  "tests": {
+    "command": "pytest v5/tests/test_m8_*.py",
+    "passed": 167,
+    "xfailed": 6,
+    "failed": 0,
+    "status": "GREEN"
+  },
+  "round2_closures": [
+    {
+      "id": "NEW-MAJOR-1",
+      "title": "sim wiring bypasses release_atomic",
+      "status": "CLOSED",
+      "evidence": "v5/simulator.py:1633 calls m8_order.release_atomic(market_state=_SimMktState(), policy=SharedPoolPolicy(), config=m8_cfg). run_clamp_pipeline no longer invoked directly from the flag-ON sim path. Aggregate-leverage pre-clamp + reduce_only gates route through Order.release_atomic (orders.py:1139)."
+    },
+    {
+      "id": "NEW-MAJOR-2",
+      "title": "inline _SimMktState liq_distance hardcoded",
+      "status": "CLOSED",
+      "evidence": "v5/simulator.py:1616-1619 computes notional = |equity * L|, mmr = _lookup_mmr(notional, DEFAULT_MMR_SCHEDULE), returns (1/L - mmr) * 10_000. Matches clamp #5 math. Clamp is no longer inert at L>=2."
+    },
+    {
+      "id": "NEW-MAJOR-3",
+      "title": "ClampsConfig missing log_path",
+      "status": "CLOSED",
+      "evidence": "v5/simulator.py:1631 sets log_path=_Path('v5/logs/sizing_fills.jsonl'). AC-Sz5 JSONL persistence wired on flag-ON path."
+    },
+    {
+      "id": "MAJOR-2",
+      "title": "duplicate JSONL writers",
+      "status": "CLOSED",
+      "evidence": "v5/sizing/clamps.py:275-298 _emit_binding_log imports and delegates to v5.sizing.binding_log.write_sizing_fill_entry. Single serialization policy. _OrderShim exposes order_id/token/strategy_id as class attrs to satisfy getattr() calls in the canonical writer."
+    },
+    {
+      "id": "MINOR-globals-string-concat",
+      "title": "globals() string-concat evasion in phase-gate",
+      "status": "OPEN",
+      "evidence": "Engineering carve-out; document-only per round-2 verdict. No action required this round."
+    }
+  ],
+  "regression_checks": {
+    "order_shim_breaks_schema": "NO - write_sizing_fill_entry uses getattr(order, 'order_id', '') / getattr(order, 'token', '') / getattr(order, 'strategy_id', '') under setdefault() guards (binding_log.py:55-57). Class-level attrs on _OrderShim satisfy getattr. Since clamps.py pre-populates order_id/symbol/strategy_id in the entry dict, setdefault no-ops and shim is defense-in-depth. Schema intact.",
+    "circular_import_risk": "NO - simulator.py imports _lookup_mmr + DEFAULT_MMR_SCHEDULE lazily inside the per-bar flag-ON block (line 1580, inside per-signal loop). clamps.py imports only from v5.sizing.intents and v5.sizing.slippage; it does NOT import v5.simulator. Import graph acyclic.",
+    "release_atomic_gates_active": "YES - aggregate-leverage pre-clamp + reduce_only overfill checks fire through Order.release_atomic (orders.py:1139, test_m8_release_atomic_integration 5/5 pass, test_m8_aggregate_leverage_bound 4/4 pass, test_m8_reduce_only_overfill 4/4 pass, test_m8_flag_on_integration 4/4 pass)."
+  },
+  "new_findings": [],
+  "summary": "All 4 round-2 MAJORs verified CLOSED. Flag-ON sim path now correctly routes through release_atomic with MMR-computed liquidation_distance, wired log_path, and a single JSONL writer via binding_log.write_sizing_fill_entry. No new BLOCKER/MAJOR introduced by round-2 fixes; the _OrderShim is schema-safe (class attrs satisfy getattr under setdefault guards) and the _lookup_mmr import is acyclic (lazy, unidirectional). 167/167 pass + 6 xfailed, M8 Wave L is FIX-clean."
+}

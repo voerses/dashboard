@@ -1,0 +1,22 @@
+{
+  "reviewer_role": "FIX architect",
+  "round": 4,
+  "branch": "feat/m7-strategy-api",
+  "commit": "3c5ecfb",
+  "verdict": "PASS",
+  "tests": {
+    "command": "pytest v5/tests/test_m8_*.py",
+    "passed": 167,
+    "xfailed": 6,
+    "failed": 0,
+    "status": "GREEN"
+  },
+  "verification": [
+    "FIX vocabulary: partial-fill binding-log entry (orders.py:1265-1282) routes through binding_log.write_sizing_fill_entry which stamps `strategy_id` via getattr(order,'strategy_id',''); NO party_id / Party(448) / PartyRole(452) vocabulary anywhere in orders.py or binding_log.py. StrategyID(1098) convention preserved.",
+    "Cross-margin regression: test_cross_deep_drawdown_would_force_liquidation PASSES on commit 3c5ecfb with the new `- total_maint` subtraction (market_state.py:164). Deep-DD fixture (wallet=100k, initial=10k, maint=400, uPnL=-95k) yields cross = 100k + (-95k) - 10k - 0 - 400 = -5_400, iso = 90_000; both AC assertions (`cross <= 10_000` and `iso > cross`) hold with meaningful margin. Boundary is no longer vacuous.",
+    "reduce_only branch FIX cleanliness: target_size fallback to notional_usd/mark_price (orders.py:1208-1217) preserves order_qty>0 so direction gate (opposite-sign check, line 1230) still fires; no FIX wire semantic changed — same ExecType.TRADE(PARTIALLY_FILLED) + ExecType.REJECTED(overage) pair as round-3 baseline (test_m8_reduce_only_overfill 4/4 GREEN).",
+    "Binding-log schema: partial-fill entry includes order_id, symbol, strategy_id, reduce_only=True, binding_constraint='reduce_only_partial', filled_notional=pos_abs*mark — all round-3-approved AC-Sz5 field set, no new fields that would drift from the canonical binding_log schema."
+  ],
+  "new_findings": [],
+  "summary": "All three round-3 Risk-reviewer closures (cross-margin maintenance_margin, reduce_only partial-fill binding-log, reduce_only notional fallback) verified FIX-clean. No Party(448) regression, StrategyID(1098) vocabulary preserved across the new partial-fill log path, and the previously-vacuous cross-margin boundary test now holds with a -5_400 vs +90_000 separation. 167/167 pass + 6 xfailed."
+}

@@ -1,0 +1,97 @@
+{
+  "reviewer_role": "FIX architect",
+  "phase": 3,
+  "scope": "Pre-implementation gate - test + task review for M8 Sizing Redesign",
+  "verdict": "APPROVE_WITH_GAPS",
+  "gaps": [
+    {
+      "severity": "MAJOR",
+      "category": "test_missing",
+      "ac_or_design_ref": "design Section 8 (CapitalAllocationPolicy Protocol) + task 7",
+      "issue": "No test file exercises the CapitalAllocationPolicy Protocol surface shipped in M8. The allocation-review.md Q1 mandated Protocol-in-M8 with SharedPoolPolicy default + sampling_cadence class attribute + AllocationState TypedDict. Task 7 creates v5/sizing/allocation.py but zero tests in the snapshot reference CapitalAllocationPolicy, SharedPoolPolicy, AllocationState, or sampling_cadence. The allocation-review explicitly called out 'test_m8_shared_pool_policy.py: 3 tests (identity, clock-now-ns pass-through, equivalence to today's behavior)' as scope. Without these tests the Protocol hook will ship untested and the 'zero retrofit cost in M9' argument is unverified.",
+      "fix_recommendation": "Add test_m8_capital_allocation_policy.py with: (1) SharedPoolPolicy.available_capital returns state.available_margin (identity), (2) sampling_cadence class attribute is present with Literal['bar_close','tick','release'] value, (3) clock_now_ns is threaded through the Protocol call, (4) AllocationState TypedDict exposes exactly {available_margin, per_strategy_equity, rolling_pnl_24h, current_positions_notional}, (5) free_capital_clamp calls policy.available_capital(...) when passed a non-default policy, (6) funding_buffer subtraction happens BEFORE policy call per design section 7.1/8.3."
+    },
+    {
+      "severity": "MAJOR",
+      "category": "test_missing",
+      "ac_or_design_ref": "design Section B2 / task 24 / brief AC-Sz3",
+      "issue": "test_m8_multi_leg_aggregation.py covers OTOCO and OCO but is MISSING the OTO/sum case explicitly called out in the module docstring (line 6: 'OTO: sum'). Design Section 3d and brief AC-Sz3 state 'OTO sums, OTOCO = entry+max(siblings), OCO = max' as three distinct rules. Only two are tested. The free-capital clamp branching for ContingencyType.OTO could ship wrong (silently summing OTOCO siblings, or treating OTO as OCO) and the snapshot will not catch it.",
+      "fix_recommendation": "Add TestOtoSumAggregation class with a 2-leg OTO order, assert reserved_capital_for_clamp(order) == pytest.approx(leg_a_margin + leg_b_margin). Also add a NONE/single-leg control test distinguishing from OTO."
+    },
+    {
+      "severity": "MAJOR",
+      "category": "test_missing",
+      "ac_or_design_ref": "AC-Sz3 clause 5 / task 12",
+      "issue": "test_m8_clamps_individual.py::TestLiquidationDistanceClamp has ONE test that passes liquidation_distance_bps as a scalar in market_state. Design/brief explicitly require 'Binance tiered maintenance-margin schedule (notional-bucketed) - test with a position spanning two tiers' (AC-Sz3 clause 5; task 12 notes 'Risk-reviewer focus target'). The current test does not exercise the tiered MMR lookup - it passes a hardcoded liquidation_distance_bps which bypasses the tier calculation entirely. The round-3 Risk-architect pass will flag this and ask why the clamp under test isn't actually computing liquidation from position size + leverage + tier schedule.",
+      "fix_recommendation": "Add TestLiquidationDistanceTieredMMR with at least 2 parametrized cases: (a) notional that stays in tier 1 (0-50K USDT, MMR=0.5%) and (b) notional spanning tier 1->tier 2 boundary (e.g. 60K USDT on BTCUSDT where the marginal MMR rises). Assert the clamp uses the correct per-tier maintenance-margin rate and that liq distance differs from the naive 1/leverage formula. Reference Binance perp tier schedule as the source of truth."
+    },
+    {
+      "severity": "MAJOR",
+      "category": "test_missing",
+      "ac_or_design_ref": "M7 carry-over item 2 (brief lines 251-253)",
+      "issue": "Brief explicitly lists 'TokenSignal fraction_of_equity bound: new AC in M8 scope, engine rejects or scales when aggregate fraction_of_equity * leverage exceeds 1.0 across active position book. Default: reject marginal signal; escape hatch allow_over_leveraged=True.' This requirement is in-scope for M8 (brief lines 251-253) but has ZERO test coverage in the snapshot - no tests reference allow_over_leveraged or aggregate leverage enforcement. Design section 7 open issue #3 says this is 'a new portfolio-level pre-clamp' but no task lands it and no test asserts it.",
+      "fix_recommendation": "Either (a) add test_m8_aggregate_leverage_bound.py covering reject-default + allow_over_leveraged escape hatch + cross-strategy aggregation, AND add corresponding task to tasks.md; OR (b) explicitly descope the M7 carry-over #2 from M8 with a brief amendment. Ambiguity here means the implementer will either skip it (missing scope) or ship untested code (no TDD gate)."
+    },
+    {
+      "severity": "MAJOR",
+      "category": "task_missing",
+      "ac_or_design_ref": "design Section 2 Modified files / design Section 8.4 FIX vocab",
+      "issue": "design.md Section 2 lists 'v5/strategy_api.py - Promote SizingIntent from Literal to Enum; re-export from v5.sizing.intents; keep SizingRequest dataclass shape (~15 lines)' as a modified file, but Task 1 in tasks.md only lists 'v5/sizing/intents.py (new), v5/strategy_api.py (modify re-export)' without explicitly covering the Literal->Enum promotion on the existing M7-shipped SizingRequest.intent field. More critically, NO task references adding the FIX-1098 StrategyID vocabulary to the binding-log schema (allocation-review.md Q4 is emphatic: 'Changing FIX tags in the persistence schema is exactly the migration M5 just spent 10 reviewer rounds avoiding. Get it right now.'). Task 15 mentions 'Uses FIX StrategyID(1098) vocabulary (not Party 448)' in prose but no test asserts the field is literally named strategy_id (which the tests do check) AND documented as the FIX-1098 anchor.",
+      "fix_recommendation": "Amend Task 1 to explicitly call out the M7 SizingRequest.intent Literal->Enum promotion and string-value preservation for existing paper-state JSON. Amend Task 15 (or add task 15b) to include: (a) a docstring/schema comment tagging strategy_id as FIX StrategyID(1098), (b) a test assertion in test_m8_binding_log.py that documents the vocabulary anchor (currently none - the test just checks the field exists). Optional: add fix_1098 dual-stamp field per allocation-review.md Q4 for forward-compat with M10 wire connectivity."
+    },
+    {
+      "severity": "MINOR",
+      "category": "test_wrong_vocab",
+      "ac_or_design_ref": "AC-Sz5 / allocation-review.md Q4",
+      "issue": "test_m8_binding_log.py correctly uses 'strategy_id' as the field name (7 occurrences, matching FIX-1098 vocabulary). There is NO regression into Party(448)/party_id vocabulary - good. However, the test does not assert the field is intentionally FIX-1098-shaped (e.g. no comment or schema constant tagging it). If a future reviewer adds a 'party_id' field alongside, the test would still pass. test_m8_paper_backtest_parity.py NON_FLOAT_COLUMNS correctly includes 'strategy_id' but same observation applies.",
+      "fix_recommendation": "Add a light assertion in TestBindingLogSchema documenting intent: e.g., 'assert \"party_id\" not in entry and \"fix_448\" not in entry' to prevent future drift into prime-broker give-up vocabulary. Low priority but cheap and catches future regressions."
+    },
+    {
+      "severity": "MINOR",
+      "category": "test_missing",
+      "ac_or_design_ref": "brief Key AC item 9 (Dropped v4 checks disposition)",
+      "issue": "Brief item 9 lists 4 disposition outcomes: (a) edge_minimum -> strategy self-gates, (b) spot_max_equity_pct -> strategy self-declares, (c) max_sizing_equity -> add as optional 7th clamp on PortfolioConfig, (d) unrealized_pnl_floor -> DELETED, (e) funding_buffer_pct -> add as optional field on PortfolioConfig. Items (c) max_sizing_equity and (e) funding_buffer_pct have ZERO test coverage in the snapshot. test_m8_v4_pipeline_deleted.py confirms unrealized_pnl_floor is deleted (item d, good). But max_sizing_equity as 7th clamp and funding_buffer_pct as margin-reducer have no assertions. Design section 7 open issue #2 defers max_sizing_equity into concentration clamp (scope change from brief), but no test codifies either interpretation. Design section 7.1 mandates 'funding buffer subtracted BEFORE CapitalAllocationPolicy.available_capital is called' - untested.",
+      "fix_recommendation": "Add test_m8_portfolio_clamps.py with 2-3 cases: (1) funding_buffer_pct=0.05 reduces available_capital_usd by equity*0.05 before policy dispatch, (2) max_sizing_equity either fires as 7th clamp (if brief) or as concentration-clamp ceiling (if design), (3) disposition test covering the unrealized_pnl_floor deletion end-to-end (e.g. setting it in config raises AttributeError or is silently ignored - picking one)."
+    },
+    {
+      "severity": "MINOR",
+      "category": "task_wrong_scope",
+      "ac_or_design_ref": "tasks.md Task 16 stop-triggers / M7 round-4 precedent",
+      "issue": "tasks.md Stop-and-redecompose triggers (lines 226-229) list 4 triggers but miss a FIX-correctness mode seen in M7 round-4: a release_atomic mutation that breaks fix_audit_log append semantics (dataclass(frozen=True) + object.__setattr__ discipline). Task 16 rewrites release_atomic signature and Task 17 adds try/except - both touch the Order dataclass immutability invariant. If the implementer accidentally removes the frozen=True contract or forgets to use _replace-style copy in the clamp pipeline, the fix_audit_log tuple append will corrupt silently. M7 round-4 reviewer caught this inline and it cost a round.",
+      "fix_recommendation": "Add a 5th stop-and-redecompose trigger: 'Task 16/17 mutation of Order state breaks frozen-dataclass invariant or fix_audit_log append semantics -> STOP; use _replace / object.__setattr__ pattern per M5 precedent.' Also consider adding test_m8_release_atomic_integration.py::test_order_remains_frozen_after_clamp_pipeline which calls order.some_field = X and asserts FrozenInstanceError."
+    },
+    {
+      "severity": "MINOR",
+      "category": "test_missing",
+      "ac_or_design_ref": "AC-Sz8 / task 25 / M7 Fill triple contract",
+      "issue": "test_m8_reduce_only_overfill.py asserts ExecType.TRADE + ExecType.REJECTED are emitted but does NOT assert the M7-shipped Fill triple (ClOrdID+OrderID+ExecID+TransactTime+LastQty+LastPx+CumQty+LeavesQty+AvgPx) is populated correctly on the reducing-portion fill. Under Binance venue behavior the partial-fill event needs LastQty=5, CumQty=5, LeavesQty=2 (pre-reject), then REJECTED with LeavesQty=0. The test as written does not catch an implementation that emits TRADE and REJECTED but with incorrect qty accounting.",
+      "fix_recommendation": "Extend TestReduceOnlyLongOverfill::test_long_5x_reduce_7x_emits_partial_fill_plus_reject to also assert: trade_event.get('last_qty') == pytest.approx(5.0), trade_event.get('cum_qty') == pytest.approx(5.0), reject_event.get('leaves_qty') == pytest.approx(0.0). Covers M7 Fill invariant that this path must respect."
+    },
+    {
+      "severity": "NIT",
+      "category": "test_missing",
+      "ac_or_design_ref": "AC-Sz9 / tolerance module",
+      "issue": "test_m8_paper_backtest_parity.py imports PER_TRADE_PNL_BPS_TOLERANCE (5.0 bps) and PRICE_ULP_TOLERANCE (4 ULP) from shadow_replay_tolerances.py but does not import or use AGGREGATE_PNL_BPS_TOLERANCE (10.0 bps) per the task prompt's M3 tolerance-constants requirement (4/5/10). Not wrong per se - AC-Sz9 is per-fill not aggregate - but worth a comment tying the choice back to M3 convention so future maintainers know why the 10-bps tolerance is intentionally unused here.",
+      "fix_recommendation": "Add a module-level comment: 'AGGREGATE_PNL_BPS_TOLERANCE (10 bps) is not applied here because AC-Sz9 is a per-fill parity gate. Aggregate-level drift is covered by M4 AC41 trade-archive parity.' Cheap docs clarification."
+    },
+    {
+      "severity": "NIT",
+      "category": "design_drift",
+      "ac_or_design_ref": "design Section 8 duplicate numbering",
+      "issue": "design.md has TWO sections numbered '## 8' - '## 8. Multi-strategy capital allocation' and '## 8. Approval gate'. This is a documentation bug, not a correctness gap, but makes cross-references ambiguous (which '§8' does the allocation-review refer to?).",
+      "fix_recommendation": "Renumber the second Section 8 to Section 9. Cosmetic - no implementation impact."
+    }
+  ],
+  "strengths": [
+    "AC coverage is strong overall - 13 of 13 brief ACs plus 4 disposition items map to at least one test file. AC-Sz1 through Sz9 all have dedicated test files with named test classes.",
+    "FIX vocabulary is correct where tested: strategy_id field name (FIX-1098) is used consistently across test_m8_binding_log.py and test_m8_paper_backtest_parity.py NON_FLOAT_COLUMNS. No regression into Party(448) or party_id anywhere.",
+    "reduce_only overfill test covers all 3 mandated scenarios (long_5x_reduce_7x, short_3_reduce_5, flip_direction_attempt) with correct ExecType.TRADE + ExecType.REJECTED expectations and reject_reason='reduce_only_overfill' matches brief AC-Sz8 exactly.",
+    "AC-Sz9 paper-vs-backtest parity test uses M3 tolerance constants from the correct module (v5/tests/shadow_replay_tolerances.py), applies ULP tolerance for fill_price and bps tolerance for notional/margin/slippage per design. Byte-identity assertion on non-float columns (binding_constraint, intent, symbol, strategy_id) is tight and matches the prompt.",
+    "Clamp ordering test (test_m8_clamps_ordering.py) codifies the first-binding-wins semantics with a CLAMP_ORDER constant test, preventing silent reorder drift.",
+    "Cross-margin free-capital test (test_m8_cross_margin_free_capital.py) explicitly asserts isolated vs cross produce DIFFERENT values - catches the cross-margin formula bug the Risk review is scoped to find.",
+    "Clamp error containment test parametrizes all 6 clamp names, mirroring M7 AC-S5 error-containment pattern, and includes an explicit test that BarProcessor does not crash.",
+    "Task decomposition at 31 tasks in 12 waves is well-structured with explicit dependency notation. Critical path (1->3->10->14->15->16->22/23->28->31) is documented. Parallelizable tasks are flagged.",
+    "Design B1 (single clamp entry point in release_atomic) is verified by test_m8_release_atomic_integration.py asserting simulator.py and paper_engine.py do NOT import apply_clamps directly - strong architectural guard."
+  ],
+  "summary": "Phase 3 gate is APPROVE_WITH_GAPS. The 140-test / 15-file snapshot has good architectural coverage - AC-Sz1 through AC-Sz9 all map to dedicated test files, FIX vocabulary is correct (strategy_id per FIX-1098, not Party 448), reduce_only semantics cover all 3 Binance scenarios, and the paper-vs-backtest parity test correctly uses M3 tolerance constants. Four MAJOR gaps must close before implementation: (1) the CapitalAllocationPolicy Protocol surface shipped in M8 per allocation-review Q1 has zero tests - no SharedPoolPolicy identity test, no sampling_cadence assertion, no AllocationState TypedDict shape test; (2) multi-leg OTO sum-aggregation is documented but untested (only OTOCO and OCO are covered); (3) liquidation-distance clamp test does not exercise Binance tiered MMR as AC-Sz3 clause 5 and task 12 require - it passes a pre-computed bps value rather than computing from position*leverage*tier; (4) M7 carry-over aggregate fraction_of_equity*leverage bound (brief lines 251-253) is in scope but has zero tests and no task. Four MINOR gaps (FIX-vocab regression guard assertions, funding_buffer ordering + max_sizing_equity tests, frozen-dataclass stop-trigger, Fill-triple assertions on reduce_only partial), two NITs (tolerance comment, duplicate §8 numbering). Recommend closing the 4 MAJORs before Phase 4 kickoff; MINORs and NITs can fold into the first reviewer round. Test immutability (Phase 4) will otherwise lock in these blind spots across 60-85h of implementation."
+}

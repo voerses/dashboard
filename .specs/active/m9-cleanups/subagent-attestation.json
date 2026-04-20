@@ -1,0 +1,53 @@
+{
+  "written_by": "subagent",
+  "timestamp": "2026-04-20T15:55:00Z",
+  "subagents": [
+    {
+      "scope": "C-1 SignalArbitrationPolicy + C-5 RiskComponent",
+      "agentId": "a44dc805a6cdfe9ba",
+      "files": [
+        "v5/tests/test_m9_signal_arbitration.py",
+        "v5/tests/test_m9_risk_components.py"
+      ],
+      "test_count": 42
+    },
+    {
+      "scope": "C-2 Walk-Forward + C-3 Indicators + C-4 Regime",
+      "agentId": "a9c15e12efa3a2385",
+      "files": [
+        "v5/tests/test_m9_validation_cpcv.py",
+        "v5/tests/test_m9_indicators_mtf.py",
+        "v5/tests/test_m9_regime_deletion.py"
+      ],
+      "test_count": 15
+    },
+    {
+      "scope": "C-6 Dashboard + C-7 AC-S10 Bridge + C-8 Runner + C-9 Capital + C-10 Hooks/TickCadence/Analyzer + corner-case ACs",
+      "agentId": "a8eef69ae095400d2",
+      "files": [
+        "v5/tests/test_m9_c7_bridge_interface.py",
+        "v5/tests/test_m9_capital_allocation_pluggable.py",
+        "v5/tests/test_m9_dashboard_v5_rendering.py",
+        "v5/tests/test_m9_runner_kill_switch.py",
+        "v5/tests/test_m9_scale_hook_cleanup.py",
+        "v5/tests/test_m9_engine_strategy_isolation.py",
+        "v5/tests/test_m9_sampling_cadence_coord.py",
+        "v5/tests/test_m9_tick_cadence_policy.py",
+        "v5/tests/test_m9_arbitration_analyzer_cli.py"
+      ],
+      "test_count": 33
+    }
+  ],
+  "total_test_files": 16,
+  "total_tests": 96,
+  "red_tests": 90,
+  "continually_green_guardrails": 4,
+  "fixture_gated_tests": 2,
+  "post_review_additions": [
+    "test_m9_replay_parity.py — AC #10 replay-parity assertions (2 tests, skipped until T34 fixture built)",
+    "test_m9_bar_context_enrichment.py — AC #14 BarContext ctx + StateView fields (6 tests, all RED)"
+  ],
+  "brief_hash": "c659b33c",
+  "isolation_guarantee": "Each subagent received only brief.md + existing test pattern files. No design.md access. No v5/ source file reads beyond conftest.py. Tests designed to FAIL RED by construction via imports/attributes of un-shipped modules (v5/arbitration.py, v5/risk.py, v5/sizing/tick_cadence.py, v5/tools/arbitration_analyzer.py, extensions to v5/config.py, v5/sizing/allocation.py).",
+  "notes": "4 green guardrails are preserving-invariant audits (strategies don't import engine; engine doesn't touch strategy privates; PortfolioConfig has no regime field today; check_scale already 2-arg) — they MUST remain green through M9 implementation."
+}

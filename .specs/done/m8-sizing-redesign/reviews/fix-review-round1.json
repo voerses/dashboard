@@ -1,0 +1,68 @@
+{
+  "reviewer_role": "FIX architect",
+  "round": 1,
+  "verdict": "NEEDS_ATTENTION",
+  "findings": [
+    {
+      "severity": "BLOCKER",
+      "file": "v5/tests/* (suite-wide)",
+      "issue": "Prompt claims 'full v5 suite 1562 passed / 0 failed' but actual run is 11 FAILED, 1678 passed. Failures: test_m1_fork_verification.py::TestAC11SizingPurge x4 (expect v5/sizing.py as a FILE; M8 replaced with package v5/sizing/); test_conviction_to_priority.py x4 (expect v5.simulator.get_sizing_model attribute, M8 renamed to private _get_legacy_sizing at v5/simulator.py:36); test_m7_pre_existing_13 x2; test_m3_slots::test_full_v5_suite_passes x1 (meta-test that re-runs suite). AC-Sz6 v4-pipeline-DELETE cascade was not fully swept — callers of v5.simulator.get_sizing_model still reference it publicly. This is a direct M8 regression (legacy-facing surface removed without migration of consumers).",
+      "fix_recommendation": "Either (a) restore a thin public alias `v5.simulator.get_sizing_model = _get_legacy_sizing` + make the M1 TestAC11SizingPurge file-path cascade read against `v5/sizing/` package (update the test fixture to grep the package dir, not a single file) — OR (b) if these tests are intentionally deleted casualties, mark xfail with explicit reason referencing M8 AC-Sz6 and update the prompt's 'full v5 suite 1562 passed' claim. Do not leave latent RED in a milestone marked shipped."
+    },
+    {
+      "severity": "MAJOR",
+      "file": "v5/sizing/clamps.py:254-269 vs v5/sizing/binding_log.py:28-62",
+      "issue": "Two separate JSONL writers co-exist and diverge. `_emit_binding_log` in clamps.py does a direct `json.dumps(entry)` (no `default=str`); `write_sizing_fill_entry` in binding_log.py uses `json.dumps(entry, default=str)`. If an Order ever carries a datetime/UUID/dataclass in `order_id`/`strategy_id`, clamps.py path will raise TypeError while binding_log.py path will stringify. Parity tests (AC-Sz9) use run_clamp_pipeline which writes through the clamps.py path; the binding_log.py writer is test-only. Divergent behavior between the two writers is a FIX audit-log schema liability — under load the two sinks will produce subtly different entries.",
+      "fix_recommendation": "Delete `_emit_binding_log` in clamps.py and route all writes through `v5.sizing.binding_log.write_sizing_fill_entry`. Single source of truth for the JSONL schema. The binding_log.py module already has the correct `default=str` safety + mkdir + append semantics."
+    },
+    {
+      "severity": "MAJOR",
+      "file": ".specs/active/m8-sizing-redesign/design.md:231-238 vs v5/sizing/clamps.py:392,412",
+      "issue": "Design §3e schema documents `clamp_values.liq_distance` and `clamp_values.slippage_bps`; implementation emits `clamp_values.liquidation_distance` and `clamp_values.slippage`. Test test_m8_binding_log.py REQUIRED_CLAMP_KEYS matches the implementation (liquidation_distance, slippage). Design document is stale. This is a documentation/implementation divergence that will bite any downstream consumer (PM dashboard, risk analytics) that reads the design doc rather than the code.",
+      "fix_recommendation": "Per meta-rule 'code over specs' — update design.md §3e to reflect the shipped keys (`liquidation_distance`, `slippage`). Do NOT change the implementation. Also note that design §3e has `slippage_bps` as a top-level field AND inside clamp_values (duplicated). Pick one — the implementation keeps slippage_bps top-level and uses 'slippage' inside clamp_values. Document that explicitly."
+    },
+    {
+      "severity": "MAJOR",
+      "file": "v5/orders.py:1245-1267 + v5/sizing/clamps.py",
+      "issue": "AC-Sz9 'TokenSignal fraction_of_equity bound' (aggregate leverage ≤ 1.0 across positions) has NO production wiring. release_atomic probes `market_state.active_position_leverage_sum(strategy_id)` at line 1253, but no production MarketState adapter (SimulatorMarketState / PriceMonitorMarketState / DataEngineMarketState in v5/sizing/market_state.py) implements this method. Only the test fixture in test_m8_aggregate_leverage_bound.py defines it. Fall-through default `existing_sum=0.0` means production code NEVER rejects on aggregate over-leverage — the bound is inert at runtime. Brief §M7 Impact item 2 lists this as an AC in M8 scope.",
+      "fix_recommendation": "Add `active_position_leverage_sum(strategy_id: str) -> float` to the MarketState Protocol and to _BaseSyntheticAdapter. Implement real lookup in SimulatorMarketState (sum fraction × leverage across open positions for strategy_id) before M8 ships. Otherwise rename the AC deliverable or punt to M9 explicitly."
+    },
+    {
+      "severity": "MINOR",
+      "file": "v5/orders.py:1232-1243",
+      "issue": "reduce_only overfill emits FIX ExecType.REJECTED event with last_qty=0.0, leaves_qty=2.0 (the overage). Real Binance venue behavior for futures reduceOnly overage: no separate REJECTED event — the order is simply partial-filled up to position qty and the residual is silently dropped (cumulativeQuoteQty reflects filled portion, status becomes FILLED or PARTIALLY_FILLED). The engine's extra REJECTED event is a helpful observability aid but is NOT Binance venue semantics. Acceptable for backtesting/paper but will diverge from a live venue FIX session's ExecReport stream.",
+      "fix_recommendation": "Document this as an engine-only audit event in orders.py release_atomic docstring and add a comment at L1232 that 'Real Binance venue does NOT emit a separate REJECTED execution for reduceOnly overage; this event is engine-internal for FIX audit trail'. Consider gating behind a flag `PortfolioConfig.emit_reduce_only_reject_event=True` (default True) so M10 live-venue path can suppress it to match wire reality."
+    },
+    {
+      "severity": "MINOR",
+      "file": "v5/orders.py:1238-1243",
+      "issue": "reduce_only partial transitions Order to OrderStatus.PARTIALLY_FILLED with `reject_reason=\"reduce_only_overfill\"`. FIX OrdStatus(39) 'PartiallyFilled' (value '1') does not typically carry a reject_reason — that's reserved for OrdStatus='8' (Rejected). Engine-internal hybrid state is acceptable but when `to_fix_ordstatus()` maps this to OrdStatus='1', downstream FIX consumers (M10 live) reading reject_reason off a PARTIALLY_FILLED record will be confused.",
+      "fix_recommendation": "Either (a) emit OrdStatus='F' FILLED since reduce_only 'fills' the intended-close and the overage is dropped, not rejected — moving reject_reason to the ExecReport level not the OrdStatus level; or (b) add a `partial_reason` field to Order that is distinct from reject_reason and used when state=PARTIALLY_FILLED. Keep reject_reason semantically bound to state=REJECTED."
+    },
+    {
+      "severity": "MINOR",
+      "file": "v5/sizing/binding_log.py:48 + v5/sizing/clamps.py:446-473",
+      "issue": "AC-Sz5 REQUIRED_LOG_FIELDS in test_m8_binding_log.py DOES NOT include `margin_mode` or `reduce_only`, but the shipped implementation and design §3e both emit these fields. The test is weaker than the schema. A future refactor could silently drop `margin_mode` and the acceptance test would not catch it. Since tests are FROZEN, this is a test-coverage gap, not an implementation bug.",
+      "fix_recommendation": "Log as a post-M8 telemetry note for M9 review — the acceptance test is the frozen spec and cannot be modified during Phase 4, but a MINOR follow-up test adding `margin_mode`/`reduce_only` presence assertions should land in M9 hardening."
+    },
+    {
+      "severity": "NIT",
+      "file": "v5/sizing/clamps.py:254-269",
+      "issue": "`_emit_binding_log` imports `json` and `os` inside the function body (lines 264-265) — duplicates of the top-of-module imports (lines 25-26). Minor code hygiene.",
+      "fix_recommendation": "Delete the inner imports; the top-level `import json` at line 25 and `os` is not imported at module top (only inside the function). Confirm and clean up."
+    }
+  ],
+  "strengths": [
+    "FIX StrategyID(1098) vocabulary correctly preserved in binding-log schema. NO party_id / party_448 / party_role leakage (test_m8_binding_log::test_log_schema_uses_fix_1098_strategy_id_not_party_448 actively guards this).",
+    "SizingIntent(str, Enum) matches M5/M7 FIX vocabulary convention (ExecType, OrderStatus, ContingencyType, TriggerType, LegStatus, LegFillPolicy). `.value` string roundtrip preserved for paper-state JSON.",
+    "TimeInForce(59) GTX='5' preserved intact; Wave E/F did not regress round-3 M7 correction. No new TIF values introduced in M8.",
+    "Leg.sizing_ctx is correctly persisted via _leg_to_json/_leg_from_json (v5/orders.py:1601, 1640) — arm_bracket's per-leg margin_usd population survives paper-state roundtrip.",
+    "ExecType(150) for TRADE (value 'F') and REJECTED (value '8') in reduce_only overfill events match FIX 5.0 SP2 wire codes. Fill-triple qty accounting (last_qty, cum_qty, leaves_qty) is present for both TRADE and REJECTED events.",
+    "release_atomic legacy fallback (M5/M7 compute_reserved_capital-only path) preserved at line 1283-1289 when market_state/config are None. Backward-compat intact for pre-M8 callers.",
+    "Clamp error containment (AC-Sz7) correctly transitions to REJECTED with reject_reason=f'clamp_error_{name}' and emits an error-path log entry. BarProcessor never dies on a clamp exception — matches M7 AC-S5 pattern.",
+    "Binance tiered MMR schedule (DEFAULT_MMR_SCHEDULE in clamps.py) matches published Binance BTCUSDT perp margin tiers; liquidation-distance formula (1/L - mmr)×10000 is textbook-correct.",
+    "Cross-vs-isolated margin formula in compute_available_capital_usd (market_state.py:115-156) is correct Binance semantics — isolated excludes upnl, cross includes it. The 2020-incident bug class is avoided.",
+    "Clamp dispatch order (CLAMP_ORDER tuple at clamps.py:76) exposed as module constant for test-level assertions — determinism invariant is explicit."
+  ],
+  "summary": "M8 sizing implementation is structurally sound on the FIX-vocabulary axes this review covers — StrategyID(1098) discipline, ExecType/OrdStatus fill-triple, TimeInForce preservation, Leg persistence, release_atomic backward compat. Core clamp math (Binance MMR tiers, cross-margin formula) is correct. Two MAJOR issues block SHIP: (1) suite-wide 11 test failures contradict the prompt's '1562 passed / 0 failed' claim — AC-Sz6 deletion cascade left orphaned references in M1 path tests + conviction_to_priority + meta-suite test; (2) duplicated JSONL writers (clamps.py vs binding_log.py) with divergent json-safety semantics. Plus aggregate-leverage gate has no production wiring. Round-2 focus: fix the deletion-cascade regressions, consolidate JSONL writers, wire active_position_leverage_sum into real MarketState adapters."
+}

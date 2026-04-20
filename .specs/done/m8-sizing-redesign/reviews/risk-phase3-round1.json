@@ -1,0 +1,62 @@
+{
+  "reviewer_role": "Risk architect",
+  "round": 3,
+  "scope": "Focused pass: AC-Sz3 cross-margin + liq-distance + AC-Sz8 reduce_only",
+  "verdict": "APPROVE_WITH_GAPS",
+  "findings": [
+    {
+      "severity": "BLOCKER",
+      "file": "v5/sizing/market_state.py:145-156",
+      "issue": "Cross-margin formula omits maintenance_margin subtraction. Binance's documented 'availableBalance' for cross-margin accounts is walletBalance + totalUnrealizedProfit - totalInitialMargin - totalMaintMargin - totalOpenOrderInitialMargin (see Binance Futures API 'Account Information V2' /fapi/v2/account, fields availableBalance + totalMaintMargin). Current formula computes wallet + upnl - initial - open_order, skipping maintenance_margin. The test fixture test_m8_cross_margin_free_capital.py lines 101/104/114/117/152 already populates maintenance_margin in position dicts (400.0, 320.0, 400.0 respectively) — the test authors expected it to be read. It isn't. This is precisely the '2020 incident' class of bug the docstring at market_state.py:136-137 cites, and the fix is a one-liner. On a book with open positions in mild loss the absent maintenance subtraction systematically OVERSTATES available capital and causes sizing-engine over-allocation.",
+      "fix_recommendation": "Add total_maintenance = sum(float(p.get('maintenance_margin', 0.0)) for p in positions) and return wallet + total_upnl - total_initial - total_maintenance - total_open_order in the cross branch. Add a parametrized test case that exercises the maintenance subtraction (e.g., two positions where upnl_sum=0 but maintenance_sum=720 → cross < wallet - initial - open_order by exactly 720)."
+    },
+    {
+      "severity": "MAJOR",
+      "file": "v5/tests/test_m8_cross_margin_free_capital.py:165",
+      "issue": "test_cross_deep_drawdown_would_force_liquidation asserts `cross <= 10_000.0` which does NOT prove the liquidation boundary. With the fixture's numbers (wallet=100k, initial=10k, upnl=-95k, maintenance=400 ignored) cross computes to -5k under the current formula and -5.4k under the corrected formula. The test should assert cross < 0 (the actual liquidation trigger boundary) and iso > 0 to prove the two modes land on opposite sides of the liquidation line. 'cross <= 10_000' is technically satisfied by any cross value below 10k including a non-liquidating +$9,999 — it's a vacuous assertion. The adjacent claim 'iso > cross' is weaker than the docstring promises ('force liquidation').",
+      "fix_recommendation": "Flag this to the test-author for tightening: assert cross < 0.0 (strict negative = force-liq) AND iso > 0 (isolated preserves wallet). With the BLOCKER fix applied this becomes a direct assertion on the liquidation boundary. This is a Phase 3 frozen test — escalate via reviewer protocol per .claude/rules/development-workflow.md 'Test Dispute Resolution'."
+    },
+    {
+      "severity": "MAJOR",
+      "file": "v5/sizing/clamps.py:231-245",
+      "issue": "_liquidation_distance_clamp formula liq_frac = 1/L - mmr is a simplification. Real Binance USDT-M perp liquidation price formula incorporates a bracketed maintenance_amount constant: liq_price_long = entry_price × (1 - 1/L + MMR) − maintenance_amount/qty (see Binance 'How to Calculate Liquidation Price' doc). The missing maintenance_amount term represents the cumulative MMR-tier discount that reflects the fact that lower tiers already contributed their MMR at a lower rate; only the MARGINAL tier MMR applies to the marginal notional. The simplification is fine for small positions inside a single tier but materially mis-estimates liq distance for positions that span tiers (say notional=$300k: tier1 covers 50k@0.50%, tier2 covers next 200k@0.65%, tier3 covers last 50k@1.00%; effective MMR is a weighted blend, not just the top-tier rate). AC-Sz3 clause 5 says 'test with a position spanning two tiers' and the tier-spanning test only verifies DISCRETE tier lookup differs — it does not verify the blended-MMR formula.",
+      "fix_recommendation": "Either (a) document the approximation explicitly in the module docstring with a precision note ('accurate within ~5 bps for positions up to tier 3; degrades for multi-tier positions') and add a cross-check test against Binance's published liquidation calculator for a tier-3-spanning notional, or (b) implement the maintenance_amount accumulator (sum of MMR_i × tier_width_i for all completed tiers) and subtract per unit notional. Option (a) is acceptable for M8 scope given single-tier strategy use today; option (b) is required before s524m or any large-cap strategy uses leverage > 20x."
+    },
+    {
+      "severity": "MAJOR",
+      "file": "v5/orders.py:1221-1243",
+      "issue": "reduce_only partial-fill emits ExecType.TRADE directly without running the clamp pipeline on the fillable portion. The fillable quantity (pos_abs=5.0 BTC) bypasses ADV cap, free-capital, slippage, and liquidation-distance clamps. On a real fill this means a reduce_only partial could emit a TRADE event with no slippage price, no ADV check, and no binding-log row — the AC-Sz5 guarantee ('every fill emits structured log with request → each clamp value → binding clamp → filled size') is violated for this code path. Also the emitted TRADE event carries only qty fields, no fill_price — downstream paper-engine fill writers that read last_px will see zero.",
+      "fix_recommendation": "Run run_clamp_pipeline on the reduced order (a synthesized SizingRequest with notional_usd=pos_abs × mark_price) BEFORE emitting the TRADE event. Emit the binding-log entry from the clamp pipeline, then append the REJECTED overage event with reject_reason='reduce_only_overfill'. This keeps AC-Sz5 consistent across all fill paths and lets the slippage clamp compute a realistic fill_price for the legitimate 5 BTC reduction."
+    },
+    {
+      "severity": "MAJOR",
+      "file": "v5/orders.py:1203",
+      "issue": "order_qty is read from self.sizing_ctx.get('target_size', 0.0). For orders constructed with SizingRequest(intent=FIXED_NOTIONAL, notional_usd=N) via ctx.orders.arm(size=S, sizing=SizingRequest(...)), target_size DOES get set from the 'size' kwarg (universe_context.py:575). But if a strategy ever emits a reduce_only SizingRequest without a matching positional size=... kwarg (legitimate pattern for pure-notional reduce), target_size defaults to 0, order_qty=0.0, the `order_qty > pos_abs` branch is False, the partial-fill path is never entered, and the order falls through to the full 6-clamp pipeline sizing based on notional_usd alone — which would OPEN a new counter-position at the full notional. This violates AC-Sz8 ('engine rejects orders that would flip direction').",
+      "fix_recommendation": "Before computing order_qty, resolve the requested quantity from SizingRequest authoritatively: if sizing_req.notional_usd is not None: order_qty = sizing_req.notional_usd / market_state.mark_price(self.token). If sizing_req.fraction_of_equity is not None: order_qty = (fraction × equity × leverage) / mark_price. Fall back to target_size only if neither is set. Add a regression test: reduce_only FIXED_NOTIONAL with notional > position_notional and no target_size kwarg → must hit the partial-fill-plus-reject path."
+    },
+    {
+      "severity": "MINOR",
+      "file": "v5/sizing/clamps.py:115-121",
+      "issue": "_lookup_mmr silently returns the last tier's rate for notional > $20M. An over-schedule position gets the tier-5 MMR rate (5%) rather than a reject or warning. For M8's synthetic-tested flag-ON use this is acceptable, but a production simulator.py wiring that processes real BTC notionals >$20M (possible for a single concentrated s524m leg at $10M equity × 10x leverage × 20% concentration = $20M exactly — right at the edge) would silently mis-rate. Binance's actual schedule caps maximum leverage at notional ceilings (e.g., 10x max above tier 5); beyond the schedule the position simply can't be opened.",
+      "fix_recommendation": "Raise ClampError('liquidation_distance', f'notional {notional} exceeds MMR schedule ceiling {schedule[-1][0]}') when notional > schedule[-1][0]. This converts to a clean REJECTED order via AC-Sz7 error containment. Alternatively extend DEFAULT_MMR_SCHEDULE to include Binance's actual tier 6+ (50M / 100M / 250M / 500M) for a cleaner hand-off to the caller."
+    },
+    {
+      "severity": "MINOR",
+      "file": "v5/orders.py:1181-1200",
+      "issue": "reduce_only probe for current_qty silently swallows all exceptions and defaults to 0.0. A bug in the MarketState adapter (TypeError, KeyError, AttributeError) results in current_qty=0 → the code falls into the 'current_qty == 0.0' branch → rejects with 'reduce_only_overfill'. This is safe-fail-right (no silent open), but hides real adapter bugs. Under flag-ON production use an adapter regression could silently convert every reduce_only into a reject.",
+      "fix_recommendation": "Catch only TypeError (for the zero-arg vs one-arg probe) and let AttributeError / KeyError raise through to AC-Sz7 error containment as ClampError('reduce_only', ...). This preserves the signature-discovery fallback while surfacing real adapter bugs. Consider emitting a log.warning on the exception path so operational drift gets noticed in paper."
+    },
+    {
+      "severity": "NIT",
+      "file": "v5/orders.py:1181-1243",
+      "issue": "Race condition between current_qty read and order execution: not a risk in M4-enforced single-threaded determinism (AC24), so no action needed. Confirmed per task prompt."
+    },
+    {
+      "severity": "NIT",
+      "file": "v5/sizing/market_state.py:145-148",
+      "issue": "Isolated-mode formula wallet - initial - open_order slightly under-represents truly available capital vs Binance's isolated accounting (which would also make the isolated positions' own initial_margin visible as 'releasable' if the position is flat — but for sizing purposes M8 is correctly conservative). No fix needed; flag only for documentation clarity.",
+      "fix_recommendation": "Add a docstring note clarifying that isolated-mode available here is the 'new-order capacity' not Binance's 'availableBalance' — they differ by the positions' own isolated margins but for sizing-at-trigger the new-order capacity is the right quantity."
+    }
+  ],
+  "summary": "APPROVE_WITH_GAPS. One BLOCKER (cross-margin formula missing maintenance_margin subtraction — the exact bug class the code comment warns about; test fixture populates the key but formula ignores it). Three MAJORs: (1) the deep-drawdown test asserts `cross <= 10_000` instead of the liquidation boundary `cross < 0` — passes vacuously; (2) liquidation-distance formula ignores Binance's tier-blended maintenance_amount — acceptable simplification for single-tier positions, document the precision bound; (3) reduce_only partial-fill bypasses the clamp pipeline so AC-Sz5 binding-log is not emitted and no slippage is applied to the fillable portion, plus order_qty can be zero when SizingRequest uses notional_usd without target_size — that bypasses the partial-fill path entirely and risks opening a counter-position. Two MINORs on error-handling robustness. Cross-margin BLOCKER must land in round 4; the rest can defer to round 5 or a documented M9 follow-up. Risk layer is tight apart from these items — the centralized compute_available_capital_usd helper is correctly placed."
+}

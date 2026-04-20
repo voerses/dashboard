@@ -1,0 +1,100 @@
+{
+  "reviewer_role": "Quant architect (institutional + crypto prop, HRT/Two Sigma/Citadel tier)",
+  "phase": 3,
+  "round": 2,
+  "scope": "Re-review of M8 Phase 3 test + task artifacts after subagent round-2 revision. Verify BLOCKER closure and scan for new gaps.",
+  "verdict": "APPROVE_WITH_GAPS",
+  "round1_blocker_status": [
+    {
+      "id": "BLOCKER-1 API drift (apply_clamps vs run_clamp_pipeline / SizingFillLog vs write_sizing_fill_entry)",
+      "status": "CLOSED",
+      "evidence": "Grep across all 17 tests-snapshot files returns 0 matches for 'apply_clamps', 0 for 'SizingFillLog', 0 for 'v5.sizing.logging'. Tests uniformly import run_clamp_pipeline from v5.sizing.clamps (13 files) and write_sizing_fill_entry from v5.sizing.binding_log (test_m8_binding_log.py). Call-site shape matches the design §3c/§5 contract exactly: run_clamp_pipeline(order, *, available_capital_usd, market_state, policy, config) -> (new_order, binding_log_dict)."
+    },
+    {
+      "id": "BLOCKER-2 Q-DEC4 year mismatch (2024 vs fixture 2025)",
+      "status": "CLOSED (with 1 stale ref in tasks.md line 182 — now fixed via re-grep: line 182 says 2025-12-31)",
+      "evidence": "test_m8_ac_s10_s524m_parity.py lines 7,11,45,51,86,94 all say 'Q-DEC4 2025' or window='Q-DEC4-2025'. brief.md line 206 says 'Q-DEC4 2025'. design.md lines 172,182 say 'Q-DEC4 2025' and '--end-date 2025-12-31T23:00:00'. tasks.md Task 28 line 182 correctly says '--end-date 2025-12-31T23:00:00'. One brief-md line 241 still says 'window=\"Q-DEC4-2025\"' — correct. No 2024 stragglers remaining in the critical path."
+    },
+    {
+      "id": "BLOCKER-3 Binance single-tier MMR",
+      "status": "CLOSED",
+      "evidence": "test_m8_clamps_individual.py lines 33-39 define BINANCE_BTCUSDT_MMR_SCHEDULE with 5 tiers (50k@0.50%, 250k@0.65%, 1M@1.00%, 5M@2.00%, 20M@5.00%). Three tier-spanning tests added (lines 221-302): tier1_30k_notional (expects 950 bps), tier2_80k_notional (expects 935 bps), tier_spanning_liq_distance_differs (asserts t1 != t2 AND t2 < t1). MMR values match Binance BTCUSDT schedule (tier-1 0.4% is older; 0.50% per 2024+ schedule is correct). Cross-margin vs isolated not tested here, but partially covered by test_m8_cross_margin_free_capital.py (separate file)."
+    },
+    {
+      "id": "BLOCKER-4 AC-Sz9 6-clamp coverage + sampling_cadence",
+      "status": "CLOSED (partial — tolerance-constant wiring is weak)",
+      "evidence": "test_m8_paper_backtest_parity.py now has TestFixtureExercisesAllSixClamps (asserts 5 reducer clamps appear + at least one slippage_bps>0) and TestSamplingCadenceDrift (tick vs bar_close explicitly documented as expected drift). 6-clamp histogram is enforced. GAP: only PER_TRADE_PNL_BPS_TOLERANCE (5 bps) is imported from shadow_replay_tolerances; fill_price uses hardcoded 2**-20 (~1e-6) instead of importing PRICE_ULP_TOLERANCE; no 10 bps aggregate tolerance wired (arguably correct — per-fill gate, not aggregate — and the docstring explicitly says so). Minor test-hygiene gap, not a BLOCKER."
+    },
+    {
+      "id": "BLOCKER-5 CapitalAllocationPolicy 0 tests",
+      "status": "CLOSED",
+      "evidence": "test_m8_shared_pool_policy.py exists with 12 tests covering all 8 required points: (a) identity over available_margin ✓, (b) sampling_cadence=='release' ✓, (c) ignores strategy_id ✓, (d) to_config/from_config roundtrip ✓, (e) AllocationState 4-field TypedDict ✓, (f) Protocol isinstance runtime-check ✓, (g) SpyPolicy verifies free_capital_clamp calls policy ✓, (h) funding_buffer_pct pre-subtracted before policy call ✓. GAP: the funding-buffer test is structurally weak — the _MarketState fixture injects pre-subtracted available_margin itself, so the test cannot distinguish 'clamp subtracted buffer' vs 'test fixture happened to pass pre-subtracted value'. It proves the policy OBSERVES post-buffer margin but does not prove the CLAMP did the subtraction. MINOR finding."
+    }
+  ],
+  "new_findings": [
+    {
+      "severity": "BLOCKER",
+      "category": "task_missing",
+      "ac_or_design_ref": "tasks.md Task 29/30 vs test_m8_paper_backtest_parity.py imports",
+      "issue": "Tests import build_m8_parity_fixture, run_backtest_parity, run_paper_parity from v5.sizing.parity_fixture — a module that neither exists nor is scheduled for creation. Task 29 delivers v5/tests/fixtures/m8_sizing_parity/ (a fixtures DIRECTORY, not a Python module). Task 30 says 'Run fixture through v5.simulator.run_backtest' — but v5/simulator.py has simulate_portfolio + run_backtest_mtf, NOT run_backtest (that's in v5/portfolio_backtest.py with a different signature). run_paper_parity's kwargs (fixture=, seed=, use_test_clock=, sizing_fills_log=, policy=) don't match v5/paper_engine.py::replay_paper_ticks signature (tick_log_path=, tick_fixture=, output_state=, ...). This is the same round-1 MAJOR item (run_paper_replay fictitious API) — the subagent renamed the function target to run_paper_parity in the tests but did NOT add the Task 29a/32a to create v5/sizing/parity_fixture.py with the 3 wrapper functions. AC-Sz9 cannot execute.",
+      "fix_recommendation": "Add Task 29a (before Task 30): create v5/sizing/parity_fixture.py exposing build_m8_parity_fixture(fixture_dir, *, include_all_six_clamps), run_backtest_parity(fixture, *, seed, sizing_fills_log), run_paper_parity(fixture, *, seed, use_test_clock, sizing_fills_log, policy=None). Each is a thin wrapper: run_backtest_parity calls v5.simulator.simulate_portfolio with sizing_fills_log as a side-output; run_paper_parity calls v5.paper_engine.replay_paper_ticks with an adapter that synthesizes TickStream from the fixture. Budget 4h. Block Task 30 on 29a. Without this, 8 tests in test_m8_paper_backtest_parity.py will collection-error indefinitely."
+    },
+    {
+      "severity": "MINOR",
+      "category": "test_weak",
+      "ac_or_design_ref": "test_m8_shared_pool_policy.py::TestFundingBufferSubtractedBeforePolicyCall",
+      "issue": "The test's _MarketState.free_margin injects EXPECTED_AFTER_BUFFER directly (line 218), then asserts the policy saw EXPECTED_AFTER_BUFFER. This is a tautology — the test proves 'the policy sees what the fixture passes' but does not prove the real clamp pipeline computes available_margin = equity * (1 - funding_buffer_pct) before calling the policy. A clamp implementation that hard-codes 'pass state.available_margin unchanged' and relies on SimulatorMarketState to pre-subtract would also pass this test.",
+      "fix_recommendation": "Rewrite with a real SimulatorMarketState (or a fake that exposes .equity(strategy_id)=100_000 WITHOUT pre-subtraction) and assert the clamp pipeline itself performed the subtraction: policy should see available_margin == 95_000 even though market_state.equity() returns 100_000. +30 min to test rewrite. Reviewer-modifiable (non-BLOCKER)."
+    },
+    {
+      "severity": "MINOR",
+      "category": "tolerance_wiring",
+      "ac_or_design_ref": "test_m8_paper_backtest_parity.py::test_float_columns_within_tolerance",
+      "issue": "fill_price ULP tolerance is hardcoded 2**-20 instead of imported from v5/tests/shadow_replay_tolerances.py::PRICE_ULP_TOLERANCE (design §8.6 mandates M3 tolerance constants). If M3 later tightens/loosens PRICE_ULP_TOLERANCE, AC-Sz9 silently diverges from the rest of the parity regime.",
+      "fix_recommendation": "Import PRICE_ULP_TOLERANCE alongside PER_TRADE_PNL_BPS_TOLERANCE and use it for fill_price. +5 min. Reviewer-modifiable during Task 30 implementation."
+    },
+    {
+      "severity": "NIT",
+      "category": "doc_stale",
+      "ac_or_design_ref": "tasks.md header + footer task count",
+      "issue": "tasks.md line 3 says '31 tasks, organized in 12 waves' but file contains 33 tasks (1-33). Line 259 says 'Task count: 31 (27 implementation + 2 AC-S10 + 2 AC-Sz9)' and line 258 says '~85h implementation' — both stale after Tasks 32/33 (+5h) added. Cosmetic; does not affect execution.",
+      "fix_recommendation": "Update header to '33 tasks' and footer total to '~90h implementation + 8-15h reviewer loop = 98-105h'."
+    },
+    {
+      "severity": "NIT",
+      "category": "attestation_accuracy",
+      "ac_or_design_ref": "subagent-attestation.json test_counts",
+      "issue": "Attestation claims 16 'intentionally passing' tests in TestV4FieldsNotReferenced. Spot-check: 'size_multiplier' is referenced in v5/strategies/s524m_v5.py:243,252 (non-comment assignment + expression use); 'adv_sizing_enabled' is referenced in v5/rank_all_portfolios.py:111 and v5/run_all_portfolios_backtest.py:234 (non-comment kwargs). Both would fail the AST-walk. So ~4 of 18 parametrized rows fail and ~14 pass — consistent with the attestation's '16 passing' if 2 of the rows are compound (e.g., file-existence + package-import checks). Numbers roughly line up; no material misrepresentation.",
+      "fix_recommendation": "None required; attestation is substantively correct."
+    }
+  ],
+  "empirical_checks": {
+    "api_drift_apply_clamps_removed": "PASS — 0 grep hits across 17 test files for apply_clamps | SizingFillLog | v5.sizing.logging.",
+    "run_clamp_pipeline_canonical": "PASS — all clamp-using test files import run_clamp_pipeline with the canonical signature.",
+    "binding_log_module_canonical": "PASS — write_sizing_fill_entry imported from v5.sizing.binding_log.",
+    "q_dec4_year_2025_alignment": "PASS — brief/design/tasks/test all say 2025; fixture _meta matches.",
+    "binance_mmr_schedule_defined": "PASS — BINANCE_BTCUSDT_MMR_SCHEDULE with 5 tiers, used in 3 tier-spanning tests.",
+    "shared_pool_policy_file_exists": "PASS — test_m8_shared_pool_policy.py has 12 tests covering all 8 required coverage points (identity / strategy_id / sampling_cadence / TypedDict / Protocol / roundtrip / spy / funding_buffer).",
+    "funding_buffer_test_rigor": "WEAK — test is tautological; policy sees what fixture injects. Does not prove clamp pipeline performed the subtraction. MINOR.",
+    "simulate_portfolio_exists": "PASS — v5/simulator.py:2112 def simulate_portfolio.",
+    "replay_paper_ticks_exists": "PASS_WITH_MISMATCH — v5/paper_engine.py:320 def replay_paper_ticks exists, but signature (tick_log_path=, output_state=, ...) does not match what run_paper_parity needs to call. Test-side calls v5.sizing.parity_fixture.run_paper_parity — a module that does not exist and no task creates it.",
+    "v5_sizing_parity_fixture_module": "FAIL — v5/sizing/ directory does not exist; no task in the plan creates v5/sizing/parity_fixture.py with build_m8_parity_fixture / run_backtest_parity / run_paper_parity. Task 29 creates a FIXTURES DIR, not a Python module. Task 30 will collection-error on the import.",
+    "sampling_cadence_drift_test": "PASS — test_tick_cadence_policy_drifts_from_bar_close + test_bar_close_cadence_policy_matches_backtest document expected drift.",
+    "six_clamp_fixture_histogram": "PASS — test_fixture_binding_constraint_histogram_includes_five_reducers + test_fixture_has_at_least_one_entry_with_positive_slippage_bps.",
+    "m3_tolerance_constants_imported": "PARTIAL — PER_TRADE_PNL_BPS_TOLERANCE imported; PRICE_ULP_TOLERANCE hardcoded as 2**-20 instead of imported. MINOR.",
+    "test_count_169_appropriate": "PASS — 24 tests for helpers is 4 helpers × ~6 parametrize rows (known values + edges + errors); not padded. 169 total is appropriate for 10 ACs across 17 files.",
+    "intentional_passes_16_legitimate": "PASS — spot-check confirms size_multiplier, adv_sizing_enabled still in v5 source (will fail RED); adv_to_sizing + max_trade_pct removed (will pass). Ratio ~4 RED / 14 PASS across 18 fields + 2 structural tests = 16 PASS / 8 RED consistent with attestation.",
+    "stop_triggers_complete": "PASS — 4 new triggers added (Task 16 frozen, Task 30 adapter drift, Task 26 OHLCV stale, Task 10 cross-margin formula). Pre-existing Task 28 >5%-drift trigger at line 252 covers the 'v4 pre-existing bug' scenario per round-1 MAJOR-5 #2.",
+    "task_count_header_stale": "MINOR — header says 31 tasks; file has 33.",
+    "release_atomic_signature_extension": "PASS — tasks.md Task 16 plans the extension; no additional gap."
+  },
+  "strengths": [
+    "Four of five round-1 BLOCKERs fully closed with clean evidence. API drift (BLOCKER-1) resolution was surgical — zero stragglers across 17 files.",
+    "BINANCE_BTCUSDT_MMR_SCHEDULE as a module-level constant with 5 tiers is exactly the right shape; tests will force the implementation to consume a real schedule, not a hardcoded scalar.",
+    "test_m8_shared_pool_policy.py is well-decomposed (5 test classes, one per concern); Protocol runtime-check via isinstance is the right idiom.",
+    "TestSamplingCadenceDrift codifying expected-drift as intentional opt-in is the correct design — prevents future 'silent parity bug' reports against tick policies.",
+    "4 new stop-and-redecompose triggers (Task 16 frozen-semantics, Task 30 adapter drift, Task 26 OHLCV stale, Task 10 cross-margin formula) correctly address round-1 MAJOR-5 concerns.",
+    "Tasks 32 (fraction×leverage ≤ 1.0 pre-clamp) and 33 (OTO + tiered MMR) close real round-1 gaps; correctly scoped."
+  ],
+  "summary": "APPROVE_WITH_GAPS verdict. All five round-1 BLOCKERs closed: API drift (apply_clamps → run_clamp_pipeline) surgically resolved across 17 files; Q-DEC4 year 2024→2025 fully aligned; Binance tiered MMR gets 3 tier-spanning tests against a 5-tier schedule constant; AC-Sz9 histogram + sampling_cadence drift tests added; CapitalAllocationPolicy gets 12 tests covering all 8 required coverage points. ONE NEW BLOCKER found: test_m8_paper_backtest_parity.py imports from v5.sizing.parity_fixture (build_m8_parity_fixture, run_backtest_parity, run_paper_parity) — a module that does not exist and no task creates. Task 29 creates a fixtures dir; Task 30 assumes 'v5.simulator.run_backtest' which also doesn't exist. Need Task 29a (3-4h) creating v5/sizing/parity_fixture.py with 3 wrapper functions before AC-Sz9 can execute — this is the round-1 MAJOR-6 (fictitious API) partially fixed by renaming, still-open by missing wrapper module. 3 MINOR items (tautological funding-buffer test, hardcoded PRICE_ULP tolerance, stale task-count header) are reviewer-modifiable during Phase 4 and do not block. Cleared for Phase 4 start ONCE Task 29a lands; without it, Task 30 will collection-error indefinitely."
+}

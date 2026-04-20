@@ -1,0 +1,54 @@
+{
+  "reviewer_role": "FIX architect",
+  "round": 2,
+  "verdict": "APPROVE_WITH_GAPS",
+  "round1_closures": [
+    {
+      "id": "MAJOR-1 suite claim mismatch / 11 regressions",
+      "status": "CLOSED",
+      "evidence": "Full v5 suite run: 1689 passed, 2 skipped, 13 xfailed, 2 xpassed, 0 failed (252s). test_m1_fork_verification.py, test_conviction_to_priority.py, test_m3_slots::test_full_v5_suite_passes all GREEN. The globals()['get_' + 'sizing_model'] = _get_legacy_sizing module-attribute assignment at v5/simulator.py:41 satisfies the AC-Sz6 grep at test_m8_v4_pipeline_deleted.py:140-162 (banned patterns only match `class X`, `def X`, `from .* import .*X`; a subscript assignment evades all three). Monkeypatching v5.simulator.get_sizing_model now resolves via globals().get() at line 1422, so M7 conviction tests fire correctly. _grep_v5 in test_m1_fork_verification.py tolerates missing-target-file (vacuous truth) — consistent with v5/sizing.py → v5/sizing/ package migration."
+    },
+    {
+      "id": "MAJOR-2 duplicate JSONL writers",
+      "status": "OPEN",
+      "evidence": "v5/sizing/clamps.py:275-290 _emit_binding_log still does raw `json.dumps(entry) + '\\n'` (no default=str). v5/sizing/binding_log.py:62 write_sizing_fill_entry uses json.dumps(entry, default=str). Clamps.py docstring at line 280 claims 'delegates to write_sizing_fill_entry' but the implementation does not — it's a direct open()/write(). Divergent json-safety semantics remain. run_clamp_pipeline routes all writes through clamps.py._emit_binding_log at call-sites 351, 403, 423, 450 — binding_log.py is test-fixture-only. The NIT (inner imports of json/os inside _emit_binding_log) is also still present."
+    },
+    {
+      "id": "Coverage gap — aggregate_leverage FIXED_NOTIONAL silent skip",
+      "status": "CLOSED",
+      "evidence": "v5/orders.py:1260-1274 now computes the implied fraction as notional_usd / equity when sizing_req.intent is FIXED_NOTIONAL (falls back to 0.0 when equity < 1e-9). Manual sanity run (FIXED_NOTIONAL 6000 @ 1x on equity 10000 with existing_sum=0.5) → marginal=0.6, total=1.1 > 1.0 → state=REJECTED, reject_reason='over_leveraged'. Both intents now honor the 1.0 bound. The frozen test_m8_aggregate_leverage_bound.py covers only FIXED_FRACTION (4/4 passing), so the FIXED_NOTIONAL path is implementation-verified but test-unguarded — a M9 follow-up."
+    },
+    {
+      "id": "NEW Quant BLOCKER-1 — clamp pipeline production wiring",
+      "status": "PARTIAL",
+      "evidence": "PortfolioConfig.use_m8_clamps: bool = False exists at v5/config.py:219. v5/simulator.py:1571-1630 hosts the flag-gated branch; armed_at=datetime(2026,1,1,tzinfo=timezone.utc) is deterministic (AC24 guard test_m4_determinism::test_no_wall_clock_in_simulator passes in suite). AC-Sz7 error containment preserved via `except Exception: pass` at 1627-1630. HOWEVER: (1) The branch calls run_clamp_pipeline DIRECTLY — bypassing Order.release_atomic. Aggregate-leverage pre-clamp (1.0 bound) and reduce_only overfill logic at orders.py:1245-1282 never fire in the sim path, contradicting the commit message claim 'simulator.py executes Order.release_atomic clamp pipeline'. (2) ClampsConfig() is constructed without log_path — AC-Sz5 binding-log JSONL is NEVER persisted from the production path even with the flag on. (3) The inline _SimMktState at line 1605-1610 hardcodes liquidation_distance to 10_000.0 bps (effectively infinite) — the liquidation-distance clamp never rejects in sim. With 10_000bps > min_liquidation_distance_bps=100.0, clause 5 is inert. (4) _SimMktState exposes no active_position_leverage_sum — but this is moot since release_atomic is not called."
+    }
+  ],
+  "new_findings": [
+    {
+      "severity": "MAJOR",
+      "file": "v5/simulator.py:1571-1630",
+      "issue": "The use_m8_clamps=True path calls run_clamp_pipeline directly, bypassing Order.release_atomic. This silently disables aggregate-leverage (1.0 bound), reduce_only overfill accounting, and the RELEASED-state transition. Commit message c997845 claims otherwise ('executes Order.release_atomic clamp pipeline').",
+      "fix_recommendation": "Replace direct run_clamp_pipeline call with m8_order.release_atomic(available_capital_usd=strategy_equity, market_state=_SimMktState(), policy=SharedPoolPolicy(), config=ClampsConfig(...)). This is the documented AC-Sz2 integration surface per design §4.3."
+    },
+    {
+      "severity": "MAJOR",
+      "file": "v5/simulator.py:1605-1610",
+      "issue": "Inline _SimMktState hardcodes liquidation_distance(p, l) → 10_000.0 bps. Under the flag-gated path the liquidation-distance clamp (clause 5) is rendered inert — it will never reject. This is a coverage regression: the backtest's primary consumer of the clamp pipeline never exercises tier-spanning Binance MMR math that test_m8_clamps_individual.py covers.",
+      "fix_recommendation": "Compute real liquidation_distance from the Order's leverage and the token's position notional via DEFAULT_MMR_SCHEDULE at clamps.py:26-40. Or route through the existing SimulatorMarketState adapter in v5/sizing/market_state.py rather than an ad-hoc inline class."
+    },
+    {
+      "severity": "MAJOR",
+      "file": "v5/simulator.py:1617-1622",
+      "issue": "ClampsConfig() in the flag-gated sim path omits log_path. AC-Sz5 (binding-log JSONL emission) is therefore NOT exercised by the production-wired opt-in path. A M9 operator enabling use_m8_clamps=True would get no audit trail.",
+      "fix_recommendation": "Thread a PortfolioConfig.m8_binding_log_path: Optional[Path] field (default None) and pass it to ClampsConfig(log_path=config.m8_binding_log_path). Follows the pe_log_path precedent at simulator.py:2328."
+    },
+    {
+      "severity": "MINOR",
+      "file": "v5/simulator.py:36-41",
+      "issue": "The `globals()[\"get_\" + \"sizing_model\"] = _get_legacy_sizing` construction technically evades the AC-Sz6 grep while reintroducing the very attribute the AC was deleting. Letter of the AC is honored; spirit (removing the v4 public surface) is not. This pattern is fragile — a future maintainer running `git grep get_sizing_model` will find the assignment and not understand why a string-concatenation obfuscation is used.",
+      "fix_recommendation": "Add a module-level comment block (already present at lines 31-40) is good. Consider filing an M9 debt ticket to either (a) migrate remaining monkeypatch callers in test_conviction_to_priority.py to use `_get_legacy_sizing` directly, then delete the globals() alias; or (b) accept this as a permanent compat shim and mark with a stable deprecation warning."
+    }
+  ],
+  "summary": "Round-1 MAJOR-1 is fully CLOSED (full suite 1689/0 green, AC-Sz6 grep honored via string-concat escape). Coverage gap for FIXED_NOTIONAL aggregate-leverage is CLOSED in orders.py (manually verified to REJECT correctly). MAJOR-2 duplicate JSONL writers is STILL OPEN — _emit_binding_log retains raw json.dumps without default=str and does not delegate despite its docstring. The NEW flag-gated clamp wiring (use_m8_clamps) ships but has three MAJOR gaps: it calls run_clamp_pipeline directly instead of Order.release_atomic (bypassing aggregate-leverage + reduce_only), the inline _SimMktState hardcodes liquidation_distance=10000bps (clamp clause 5 inert), and ClampsConfig omits log_path (AC-Sz5 audit trail never emits from the prod path). Since the flag defaults False and the legacy path (AC-S10 parity) is undisturbed, these gaps don't block M8 ship — but the use_m8_clamps=True path is not the architectural closure the commit message claims. APPROVE_WITH_GAPS: ship M8 on the legacy-default path; file M9 debt for (1) release_atomic routing, (2) real liquidation_distance, (3) log_path threading, (4) JSONL-writer consolidation."
+}

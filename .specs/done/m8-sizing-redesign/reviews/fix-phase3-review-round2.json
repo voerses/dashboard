@@ -1,0 +1,87 @@
+{
+  "reviewer_role": "FIX architect",
+  "phase": 3,
+  "round": 2,
+  "verdict": "APPROVE_WITH_GAPS",
+  "round1_status": [
+    {
+      "id": "MAJOR-1 CapitalAllocationPolicy untested",
+      "status": "CLOSED",
+      "evidence": "test_m8_shared_pool_policy.py (12 tests) covers all 7 sub-claims: (1) TestSharedPoolIdentity::test_shared_pool_is_identity_over_available_margin asserts SharedPoolPolicy.available_capital returns state['available_margin']; (2) TestSharedPoolSamplingCadence asserts class attribute == 'release' AND membership in {'bar_close','tick','release'}; (3) TestAllocationStateTypedDict asserts __annotations__ keys == exactly the 4 required fields; (4) TestCapitalAllocationPolicyProtocol uses isinstance(SharedPoolPolicy(), CapitalAllocationPolicy) runtime Protocol check; (5) TestSharedPoolConfigRoundtrip asserts to_config/from_config preserves sampling_cadence + type; (6) TestFreeCapitalClampInvokesPolicy uses a SpyPolicy to capture calls and asserts list non-empty; (7) TestFundingBufferSubtractedBeforePolicyCall asserts seen_state['available_margin'] == EQUITY - EQUITY*FUNDING_BUFFER_PCT. Comprehensive."
+    },
+    {
+      "id": "MAJOR-2 OTO sum-aggregation untested",
+      "status": "CLOSED",
+      "evidence": "test_m8_multi_leg_aggregation.py::TestOtoSumAggregation::test_oto_contingency_sums_leg_margins builds a 3-leg Order with ContingencyType.OTO (margins 100+200+300=600), asserts reserved == 600 (sum), NOT 300 (max), NOT 400 (entry+max of siblings). All three mutants are explicitly rejected."
+    },
+    {
+      "id": "MAJOR-3 Liquidation tiered MMR single-tier",
+      "status": "CLOSED",
+      "evidence": "test_m8_clamps_individual.py::TestLiquidationDistanceClamp now has 3 new tier-spanning tests using BINANCE_BTCUSDT_MMR_SCHEDULE (module constant, lines 33-39). test_tier1_30k_notional_at_10x_leverage asserts liq_distance ≈ 950 bps (1/10 - 0.0050). test_tier2_80k_notional_at_10x asserts liq_distance ≈ 935 bps (1/10 - 0.0065). test_tier_spanning_liq_distance_differs_at_same_leverage asserts t1_dist != t2_dist AND t2_dist < t1_dist. SAME 10x leverage, different tiers (MMR 0.50% vs 0.65%) producing different distances. Exactly what was asked."
+    },
+    {
+      "id": "MAJOR-4 aggregate fraction×leverage bound untested + no task",
+      "status": "CLOSED",
+      "evidence": "New test_m8_aggregate_leverage_bound.py (4 tests): test_single_position_at_1x_aggregate_passes (ratio=1.0 on the line, not rejected); test_two_positions_aggregate_exceeds_1_rejects (0.6+0.6=1.2 → REJECTED, reject_reason='over_leveraged'); test_allow_over_leveraged_escape_hatch (same aggregate but allow_over_leveraged=True → not rejected with that reason); test_rejected_order_has_reject_reason_over_leveraged. New Task 32 in tasks.md (Wave M, line 211) explicitly creates the pre-clamp in v5/sizing/clamps.py + v5/orders.py, delivers allow_over_leveraged escape hatch + reject_reason='over_leveraged' + aggregate_leverage_ratio field on binding log. All 4 covered."
+    },
+    {
+      "id": "MINOR-1 AST-tightened v4 field grep",
+      "status": "CLOSED",
+      "evidence": "test_m8_v4_pipeline_deleted.py::TestV4FieldsNotReferenced uses ast.walk() and inspects ast.Name/ast.Attribute/ast.keyword/ast.FunctionDef.args/ast.Assign — docstrings and comments are NOT walked. Regex fallback only on SyntaxError. Exact Quant MINOR-1 ask."
+    },
+    {
+      "id": "MINOR-2 FIX-1098 vocab regression guard",
+      "status": "CLOSED",
+      "evidence": "test_m8_binding_log.py::TestBindingLogSchema::test_log_schema_uses_fix_1098_strategy_id_not_party_448 asserts 'strategy_id' in entry AND negatives: 'party_id' not in entry, 'fix_448' not in entry, 'party_role' not in entry, 'party_role_53' not in entry. Prevents prime-broker give-up vocabulary drift."
+    },
+    {
+      "id": "MINOR-3 Fill triple qty accounting in reduce_only overfill",
+      "status": "CLOSED",
+      "evidence": "test_m8_reduce_only_overfill.py::TestReduceOnlyLongOverfill::test_long_5x_reduce_7x_fill_triple_qty_accounting asserts trade.last_qty=5, trade.cum_qty=5, trade.leaves_qty=0, reject.last_qty=0, reject.leaves_qty=2. FIX ExecReport Fill triple covered exactly as round-1 asked."
+    },
+    {
+      "id": "MINOR-4 scalar-only market_state",
+      "status": "CLOSED",
+      "evidence": "test_m8_release_atomic_integration.py::TestScalarOnlyMarketState::test_array_valued_market_state_rejected injects _ArrayState returning np.array([1e9,2e9]) from adv()/rolling_adv(). Asserts release_atomic either raises (TypeError/ValueError caught) or returns OrderStatus.REJECTED. Closes AC-Sz2 scalar invariant."
+    }
+  ],
+  "new_checks": [
+    {
+      "id": "API rename completeness",
+      "status": "CLEAN",
+      "evidence": "Grep of tests-snapshot/ for 'apply_clamps', 'SizingFillLog', 'v5.sizing.logging' returned zero matches across all 17 files. All renames landed cleanly."
+    },
+    {
+      "id": "Q-DEC4 year consistency",
+      "status": "MOSTLY_CLEAN with 1 stale reference",
+      "evidence": "brief.md lines 206/241/245/268, design.md lines 268-269 (Timestamp 2025-12-31/2025-10-01), test_m8_ac_s10_s524m_parity.py lines 7/11/12/51/86/94, tasks.md line 172 all use Q-DEC4-2025 / 2025-12-31. EXCEPTION: tasks.md line 182 (Task 28 CLI example) still says '--end-date 2024-12-31T23:00:00' — stale, will produce Q-DEC4-2024 data mismatched with the Q-DEC4-2025 fixture and Task 26 loader. Implementer will copy-paste this and regenerate the wrong window."
+    },
+    {
+      "id": "16 intentionally passing tests legitimate",
+      "status": "CONFIRMED",
+      "evidence": "test_m8_v4_pipeline_deleted.py::TestV4FieldsNotReferenced is parametrized over 18 V4_DELETED_FIELDS. The AST walker checks ast.Name/ast.Attribute/ast.keyword/ast.FunctionDef.args/ast.Assign node types — reintroducing any banned field as a variable, kwarg, class attribute, or function arg will add a line to offenders and fail the test. The 16 passing cases correspond to fields that were never re-added to v5/ source (kelly_mult_*, cap_pct_*, adv_scaling_divisor, cap_multiplier, max_trade_pct, dd_scaling, pump_filter_, adv_to_sizing, vol_adj, kelly_mult_override, kelly_mult_scale, cap_pct_override, cap_pct_scale — all cleaned by M1/M7). The 2 failing are size_multiplier (still in s524m_v5.py per attestation) and adv_sizing_enabled + unrealized_pnl_floor. Assertions are load-bearing, not trivially tautological."
+    },
+    {
+      "id": "AC-Sz9 sampling_cadence drift coverage",
+      "status": "CLOSED",
+      "evidence": "test_m8_paper_backtest_parity.py::TestSamplingCadenceDrift has 2 tests: test_tick_cadence_policy_drifts_from_bar_close (subclass SharedPoolPolicy with sampling_cadence='tick', asserts divergence by entry count OR binding_constraint OR filled_notional — documented as 'opt-in') + test_bar_close_cadence_policy_matches_backtest (default policy MUST MATCH). Both directions covered. Module docstring explicitly states tick-cadence drift is expected behavior, not a bug."
+    }
+  ],
+  "new_gaps": [
+    {
+      "severity": "MINOR",
+      "category": "task_wrong_scope",
+      "ac_or_design_ref": "tasks.md Task 28 line 182 / brief AC-S10",
+      "issue": "Task 28's CLI command-line example in tasks.md still reads '--end-date 2024-12-31T23:00:00' while brief (lines 206/241/245), design (lines 268-269: 2025-12-31/2025-10-01), test_m8_ac_s10_s524m_parity.py (lines 7/11/12/51/86/94: Q-DEC4 2025), and Task 26 (line 172: window='Q-DEC4-2025') have all been corrected to 2025. An implementer running Task 28 will regenerate the v4 reference fixture over the wrong window (Q-DEC4-2024), which will not match the 2025 OHLCV loaded by Task 26, and the xfails-to-PASS gate will either fail structurally or silently compare across quarters. Subagent attestation explicitly called out '2024 → 2025 across test_m8_ac_s10_s524m_parity.py' but missed the mirror change in tasks.md Task 28.",
+      "fix_recommendation": "Edit tasks.md line 182 to replace '--end-date 2024-12-31T23:00:00' with '--end-date 2025-12-31T23:00:00'. Cosmetic one-char fix. Non-blocking but WILL cost one implementation round."
+    },
+    {
+      "severity": "NIT",
+      "category": "doc_drift",
+      "ac_or_design_ref": "tasks.md line 259",
+      "issue": "Tasks.md footer still reads 'Total estimated hours: ~85h implementation + 8-15h reviewer loop = 93-100h' and 'Task count: 31 (27 implementation + 2 AC-S10 + 2 AC-Sz9 — reviewer round is task 31 ongoing)' but two new tasks were added (32 aggregate-leverage, 33 OTO+tiered-MMR with +3h +2h = +5h). Should read 33 tasks / ~90h implementation. Cosmetic only.",
+      "fix_recommendation": "Update footer totals when convenient. Zero implementation impact."
+    }
+  ],
+  "summary": "Round 2 verdict: APPROVE_WITH_GAPS (one MINOR + one NIT). All 4 round-1 MAJORs and all 4 round-1 MINORs are CLOSED with dedicated test classes and correct assertions — SharedPoolPolicy Protocol gets 12 tests covering all 7 mandated sub-claims; OTO sum-aggregation explicitly rejects max (300) and entry+max (400) mutants; tiered-MMR tests use BINANCE_BTCUSDT_MMR_SCHEDULE with different tiers at the SAME 10x leverage producing different distances; aggregate fraction×leverage bound has 4 tests + new Task 32. New checks also clean: zero stale apply_clamps/SizingFillLog/v5.sizing.logging references (API rename complete), 16 passing TestV4FieldsNotReferenced cases are genuine AST-enforced regression guards, sampling_cadence drift is documented as opt-in with bidirectional test. The one remaining MINOR: tasks.md Task 28 CLI example still reads '--end-date 2024-12-31T23:00:00' while every other artifact (brief, design, test, Task 26) uses Q-DEC4 2025 — this will misregenerate the v4 fixture over the wrong window unless fixed. One NIT: tasks.md footer task count / hours still claim 31/85h instead of 33/~90h. Neither blocks Phase 4 kickoff, but both are one-char fixes with real downstream cost. Recommend patching before implementation starts; otherwise APPROVED."
+}

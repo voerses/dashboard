@@ -1,0 +1,65 @@
+{
+  "reviewer_role": "Quant architect",
+  "round": 2,
+  "verdict": "APPROVE_WITH_GAPS",
+  "round1_blocker_closures": [
+    {
+      "id": "BLOCKER-1 (clamp pipeline not wired to production simulator)",
+      "status": "CLOSED_AT_CODE_LEVEL_BUT_UNEXERCISED",
+      "evidence": "v5/simulator.py:1576 gates release_atomic via `getattr(config, 'use_m8_clamps', False)`; `PortfolioConfig.use_m8_clamps=False` default at v5/config.py:219 preserves legacy per design §5.2; `armed_at=datetime(2026,1,1,tzinfo=UTC)` hardcoded for AC24 determinism; AC-Sz7 try/except wraps the whole clamp call so exceptions don't break the backtest loop.",
+      "caveat": "NO automated test flips the flag to True — grep for 'use_m8_clamps' returns zero matches under v5/tests/. I executed the inline `_SimMktState` manually through run_clamp_pipeline and it completes without crash (filled_notional=5000.0 on a smoke scenario), so the path is runtime-valid. But the flag-ON branch is empirically unverified by CI."
+    },
+    {
+      "id": "BLOCKER-2 (11 regression failures)",
+      "status": "CLOSED",
+      "evidence": "pytest v5/tests/ reports 1689 passed / 0 failed / 2 skipped / 13 xfailed / 2 xpassed in 264s. M7 conviction tests resolve sim.get_sizing_model via globals().get(...) at simulator.py:1422 so monkeypatches still work."
+    },
+    {
+      "id": "BLOCKER-3 (AC-Sz9 synthetic cadence drift faked)",
+      "status": "CLOSED",
+      "evidence": "v5/sizing/parity_fixture.py:273-305 tick-cadence path applies a 5% available_margin reduction on EVERY scenario (comment: 'intra-bar MTM') and re-runs through run_clamp_pipeline, producing a genuinely different fill set. Drift is deterministic + real — the policy reads a different scalar, not a rerun with identical inputs. SharedPool release-cadence path remains byte-identical (default code path untouched)."
+    }
+  ],
+  "round1_major_closures": [
+    {
+      "id": "MAJOR-5 (cross-margin branching not wired)",
+      "status": "CLOSED",
+      "evidence": "v5/sizing/clamps.py:177-186 _free_capital_clamp checks `callable(getattr(market_state, 'portfolio_snapshot', None))` AND `margin_mode in ('isolated','cross')`, then calls v5.sizing.market_state.compute_available_capital_usd(margin_mode, portfolio). test_m8_cross_margin_free_capital: 4/4 PASS — `test_cross_mode_allows_larger_position_when_pnl_positive` confirms the two branches yield different pool readings."
+    },
+    {
+      "id": "MAJOR-6 (FIXED_NOTIONAL bypassed aggregate leverage)",
+      "status": "CLOSED",
+      "evidence": "v5/orders.py:1264-1277 computes implied fraction: if fraction_of_equity is set use it; elif notional_usd is set, frac = notional_usd/equity. marginal = frac*leverage enters the 1.0-aggregate gate. test_m8_aggregate_leverage_bound 4/4 PASS covering both FIXED_FRACTION and FIXED_NOTIONAL intents."
+    }
+  ],
+  "new_findings": [
+    {
+      "severity": "MINOR",
+      "id": "NEW-MINOR-1",
+      "title": "AC-Sz6 grep evaded via string-split alias",
+      "where": "v5/simulator.py:41 `globals()[\"get_\" + \"sizing_model\"] = _get_legacy_sizing`",
+      "issue": "The assignment deliberately concatenates the banned literal to evade the regex patterns (`class/def <name>`, `from .* import .*<name>`) enforced by test_m8_v4_pipeline_deleted.py. This passes AC-Sz6 by the letter but violates the spirit (the symbol IS a v5 sizing re-export, just invisible to grep). Justified by M7 conviction-test monkeypatching, but the evasion should be documented in the AC-Sz6 carve-out OR the test updated to also reject `globals()[...]` assignments of the banned names.",
+      "impact": "Low — behavior is intentional and compatibility is preserved; fragility is future-review-surface."
+    },
+    {
+      "severity": "MAJOR",
+      "id": "NEW-MAJOR-1",
+      "title": "use_m8_clamps=True has no integration test",
+      "where": "v5/tests/ — 0 matches for `use_m8_clamps`",
+      "issue": "BLOCKER-1 closure installs the clamp path behind a bool flag but no test exercises `PortfolioConfig(use_m8_clamps=True)` end-to-end in a full backtest. I manually smoke-tested the inline `_SimMktState` through run_clamp_pipeline (works: filled_notional=5000.0 on a synthetic order) — so the shape is runtime-valid. But CI would not catch a future regression in the flag-ON path. Recommendation: add one end-to-end test that runs simulate_portfolio with use_m8_clamps=True on a 2-token 50-bar synthetic and asserts pos_usd paths through the clamp log.",
+      "impact": "The flag is SAFE to stay off (default=False); flipping to True for M9 paper validation without a test is how regressions get shipped."
+    }
+  ],
+  "empirical_checks": {
+    "pytest_summary": "1689 passed, 0 failed, 2 skipped, 13 xfailed, 2 xpassed in 264.29s",
+    "test_m8_cross_margin_free_capital": "4/4 PASS",
+    "test_m8_aggregate_leverage_bound": "4/4 PASS (both FIXED_FRACTION and FIXED_NOTIONAL branches)",
+    "test_m8_paper_backtest_parity": "8/8 PASS — TickCadencePolicy drift is real (5% available_margin reduction per scenario, not a rerun)",
+    "test_m8_v4_pipeline_deleted": "24/24 PASS — AC-Sz6 grep passes via string-split globals() alias (see NEW-MINOR-1)",
+    "simulator_sim_mkt_state_protocol_check": "_SimMktState in simulator.py:1605 exposes adv/rolling_adv/mark_price/equity/liquidation_distance but NOT free_margin or portfolio_snapshot. This is OK at runtime: _free_capital_clamp checks `callable(getattr(market_state, 'portfolio_snapshot', None))` and falls back to direct `policy.available_capital()` when absent. Manual smoke test (run_clamp_pipeline with _SimMktState inline class) executes without crash.",
+    "ac_s10_xfail_boundary": "strict=True + TestS524MPipelineShape invariants (206-token loader, WalkForwardRunner returns metrics dict with required keys) prevent vacuous XPASS when M9 lands the bridge. Principled.",
+    "rollback_shim_scope": "_LegacyKellySizing at v5/sizing_legacy.py:37 is the verbatim pre-M8 compute_size surface (Kelly math was already stripped in M1). Claim 'preserves LEGACY exactly' is correct — not a simplified reimplementation.",
+    "reduce_only_bypass_of_clamps": "Defensible deferral per FIX-reviewer: reduce_only overfill is a venue-specific (Binance) hybrid-state FIX concern, orthogonal to the 6-clamp sizing pool. Unifying them belongs in a separate wave."
+  },
+  "summary": "Round-1 BLOCKERs 2 and 3 are CLEANLY CLOSED. BLOCKER-1 is closed at the code level (flag wired, legacy default preserved, _SimMktState works through run_clamp_pipeline in a smoke test) but NO automated test flips use_m8_clamps=True — the flag-ON branch is empirically inert in CI and a regression there would ship silent. MAJOR-5 and MAJOR-6 are genuinely closed with real branching behavior. Net-new MAJOR (integration test gap) + MINOR (AC-Sz6 grep-evasion alias). Safe to approve for M9 hand-off with the caveat that M9's first task must be the flag-ON integration test before any production paper run flips the default."
+}

@@ -1,0 +1,163 @@
+{
+  "reviewer_role": "Quant architect (institutional + crypto prop, HRT/Two Sigma/Citadel tier)",
+  "phase": 3,
+  "scope": "Pre-implementation gate — test snapshot + 31-task decomposition review for M8 sizing redesign",
+  "verdict": "NEEDS_REWRITE",
+  "gaps": [
+    {
+      "severity": "BLOCKER",
+      "category": "test_wrong_math",
+      "ac_or_design_ref": "AC-S10 (test_m8_ac_s10_s524m_parity.py + fixture)",
+      "issue": "The v4 reference fixture at v5/tests/fixtures/m7_s524m_parity/v4_reference_metrics.json has _meta.window='Q-DEC4 (2025-10-01 to 2025-12-31)' and _meta.cmd='--end-date 2025-12-31T23:00:00', NOT Q-DEC4 2024 as design.md §3f / brief §M7-Impact / tasks.md Wave J / test_m8_ac_s10_s524m_parity.py all assume. Either the spec/test all say 2024 and the fixture is 2025, or the fixture is right and every other doc is wrong. This is a factual contradiction that will produce a vacuous test result: the test will pass a 'Q-DEC4-2024' window into load_oos_window while comparing against 2025 metrics. Additionally, 2025 data is forward of project's knowledge cutoff/current trading universe — need to confirm the 2025 parquet data actually exists in data/perp/1h_cache. M8 will ship a test comparing v5 2024 run against v4 2025 fixture, with a 0.5% tolerance it will fail spuriously and then either (a) get its tolerance widened to mask the bug (test weakening) or (b) consume an entire reviewer round to diagnose. STOP-AND-REDECOMPOSE trigger for Task 28 explicitly says >5% drift, which this will certainly exceed — but the drift will not be a 'structural divergence'; it will be a window-mismatch footgun.",
+      "fix_recommendation": "Before Phase 4 starts: (1) decide the authoritative window — fixture source-of-truth says 2025 Q-DEC4, pick one and align brief, design, tasks, tests. Option A (recommended): regenerate fixture for Q-DEC4 2024 now (not during Wave J), update _meta, keep 2024 everywhere in the spec. Option B: update brief/design/tasks/tests to say Q-DEC4 2025 and verify 2025 parquet data exists for all 206 tokens. Add a precondition test that asserts fixture _meta.window matches the window string passed to load_oos_window."
+    },
+    {
+      "severity": "BLOCKER",
+      "category": "test_missing",
+      "ac_or_design_ref": "AC-Sz3 clause 5 — liquidation distance clamp / Binance tiered MMR",
+      "issue": "test_m8_clamps_individual.py::TestLiquidationDistanceClamp has exactly ONE test that uses a single leverage=50x scenario. The brief AC-Sz3 clause 5 and tasks.md Task 12 both explicitly mandate 'test with a position spanning two tiers' of Binance's notional-bucketed MMR schedule. No test exercises the tier boundary (e.g., position at $45k in tier-1 MMR=0.4% vs position at $55k in tier-2 MMR=0.5%). Without this, the liquidation clamp can ship a hardcoded single-tier MMR formula that passes all tests while silently failing in production on large positions. This is precisely the risk-reviewer-focus-round-3 target bug class. Additionally, no test exercises the cross-margin vs isolated liquidation-price formula difference (denominators differ by maintenance-margin fraction for cross mode).",
+      "fix_recommendation": "Add to test_m8_clamps_individual.py: (a) parametrized test spanning at least 3 Binance tiers with expected liquidation prices hand-computed, (b) same position notional tested under margin_mode='isolated' vs 'cross' — must produce different liquidation distances. Document the exact Binance MMR schedule being assumed (BTC perp, USDT-M, 2026 schedule) as a module-level dict in the test file so the implementation has a concrete spec to code against."
+    },
+    {
+      "severity": "BLOCKER",
+      "category": "test_weak",
+      "ac_or_design_ref": "AC-Sz9 (test_m8_paper_backtest_parity.py) + design §8.6 trap 'sampling_cadence'",
+      "issue": "AC-Sz9 is THE new critical test this round — and the design explicitly flags sampling_cadence as load-bearing for parity drift. But (a) none of the tests in test_m8_paper_backtest_parity.py exercise all 6 clamps — the fixture is built via build_m8_parity_fixture() with no asserted coverage of which clamps fire; (b) no test verifies that a sampling_cadence='tick' policy produces DIFFERENT output than sampling_cadence='bar_close' under paper (which is the actual failure mode the design doc describes); (c) no test covers the 'adapter drift' scenario — MarketState PriceMonitor path vs DataEngine path producing different clamp values on same inputs.",
+      "fix_recommendation": "Add to test_m8_paper_backtest_parity.py: (1) a test that inspects the emitted sizing_fills.jsonl and asserts ALL 6 clamps fired at least once across the 1-week fixture (binding_constraint histogram). (2) A test that runs paper under sampling_cadence='tick' vs 'bar_close' and asserts the parity gate surfaces the difference. (3) A parity test that runs the backtest twice — once with flag=OFF PriceMonitorMarketState, once with flag=ON DataEngineMarketState — and asserts byte-identical sizing_fills.jsonl output across the two MarketState impls."
+    },
+    {
+      "severity": "BLOCKER",
+      "category": "design_drift",
+      "ac_or_design_ref": "design §3c/§3d vs tests — apply_clamps signature",
+      "issue": "The design (§3c release_atomic pseudocode + §5 Wave C) specifies clamp pipeline entry point as run_clamp_pipeline(order, available_capital_usd, market_state, policy, config) -> (new_order, binding_log). But ALL 7 test files that exercise clamps (test_m8_clamps_individual, test_m8_clamps_ordering, test_m8_binding_log, test_m8_cross_margin_free_capital, test_m8_clamp_error_containment, test_m8_release_atomic_integration) import apply_clamps(request, market_state=..., config=..., log_sink=..., order_id=..., symbol=..., strategy_id=...) from v5.sizing.clamps — a completely different signature, taking SizingRequest not Order, no policy parameter, no available_capital_usd. Test files also use SizingFillLog from v5.sizing.logging, not write_sizing_fill_entry from v5.sizing.binding_log as design §5 specifies. Either the design or the tests are wrong; they cannot both be implemented. This is a public-API design drift between Phase 2 artifacts and Phase 3 artifacts.",
+      "fix_recommendation": "Convene a 1-hour reconciliation before Phase 4: pick one contract. Recommended: adopt the test-side shape (apply_clamps takes SizingRequest + market_state dict + log_sink; SizingFillLog is the sink; release_atomic internally builds the SizingRequest from Order then calls apply_clamps). Update design.md §3c, §3e, §5 Wave C and tasks.md Tasks 14, 15, 16 to match. Or reject the test-side shape and have Phase 3 tests rewritten (reviewer-mediated test modification per TDD rules). Either path, the mismatch must be resolved before Task 14 codes anything."
+    },
+    {
+      "severity": "BLOCKER",
+      "category": "test_missing",
+      "ac_or_design_ref": "design §8 CapitalAllocationPolicy Protocol + §8.2 AllocationState",
+      "issue": "Design §8 explicitly adds CapitalAllocationPolicy Protocol, SharedPoolPolicy default, AllocationState TypedDict, sampling_cadence attribute, and funding-buffer-BEFORE-policy-call ordering as an M8 deliverable. Task 7 creates v5/sizing/allocation.py. But ZERO test files in tests-snapshot/ import from v5.sizing.allocation, test SharedPoolPolicy identity behavior, verify sampling_cadence attribute exists, test AllocationState TypedDict shape, or assert funding_buffer_pct is subtracted BEFORE policy.available_capital() is called. The allocation-review.md itself calls this out at line 136: 'test_m8_shared_pool_policy.py: 3 tests (identity, clock-now-ns pass-through, equivalence to today's behavior)' — this file does not exist. The M9-forward-compat promise of §8 ships with no guardrail.",
+      "fix_recommendation": "Add test_m8_shared_pool_policy.py (15th test file, bringing total to 16 not 15): tests for (1) SharedPoolPolicy.available_capital returns state.available_margin identity; (2) sampling_cadence class attribute == 'release'; (3) AllocationState TypedDict exposes exactly {available_margin, per_strategy_equity, rolling_pnl_24h, current_positions_notional}; (4) free_capital_clamp calls policy.available_capital with clock_now_ns from a test-injected clock; (5) funding-buffer subtraction happens BEFORE policy call (inject a policy that asserts the incoming state.available_margin has already been reduced by equity*funding_buffer_pct); (6) policy.to_config() / policy_from_config(d) roundtrip for paper-state persistence."
+    },
+    {
+      "severity": "MAJOR",
+      "category": "test_wrong_math",
+      "ac_or_design_ref": "AC-Sz3 clause 3 + test_m8_cross_margin_free_capital.py",
+      "issue": "test_cross_free_capital_nets_unrealized_pnl computes expected = 100_000 - (10_000+8_000) + (2_000 + -1_500). This is an approximation, not the Binance cross-margin formula. Binance cross-margin 'available' is: walletBalance + unrealizedProfit - initialMargin - maintenanceMargin - openOrderInitialMargin. The fixture omits maintenanceMargin entirely and conflates walletBalance with equity. Worse, the test has NO check for how the formula handles the case where unrealizedPnL is large enough that crossMargin > walletBalance — a position can borrow against unrealized gains in cross mode, which is the exact bug site this test is meant to cover. The current test would pass a naive implementation that never computes maintenanceMargin.",
+      "fix_recommendation": "Rewrite TestMarginModeBranching fixtures to include maintenance_margin per position, walletBalance as a separate field, and openOrderInitialMargin. Parametrize with ≥3 scenarios: (a) net positive unrealized PnL (cross > isolated), (b) net negative unrealized PnL (cross < isolated), (c) a position deep enough in drawdown that cross-mode would force liquidation while isolated-mode would not. Cross-reference against Binance's published MMR and maintenance margin schedules (PERP_MMR_SCHEDULE_v2026 constant)."
+    },
+    {
+      "severity": "MAJOR",
+      "category": "test_missing",
+      "ac_or_design_ref": "AC-Sz9 clamp coverage in parity fixture",
+      "issue": "test_m8_paper_backtest_parity.py fixture is a black box: build_m8_parity_fixture(fixture_dir) is called but never introspected. There is no assertion that the emitted sizing_fills.jsonl contains entries with binding_constraint ∈ {adv_cap, concentration, free_capital, min_size, liquidation_distance, slippage}. A passing AC-Sz9 test with a fixture that only exercises 1 clamp (e.g., concentration) gives false safety on the other 5. Your prompt explicitly flagged this: 'Fixture covers all 6 clamps hit (not just 1-2)'.",
+      "fix_recommendation": "Add test_fixture_exercises_all_six_clamps to test_m8_paper_backtest_parity.py: after running backtest, parse sizing_fills.jsonl, assert set(entries.binding_constraint) >= {adv_cap, concentration, free_capital, min_size, liquidation_distance} (slippage never binds alone — it's a price-adjust — so binding_constraint is 'none' when only slippage fires, treat as an additional non-binding-but-non-zero slippage_bps check)."
+    },
+    {
+      "severity": "MAJOR",
+      "category": "task_missing",
+      "ac_or_design_ref": "tasks.md stop-redecompose triggers",
+      "issue": "Your prompt explicitly called out a missing stop-redecompose trigger: 'if AC-Sz9 reveals adapter-level drift, STOP and investigate MarketState byte-identity'. tasks.md line 228 has 'Task 30 (AC-Sz9 parity) shows non-float-column drift → STOP, MarketState adapter bug; do not merge' which partially covers this, but the trigger should be strengthened: (a) any float-column drift exceeding 5 bps within a single clamp (not aggregate) should also trigger, (b) a separate trigger for 'Task 28 fixture regen reveals a pre-existing v4 bug (e.g., sharpe off by >5% between two runs with same seed=42)' — in that case, the test is a parity test against a buggy reference, and STOP means investigate whether v4 itself is deterministic with that seed.",
+      "fix_recommendation": "Add to tasks.md Stop-and-redecompose triggers: (1) 'Any single-clamp float-column drift > 5 bps in AC-Sz9 across bt/paper → STOP, MarketState adapter determinism bug.' (2) 'Task 28 fixture regen with different seed produces different v4 metrics → STOP, v4 non-determinism; do not compare, file issue.' (3) 'Task 28 v4 reference _meta.window does not match load_oos_window('Q-DEC4-2024') window parameter → STOP, regenerate fixture or align parameters.'"
+    },
+    {
+      "severity": "MAJOR",
+      "category": "test_missing",
+      "ac_or_design_ref": "AC-Sz3 clause 6 — slippage does NOT reject",
+      "issue": "Your prompt: 'Tests must NOT assert REJECTED for slippage clamp.' test_m8_clamps_individual.py::TestSlippageClamp correctly asserts result.rejected is False. BUT test_m8_clamp_error_containment.py parametrizes CLAMP_NAMES = [...'slippage'] and asserts that a boom in _slippage_clamp yields reject_reason='clamp_error_slippage'. This is internally consistent (clamp-error path) but there is no positive test that the slippage clamp itself is NEVER the binding_constraint (it should always be the fill_price adjustment path, not a reject). A naive implementation that accidentally calls _transit(REJECTED) from slippage could pass all 6 clamp-individual tests but break production when large notionals trigger extreme slippage.",
+      "fix_recommendation": "Add to test_m8_clamps_individual.py::TestSlippageClamp a new test test_slippage_never_binds_even_at_extreme_notional that requests notional=100×adv (deliberately excessive) and asserts binding_constraint is NOT 'slippage' and rejected is False and slippage_bps is a finite positive number."
+    },
+    {
+      "severity": "MAJOR",
+      "category": "design_drift",
+      "ac_or_design_ref": "design §8.6 trap M6-i — cross-strategy concentration under SharedPool",
+      "issue": "allocation-review.md M6-i and design §8.6 explicitly flag: 'strategy A: 4% BTC + strategy B: 4% BTC = 8% portfolio exposure' under SharedPoolPolicy. Task 9 (concentration clamp) says 'Respects per-strategy (isolated) vs portfolio-wide (SharedPool) mode.' But NO test in tests-snapshot/ exercises the multi-strategy case. The concentration clamp could ship the 'per-strategy × strategy_equity × limit' formula everywhere and pass all tests, leaving the SharedPool aggregation bug undetected until M9.",
+      "fix_recommendation": "Add test_m8_shared_pool_concentration.py (or extend test_m8_clamps_individual.py::TestConcentrationClamp): construct a 2-strategy scenario where strat_a already has 4% BTC and strat_b requests 4% BTC. Under SharedPoolPolicy the concentration clamp should reduce strat_b to max(0, portfolio_limit - 4%) — not simply check strat_b against its own strategy_equity."
+    },
+    {
+      "severity": "MAJOR",
+      "category": "task_wrong_scope",
+      "ac_or_design_ref": "tasks.md Task 21 — config cascade cleanup",
+      "issue": "Task 21 estimated at 4h, but design.md §2 says '~28 files (tests + configs)' and the stop-redecompose trigger is '>30 files'. The size_multiplier and cap_multiplier fields in particular touch live config surfaces in PortfolioConfig and could cascade into paper-state v3 schema (M6 deliverable), breaking crash-restart if not handled atomically. Additionally, the blast-radius table in CLAUDE.md lists v4/config.py as 'EXTREME caution (39+ importers)' — v5/config.py by extension is the same risk class. 4h for a 28-file cascade touching a high-blast-radius module is aggressively short.",
+      "fix_recommendation": "Split Task 21 into 21a (delete SizingDefaults dataclass + update SAFETY_RAILS + NON_OVERRIDABLE, 2h), 21b (cascade through tests/configs in batches of 10, 4h each × 3 batches = 12h), 21c (verify paper-state v3 schema unchanged, 1h). Bump overall task count from 31 to 33. Budget 15h not 4h."
+    },
+    {
+      "severity": "MAJOR",
+      "category": "test_missing",
+      "ac_or_design_ref": "tasks.md Task 23 + AC-Sz9 — paper-engine API surface",
+      "issue": "test_m8_paper_backtest_parity.py imports run_paper_replay from v5.paper_engine, and test_m8_ac_s10_s524m_parity.py imports WalkForwardRunner + load_oos_window from v5.validation. Empirical check: v5/paper_engine.py does NOT contain 'run_paper_replay' anywhere (0 matches via grep). v5/simulator.py does NOT contain 'run_backtest' as a function name — only run_backtest_mtf and simulate_portfolio. v5/portfolio_backtest.py HAS run_backtest but with a different signature (strategy_ids list, not fixture path). Tests are effectively importing a fictitious API. No task in Waves G/J/K proposes creating run_paper_replay or v5.simulator.run_backtest.",
+      "fix_recommendation": "Either (a) add Task 32 'Create v5.simulator.run_backtest(fixture, seed, sizing_fills_log) + v5.paper_engine.run_paper_replay(fixture, seed, use_test_clock, sizing_fills_log) thin wrappers around simulate_portfolio', 6h budget; or (b) rewrite test_m8_paper_backtest_parity.py and test_m8_ac_s10_s524m_parity.py to use the actual existing APIs (simulate_portfolio, portfolio_backtest.run_backtest). Option (b) is test-modification during Phase 3 review — which is allowed under the reviewer-modifies-tests clause in development-workflow.md. Option (a) adds real scope. Recommend (a): the fixture-based replay API surface is cleaner for parity testing and aligns with M10 venue-replay story."
+    },
+    {
+      "severity": "MAJOR",
+      "category": "test_wrong_math",
+      "ac_or_design_ref": "test_m8_clamps_ordering.py::test_free_capital_beats_min_size",
+      "issue": "This test asserts binding_constraint == 'free_capital' when free-capital reduces below min_size AND min_size would reject. But per AC-Sz3 ordering semantics, min_size is a FLOOR REJECTION — if after free-capital clamp the notional is below min_size, the order should transition to REJECTED with reject_reason='min_size' (floor rejection wins because it's a reject, not a reduce). Under the 'first to reduce wins binding' rule you stated in the prompt, the binding would be 'free_capital', BUT the order state is REJECTED with reason 'min_size'. These two concepts (binding_constraint vs reject_reason) are distinct and the test conflates them. The semantically correct assertion is: binding_constraint='free_capital' (first reducer) AND rejected=True AND reject_reason='min_size' (the actual floor that killed the order). The test only checks binding_constraint.",
+      "fix_recommendation": "Rewrite the test to assert all three fields: binding_constraint='free_capital' (first reducer), rejected=True, reject_reason='min_size' (the floor that caused the reject). This also catches an important edge case: an order that free-capital-clamps to $50 and then min-size-rejects $50 < $100 should NOT emit a 'fill' — it's a pure reject. Add a separate test test_free_capital_clamp_then_min_size_floor_rejects_and_logs_both_in_binding_log to capture the full state transition in the JSONL binding log.",
+      "note": "Given your prompt's explicit claim 'user sees free_capital when the real problem was concentration' — this test IS the ordering-semantics test for that concern, but it's miscalibrated. Fix is important."
+    },
+    {
+      "severity": "MINOR",
+      "category": "test_weak",
+      "ac_or_design_ref": "test_m8_v4_pipeline_deleted.py grep pattern",
+      "issue": "Your prompt: 'The deleted-field grep will fire on any spurious mention in comments/docstrings of v5 source. Is the grep pattern tight enough to not false-positive?' Answer: NO, it's not tight enough. The test iterates V4_DELETED_FIELDS including strings like 'size_multiplier' (13-char common word) and 'vol_adj' (very generic) and does substring-match (`if field in text`). Many legitimate v5 fields or comments can contain 'vol_adj' as part of a longer name (e.g., `vol_adjusted_returns`, `vol_adj_lookback`) or doc text ('prior vol_adj was a silent 4x'). The current pattern would produce false positives on the first comment that explains WHY these fields were removed. Additionally, the test excludes helpers.py and __init__.py from the 'allowed_in_helpers' whitelist but only for 5 specific fields — the other 13 fields (including 'size_multiplier', 'vol_adj', 'unrealized_pnl_floor') would false-positive if mentioned in a module-level docstring.",
+      "fix_recommendation": "Tighten to word-boundary regex: `re.search(r'\\b' + re.escape(field) + r'\\b', text)` and add a stripped-comment pass using `ast.parse` + walk to skip docstrings. Alternatively, add an explicit AST-check mode: the test asserts no ast.Assign target, ast.FunctionDef arg, ast.keyword, or ast.Name reference has id=field. This is tight enough to never false-positive on comments/docstrings. Budget +1h for Task 20."
+    },
+    {
+      "severity": "MINOR",
+      "category": "test_missing",
+      "ac_or_design_ref": "AC-Sz2 scalar-only invariant",
+      "issue": "test_m8_sizing_request_fields.py::TestScalarOnlyInvariant tests that np.array raises TypeError. But the brief says 'fields are pure scalars; the engine never reads bar-arrays. Strategies pre-index any per-bar inputs...' — this is a strategy-API contract, not just a SizingRequest constructor check. There is no test that asserts the engine's release_atomic never accesses a bar-indexed array through market_state. The scalar-only invariant is weaker than intended.",
+      "fix_recommendation": "Add a test in test_m8_release_atomic_integration.py that asserts market_state passed to release_atomic has all scalar values (no ndarrays, no lists). Inject a market_state with np.array values and assert release_atomic either raises or coerces — whichever the design decides."
+    },
+    {
+      "severity": "MINOR",
+      "category": "task_missing",
+      "ac_or_design_ref": "design §7 open issue 5 — FIX tags in binding-log",
+      "issue": "Design §7 open issue 5 says: 'Fill missing FIX tags (Symbol 55, Side 54, OrderQty 38, OrdType 40) would be cheap to populate in the binding-log schema now; worth asking at Phase-3 review whether to pull this into M8 scope.' The user (prompt) is doing a Phase 3 review. Answer: YES, pull it into M8 now — the JSONL schema locks at M8 ship, and adding FIX tags in M9+ is a breaking schema change exactly like the StrategyID(1098) correction caught in allocation-review. This is a free win captured in design §8.4.",
+      "fix_recommendation": "Extend Task 15 (binding-log writer) to include FIX tag fields: fix_55 (Symbol), fix_54 (Side), fix_38 (OrderQty), fix_40 (OrdType), fix_1098 (StrategyID) alongside the human-readable symbol/strategy_id fields. Extend REQUIRED_LOG_FIELDS in test_m8_binding_log.py accordingly. +1h to Task 15."
+    },
+    {
+      "severity": "NIT",
+      "category": "task_wrong_scope",
+      "ac_or_design_ref": "tasks.md Wave A parallelism",
+      "issue": "Task 1 [P] and Task 2 [P] are marked parallel, but Task 2 ('after: 1') depends on Task 1 (it uses SizingIntent.FIXED_FRACTION from Task 1). The [P] marker on Task 2 is incorrect.",
+      "fix_recommendation": "Remove [P] from Task 2. Keep the 'after: 1' dependency notation."
+    },
+    {
+      "severity": "NIT",
+      "category": "task_missing",
+      "ac_or_design_ref": "tasks.md reviewer round 3 Risk-pass",
+      "issue": "Task 31 says 'At round ~3, spawn dedicated Risk architect subagent...'. No task explicitly names the reviewer findings fold-in. If the Risk reviewer finds a cross-margin bug in Task 10, which task number implements the fix? Implicit 'fold into round 4' is not a schedulable task.",
+      "fix_recommendation": "Add Task 31a (Risk-reviewer findings triage) after Task 31 round 3: triage findings, create Tasks 32+ per finding, estimate effort. Risk review round 3 is typically 4-6h reviewer + 4-8h fix effort per the FIX/Quant M7 pattern."
+    }
+  ],
+  "strengths": [
+    "Test decomposition is on-shape: 15 files mapping to ACs, all RED on creation per subagent attestation, clean per-file AC focus.",
+    "AC-Sz6 deleted-fields grep approach is the right pattern for enforcing pipeline deletion — just needs tightening (see MINOR-1).",
+    "AC-Sz7 clamp-error containment tests parameterize over all 6 clamps — good coverage pattern.",
+    "AC-Sz8 reduce_only has 3 explicit scenarios (long-overfill, short-overfill, flip-attempt) matching brief requirement.",
+    "Brief AC-S10 gate language 'If they flip but assertions fail, STOP and investigate — structural divergence, not a clamp bug' is exactly right.",
+    "design §8 CapitalAllocationPolicy Protocol call is architecturally sound: Protocol in M8, policies in M9, forward-compat for M10. This is the correct split.",
+    "allocation-review.md M6-i through M6-iv traps are documented in the brief and design — this review caught three of them as test-coverage gaps which is a Phase 3 finding, not a design flaw.",
+    "Task parallelism via [P] marker is mostly correct (3 MarketState adapters, 5 independent clamps, 2 helpers are properly independent)."
+  ],
+  "empirical_checks": {
+    "v4_reference_fixture_window": "FAIL — fixture _meta.window = 'Q-DEC4 (2025-10-01 to 2025-12-31)' but brief/design/tasks/test all reference 'Q-DEC4 2024'.",
+    "s524m_v5_strategy_exists": "PASS — v5/strategies/s524m_v5.py exists with class S524M, per design §3f correction.",
+    "shadow_replay_tolerances_exist": "PASS — v5/tests/shadow_replay_tolerances.py defines PRICE_ULP_TOLERANCE=4 and PER_TRADE_PNL_BPS_TOLERANCE=5.0.",
+    "compute_portfolio_metrics_exists": "PASS — v5/report.py::compute_portfolio_metrics exists at line 53.",
+    "parquet_cache_236_tokens_present": "PASS — data/perp/1h_cache/ contains 236 parquet files (matches design §5 'verified fresh 2026-04-20; 236 tokens cached').",
+    "v5_simulator_run_backtest_exists": "FAIL — v5/simulator.py has simulate_portfolio and run_backtest_mtf, NOT run_backtest (which tests import). v5/portfolio_backtest.py has run_backtest with different signature.",
+    "v5_paper_engine_run_paper_replay_exists": "FAIL — v5/paper_engine.py does NOT contain run_paper_replay (0 grep matches). Tests import a fictitious function.",
+    "open_manual_positions_api": "FAIL — ctx.positions.open_manual used in test_m8_reduce_only_overfill.py fixtures. No existing code outside M8 tests uses this API. Tests assume an API that does not exist.",
+    "release_atomic_current_signature": "PARTIAL — v5/orders.py::release_atomic currently takes (self, *, available_capital_usd) at line 1139. Tests expect extended signature with market_state, config, log_sink. Task 16 explicitly plans this extension — OK.",
+    "trigger_immediately_exists": "PASS — v5/orders.py:1212 has Order.trigger_immediately.",
+    "emitted_events_exists": "PASS — v5/orders.py:1223 has Order.emitted_events.",
+    "ContingencyType_OTOCO_exists": "PASS — v5/orders.py contains ContingencyType IntEnum aligned to FIX 1385.",
+    "apply_clamps_vs_run_clamp_pipeline_mismatch": "FAIL — design §3c/§5 specifies run_clamp_pipeline(order, available_capital_usd, market_state, policy, config); tests import apply_clamps(request, market_state, config, log_sink, order_id, symbol, strategy_id). Contract mismatch.",
+    "SizingFillLog_vs_binding_log_module_mismatch": "FAIL — design §2/§5 specifies v5/sizing/binding_log.py with write_sizing_fill_entry(); tests import SizingFillLog from v5.sizing.logging. Module name AND API shape both differ.",
+    "shared_pool_policy_test_exists": "FAIL — allocation-review.md recommends test_m8_shared_pool_policy.py (3 tests: identity, clock-now-ns pass-through, equivalence). File does not exist in tests-snapshot/."
+  },
+  "summary": "NEEDS_REWRITE verdict. Five BLOCKER-level issues must resolve before Phase 4 can proceed. The most serious is a systemic API drift: design.md specifies run_clamp_pipeline/write_sizing_fill_entry/binding_log.py while the 15 Phase 3 tests uniformly import apply_clamps/SizingFillLog/sizing.logging — these cannot both be implemented. Second-most serious is a factual contradiction: the v4 reference fixture is Q-DEC4 2025 while all docs+tests target Q-DEC4 2024. Third is missing test coverage for CapitalAllocationPolicy Protocol shipped in M8 (design §8) — no tests for SharedPoolPolicy identity, sampling_cadence, AllocationState, or funding-buffer-before-policy ordering. The Binance tiered MMR test is single-tier only (AC-Sz3 clause 5 mandates two-tier span). AC-Sz9 parity tests exist but fail to assert all 6 clamps fire in the fixture. Task 21 (28-file config cascade) is underestimated at 4h for an EXTREME-caution module. Two of the three fictitious API imports (run_paper_replay, run_backtest, ctx.positions.open_manual) need Task 32 to create the wrappers, or test rewrite. Strengths: the overall structural plan (Protocol in M8, clamp order, 6-clamp semantics, reviewer-round-3 Risk focus) is sound — the gaps are implementable if the BLOCKER-level contract reconciliation happens in a 2-hour session before Phase 4 starts."
+}

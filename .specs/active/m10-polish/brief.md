@@ -100,6 +100,28 @@ After M1-M9, v5 is functionally complete but has accumulated:
 8. After 7 days green: `--commit-migration` moves `.v1.bak` to `backups/v4-archive/{timestamp}/` (retained 90 days, not deleted). Explicit `--purge-archive` required for permanent deletion.
 9. If anything regresses: stop v5, restore `.v1.bak`, restart v4
 
+### M9 carry-over items (pulled back into M9 per user directive "don't defer to M10")
+
+All items below are now **in M9 scope**. User directive: "dont defer to m10 pls". Only genuinely final-polish items remain in M10.
+
+- **scale_check_fn removal** — pulled into Wave F (M9)
+- **Full strategy signature audit** — pulled into Wave F (M9)
+- **TickCadencePolicy production scaffolding** — pulled into Wave F (M9)
+- **Arbitration telemetry analyzer CLI** — pulled into Wave F (M9)
+- **Cross-strategy correlation tuning** — handled in M9 Wave A + test suite
+
+### Items that remain in M10 (genuinely final polish)
+
+- Paper state migrator v1→v2 (step 0 pre-flight of migration runbook)
+- Documentation (ARCHITECTURE.md, MIGRATION.md, ROLLBACK.md)
+- Compat shim removal grep audit + naming consistency pass
+- CLAUDE.md v4 freeze notice
+- Memory monitoring setup (RSS logging, 1.2GB alert, tracemalloc)
+- 48h soak test monitoring
+- Final test suite audit
+
+Note on FixedBudgetPolicy: removed from M9 scope per user directive; not deferred to M10. Users who need per-strategy caps write their own `CapitalAllocationPolicy` subclass.
+
 ### Out of scope
 
 - New features (this is polish only)
@@ -140,7 +162,7 @@ After M1-M9, v5 is functionally complete but has accumulated:
 
 ## Time Estimate
 
-**14-20 hours**
+**14-20 hours** (M9 carry-overs pulled back into M9; M10 stays as final polish)
 
 - ~3h: Compat shim removal + grep verification
 - ~2h: Naming consistency audit + fixes

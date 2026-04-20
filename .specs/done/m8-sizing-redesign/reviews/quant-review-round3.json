@@ -1,0 +1,38 @@
+{
+  "reviewer_role": "Quant architect",
+  "round": 3,
+  "verdict": "PASS",
+  "verification": [
+    {
+      "id": "Round-2 NEW-MAJOR-1 (use_m8_clamps=True untested)",
+      "status": "CLOSED",
+      "evidence": "v5/tests/test_m8_flag_on_integration.py 4/4 PASS. Flips PortfolioConfig(use_m8_clamps=True) and drives the flag-ON simulator branch end-to-end; paired with config.py:219 default=False. No remaining CI gap."
+    },
+    {
+      "id": "Risk BLOCKER (cross-margin missing maintenance_margin)",
+      "status": "CLOSED",
+      "evidence": "v5/sizing/market_state.py:145,161-165 now subtracts total_maint in the cross branch (wallet + upnl − initial − open_order − maint). Sanity-check with positive_pnl fixture (wallet=100k, initial=[10k,8k], maint=[400,320], upnl=[+5k,+2k]): iso=82000, cross=88280. Prior (no-maint) cross would have been 89000 — new value is exactly 720 less = sum(maint). Matches Binance availableBalance formula and the task brief's predicted delta."
+    },
+    {
+      "id": "Risk MAJOR (reduce_only partial-fill skipped binding-log)",
+      "status": "CLOSED",
+      "evidence": "v5/orders.py:1255-1284 emits an AC-Sz5 binding-log row with binding_constraint='reduce_only_partial', filled_notional=pos_abs×mark, fill_price=mark. Wrapped in try/except so log I/O can't crash execution (AC-Sz7 containment). Test_m8_cross_margin_free_capital 4/4 and test_m8_reduce_only still green."
+    },
+    {
+      "id": "Risk MAJOR (order_qty notional→qty fallback)",
+      "status": "CLOSED",
+      "evidence": "v5/orders.py:1208-1217 falls back to notional_usd / mark_price when target_size≤0. Closes the path where a reduce_only FIXED_NOTIONAL SizingRequest without target_size kwarg would slip to order_qty=0 and drop through to the full clamp pipeline (which could open a counter-position)."
+    },
+    {
+      "id": "Regression suite",
+      "status": "CLEAN",
+      "evidence": "pytest v5/tests/ → 1693 passed / 0 failed / 2 skipped / 13 xfailed / 2 xpassed (was 1689 pass in round 2; +4 for flag-on integration). M8 subset: 167 passed + 6 xfailed (AC-S10 trip-wires) — matches baseline."
+    }
+  ],
+  "deferred_acceptable_for_m9": [
+    "liquidation-distance: maintenance_amount tier-blend term omitted — material only for multi-tier positions; current single-tier use (s524m leverage ≤10x, notionals ≤$20M) stays within documented precision. Acceptable M9 follow-up.",
+    "test_cross_deep_drawdown vacuous assertion (cross ≤ 10_000) — frozen Phase-3 test; tightening to (cross<0 AND iso>0) needs Test-Dispute-Resolution escalation. Low priority because the stronger invariant (cross lower than iso by upnl_loss + maint) is already proven by sibling tests 125-145."
+  ],
+  "new_findings": [],
+  "summary": "All three Risk-reviewer round-3 closures verified. Cross-margin formula sanity-check confirms the 720 USD maintenance-margin delta on the positive_pnl fixture (cross 89000 → 88280). reduce_only partial-fill now emits AC-Sz5 binding-log + notional→qty fallback prevents counter-position open. Quant round-2 NEW-MAJOR-1 (flag-on integration gap) closed by 4 new tests. Full v5 suite green at 1693/0. Deferred MAJORs (tier-blend MMR precision + vacuous drawdown assertion) are bounded in scope and acceptable for M9 follow-up. No new findings. M8 is PASS."
+}
