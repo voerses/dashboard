@@ -94,6 +94,86 @@ def _collect_banned_bare_aliases(tree: ast.AST) -> dict[str, str]:
     return banned_local
 
 
+def _is_mutable_expr(value: ast.AST) -> Optional[str]:
+    """Return a short description if `value` is a mutable container expr.
+
+    Catches dict/list/set literals AND their constructor-call equivalents
+    (`dict()`, `list()`, `set()`, also `collections.defaultdict(...)`,
+    `collections.OrderedDict(...)`, `collections.deque(...)`). Returns
+    None for immutable expressions (tuple/frozenset/primitives/Call to
+    frozenset/tuple/etc.).
+    """
+    if isinstance(value, ast.Dict):
+        return "{...}"
+    if isinstance(value, ast.List):
+        return "[...]"
+    if isinstance(value, ast.Set):
+        return "{...}"
+    if isinstance(value, ast.Call):
+        # dict(), list(), set()
+        if isinstance(value.func, ast.Name):
+            if value.func.id in ("dict", "list", "set", "bytearray"):
+                return f"{value.func.id}(...)"
+        # collections.defaultdict(...), collections.OrderedDict(...),
+        # collections.deque(...), collections.Counter(...), collections.ChainMap(...)
+        if isinstance(value.func, ast.Attribute) and isinstance(value.func.value, ast.Name):
+            mod = value.func.value.id
+            attr = value.func.attr
+            if mod in ("collections",) and attr in (
+                "defaultdict", "OrderedDict", "deque", "Counter", "ChainMap",
+            ):
+                return f"{mod}.{attr}(...)"
+    return None
+
+
+def _scan_class_level_mutable_state(path: Path, cls: ast.ClassDef) -> None:
+    """Reject class-body assignments to mutable containers.
+
+    Class-level mutables are shared across ALL instances (including across
+    WF folds when the strategy class is re-instantiated). Round-3 Quant
+    MAJOR — `class S: _cache = {}` bypasses the module-level scan but
+    has the same fold-contamination semantics.
+    """
+    for stmt in cls.body:
+        if not isinstance(stmt, ast.Assign):
+            continue
+        mut_desc = _is_mutable_expr(stmt.value)
+        if mut_desc is None:
+            continue
+        for target in stmt.targets:
+            if isinstance(target, ast.Name):
+                raise StrategyLoadError(
+                    f"{path}:{stmt.lineno}: class-level mutable "
+                    f"`{cls.name}.{target.id} = {mut_desc}` rejected. "
+                    f"Class-body mutables are SHARED across all instances "
+                    f"(AC-V1 — fresh Strategy per WF fold). Initialize in "
+                    f"`__init__` as `self.{target.id} = ...`."
+                )
+
+
+def _scan_function_default_mutable(path: Path, fn: ast.AST) -> None:
+    """Reject `def fn(x={}, y=[])` — Python evaluates defaults ONCE at
+    module load, so they behave as hidden module-level mutables.
+
+    Round-3 Quant MAJOR: function-default mutables bypass both the
+    module-level and class-level scans while serving the same role.
+    """
+    if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        return
+    for default in fn.args.defaults + fn.args.kw_defaults:
+        if default is None:
+            continue
+        mut_desc = _is_mutable_expr(default)
+        if mut_desc is not None:
+            raise StrategyLoadError(
+                f"{path}:{default.lineno}: function `{fn.name}` uses "
+                f"mutable default `{mut_desc}` — evaluated once at load "
+                f"time, behaves as module-level mutable state. Use "
+                f"`arg=None` + `if arg is None: arg = {mut_desc}` "
+                f"(AC-V1)."
+            )
+
+
 def _scan_module_level_mutable_state(path: Path, tree: ast.AST) -> None:
     """AC-V1 — reject module-level mutable state that contaminates folds.
 
@@ -101,6 +181,10 @@ def _scan_module_level_mutable_state(path: Path, tree: ast.AST) -> None:
     The WF runner instantiates a fresh Strategy per fold, but module-level
     caches (e.g. `_composite_cache = {}`) persist across folds via module
     identity → fold N+1 sees fold N's data.
+
+    Extended (round 3) to catch the bypass patterns surfaced by the Quant
+    reviewer: function-default mutables, class-level mutables, and the
+    `collections.{deque,defaultdict,OrderedDict}` constructor family.
     """
     for stmt in tree.body:
         # `global X` declarations at module level (inside functions) — flag any
@@ -114,6 +198,7 @@ def _scan_module_level_mutable_state(path: Path, tree: ast.AST) -> None:
                         f"must keep mutable state on `self` (AC-V1 — fresh "
                         f"Strategy per WF fold)."
                     )
+            _scan_function_default_mutable(path, stmt)
 
         # Top-level assignments to mutable containers (dict/list/set literals or
         # constructor calls): `_STATE = {}`, `_HISTORY = []`, `_SEEN = set()`
@@ -121,34 +206,20 @@ def _scan_module_level_mutable_state(path: Path, tree: ast.AST) -> None:
             for target in stmt.targets:
                 if not isinstance(target, ast.Name):
                     continue
-                value = stmt.value
-                # Dict/list/set literal
-                if isinstance(value, ast.Dict):
+                mut_desc = _is_mutable_expr(stmt.value)
+                if mut_desc is not None:
                     raise StrategyLoadError(
-                        f"{path}:{stmt.lineno}: top-level mutable dict "
-                        f"`{target.id} = {{...}}` rejected. Use `self.{target.id}` "
-                        f"inside Strategy subclass (AC-V1)."
+                        f"{path}:{stmt.lineno}: top-level mutable "
+                        f"`{target.id} = {mut_desc}` rejected. Use "
+                        f"`self.{target.id}` inside Strategy subclass (AC-V1)."
                     )
-                if isinstance(value, ast.List):
-                    raise StrategyLoadError(
-                        f"{path}:{stmt.lineno}: top-level mutable list "
-                        f"`{target.id} = [...]` rejected. Use `self.{target.id}` "
-                        f"(AC-V1)."
-                    )
-                if isinstance(value, ast.Set):
-                    raise StrategyLoadError(
-                        f"{path}:{stmt.lineno}: top-level mutable set "
-                        f"`{target.id} = {{...}}` rejected (AC-V1)."
-                    )
-                # Constructor calls: dict(), list(), set()
-                if isinstance(value, ast.Call) and isinstance(value.func, ast.Name):
-                    if value.func.id in ("dict", "list", "set"):
-                        raise StrategyLoadError(
-                            f"{path}:{stmt.lineno}: top-level mutable "
-                            f"`{target.id} = {value.func.id}(...)` rejected. "
-                            f"Module-level mutable state contaminates WF folds "
-                            f"(AC-V1)."
-                        )
+
+        # Class-level mutables inside a ClassDef body
+        if isinstance(stmt, ast.ClassDef):
+            _scan_class_level_mutable_state(path, stmt)
+            # Also scan nested functions/methods for default-mutable bypass
+            for inner in stmt.body:
+                _scan_function_default_mutable(path, inner)
 
 
 def _scan_source(path: Path, source: str) -> None:
@@ -206,6 +277,31 @@ def _scan_source(path: Path, source: str) -> None:
                         raise StrategyLoadError(
                             f"{path}:{node.lineno}: banned wall-clock "
                             f"{'.'.join(chain)}('now') — use ctx.clock."
+                        )
+
+        # Form 4: getattr-bypass — `getattr(datetime, 'now')(...)` or
+        # `getattr(time, 'time')(...)`. Round-3 Quant MAJOR: strategies
+        # would otherwise sidestep the whole banned-attr scan by looking
+        # the method up dynamically.
+        if isinstance(node.func, ast.Call) and isinstance(node.func.func, ast.Name):
+            if node.func.func.id == "getattr" and len(node.func.args) >= 2:
+                target_arg = node.func.args[0]
+                name_arg = node.func.args[1]
+                if (isinstance(target_arg, ast.Name)
+                        and isinstance(name_arg, ast.Constant)
+                        and isinstance(name_arg.value, str)):
+                    probe_chain = (target_arg.id, name_arg.value)
+                    if probe_chain in _BANNED_ATTR:
+                        raise StrategyLoadError(
+                            f"{path}:{node.lineno}: banned clock call via "
+                            f"getattr({target_arg.id}, {name_arg.value!r})() "
+                            f"bypass. Use ctx.clock.now_ns() — AC-V2."
+                        )
+                    if name_arg.value in _BANNED_BARE_IMPORT_NAMES:
+                        raise StrategyLoadError(
+                            f"{path}:{node.lineno}: banned clock call via "
+                            f"getattr({target_arg.id}, {name_arg.value!r})() "
+                            f"bypass. Use ctx.clock.now_ns() — AC-V2."
                         )
 
 

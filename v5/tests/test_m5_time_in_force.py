@@ -95,14 +95,19 @@ class TestTM526TimeInForceGTCDefault:
         assert TimeInForce.GTC.value == "1"
 
     def test_all_tif_fix_values(self):
-        """T-M5-26: full FIX 59 enum values present."""
+        """T-M5-26: full FIX 59 enum values present.
+
+        Round-3 FIX reviewer correction: TIF.GTX is FIX value "5"
+        (GoodTillCrossing). Value "8" is GoodThroughCrossing — a
+        different semantics. Per CLAUDE.md meta-rule #1 (code over
+        specs), test follows the FIX-correct enum."""
         from v5.orders import TimeInForce
         assert TimeInForce.DAY.value == "0"
         assert TimeInForce.GTC.value == "1"
         assert TimeInForce.IOC.value == "3"
         assert TimeInForce.FOK.value == "4"
+        assert TimeInForce.GTX.value == "5"  # FIX-correct (was "8")
         assert TimeInForce.GTD.value == "6"
-        assert TimeInForce.GTX.value == "8"
 
     def test_gtc_order_does_not_reject_on_liquidity(self):
         """T-M5-26: GTC Order is NOT subject to FOK single-order atomicity.

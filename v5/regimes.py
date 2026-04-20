@@ -28,15 +28,30 @@ _cache: "OrderedDict[tuple[int, int], Any]" = OrderedDict()
 _call_counts: dict[int, int] = {}
 
 
+# Reference-count per ctx_uid: number of live cache entries keyed by that
+# ctx. When a ctx's refcount drops to zero its call-count entry is purged.
+# Replaces the round-2 O(N) `any(k[0] == evicted_ctx for k in _cache)`
+# scan that made _maybe_evict 6.2 ms/call once the cache filled
+# (round-3 Quant MAJOR).
+_ctx_refcount: dict[int, int] = {}
+
+
 def _maybe_evict() -> None:
     """Drop oldest entries once the cache exceeds _CACHE_CAP. Also purge
-    call-count entries for ctx_uids with no remaining cache rows so the
-    counter dict doesn't grow forever in long-lived processes."""
+    call-count entries for ctx_uids whose refcount drops to zero, so the
+    counter dict doesn't grow forever in long-lived processes.
+
+    O(evicted) per call via _ctx_refcount tracking — no full-cache scan.
+    """
     while len(_cache) > _CACHE_CAP:
         evicted_key, _ = _cache.popitem(last=False)
         evicted_ctx = evicted_key[0]
-        if not any(k[0] == evicted_ctx for k in _cache):
+        rc = _ctx_refcount.get(evicted_ctx, 0) - 1
+        if rc <= 0:
+            _ctx_refcount.pop(evicted_ctx, None)
             _call_counts.pop(evicted_ctx, None)
+        else:
+            _ctx_refcount[evicted_ctx] = rc
 
 
 def _ctx_id(ctx) -> int:
@@ -88,5 +103,6 @@ def detect_regime(ctx, bar_idx: int, *, compute_fn=None) -> Any:
     else:
         result = compute_fn(ctx, bar_idx)
     _cache[key] = result
+    _ctx_refcount[cid] = _ctx_refcount.get(cid, 0) + 1
     _maybe_evict()
     return result

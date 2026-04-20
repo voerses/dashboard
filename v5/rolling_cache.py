@@ -63,19 +63,16 @@ _LOOKBACK_DAYS_BY_ROLE: dict[str, int] = {
 }
 
 
-def maxlen_for_bar_spec(
-    spec: BarSpec, role: Literal["signal", "entry", "exit"],
-) -> int:
+def maxlen_for_bar_spec(spec: BarSpec, role: str) -> int:
     """Role-aware maxlen: ceil(lookback_days * 1440 / resolution_minutes).
 
-    Defaults: signal=250d, entry=7d, exit=2d. Raises ValueError on unknown role.
+    Canonical roles (signal=250d, entry=7d, exit=2d) keep their bespoke
+    defaults. Unknown roles default to the `signal` lookback (250d) — the
+    most conservative choice, matches brief §G1 N-role policy where
+    role is a free string and the engine must not crash on unrecognized
+    domain-specific roles (e.g. "regime", "alpha", "risk").
     """
-    if role not in _LOOKBACK_DAYS_BY_ROLE:
-        raise ValueError(
-            f"Unknown role {role!r}; expected one of "
-            f"{sorted(_LOOKBACK_DAYS_BY_ROLE)}"
-        )
-    lookback_days = _LOOKBACK_DAYS_BY_ROLE[role]
+    lookback_days = _LOOKBACK_DAYS_BY_ROLE.get(role, _LOOKBACK_DAYS_BY_ROLE["signal"])
     minutes = lookback_days * 1440
     return int(math.ceil(minutes / spec.resolution_minutes))
 

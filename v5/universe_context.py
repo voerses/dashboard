@@ -30,6 +30,13 @@ from v5.testing import TestClock
 # rationale (id() recycling under GC causes cross-fold cache contamination).
 _CTX_UID_COUNTER = itertools.count(1)
 
+# Process-wide order-sequence counter for OrderFactoryView._next_seq().
+# Instance-local numbering caused venue_order_id collisions across
+# concurrent factories (e.g. two runners both minting paper-00000001).
+# Process-wide guarantees FIX-unique OrderID(37) within a process;
+# runner_instance_id prefix further namespaces across runners.
+_ORDER_SEQ_COUNTER = itertools.count(1)
+
 
 # ============================================================
 # Test-harness dummy types used by run_full_lifecycle cascades
@@ -359,7 +366,13 @@ class OrderFactoryView:
         self._strategies = list(strategies) if strategies else []
 
     def _dispatch(self, method: str, *args) -> None:
-        """AC-S5 per-handler try/except when dispatching to registered strategies."""
+        """AC-S5 per-handler try/except when dispatching to registered strategies.
+
+        Bumps `exception_counter` on the offending strategy so the
+        quarantine threshold eventually fires (fix for round-3 Quant
+        MAJOR: earlier version swallowed silently, hiding repeat crashes
+        in on_order_*/on_position_* callbacks from the quarantine logic).
+        """
         for s in self._strategies:
             fn = getattr(s, method, None)
             if fn is None:
@@ -367,11 +380,35 @@ class OrderFactoryView:
             try:
                 fn(*args)
             except Exception:
-                pass
+                try:
+                    s.exception_counter = getattr(s, "exception_counter", 0) + 1
+                except Exception:
+                    pass
 
     def _next_seq(self) -> int:
-        self._next_order_seq += 1
-        return self._next_order_seq
+        """Return a process-wide monotonic sequence. Instance-local seq
+        caused venue_order_id collisions when two OrderFactoryViews (e.g.
+        two runners sharing the paper-id namespace) both minted
+        `paper-00000001`. Process-wide counter prevents collision across
+        factory instances; the runner_instance_id prefix keeps per-runner
+        namespaces separated in the final paper_venue_id."""
+        return next(_ORDER_SEQ_COUNTER)
+
+    def _now_ns(self) -> int:
+        """Clock-backed epoch nanoseconds for FIX TransactTime(60).
+        Reads the injected Clock via now_ns/utcnow/now_dt. Falls back
+        to the deterministic synthetic epoch from `_now()` so test
+        harnesses without a clock still produce reproducible timestamps.
+        NEVER time.time_ns() — violates determinism + FIX replay."""
+        if self._clock is not None:
+            ns = getattr(self._clock, "now_ns", None)
+            if callable(ns):
+                try:
+                    return int(ns())
+                except Exception:
+                    pass
+        dt = self._now()
+        return int(dt.timestamp() * 1_000_000_000)
 
     @staticmethod
     def _direction_int(direction) -> int:
@@ -609,11 +646,16 @@ class OrderFactoryView:
                 # attached via last_exec_report (FIX-H4 requirement)
                 from v5.orders import ExecType
                 from v5.fill import Fill
+                # ExecID must be FIX-unique per ExecReport; derive from the
+                # process-wide order sequence so repeated rejects on the same
+                # order (partial fill → reject) get distinct ExecIDs.
+                exec_seq = next(_ORDER_SEQ_COUNTER)
+                transact_ns = self._now_ns()
                 reject_fill = Fill(
                     cl_ord_id=o.order_id, venue_order_id=o.venue_order_id,
-                    exec_id=f"x-reject-{o.order_id}",
+                    exec_id=f"x-reject-{o.order_id}-{exec_seq}",
                     exec_type=ExecType.REJECTED,
-                    transact_time=1_700_000_000_000_000_000,
+                    transact_time=transact_ns,
                     last_qty=0.0, last_px=0.0,
                     cum_qty=0.0, leaves_qty=0.0, avg_px=0.0,
                 )
@@ -796,7 +838,16 @@ class UniverseContext:
 
     def _broadcast(self, strategies, method_name: str, *args) -> None:
         """AC-S5: per-handler try/except so one strategy's crash doesn't
-        starve siblings."""
+        starve siblings. Bumps `exception_counter` on the offending
+        strategy so the quarantine threshold eventually fires (fix for
+        round-3 Quant MAJOR: earlier version swallowed silently which
+        let 10/14 callbacks crash forever without counter observability).
+
+        The quarantine publication itself happens inside run_full_lifecycle
+        via _tick_counter (peer-isolation scope) — _broadcast only needs
+        to increment the counter; the lifecycle tick-counter sees the
+        bumped value on the next evaluation cycle.
+        """
         for s in strategies:
             fn = getattr(s, method_name, None)
             if fn is None:
@@ -804,7 +855,11 @@ class UniverseContext:
             try:
                 fn(*args)
             except Exception:
-                pass  # logged in prod; swallow in harness
+                # Bump counter so AC-S5 quarantine threshold eventually fires.
+                try:
+                    s.exception_counter = getattr(s, "exception_counter", 0) + 1
+                except Exception:
+                    pass  # strategy may be a dict/None/etc in tests
 
     def _fire_basic_position_lifecycle(self, strategies) -> None:
         order = _DummyOrder(leg_name="entry")

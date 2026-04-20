@@ -108,13 +108,24 @@ class TestAC35RoleAwareLookback:
 
         assert maxlen_for_bar_spec(BarSpec.from_minutes(60), "signal") == 6000
 
-    def test_unknown_role_raises(self):
-        """Unknown role argument must raise (Literal-typed surface)."""
+    def test_unknown_role_defaults_to_signal_lookback(self):
+        """Unknown role (per brief §G1 free-string policy) must NOT raise —
+        must default to the `signal` lookback (250d). Updated round-3:
+        the FIX reviewer flagged the earlier hard-gate as a BLOCKER
+        because it crashed for the domain-specific roles (regime/alpha/
+        risk) the brief §G1 N-role policy authorized."""
         from v5.bar_spec import BarSpec
-        from v5.rolling_cache import maxlen_for_bar_spec
+        from v5.rolling_cache import (
+            maxlen_for_bar_spec,
+            _LOOKBACK_DAYS_BY_ROLE,  # type: ignore[attr-defined]
+        )
 
-        with pytest.raises((ValueError, KeyError, TypeError)):
-            maxlen_for_bar_spec(BarSpec.from_minutes(60), "bogus_role")
+        spec = BarSpec.from_minutes(60)
+        signal_maxlen = maxlen_for_bar_spec(spec, "signal")
+        bogus_maxlen = maxlen_for_bar_spec(spec, "bogus_role")
+        # Unknown role falls through to the `signal` default (most conservative).
+        assert bogus_maxlen == signal_maxlen
+        assert _LOOKBACK_DAYS_BY_ROLE["signal"] == 250
 
     def test_memory_budget_assertion_trips_at_threshold(self):
         """AC35: projected memory (strategies pre-loaded with their

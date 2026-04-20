@@ -858,9 +858,14 @@ class WalkForwardRunner:
             )
 
             # Drive one generate() call per OOS bar (stubbed — Phase-4 Wave B
-            # scaffold; Wave E wires BarProcessor for real multi-bar runs)
+            # scaffold; Wave E wires BarProcessor for real multi-bar runs).
+            # Must call ctx.seek_bar(bar_idx) before each generate() so the
+            # DataView bar cursor advances — otherwise ctx.data.indicators()
+            # always reads bar 0 and strategies emit zero signals across
+            # the fold (round-3 Quant MAJOR).
             for bar_idx in range(self.train_bars, self.train_bars + self.oos_bars):
                 try:
+                    ctx.seek_bar(bar_idx)
                     strategy.generate(ctx, bar_idx)
                 except Exception:
                     # AC-S5 error containment — logged in production path via

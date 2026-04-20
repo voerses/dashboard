@@ -316,13 +316,17 @@ class TimeInForce(Enum):
 
     Default is GTC (Good-Til-Cancelled) — matches M4 ``Order.arm()`` semantics
     where an Order persists ARMED until it triggers, expires, or is cancelled.
+
+    Canonical FIX 5.0 SP2 values (TIF 59):
+      0 = Day, 1 = GTC, 2 = OPG, 3 = IOC, 4 = FOK, 5 = GTX (GoodTillCrossing),
+      6 = GTD, 7 = At the Close, 8 = GoodThroughCrossing, 9 = At Crossing.
     """
     DAY = "0"
     GTC = "1"   # default
     IOC = "3"
     FOK = "4"
+    GTX = "5"   # GoodTillCrossing (fixed from "8" which is GoodThroughCrossing)
     GTD = "6"
-    GTX = "8"
 
 
 @dataclass(frozen=True, slots=True)
@@ -485,6 +489,19 @@ class Order:
             entry += f":tag={tag}"
         self.fix_audit_log.append(entry)
 
+    def _transit(self, new_state: "OrderStatus", **replace_kwargs) -> "Order":
+        """Internal transition helper — logs FIX state change on the CURRENT
+        (pre-replace) order, then returns the replaced Order.
+
+        fix_audit_log is a mutable-by-reference list so both self and the
+        replaced Order share the same growing audit sequence — callers
+        inherit the full transition history (round-3 FIX MAJOR 4: earlier
+        transitions bypassed log_fix_state_change so the audit log was
+        empty in production despite the field existing on the dataclass).
+        """
+        self.log_fix_state_change(new_state)
+        return replace(self, state=new_state, **replace_kwargs)
+
     @classmethod
     def build_for_test(cls, *, order_id: int = 0x00000001, **overrides) -> "Order":
         """Test-only factory for M7 unit tests needing a shaped Order without
@@ -646,8 +663,17 @@ class Order:
             TriggerType.PRICE_ABOVE if direction == 1
             else TriggerType.PRICE_BELOW
         )
+        strategy_id_str = str(legacy.get("strategy_id", ""))
+        # Honor caller-supplied order_id if present; otherwise generate a
+        # unique monotonic ClOrdID(11) so identical legacy blobs don't
+        # collide (earlier fallback used armed_at.isoformat() which is
+        # deterministic under TestClock and violates FIX ClOrdID
+        # uniqueness; also exceeded Binance's 36-char cap).
+        order_id = str(legacy.get("order_id") or "")
+        if not order_id:
+            order_id = _gen_order_id(strategy_id_str, str(symbol))
         return cls(
-            strategy_id=str(legacy.get("strategy_id", "")),
+            strategy_id=strategy_id_str,
             token=str(symbol),
             direction=direction,  # type: ignore[arg-type]
             trigger=trigger,
@@ -662,6 +688,7 @@ class Order:
             reject_reason=None,
             strategy_params={},
             window_end=0.0,
+            order_id=order_id,
         )
 
     # ------------------------------------------------------------------ #
@@ -691,7 +718,7 @@ class Order:
             hit = False
         if not hit:
             return self
-        return replace(self, state=OrderStatus.TRIGGERED)
+        return self._transit(OrderStatus.TRIGGERED)
 
     def release(self, *, capital_ok: bool) -> "Order":
         """TRIGGERED -> RELEASED (constraint pass) or REJECTED (fail).
@@ -703,12 +730,8 @@ class Order:
         if self.state != OrderStatus.TRIGGERED:
             return self
         if capital_ok:
-            return replace(self, state=OrderStatus.RELEASED)
-        return replace(
-            self,
-            state=OrderStatus.REJECTED,
-            reject_reason="risk_on_release",
-        )
+            return self._transit(OrderStatus.RELEASED)
+        return self._transit(OrderStatus.REJECTED, reject_reason="risk_on_release")
 
     def on_fill(self, *, filled_qty: float, leaves_qty: float) -> "Order":
         """RELEASED/PARTIALLY_FILLED -> PARTIALLY_FILLED / FILLED.
@@ -723,9 +746,7 @@ class Order:
         new_state = (
             OrderStatus.FILLED if leaves <= 0.0 else OrderStatus.PARTIALLY_FILLED
         )
-        return replace(
-            self, state=new_state, filled_qty=filled, leaves_qty=leaves,
-        )
+        return self._transit(new_state, filled_qty=filled, leaves_qty=leaves)
 
     def cancel(self) -> "Order":
         """Any non-terminal state -> CANCELLED (e.g. signal flip)."""
@@ -735,7 +756,7 @@ class Order:
         }
         if self.state in terminal:
             return self
-        return replace(self, state=OrderStatus.CANCELLED)
+        return self._transit(OrderStatus.CANCELLED)
 
     # ------------------------------------------------------------------ #
     # AC38 — Mark-trigger backtest fallback                              #
@@ -775,7 +796,7 @@ class Order:
         if self.expires_at is None:
             return self
         if now >= self.expires_at:
-            return replace(self, state=OrderStatus.EXPIRED)
+            return self._transit(OrderStatus.EXPIRED)
         return self
 
     # ------------------------------------------------------------------ #
@@ -1065,12 +1086,10 @@ class Order:
             return self
         aggregate = compute_reserved_capital(self)
         if aggregate > float(available_capital_usd):
-            return replace(
-                self,
-                state=OrderStatus.REJECTED,
-                reject_reason="risk_on_release_atomic",
+            return self._transit(
+                OrderStatus.REJECTED, reject_reason="risk_on_release_atomic",
             )
-        return replace(self, state=OrderStatus.RELEASED)
+        return self._transit(OrderStatus.RELEASED)
 
     def apply_liquidity_check(self, *, available_qty: float | dict) -> "Order":
         """Apply FOK single-order liquidity atomicity (M5 F7 / Task 10).
@@ -1116,10 +1135,8 @@ class Order:
         if isinstance(ctx, dict):
             requested = float(ctx.get("qty", ctx.get("margin_usd", 0.0)) or 0.0)
         if requested > float(available_qty):
-            return replace(
-                self,
-                state=OrderStatus.REJECTED,
-                reject_reason="fok_liquidity",
+            return self._transit(
+                OrderStatus.REJECTED, reject_reason="fok_liquidity",
             )
         return self
 
@@ -1132,7 +1149,7 @@ class Order:
         """
         if self.state != OrderStatus.ARMED:
             return self
-        return replace(self, state=OrderStatus.TRIGGERED)
+        return self._transit(OrderStatus.TRIGGERED)
 
     def emitted_events(self) -> list[dict]:
         """Return the audit log events for this Order's lifecycle.
@@ -1325,6 +1342,12 @@ class Order:
                 time_in_force = TimeInForce(tif_raw)
         else:
             time_in_force = TimeInForce(tif_raw)
+        # Honor serialized order_id when present; otherwise generate a new
+        # ClOrdID (legacy v2 blobs pre-date the order_id field). _gen_order_id
+        # enforces 36-char cap and FIX uniqueness.
+        order_id_raw = str(blob.get("order_id") or "")
+        if not order_id_raw:
+            order_id_raw = _gen_order_id(blob["strategy_id"], blob["token"])
         return cls(
             strategy_id=blob["strategy_id"],
             token=blob["token"],
@@ -1342,7 +1365,7 @@ class Order:
             strategy_params=dict(blob.get("strategy_params") or {}),
             window_end=float(blob.get("window_end", 0.0)),
             venue_order_id=blob.get("venue_order_id"),
-            order_id=blob.get("order_id", ""),
+            order_id=order_id_raw,
             legs=legs,
             fill_policy=fill_policy,
             contingency=contingency,

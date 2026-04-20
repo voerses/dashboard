@@ -53,7 +53,7 @@ class MultiInstrumentCache:
         self,
         inst: InstrumentId,
         spec: BarSpec,
-        role: Literal["signal", "entry", "exit"],
+        role: str,
     ) -> RollingCache:
         key = (inst, spec, role)
         rc = self._caches.get(key)
@@ -66,7 +66,7 @@ class MultiInstrumentCache:
     def on_bar(
         self,
         bar,
-        role: Literal["signal", "entry", "exit"],
+        role: str,
     ) -> None:
         """Append a bar to the (inst, spec, role) cache. Raises ValueError if
         ts_event violates monotonicity (delegated to RollingCache.append)."""
@@ -82,7 +82,7 @@ class MultiInstrumentCache:
     def arrays(
         self,
         stream: DataStream,
-        role: Literal["signal", "entry", "exit"],
+        role: str,
     ) -> BarArrays:
         """Return zero-copy views for the (stream.instrument, stream.bar_spec, role)
         RollingCache. Raises KeyError if no such cache exists."""

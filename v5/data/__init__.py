@@ -14,7 +14,8 @@ FIX vocabulary mapping (parallel to M4/M5 discipline):
   - Subscription → MarketDataRequest(V) with MDReqID(262) = subscription handle;
                     SubscriptionRequestType(263) = 1 Snapshot+Updates
   - DataStream → NoMDEntryTypes(267) + MDEntryType(269) set
-  - TransportMode.PUSH/PULL_ONCE → MDUpdateType(265) = 0 FullRefresh / 1 Incremental
+  - TransportMode.PUSH → MDUpdateType(265)=1 IncrementalRefresh (long-lived WS)
+  - TransportMode.PULL_ONCE / PULL_SCHEDULED → MDUpdateType(265)=0 FullRefresh
   - Bar.ts_event → TransactTime(60)
   - GapPolicy → approximate; MDUpdateType has no direct gap-handling analog
 
