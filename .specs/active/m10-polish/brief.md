@@ -164,8 +164,20 @@ After M1-M9, v5 is functionally complete but has accumulated:
    - `simulate_portfolio(strategies=, ctx=)` builds `bridge_signals` dict via `_build_token_bar_arrays_from_generate` but doesn't feed them into the vectorized `_process_orders` / `_process_exits` inner loop — returns `SimulationState` with `_bridge_signals` attached but metrics empty.
    - Wire bridge output into `all_signals` consumed by `simulate_portfolio` inner loop.
    - Thread through `compute_portfolio_metrics` so xfails produce real numbers.
-   - 6 strict-xfail tests in `test_m8_ac_s10_s524m_parity.py` must flip to PASS within 0.5% relative tolerance on Q-DEC4 2025 206-token fold.
-   - s524m v5 target: 1,094% annual sum v4 baseline match.
+   - 6 strict-xfail tests in `test_m8_ac_s10_s524m_parity.py` must flip to PASS within the per-metric tolerance classes below (AC #10). Parity comparison runs **year-by-year** (NOT full-period compounding) and the annual-sum is the headline number — see per-year baseline below.
+   - **v4 baseline regenerated 2026-04-20, per-year** (s524m, capital=$100k, perp, ranked, --adv-cap 0.005, --max-portfolio-positions 50, --skip-wf, seed 42):
+
+     | Year | total_return | sharpe | sortino | calmar | max_dd | trades | win_rate |
+     |---|---|---|---|---|---|---|---|
+     | 2022 (01-01 → 12-31) | +176.0% | 1.71 | — | — | −33.4% | 124 | 54.0% |
+     | 2023 (01-01 → 12-31) | +263.5% | 2.02 | — | — | −45.4% | 275 | 37.8% |
+     | 2024 (01-01 → 12-31) | +69.4% | 1.04 | — | — | −72.3% | 313 | 37.7% |
+     | 2025 (01-01 → 12-31) | +491.0% | 2.67 | — | — | −37.9% | 541 | 42.7% |
+     | 2026 Q1 (01-01 → 03-31) | +39.4% | 2.10 | — | — | −29.3% | 121 | 59.5% |
+     | **Annual sum** | **+1039.3%** | — | — | — | — | **1374** | — |
+
+   - v4 baseline command template: `python v4/portfolio_backtest.py --strategy s524m --capital 100000 --market perp --conviction-mode ranked --adv-cap 0.005 --max-portfolio-positions 50 --skip-wf --start-date {YYYY}-01-01 --end-date {YYYY}-12-31 --seed 42` (run once per year 2022-2025, plus Q1-2026 with `--end-date 2026-03-31`).
+   - v5 AC-S10 parity test must match ALL 5 per-year runs within the per-metric tolerance classes below (AC #10) AND the annual sum must match v4's 1039.3% within 0.5%.
 
 2. **Replay-parity fixture GENERATOR** (~5-10h):
    - Write `v5/tests/fixtures/generate_m9_replay_parity_7d.py` that builds parquet-windowed slices from `data/perp/1m_cache/` + `data/perp/1h_cache/` engineering each of 6 M8 clamps to bind at least once.
@@ -183,7 +195,7 @@ After M1-M9, v5 is functionally complete but has accumulated:
 4. **WalkForwardRunner dispatch cleanup** — currently dispatches M8 vs M9 via `__new__` kwarg detection (back-compat shim added in `1c42b4e`). M10 consolidates to a single canonical M9 runner once AC-S10 bridge is wired.
 
 5. **Strategy re-port refinements**:
-   - Once AC-S10 bridge wires, verify s524m, s523c, s513 `to_token_bar_arrays()` outputs byte-identical to `_engine_precompute_fallback` on the Q-DEC4 2025 fold (AC #7 parity).
+   - Once AC-S10 bridge wires, verify s524m, s523c, s513 `to_token_bar_arrays()` outputs byte-identical to `_engine_precompute_fallback` on the multi-year 2022-01-01 → 2026-03-31 fold (AC #7 parity).
    - Once bridge runs, verify `test_m9_c7_bridge_interface.py::TestPaperVsVectorizedParity` actually exercises the paper-vs-vectorized code path (currently exercises the precompute loop on both sides).
 
 ### M9 regression-sweep follow-ups (from 2026-04-20 post-audit, commit `92783bb`)
@@ -281,7 +293,7 @@ Note on FixedBudgetPolicy: removed from M9 scope per user directive; not deferre
     - **The 2 tests in `test_m9_replay_parity.py` PASS** (not skip): `test_use_m8_clamps_nonbinding_bars_byte_identical` + `test_use_multi_leg_orders_nonbinding_bars_byte_identical`. Non-binding bars byte-identical; binding bars have matching `sizing_fills.jsonl` entry with documented clamp name.
 
 10. **AC-S10 backtest-vs-backtest parity CLOSED (the capstone)** — audit-tightened:
-    - 6 strict-xfail tests in `test_m8_ac_s10_s524m_parity.py` flip to PASS on Q-DEC4 2025 206-token fold. `@pytest.mark.xfail(strict=True)` decorators DELETED (not left as XPASS — the decorator itself is removed and the tests must affirmatively pass).
+    - 6 strict-xfail tests in `test_m8_ac_s10_s524m_parity.py` flip to PASS on the multi-year 2022-01-01 → 2026-03-31 fold (see below for v4 command + baseline). `@pytest.mark.xfail(strict=True)` decorators DELETED (not left as XPASS — the decorator itself is removed and the tests must affirmatively pass).
     - **Positive-assertion guards (mandatory, must run BEFORE the parity comparisons)**:
         - `assert len(state.closed_trades) > 0` — at least one trade materialized
         - `assert len(state.equity_curve) == n_bars` — equity curve populated across the full fold
@@ -290,11 +302,11 @@ Note on FixedBudgetPolicy: removed from M9 scope per user directive; not deferre
     - **Per-metric tolerance classes (NOT uniform 0.5%)** — Phase 2 design must document provenance for each; default values below:
         - `total_return` (annual sum): rtol ≤ **0.5%**
         - `sharpe`, `sortino`: rtol ≤ **5%** (noise floor dominated by per-trade stop-path variance)
-        - `max_drawdown`: rtol ≤ **10%** (path-dependent peak-trough; v4 baseline 1,094% with DD ~35-42% typical fold)
+        - `max_drawdown`: rtol ≤ **10%** (path-dependent peak-trough; v4 per-year DD ranges −29% to −72% with 2024 structural drawdown dominating)
         - `calmar`: rtol ≤ **5%**
         - `turnover` (trades/year): rtol ≤ **10%**
         - `win_rate`: rtol ≤ **2%** absolute
-    - s524m v5 backtest metrics match v4 backtest (1,094% annual sum baseline) within the above class tolerances.
+    - s524m v5 backtest metrics match v4 backtest **per-year** (5 separate runs: 2022, 2023, 2024, 2025, Q1-2026) within the above class tolerances; the annual sum matches v4's 1039.3% within 0.5%.
     - `WalkForwardRunner.__new__` dispatch shim at `v5/validation.py:1275-1298` CONSOLIDATED to a single canonical M9 runner (no more M8-vs-M9 kwarg routing).
     - Real engine call path exercises: precompute arrays → vectorized `_process_exits` / `_process_margin_calls` / `_process_orders` → `compute_portfolio_metrics`. Not an array-builder that discards output.
 
@@ -360,7 +372,7 @@ Note on FixedBudgetPolicy: removed from M9 scope per user directive; not deferre
 
 19. **Backtest `use_data_engine=True` default flip (M7 deferral CLOSED)**:
     - `DataEngine` becomes the default backtest data source; the old `_engine_precompute_fallback` path is removed or explicitly gated to `use_data_engine=False` for debug-only use (and that flag is removed entirely if no other consumers).
-    - 206-token Q-DEC4 2025 fold produces byte-identical precomputed TokenBarArrays on both paths (DataEngine vs fallback) before the fallback is deleted.
+    - AC-S10 parity fold (5 per-year runs 2022-01-01 through 2026-03-31) produces byte-identical precomputed TokenBarArrays on both paths (DataEngine vs fallback) before the fallback is deleted.
     - M7 brief line 91 "still deferred to M9+" contract honored here — M10 is the last milestone so this cannot carry further.
     - Regression-guarded by `test_m10_data_engine_default.py` asserting `PortfolioConfig.use_data_engine` default == `True` and that the `use_data_engine=False` branch either raises `DeprecatedPathError` or is deleted.
 
@@ -491,7 +503,7 @@ Per-metric tolerance provenance work for AC #10 (replaces blanket 0.5%):
 ## Parity Gate
 
 - **Full v5 test suite**: 1671+ passed, 0 failed, 0 skipped (all prior skips resolved — replay-parity fixture-generator ships per AC #9; `test_m7_paper_8site.py:80` stale skip deleted; `test_m2_scale_dispatch` regressions closed per AC #11), 0 xfailed, 0 xpassed, **0 warnings** (AC #26 closes the 743-warning baseline). No residual skips allowed at M10 close per "NO DEFERRALS" policy.
-- **AC-S10 backtest-vs-backtest parity CLOSED**: 6 `strict=True` xfails in `test_m8_ac_s10_s524m_parity.py` have their decorators DELETED + positive-assertion guards PASS (`closed_trades` non-empty, `equity_curve` populated, `cum_pnl_usd[-1]` non-zero, `_bridge_signals` attribute deleted) + per-metric tolerances met on Q-DEC4 2025 206-token fold (v4 s524m baseline 1,094%): return ≤50bp, Sharpe/Sortino/Calmar ≤5%, drawdown ≤10%, turnover ≤10%, win_rate ≤2% absolute.
+- **AC-S10 backtest-vs-backtest parity CLOSED**: 6 `strict=True` xfails in `test_m8_ac_s10_s524m_parity.py` have their decorators DELETED + positive-assertion guards PASS (`closed_trades` non-empty, `equity_curve` populated, `cum_pnl_usd[-1]` non-zero, `_bridge_signals` attribute deleted) + per-metric tolerances met on each of 5 per-year runs (2022, 2023, 2024, 2025, Q1-2026): return ≤50bp, Sharpe/Sortino/Calmar ≤5%, drawdown ≤10%, turnover ≤10%, win_rate ≤2% absolute; annual sum matches v4 1039.3% ±0.5%.
 - **Replay-parity tests ACTUALLY PASS** (not skip): both tests in `test_m9_replay_parity.py` green; fixture generator shipped; real diff-runner wiring complete.
 - **v5/v4 parallel-ops SMOKE confirms dashboard wiring** (NOT a multi-day soak per user directive): both runners come up simultaneously, `/` renders v4 state.json, `/v5` renders state_v5.json, WS rate-limit 429 count == 0 over a 30-60 min window (AC #25); operator tears down after visual verification.
 - **Replay-based stability**: `test_m10_memory_growth_replay.py` green — 24h replay fixture, RSS growth <100MB, tracemalloc bounded, zero state-corruption events. Replaces any live-wall-clock soak per user directive.

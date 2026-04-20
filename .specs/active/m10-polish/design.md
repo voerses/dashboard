@@ -299,7 +299,7 @@ Rollback plan per cluster: A (revert wiring commit + reinstate xfails). B (each 
 
 ## 13. Open questions — NEED USER DECISION BEFORE PHASE 3
 
-1. **s524m baseline value discrepancy.** Brief asserts "v4 baseline 1,094% annual sum". Fixture at `v5/tests/fixtures/m7_s524m_parity/v4_reference_metrics.json` shows `total_return: -0.101` and `win_rate_pct: 46.0`. Either the fixture is stale (regenerate with different flag set) or the brief's 1,094% refers to a different metric slice. **Need confirmation: regenerate fixture or amend brief.**
+1. **RESOLVED 2026-04-20** — s524m baseline regenerated year-by-year via v4 engine. Per-year total_returns: 2022=+176.0%, 2023=+263.5%, 2024=+69.4%, 2025=+491.0%, Q1-2026=+39.4%. Annual sum = +1039.3% (close to memory's 1,094% but data has since grown; JSON metrics stored at `results/v4/s524m_12mo_100k_metrics.json` after each run). AC-S10 parity pattern: run v5 year-by-year (5 runs), assert per-metric tolerances on EACH year, assert annual sum matches v4's 1039.3% ±0.5%. Fixture at `v5/tests/fixtures/m7_s524m_parity/v4_reference_metrics.json` becomes a 5-element array (one per year) — Phase 3 regenerates it using the command template in brief AC-S10.
 
 2. **Bridge-signal builder field inventory.** Confirm full 40-field `TokenBarArrays` can be synthesized from `ctx.data._arrays[token]` alone. If `atr`, `rolling_adv`, `per_bar_is_perp` or combined-strategy fields assembled ONLY in `precompute_strategy_signals`, cleanest wiring is to route bridge output through `precompute_strategy_signals`' post-processing. **Needs design signoff before committing.**
 
