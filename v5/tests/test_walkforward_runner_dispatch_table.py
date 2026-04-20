@@ -78,8 +78,14 @@ class TestWalkForwardRunnerDispatchTable:
         """Row 3: both `config=` AND `strategy=` → TypeError w/ mutex msg.
 
         After `__new__` is deleted, the canonical `__init__` must
-        explicitly reject the combination. Today's accidental
-        "unexpected kwarg 'config'" message must NOT satisfy the test.
+        explicitly reject the combination.
+
+        Audit-tightened 2026-04-20: require mutual-exclusion keywords
+        unconditionally. Today's accidental "unexpected kwarg 'config'"
+        message contains the word 'config' and could be satisfied by a
+        disjunction — that would mask the wrong failure mode. The
+        Phase-4 message MUST include one of {"mutual", "exclus",
+        "ambig"} explicitly.
         """
         from v5.validation import ValidationConfig, WalkForwardRunner
         cfg = ValidationConfig(train_bars=500, recal_bars=100)
@@ -87,11 +93,9 @@ class TestWalkForwardRunnerDispatchTable:
             WalkForwardRunner(config=cfg, strategy=_stub_strategy())
         msg = str(excinfo.value).lower()
         mutex_words = any(kw in msg for kw in ("mutual", "exclus", "ambig"))
-        both_named = "config" in msg and "strategy" in msg
-        assert mutex_words or both_named, (
-            f"Row 3 TypeError must flag mutual exclusion (mention "
-            f"'mutual'/'exclus'/'ambig' OR both 'config' and "
-            f"'strategy'). Got: {excinfo.value!r}"
+        assert mutex_words, (
+            f"Row 3 TypeError must flag mutual exclusion explicitly "
+            f"(mention 'mutual'/'exclus'/'ambig'). Got: {excinfo.value!r}"
         )
 
     def test_row4_no_args_raises_typeerror(self):

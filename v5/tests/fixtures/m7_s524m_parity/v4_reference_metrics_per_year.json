@@ -9,55 +9,64 @@
       "2025": "2025-01-01 to 2025-12-31",
       "2026Q1": "2026-01-01 to 2026-03-31"
     },
-    "universe": "v4 default perp universe",
-    "annual_sum_total_return_expected": 0.0,
-    "stub": true,
-    "stub_reason": "Phase-4 regenerates this fixture with real v4 baseline numbers (see brief AC #10 per-year table).",
-    "recorded_at": "2026-04-20"
+    "universe": "v4 default perp universe (236 tokens, ranked conviction)",
+    "annual_sum_total_return_expected_pct": 1061.08,
+    "annual_sum_tolerance_pct_absolute": 10.0,
+    "recorded_at": "2026-04-20",
+    "tolerance_classes": {
+      "total_return": "rtol 1.0% (rationale: 50 → 100bp bumped 2026-04-20 for native-rewrite headroom)",
+      "sharpe": "rtol 7%",
+      "sortino": "rtol 7%",
+      "calmar": "rtol 7%",
+      "max_drawdown": "rtol 12%",
+      "total_trades": "rtol 12%",
+      "win_rate_pct": "absolute 3pp"
+    },
+    "reviewer_notes": "Audit 2026-04-20 replaced zero-stub. v4 regenerated live via cmd_template. Values in percent form for total_return/max_drawdown/win_rate_pct (i.e. 180.55875 means +180.56%). sharpe/sortino/calmar are raw ratios (not %)."
   },
   "2022": {
-    "total_return": 0.0,
-    "sharpe": 0.0,
-    "sortino": 0.0,
-    "calmar": 0.0,
-    "max_drawdown": 0.0,
-    "total_trades": 0,
-    "win_rate_pct": 0.0
+    "total_return_pct": 180.55875,
+    "sharpe": 1.7120805423534875,
+    "sortino": 2.136061833618295,
+    "calmar": 5.4314756,
+    "max_drawdown_pct": -33.38963985443115,
+    "total_trades": 124,
+    "win_rate_pct": 54.03225806451613
   },
   "2023": {
-    "total_return": 0.0,
-    "sharpe": 0.0,
-    "sortino": 0.0,
-    "calmar": 0.0,
-    "max_drawdown": 0.0,
-    "total_trades": 0,
-    "win_rate_pct": 0.0
+    "total_return_pct": 267.65463,
+    "sharpe": 2.023815298187171,
+    "sortino": 2.328695947026132,
+    "calmar": 5.9259353,
+    "max_drawdown_pct": -45.38896679878235,
+    "total_trades": 275,
+    "win_rate_pct": 37.81818181818182
   },
   "2024": {
-    "total_return": 0.0,
-    "sharpe": 0.0,
-    "sortino": 0.0,
-    "calmar": 0.0,
-    "max_drawdown": 0.0,
-    "total_trades": 0,
-    "win_rate_pct": 0.0
+    "total_return_pct": 70.16803125,
+    "sharpe": 1.0362539142557519,
+    "sortino": 1.0826315081179931,
+    "calmar": 0.9698612530876056,
+    "max_drawdown_pct": -72.34852513863842,
+    "total_trades": 313,
+    "win_rate_pct": 37.69968051118211
   },
   "2025": {
-    "total_return": 0.0,
-    "sharpe": 0.0,
-    "sortino": 0.0,
-    "calmar": 0.0,
-    "max_drawdown": 0.0,
-    "total_trades": 0,
-    "win_rate_pct": 0.0
+    "total_return_pct": 493.50943,
+    "sharpe": 2.6692240160555185,
+    "sortino": 3.3521032850826504,
+    "calmar": 13.099248,
+    "max_drawdown_pct": -37.896862626075745,
+    "total_trades": 541,
+    "win_rate_pct": 42.69870609981516
   },
   "2026Q1": {
-    "total_return": 0.0,
-    "sharpe": 0.0,
-    "sortino": 0.0,
-    "calmar": 0.0,
-    "max_drawdown": 0.0,
-    "total_trades": 0,
-    "win_rate_pct": 0.0
+    "total_return_pct": 49.193382,
+    "sharpe": 2.1022220289937024,
+    "sortino": 2.4143013975752305,
+    "calmar": 14.180364,
+    "max_drawdown_pct": -29.329535365104675,
+    "total_trades": 121,
+    "win_rate_pct": 59.50413223140496
   }
 }

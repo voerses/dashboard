@@ -64,6 +64,19 @@ def _base_position(position_id: str, margin_usd: float = 10_000.0) -> dict:
     }
 
 
+def _base_order(order_id: str) -> dict:
+    return {
+        "order_id": order_id,
+        "token": "BTC",
+        "strategy_id": "s524m",
+        "order_type": "limit",
+        "direction": 1,
+        "limit_price": 67_500.0,
+        "size": 0.5,
+        "created_bar": 42,
+    }
+
+
 def _write_valid_v3(path: Path, positions: list[dict], orders: list[dict]) -> None:
     payload = {
         "schema_version": 3,
@@ -148,6 +161,34 @@ class TestDuplicatePositionId:
         msg = str(excinfo.value).lower()
         assert "duplicate" in msg and "position_id" in msg, (
             "ValueError message must mention 'duplicate' + 'position_id' "
+            f"for operator actionability; got: {excinfo.value!r}"
+        )
+
+
+class TestDuplicateOrderId:
+    """AC #24 tightening (audit 2026-04-20) — duplicate
+    ``open_orders[].order_id`` raises ValueError. Brief mandates
+    uniqueness for BOTH position_id AND order_id; the position_id
+    test alone was insufficient coverage."""
+
+    def test_duplicate_order_id_raises_value_error(
+        self, tmp_path: Path
+    ) -> None:
+        from v5.paper_state import load
+
+        path = tmp_path / "state.json"
+        positions = [_base_position("BTC:s524m:1:primary")]
+        orders = [
+            _base_order("ORD-001"),
+            _base_order("ORD-001"),  # duplicate
+        ]
+        _write_valid_v3(path, positions, orders)
+
+        with pytest.raises(ValueError) as excinfo:
+            load(str(path))
+        msg = str(excinfo.value).lower()
+        assert "duplicate" in msg and "order_id" in msg, (
+            "ValueError message must mention 'duplicate' + 'order_id' "
             f"for operator actionability; got: {excinfo.value!r}"
         )
 

@@ -91,14 +91,27 @@ class TestAC16PositionCumulativeFunding:
             f"Expected exactly 1 forced trade; got {len(closed)}"
         )
         ct = closed[0]
-        notional = abs(ct.margin_usd * ct.direction)  # unit-leverage default
+        # FIX-correct formula (audit 2026-04-20): funding_payment =
+        # sign(direction) × rate × notional where notional =
+        # quantity × entry_price (NOT margin × direction — that's a
+        # category error; margin is collateral, not exposure).
         direction_sign = 1 if ct.direction > 0 else -1
+        # quantity × entry_price is the notional at position open.
+        # Phase 4 exposes `ct.quantity` (or `ct.size`) + `ct.entry_price`.
+        # Test accepts either attribute name.
+        quantity = getattr(ct, "quantity", None) or getattr(ct, "size", None)
+        assert quantity is not None, (
+            "ClosedTrade must expose `quantity` (or `size`) attribute "
+            "for FIX-correct notional = qty × price funding math."
+        )
+        notional = abs(float(quantity) * float(ct.entry_price))
         expected = sum(
             direction_sign * rate * notional for _, rate in FUNDING_SNAPS
         )
         assert ct.funding_cost == pytest.approx(expected, rel=1e-6, abs=1e-6), (
             f"closed_trade.funding_cost={ct.funding_cost:.6f} "
-            f"!= Σ sign×rate×notional = {expected:.6f}"
+            f"!= Σ sign×rate×notional = {expected:.6f} "
+            f"(notional = |qty × entry_price| = {notional:.2f})"
         )
 
 

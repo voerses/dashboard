@@ -165,10 +165,20 @@ class TestACS10PositiveAssertionGuards:
             "loop (_process_orders / _process_exits) instead."
         )
 
-    def test_trading_state_not_halted_by_wiring_bug(self, v5_s524m_fold_state):
-        """TradingState must be ACTIVE or REDUCING — never HALTED due to
-        a wiring bug (e.g., a risk component erroneously halting at bar 0
-        because peak_equity never got set by the bridge path)."""
+    def test_trading_state_active_at_end_of_clean_fold(self, v5_s524m_fold_state):
+        """TradingState must be ACTIVE at the end of a clean 3-month fold.
+
+        A clean Q-DEC4 2025 fold with 50 max positions should finish in
+        ACTIVE — REDUCING or HALTED at close indicates a wiring bug
+        (e.g., risk component halted at bar 0 because peak_equity never
+        got set by the bridge path, or DrawdownThrottle tripped on the
+        bridge's empty equity curve).
+
+        Audit-tightened 2026-04-20: accept ONLY "ACTIVE" — REDUCING is
+        a real state but not expected for a clean fold; allowing it
+        would mask a bug where the bridge creates peak_equity=0 and
+        flips every bar into REDUCING.
+        """
         state = v5_s524m_fold_state
         trading_state = getattr(state, "trading_state", None)
         assert trading_state is not None, (
@@ -189,9 +199,36 @@ class TestACS10PositiveAssertionGuards:
             "nor .value attribute; expected one of them to carry the "
             "ACTIVE/REDUCING/HALTED literal."
         )
-        assert state_value in {"ACTIVE", "REDUCING"}, (
-            f"state.trading_state.value={state_value!r}; expected "
-            "ACTIVE or REDUCING. HALTED at the end of a clean fold "
-            "indicates a wiring bug (risk component halted at bar 0, "
-            "or peak_equity=0 tripped DrawdownThrottle)."
+        assert state_value == "ACTIVE", (
+            f"state.trading_state={state_value!r}; expected ACTIVE at "
+            "end of a clean 3-month fold. REDUCING at close suggests "
+            "peak_equity=0 tripping DrawdownThrottle; HALTED suggests a "
+            "hard risk gate fired due to missing state initialization."
+        )
+
+    def test_drawdown_throttle_peak_equity_positive(self, v5_s524m_fold_state):
+        """DrawdownThrottle.peak_equity must be > 0 at end-of-fold.
+
+        Audit-tightened 2026-04-20 (companion to ACTIVE-only guard):
+        if peak_equity stays 0, every bar's equity looks like a
+        100% drawdown vs peak and DrawdownThrottle will trip erroneously.
+        Positive peak_equity proves the risk-component state actually
+        received an update from the bridge-wired inner loop.
+        """
+        state = v5_s524m_fold_state
+        trading_state = getattr(state, "trading_state", None)
+        assert trading_state is not None, (
+            "SimulationState.trading_state missing (see "
+            "test_trading_state_active_at_end_of_clean_fold)."
+        )
+        peak_equity = getattr(trading_state, "peak_equity", None)
+        assert peak_equity is not None, (
+            f"trading_state.peak_equity attribute missing on "
+            f"{type(trading_state).__name__} — DrawdownThrottle must "
+            "update this on every bar."
+        )
+        assert peak_equity > 0.0, (
+            f"peak_equity={peak_equity}; expected > 0 after a clean "
+            "3-month fold. Zero suggests the bridge path never hit the "
+            "risk-component update site."
         )

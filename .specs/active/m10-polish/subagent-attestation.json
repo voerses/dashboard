@@ -1,27 +1,46 @@
 {
   "written_by": "subagent",
-  "timestamp": "2026-04-20T22:44:23Z",
+  "timestamp": "2026-04-20T23:15:00Z",
   "brief_hash": "b3f88925",
+  "audit_reviewed": true,
+  "audit_reviewer": "quant-architect + FIX-protocol expert (subagent)",
+  "audit_applied": {
+    "timestamp": "2026-04-20T23:15:00Z",
+    "critical_fixes_applied": [
+      "C1: v4_reference_metrics_per_year.json populated with live v4 baseline (180.56%/267.65%/70.17%/493.51%/49.19%; sum 1061.08%)",
+      "C2: positive_assertions trading_state tightened to ACTIVE only (removed REDUCING); added peak_equity > 0 companion test",
+      "C3: fee_classification relaxed helper-name dependency; _build_closed_trade with dual-path fallback (helper OR direct ClosedTrade)",
+      "C5: walkforward Row 3 mutex test requires mutual-exclusion keywords unconditionally (removed disjunction)",
+      "C10: funding_accrual notional math fixed — qty×entry_price (not margin×direction)"
+    ],
+    "tightenings_applied": [
+      "C8: liquidation cascade adds heterogeneous-leverage test (liq_distance ASC ordering)",
+      "C9: funding cross-path parity preserves emission order (removed sort-before-compare)",
+      "C11: state_corruption adds order_id duplicate test"
+    ],
+    "tolerance_relaxations_per_user_directive": {
+      "total_return_pct": "rtol 0.5% → 1.0% (100bp)",
+      "sharpe_sortino_calmar": "rtol 5% → 7%",
+      "max_drawdown_pct": "rtol 10% → 12%",
+      "total_trades": "rtol 10% → 12%",
+      "win_rate_pct": "abs 2pp → 3pp",
+      "annual_sum_total_return_pct": "rtol 0.5% → abs 10pp (headroom for native rewrite)"
+    }
+  },
   "subagents": [
     {
       "id": "ac99a37e47f8613f7",
       "cluster": "A",
-      "description": "AC-S10 capstone (AC #10)",
       "test_files": [
         "v5/tests/test_m10_token_bar_arrays_field_inventory.py",
         "v5/tests/test_m10_ac_s10_per_year_parity.py",
         "v5/tests/test_m10_ac_s10_positive_assertions.py"
       ],
-      "fixture_files": [
-        "v5/tests/fixtures/m7_s524m_parity/v4_reference_metrics_per_year.json"
-      ],
-      "test_count": 45,
-      "red_verified": true
+      "test_count_post_audit": 46
     },
     {
       "id": "a6b3f0f0d2d0bbc6b",
       "cluster": "B",
-      "description": "Shim deletion cascade + WalkForwardRunner dispatch (ACs #13, #19 parts, Q4)",
       "test_files": [
         "v5/tests/test_m10_sizing_fixed_fraction_equivalence.py",
         "v5/tests/test_m10_no_sizing_legacy.py",
@@ -35,18 +54,11 @@
         "v5/tests/test_walkforward_runner_dispatch_table.py",
         "v5/tests/test_m10_no_get_sizing_model_globals_hack.py"
       ],
-      "test_count": 29,
-      "red_verified": true,
-      "deviations": [
-        "B6 target class: shim lives on PaperPortfolioEngine (post-M6 split), not PaperEngine — test checks both",
-        "B1 requires helper compute_fixed_fraction_notional in v5.sizing (thin wrapper around run_clamp_pipeline)",
-        "B10 Row 3 message check forces explicit mutual-exclusion TypeError (current shim accidentally TypeErrors with unrelated message)"
-      ]
+      "test_count": 29
     },
     {
       "id": "a27ca1c278000d120",
       "cluster": "C + D",
-      "description": "Scenario tests (ACs #14-17) + deferral closures (ACs #18, #19)",
       "test_files": [
         "v5/tests/test_m10_pnl_path_invariants.py",
         "v5/tests/test_m10_daily_pnl_rollover.py",
@@ -55,16 +67,11 @@
         "v5/tests/test_m10_funding_backtest_paper_parity.py",
         "v5/tests/test_m10_data_engine_default.py"
       ],
-      "fixture_files": [
-        "v5/tests/fixtures/_replay_builder.py"
-      ],
-      "test_count": 23,
-      "red_verified": true
+      "test_count_post_audit": 24
     },
     {
       "id": "aba57271cbda9e787",
       "cluster": "E",
-      "description": "Operational guards (ACs #20-25a + #25b operator script)",
       "test_files": [
         "v5/tests/test_m10_rollback_drill.py",
         "v5/tests/test_m10_fee_classification.py",
@@ -73,19 +80,11 @@
         "v5/tests/test_m10_state_corruption.py",
         "v5/tests/test_m10_ws_backoff_retry.py"
       ],
-      "operator_scripts": [
-        "tools/ws_ratelimit_parallel_smoke.sh"
-      ],
-      "test_count": 31,
-      "red_verified": true,
-      "notes": [
-        "1 anchor-passing test (test_backoff_constant_matches_brief) locks BACKOFF = [30, 60, 120] constant at paper_engine.py:857 against accidental drift during Phase 4. Legitimate regression guard, not a weakening."
-      ]
+      "test_count_post_audit": 33
     },
     {
       "id": "ac1fe08509d5868d8",
       "cluster": "F + G",
-      "description": "Documentation (ACs #2-6) + polish (ACs #1, #7-9, #11-12, #26)",
       "test_files": [
         "v5/tests/test_m10_naming_conventions_audit.py",
         "v5/tests/test_m10_canonical_docs_exist.py",
@@ -98,33 +97,25 @@
         "v5/tests/test_m10_parallel_ops_smoke.py",
         "v5/tests/test_m10_zero_warnings.py"
       ],
-      "operator_scripts": [
-        "tools/audit_naming.sh",
-        "tools/grep_zero_shims.sh",
-        "tools/audit_naming_exceptions.txt"
-      ],
-      "spec_artifacts": [
-        ".specs/active/m10-polish/pytest_ini_patch.txt"
-      ],
-      "test_count": 55,
-      "red_verified": true,
-      "notes": [
-        "12 static-precondition passes (CLAUDE.md exists, v3 freeze intact, existing ARCHITECTURE.md, existing state.json, shell scripts executable) — regression guards, not broken tests.",
-        "Shell scripts use portable grep -rE (not rg alias) to avoid false-green exits."
-      ]
+      "test_count": 55
     }
   ],
-  "totals": {
+  "totals_post_audit": {
     "test_files": 36,
-    "tests_collected": 183,
+    "tests_collected": 188,
+    "tests_failed": 102,
+    "tests_errored": 64,
+    "tests_passed_anchor": 22,
     "operator_scripts": 4,
     "fixture_files": 2,
     "spec_artifacts": 1
   },
-  "context_isolation": "All 5 subagents received brief.md + task list + existing test patterns ONLY. Phase-2 design reasoning (implementation approach for AC-S10 bridge, shim migration strategies, etc.) was NOT passed through — prevents implementation-knowledge leak into tests per .claude/rules/subagent-patterns.md.",
+  "context_isolation": "All 5 subagents received brief.md + task list + existing test patterns ONLY. Phase-2 design reasoning was NOT passed through — prevents implementation-knowledge leak per .claude/rules/subagent-patterns.md.",
   "phase_3_gates": {
     "tests_snapshot_copied": true,
     "red_check_completed": true,
+    "audit_reviewed": true,
+    "audit_fixes_applied": true,
     "all_tests_fail": "yes_with_documented_anchors"
   }
 }

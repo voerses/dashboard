@@ -104,18 +104,25 @@ class TestAC18FundingCrossPathParity:
         assert bt_path.exists(), f"Missing backtest archive at {bt_path}"
         assert pe_path.exists(), f"Missing paper archive at {pe_path}"
 
-    def test_funding_archives_byte_identical_after_sort(self, tmp_path):
+    def test_funding_archives_byte_identical_preserving_order(self, tmp_path):
+        """Audit-tightened 2026-04-20: compare archives in ORIGINAL
+        emission order (no sort), because sort-before-compare masks
+        FIX-layer ordering bugs. If the paths emit snaps in different
+        orders, that's itself a parity defect worth surfacing."""
         bt_path = _run_backtest_path(tmp_path)
         pe_path = _run_paper_path(tmp_path)
 
-        def _sorted_lines(p: Path) -> list[str]:
+        def _lines(p: Path) -> list[str]:
             lines = [l for l in p.read_text().splitlines() if l]
-            parsed = [json.loads(l) for l in lines]
-            parsed.sort(key=lambda d: int(d["ts_ns"]))
-            return [json.dumps(d, sort_keys=True, separators=(",", ":")) for d in parsed]
+            # Canonicalize each line's JSON shape (sort keys within an
+            # object) WITHOUT reordering lines across the archive.
+            return [
+                json.dumps(json.loads(l), sort_keys=True, separators=(",", ":"))
+                for l in lines
+            ]
 
-        bt_lines = _sorted_lines(bt_path)
-        pe_lines = _sorted_lines(pe_path)
+        bt_lines = _lines(bt_path)
+        pe_lines = _lines(pe_path)
 
         assert len(bt_lines) == 3, (
             f"Expected 3 funding snaps in backtest archive; got {len(bt_lines)}"
@@ -126,7 +133,7 @@ class TestAC18FundingCrossPathParity:
         )
         for i, (bt, pe) in enumerate(zip(bt_lines, pe_lines)):
             assert bt == pe, (
-                f"Snap {i} diverged between paths:\n"
+                f"Snap {i} diverged between paths (order-preserving compare):\n"
                 f"  backtest: {bt}\n"
                 f"  paper   : {pe}"
             )

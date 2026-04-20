@@ -168,6 +168,70 @@ class TestAC17EquityFloor:
         )
 
 
+class TestAC17OrderingByLiqDistanceWhenHeterogeneous:
+    """AC #17.2 tightening (audit 2026-04-20) — when liq_distance
+    DIFFERS across the 3 positions, exit order must be liq_distance
+    ascending (closest-to-liq fires first). The lex tie-break applies
+    only when liq_distance is equal.
+
+    This complements TestAC17DeterministicOrdering which only
+    exercised the lex branch (uniform liq_distance from uniform shock).
+    """
+
+    @pytest.fixture
+    def sim_heterogeneous_leverage(self):
+        """Same -25% crash but positions open with different leverage
+        → different liq_distance → deterministic asc-order liquidation."""
+        from v5.config import PortfolioConfig, StrategySpec
+        from v5.simulator import simulate_portfolio
+
+        # Three strategy specs with different leverage. Highest leverage
+        # → smallest liq_distance → liquidates first.
+        specs = [
+            StrategySpec(name="high_lev", max_leverage=10.0),
+            StrategySpec(name="med_lev", max_leverage=5.0),
+            StrategySpec(name="low_lev", max_leverage=3.0),
+        ]
+        builder = ReplayFixtureBuilder(
+            tokens=list(TOKENS),
+            n_bars=N_BARS,
+            start_ts_utc=START_TS_UTC,
+            seed=11,
+            scenario=ScenarioSpec(
+                random_walk_stddev=0.0,
+                forced_trades=1,
+                crash_bar=CRASH_BAR,
+                crash_pct=CRASH_PCT,
+            ),
+        )
+        all_signals = builder.build()
+        cfg = PortfolioConfig(
+            capital=INITIAL_CAPITAL,
+            max_portfolio_positions=3,
+            strategies=specs,
+        )
+        strategy_specs = {spec.name: spec for spec in specs}
+        state = simulate_portfolio(
+            all_signals, strategy_specs=strategy_specs, config=cfg,
+        )
+        return state
+
+    def test_exit_order_is_liq_distance_ascending(
+        self, sim_heterogeneous_leverage,
+    ):
+        state = sim_heterogeneous_leverage
+        closed = list(state.position_manager.closed_trades)
+        assert len(closed) == 3, f"Expected 3 liquidations; got {len(closed)}"
+        # Highest leverage = smallest liq_distance = first to liquidate.
+        # Expected order by strategy_id: high_lev, med_lev, low_lev.
+        exit_strategy_ids = [ct.strategy_id for ct in closed]
+        assert exit_strategy_ids == ["high_lev", "med_lev", "low_lev"], (
+            "AC #17 tie-break: when liq_distance differs, exit order "
+            "must be liq_distance ASC (highest-leverage first). Got "
+            f"{exit_strategy_ids!r}."
+        )
+
+
 class TestAC17TradingStateHalt:
     """AC #17.4 — drawdown halt fires when cascade breaches threshold."""
 

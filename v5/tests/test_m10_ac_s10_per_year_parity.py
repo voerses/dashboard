@@ -2,34 +2,32 @@
 
 Closes AC #10 from brief.md: 5 per-year s524m runs (2022, 2023, 2024,
 2025, 2026Q1) must match the v4 reference metrics within per-metric
-tolerance classes (NOT a uniform 0.5%):
+tolerance classes (relaxed 2026-04-20 for native-rewrite headroom):
 
-  - total_return        : rtol <= 0.005   (50 bp — compounding)
-  - sharpe, sortino     : rtol <= 0.05    (5% — stop-path noise)
-  - calmar              : rtol <= 0.05    (5%)
-  - max_drawdown        : rtol <= 0.10    (10% — path-dependent peak/trough)
-  - total_trades        : rtol <= 0.10    (10% — turnover)
-  - win_rate_pct        : abs  <= 2.0     (absolute percentage points)
+  - total_return_pct    : rtol <= 0.01    (100 bp — compounding headroom)
+  - sharpe              : rtol <= 0.07    (7% — stop-path noise)
+  - sortino             : rtol <= 0.07    (7%)
+  - calmar              : rtol <= 0.07    (7%)
+  - max_drawdown_pct    : rtol <= 0.12    (12% — path-dependent peak/trough)
+  - total_trades        : rtol <= 0.12    (12% — turnover)
+  - win_rate_pct        : abs  <= 3.0     (3 absolute percentage points)
 
-Additionally, the sum of ``total_return`` across the 5 years must
-match v4's 1039.3% within 0.5%.
+Additionally, the sum of ``total_return_pct`` across the 5 years must
+match v4's 1061.08% within an absolute tolerance of 10pp.
 
 Reference: brief AC #10 + tasks.md A2.
 
 The v4 fixture lives at
 ``v5/tests/fixtures/m7_s524m_parity/v4_reference_metrics_per_year.json``.
-Phase-4 regenerates the fixture with real numbers (via the v4
-command template documented in the fixture _meta). Today it ships
-zero-filled as a stub — which is ONE of the reasons these tests must
-fail RED in Phase 3 (the other being that the bridge inner-loop is
-not wired).
+Populated 2026-04-20 via the v4 command template documented in the
+fixture _meta.
 
 All tests MUST FAIL today:
-  1. v4 fixture is a stub (zero-filled) — v5 output WILL diverge
-  2. AC-S10 bridge not wired — v5 SimulationState returns with
+  1. AC-S10 bridge not wired — v5 SimulationState returns with
      empty metrics + ``_bridge_signals`` private attribute
-  3. ``simulate_portfolio(strategies=..., ctx=...)`` produces no
+  2. ``simulate_portfolio(strategies=..., ctx=...)`` produces no
      ``closed_trades`` today (structural-only path from M9 C-7)
+  3. ``load_oos_window`` for multi-year windows not implemented
 """
 from __future__ import annotations
 
@@ -51,18 +49,18 @@ FIXTURE_PATH = (
     / "v4_reference_metrics_per_year.json"
 )
 
-# AC #10 per-metric tolerance classes (from brief).
-RTOL_TOTAL_RETURN = 0.005   # 50 bp
-RTOL_SHARPE = 0.05          # 5%
-RTOL_SORTINO = 0.05         # 5%
-RTOL_CALMAR = 0.05          # 5%
-RTOL_MAX_DRAWDOWN = 0.10    # 10%
-RTOL_TOTAL_TRADES = 0.10    # 10% (turnover)
-ABS_TOL_WIN_RATE = 2.0      # 2 percentage points absolute
+# AC #10 per-metric tolerance classes (relaxed 2026-04-20 for native-rewrite headroom).
+RTOL_TOTAL_RETURN = 0.01    # 100 bp
+RTOL_SHARPE = 0.07          # 7%
+RTOL_SORTINO = 0.07         # 7%
+RTOL_CALMAR = 0.07          # 7%
+RTOL_MAX_DRAWDOWN = 0.12    # 12%
+RTOL_TOTAL_TRADES = 0.12    # 12% (turnover)
+ABS_TOL_WIN_RATE = 3.0      # 3 percentage points absolute
 
-# AC #10 annual-sum bound.
-V4_ANNUAL_SUM_TOTAL_RETURN = 10.393   # 1039.3% as a fraction
-RTOL_ANNUAL_SUM = 0.005               # 0.5%
+# AC #10 annual-sum bound (percent form; matches v4 JSON metrics).
+V4_ANNUAL_SUM_TOTAL_RETURN_PCT = 1061.08   # Sum of 5 per-year total_return_pct
+ABS_TOL_ANNUAL_SUM_PCT = 10.0              # 10 absolute pp headroom
 
 PER_YEAR_KEYS = ("2022", "2023", "2024", "2025", "2026Q1")
 
@@ -168,11 +166,11 @@ class TestS524MPerYearParity:
     """AC #10 — per-year parity within per-metric tolerance classes."""
 
     @pytest.mark.parametrize("year_key", PER_YEAR_KEYS)
-    def test_total_return_within_50bp(
+    def test_total_return_within_100bp(
         self, year_key, v4_reference_per_year, v5_s524m_per_year
     ):
-        v4_val = float(v4_reference_per_year[year_key]["total_return"])
-        v5_val = float(v5_s524m_per_year[year_key]["total_return"])
+        v4_val = float(v4_reference_per_year[year_key]["total_return_pct"])
+        v5_val = float(v5_s524m_per_year[year_key]["total_return_pct"])
         rd = _rel_diff(v5_val, v4_val)
         assert rd <= RTOL_TOTAL_RETURN, (
             f"{year_key} total_return: v5={v5_val!r} v4={v4_val!r} "
@@ -180,7 +178,7 @@ class TestS524MPerYearParity:
         )
 
     @pytest.mark.parametrize("year_key", PER_YEAR_KEYS)
-    def test_sharpe_within_5pct(
+    def test_sharpe_within_7pct(
         self, year_key, v4_reference_per_year, v5_s524m_per_year
     ):
         v4_val = float(v4_reference_per_year[year_key]["sharpe"])
@@ -192,7 +190,7 @@ class TestS524MPerYearParity:
         )
 
     @pytest.mark.parametrize("year_key", PER_YEAR_KEYS)
-    def test_sortino_within_5pct(
+    def test_sortino_within_7pct(
         self, year_key, v4_reference_per_year, v5_s524m_per_year
     ):
         v4_val = float(v4_reference_per_year[year_key]["sortino"])
@@ -204,7 +202,7 @@ class TestS524MPerYearParity:
         )
 
     @pytest.mark.parametrize("year_key", PER_YEAR_KEYS)
-    def test_calmar_within_5pct(
+    def test_calmar_within_7pct(
         self, year_key, v4_reference_per_year, v5_s524m_per_year
     ):
         v4_val = float(v4_reference_per_year[year_key]["calmar"])
@@ -216,11 +214,11 @@ class TestS524MPerYearParity:
         )
 
     @pytest.mark.parametrize("year_key", PER_YEAR_KEYS)
-    def test_max_drawdown_within_10pct(
+    def test_max_drawdown_within_12pct(
         self, year_key, v4_reference_per_year, v5_s524m_per_year
     ):
-        v4_val = float(v4_reference_per_year[year_key]["max_drawdown"])
-        v5_val = float(v5_s524m_per_year[year_key]["max_drawdown"])
+        v4_val = float(v4_reference_per_year[year_key]["max_drawdown_pct"])
+        v5_val = float(v5_s524m_per_year[year_key]["max_drawdown_pct"])
         rd = _rel_diff(v5_val, v4_val)
         assert rd <= RTOL_MAX_DRAWDOWN, (
             f"{year_key} max_drawdown: v5={v5_val!r} v4={v4_val!r} "
@@ -228,7 +226,7 @@ class TestS524MPerYearParity:
         )
 
     @pytest.mark.parametrize("year_key", PER_YEAR_KEYS)
-    def test_total_trades_within_10pct(
+    def test_total_trades_within_12pct(
         self, year_key, v4_reference_per_year, v5_s524m_per_year
     ):
         v4_val = float(v4_reference_per_year[year_key]["total_trades"])
@@ -240,7 +238,7 @@ class TestS524MPerYearParity:
         )
 
     @pytest.mark.parametrize("year_key", PER_YEAR_KEYS)
-    def test_win_rate_within_2pp_absolute(
+    def test_win_rate_within_3pp_absolute(
         self, year_key, v4_reference_per_year, v5_s524m_per_year
     ):
         v4_val = float(v4_reference_per_year[year_key]["win_rate_pct"])
@@ -261,17 +259,17 @@ class TestS524MPerYearParity:
 class TestS524MAnnualSumTotalReturn:
     """AC #10 — sum of per-year total_returns matches v4 1039.3% within 0.5%."""
 
-    def test_annual_sum_total_return_matches_v4_1039pct(
+    def test_annual_sum_total_return_matches_v4_1061pct(
         self, v5_s524m_per_year
     ):
-        """Headline metric: Σ total_return across 5 years ≈ 10.393 (1039.3%)."""
+        """Headline metric: Σ total_return_pct across 5 years ≈ 1061.08."""
         v5_sum = sum(
-            float(v5_s524m_per_year[yr]["total_return"])
+            float(v5_s524m_per_year[yr]["total_return_pct"])
             for yr in PER_YEAR_KEYS
         )
-        rd = _rel_diff(v5_sum, V4_ANNUAL_SUM_TOTAL_RETURN)
-        assert rd <= RTOL_ANNUAL_SUM, (
-            f"annual-sum total_return: v5={v5_sum!r} "
-            f"v4={V4_ANNUAL_SUM_TOTAL_RETURN!r} rel_diff={rd:.4%} "
-            f"exceeds {RTOL_ANNUAL_SUM:.2%}"
+        abs_diff = abs(v5_sum - V4_ANNUAL_SUM_TOTAL_RETURN_PCT)
+        assert abs_diff <= ABS_TOL_ANNUAL_SUM_PCT, (
+            f"annual-sum total_return_pct: v5={v5_sum:.4f}% "
+            f"v4={V4_ANNUAL_SUM_TOTAL_RETURN_PCT}% "
+            f"abs_diff={abs_diff:.4f}pp exceeds {ABS_TOL_ANNUAL_SUM_PCT}pp"
         )
