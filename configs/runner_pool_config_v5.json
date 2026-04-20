@@ -1,0 +1,20 @@
+{
+  "_comment": "M9 C-8: v5 paper runner config. NEVER overlap with configs/runner_pool_config.json (v4). State dir, PID, state.json output all fully isolated from v4.",
+  "runner_instance_id": "v5_paper",
+  "total_capital": 450000,
+  "state_dir": "state/v5_paper_multi",
+  "state_output_path": "/srv/data/state_v5.json",
+  "pid_file": "/tmp/paper_runner_v5.pid",
+  "strategies": [
+    {"strategy_id": "s513_v5", "weight": 0.333, "market": "combined", "max_positions": 15},
+    {"strategy_id": "s523c_v5", "weight": 0.333, "market": "combined", "max_positions": 15},
+    {"strategy_id": "s524m_v5", "weight": 0.334, "market": "combined", "max_positions": 15}
+  ],
+  "use_m8_clamps": true,
+  "arbitration_policy": {"class": "RandomShuffle"},
+  "capital_allocation_policy": {"class": "SharedPoolPolicy"},
+  "risk_components": [
+    {"class": "DrawdownThrottle", "thresholds": [[0.15, 0.5], [0.25, 0.0]], "scope": "portfolio"},
+    {"class": "MaxConcurrentOrders", "limit": 45}
+  ]
+}

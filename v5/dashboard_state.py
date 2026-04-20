@@ -563,3 +563,70 @@ def _atomic_write_json(data: dict, path: str) -> None:
         except OSError:
             pass
         raise
+
+
+# ============================================================
+# M9 C-6: v5-specific dashboard helpers (state_v5.json emitter)
+# ============================================================
+
+
+def join_binding_constraint(trades: list[dict], sizing_log) -> list[dict]:
+    """M9 AC #11: JOINs sizing_fills.jsonl entries onto trade rows by
+    `order_id`. Missing join entries render '-' not error."""
+    import json as _json
+    from pathlib import Path as _Path
+    sizing_log = _Path(sizing_log) if not isinstance(sizing_log, _Path) else sizing_log
+    bindings: dict[str, str] = {}
+    if sizing_log.exists():
+        with sizing_log.open() as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = _json.loads(line)
+                    oid = row.get("order_id")
+                    bc = row.get("binding_constraint")
+                    if oid and bc is not None:
+                        bindings[oid] = bc
+                except Exception:
+                    continue
+    out = []
+    for t in trades:
+        row = dict(t)
+        oid = row.get("order_id")
+        row["binding_constraint"] = bindings.get(oid, "-")
+        out.append(row)
+    return out
+
+
+def build_state_v5_json(
+    *,
+    output_path,
+    positions: list | None = None,
+    orders: list | None = None,
+    strategies: list | None = None,
+    counters: dict | None = None,
+) -> None:
+    """M9 AC #11: emit state_v5.json with FIX-aligned counters +
+    parent_position_id grouping-friendly structure + optional
+    binding_constraint join input."""
+    import json as _json
+    from pathlib import Path as _Path
+    output_path = _Path(output_path) if not isinstance(output_path, _Path) else output_path
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema_version": "v5.m9",
+        "positions": positions or [],
+        "orders": orders or [],
+        "strategies": strategies or [],
+        "counters": counters or {
+            "partial_fills": 0,          # FIX OrdStatus(39)=1 PartiallyFilled
+            "increase_fills": 0,         # scale-up events
+            "contingent_fills": 0,       # FIX ContingencyType(1385)≠0
+            "entry_scale_downs": 0,      # M8 clamp scale-downs (engine-internal)
+        },
+        "trading_state": "ACTIVE",
+    }
+    with output_path.open("w") as fh:
+        _json.dump(payload, fh, indent=2)

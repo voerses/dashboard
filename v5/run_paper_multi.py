@@ -1160,3 +1160,57 @@ def _m7_candle_flush_trigger(use_data_engine: bool, engines):
     if use_data_engine:
         return ("data_engine_drain", engines)
     return ("candle_aggregator_flush", engines)
+
+
+# ============================================================
+# M9 C-8 — runner start/stop helpers (test-only API; production uses
+# tools/start_v5_paper.sh + stop_v5_paper.sh)
+# ============================================================
+
+
+def _spawn_runner():
+    """Separated for test mock injection — spawns the paper runner
+    subprocess and returns PID. Production code always calls this
+    via tools/start_v5_paper.sh which re-enters via `python -m
+    v5.run_paper_multi`."""
+    import subprocess
+    import sys
+    proc = subprocess.Popen(
+        [sys.executable, "-u", "-m", "v5.run_paper_multi"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return proc.pid
+
+
+def start_runner(pid_path):
+    """M9 C-8 test API. Writes the spawned PID to `pid_path`. Never
+    touches v4's PID file. Requires V5_PAPER_ENABLED=1 in env."""
+    import os
+    from pathlib import Path
+    if os.environ.get("V5_PAPER_ENABLED", "0") != "1":
+        return None
+    pid_path = Path(pid_path)
+    pid_path.parent.mkdir(parents=True, exist_ok=True)
+    pid = _spawn_runner()
+    pid_path.write_text(str(pid))
+    return pid
+
+
+def stop_runner(pid_path):
+    """M9 C-8 test API. Terminates the v5 runner at pid_path. Never
+    touches v4's PID file."""
+    import os
+    import signal
+    from pathlib import Path
+    pid_path = Path(pid_path)
+    if not pid_path.exists():
+        return
+    try:
+        pid = int(pid_path.read_text().strip())
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            pass  # already dead or not ours
+    finally:
+        pid_path.unlink(missing_ok=True)
