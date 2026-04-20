@@ -21,9 +21,11 @@ FIX mapping (for M7 wire integration):
   - Order.contingency → FIX ContingencyType(1385)
   - Order.time_in_force → FIX TimeInForce(59)
   - OrderStatus ordinals are engine-internal (NOT FIX OrdStatus(39) wire values).
-    Wire mapping: ARMED/WORKING → "0 New", PARTIALLY_FILLED → "1",
-                  FILLED → "2", CANCELLED → "4", REJECTED → "8",
-                  EXPIRED → "C". See to_fix_ordstatus().
+    Wire mapping per G8 institutional convention: ARMED/TRIGGERED/RELEASED → "A"
+    (PendingNew — not yet visible at venue) with an engine-custom tag (9001/9002/
+    9003) disambiguating the sub-state; PARTIALLY_FILLED → "1"; FILLED → "2";
+    CANCELLED → "4"; REJECTED → "8"; EXPIRED → "C".
+    See OrderStatus.to_fix_ordstatus() + OrderStatus.fix_custom_tag.
   - TriggerType is a FIX TriggerType(1100)×TriggerPriceDirection(1109)
     COMPOSITE (trigger kind AND price direction):
       PRICE_ABOVE → (FIX TriggerType=4 PriceMovement, TriggerPriceDirection=U)
@@ -87,9 +89,19 @@ def _gen_order_id(strategy_id: str, token: str) -> str:
     """Generate a unique FIX ClOrdID(11) when caller passed order_id=''.
 
     Format: ``{strategy_id}-{token}-{monotonic_counter}`` — human-readable
-    for logs while guaranteed unique per process.
+    for logs while guaranteed unique per process. Capped at 36 chars to
+    satisfy Binance venue constraints (newClientOrderId max 36 chars);
+    if the concatenated form exceeds 36, the strategy_id is truncated
+    (token + counter are load-bearing for uniqueness; strategy_id is
+    cosmetic in the venue namespace).
     """
-    return f"{strategy_id}-{token}-{next(_next_order_id)}"
+    seq = next(_next_order_id)
+    candidate = f"{strategy_id}-{token}-{seq}"
+    if len(candidate) <= 36:
+        return candidate
+    tail = f"-{token}-{seq}"
+    head_budget = max(1, 36 - len(tail))
+    return f"{strategy_id[:head_budget]}{tail}"
 
 
 class TriggerType(IntEnum):
@@ -133,6 +145,29 @@ class TriggerType(IntEnum):
             return "D"
         raise NotImplementedError(
             f"{self.name}: no FIX TriggerPriceDirection(1109) analog"
+        )
+
+    def to_fix_trigger_price_type(self) -> int:
+        """Return FIX TriggerPriceType(1107) — which reference price feeds the
+        trigger predicate at the venue.
+
+        Mapping:
+          PRICE_ABOVE / PRICE_BELOW → 2 (LastTrade)
+          MARK_ABOVE  / MARK_BELOW  → 7 (BestIndexPrice — closest public
+                                         analog for perp "mark" price in
+                                         FIX 5.0 SP2; venues that expose
+                                         a dedicated MarkPrice enum map to
+                                         it at the session layer).
+
+        Without this tag the venue cannot distinguish a last-trade trigger
+        from a mark-price trigger — they would fire on different tapes.
+        """
+        if self in (TriggerType.PRICE_ABOVE, TriggerType.PRICE_BELOW):
+            return 2
+        if self in (TriggerType.MARK_ABOVE, TriggerType.MARK_BELOW):
+            return 7
+        raise NotImplementedError(
+            f"{self.name}: no FIX TriggerPriceType(1107) analog"
         )
 
 
@@ -265,11 +300,15 @@ class ContingencyType(IntEnum):
     - OCO (One-Cancels-Other): filling one cancels the siblings.
     - OTO (One-Triggers-Other): filling one arms the siblings.
     - OUO (One-Updates-Other): filling one amends sibling qty.
+    - OTOCO (OTO + inner OCO): entry triggers a pair of siblings, which
+      are OCO with each other. Standard 3-leg bracket semantics —
+      entry→{SL, TP}. Capital reserve = entry + max(sibling margins).
     """
-    NONE = 0
-    OCO  = 1
-    OTO  = 2
-    OUO  = 3
+    NONE  = 0
+    OCO   = 1
+    OTO   = 2
+    OUO   = 3
+    OTOCO = 4
 
 
 class TimeInForce(Enum):
@@ -1554,6 +1593,9 @@ def compute_reserved_capital(order: "Order") -> float:
       * ``NONE`` / ``OTO`` / ``OUO``: ``sum(leg.sizing_ctx["margin_usd"])``
       * ``OCO``: ``max(leg.sizing_ctx["margin_usd"])`` — only one can fill,
         reserve the larger.
+      * ``OTOCO``: standard bracket — entry + ``max(sibling margins)``. The
+        entry leg reserves independently; the OCO-linked siblings can fill
+        mutually exclusively so only the larger of the two is reserved.
 
     Single-leg (``legs=()``) Orders fall back to
     ``order.sizing_ctx["margin_usd"]`` (M4 semantics preserved).
@@ -1569,6 +1611,14 @@ def compute_reserved_capital(order: "Order") -> float:
     margins = [_leg_margin(lg) for lg in order.legs]
     if order.contingency == ContingencyType.OCO:
         return float(max(margins)) if margins else 0.0
+    if order.contingency == ContingencyType.OTOCO:
+        # Convention: first leg is the entry; remainder are OCO siblings.
+        if not margins:
+            return 0.0
+        entry_margin = float(margins[0])
+        sibling_margins = margins[1:]
+        sibling_reserve = float(max(sibling_margins)) if sibling_margins else 0.0
+        return entry_margin + sibling_reserve
     return float(sum(margins))
 
 

@@ -89,10 +89,14 @@ class TestArmBracketFactory:
         order = ctx.orders.arm_bracket(**_long_bracket())
         assert order.fill_policy == LegFillPolicy.OTO_BRACKET
 
-    def test_arm_bracket_uses_oto_contingency(self, ctx):
+    def test_arm_bracket_uses_otoco_contingency(self, ctx):
+        """FIX-correct bracket semantics: entry→OCO(SL, TP) = OTOCO, not OTO.
+        Per FIX architect review 2026-04-20: plain OTO causes capital
+        over-reservation by (sl_margin + tp_margin) instead of max(). OTOCO
+        aggregator reserves entry + max(sibling margins)."""
         from v5.orders import ContingencyType
         order = ctx.orders.arm_bracket(**_long_bracket())
-        assert order.contingency == ContingencyType.OTO
+        assert order.contingency == ContingencyType.OTOCO
 
 
 class TestBracketValidation:

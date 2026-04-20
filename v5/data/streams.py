@@ -23,7 +23,10 @@ class DataKind(Enum):
     """What flavour of market data a DataStream carries.
 
     FIX mapping (`MDEntryType(269)`):
-      - BAR             → composite 4/5/7/8 (Open/Close/High/Low) at BarSpec resolution
+      - BAR             → composite MDEntryType(269) 4/5/7/8 (Open/Close/High/Low)
+                          at BarSpec resolution. Canonical FIX mapping:
+                          4=Opening, 5=Closing, 7=TradingSessionHighPrice,
+                          8=TradingSessionLowPrice.
       - TRADE           → 2 (Trade); aggressor side via Side(54)
       - FUNDING_RATE    → no FIX standard; vendor extension (MDEntryType='f' proposed)
       - MARK_PRICE      → 6 (SettlementPrice) — approximate
@@ -81,7 +84,12 @@ class GapPolicy(Enum):
 _VALID_PRICE_TYPES = frozenset({"LAST", "MID", "MARK", "INDEX"})
 _VALID_ASSET_CLASSES = frozenset({"spot", "perp", "future", "option"})
 _VALID_SOURCES = frozenset({"EXTERNAL", "INTERNAL"})
-_VALID_ROLES = frozenset({"signal", "entry", "exit"})
+# Canonical role vocabulary. Per brief §G1 (reviewer H1 recommendation),
+# `role` is a free string — these four are reserved canonical names,
+# but strategies may declare domain-specific roles (e.g. "regime",
+# "alpha", "risk"). The runtime only requires that role be a non-empty
+# string; no hard gate.
+_CANONICAL_ROLES = frozenset({"signal", "entry", "exit"})
 _VALID_TRANSPORT_PREFERENCE = frozenset({"WS", "REST", "AUTO"})
 
 
@@ -167,11 +175,29 @@ def _validate_subscription(
         raise ValueError(
             f"gap_policy={gap_policy} requires data_kind=BAR, got {stream.data_kind}"
         )
-    if stream.data_kind in {DataKind.FUNDING_RATE, DataKind.MARK_PRICE}:
-        if poll_interval_s is None:
-            raise ValueError(
-                f"{stream.data_kind} requires poll_interval_s (cron poll interval)"
-            )
+    # FUNDING_RATE always pull-scheduled (no push analog on Binance).
+    # MARK_PRICE under PULL_SCHEDULED needs a poll interval; under PUSH
+    # the venue streams mark updates, so poll_interval_s must be None.
+    if stream.data_kind == DataKind.FUNDING_RATE and poll_interval_s is None:
+        raise ValueError(
+            f"{stream.data_kind} requires poll_interval_s (cron poll interval)"
+        )
+    if stream.data_kind == DataKind.MARK_PRICE:
+        if transport_preference in ("WS", "AUTO"):
+            # PUSH-capable transports — poll_interval_s must be None.
+            if poll_interval_s is not None:
+                raise ValueError(
+                    f"{stream.data_kind} under transport={transport_preference} "
+                    f"requires poll_interval_s=None (PUSH delivers mark updates); "
+                    f"got {poll_interval_s}"
+                )
+        else:
+            # PULL_SCHEDULED / REST-only — poll_interval_s is required.
+            if poll_interval_s is None:
+                raise ValueError(
+                    f"{stream.data_kind} under transport=REST requires "
+                    f"poll_interval_s (cron poll interval)"
+                )
     if stream.data_kind in {DataKind.BAR, DataKind.TRADE}:
         if poll_interval_s is not None:
             raise ValueError(
@@ -179,8 +205,12 @@ def _validate_subscription(
             )
     if warmup < 0:
         raise ValueError(f"warmup must be >= 0, got {warmup}")
-    if role not in _VALID_ROLES:
-        raise ValueError(f"role must be one of {sorted(_VALID_ROLES)}, got {role!r}")
+    # Role is free-string per brief §G1 / reviewer H1. Only require a
+    # non-empty string — {signal, entry, exit} are the reserved canonical
+    # values, but domain-specific roles (e.g. "regime", "alpha", "risk")
+    # are explicitly allowed.
+    if not isinstance(role, str) or not role:
+        raise ValueError(f"role must be a non-empty string, got {role!r}")
     if transport_preference not in _VALID_TRANSPORT_PREFERENCE:
         raise ValueError(
             f"transport_preference must be one of {sorted(_VALID_TRANSPORT_PREFERENCE)}, "
@@ -226,7 +256,7 @@ class Subscription(_SubscriptionBase):
         stream: DataStream,
         handler: Callable[[Any], None],
         warmup: int = 500,
-        role: Literal["signal", "entry", "exit"] = "signal",
+        role: str = "signal",
         gap_policy: GapPolicy = GapPolicy.STRICT,
         poll_interval_s: Optional[int] = None,
         transport_preference: Literal["WS", "REST", "AUTO"] = "AUTO",

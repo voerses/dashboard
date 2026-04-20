@@ -88,7 +88,11 @@ class S524M(BaseStrategy):
     FUNDING_BOOST = 0.10
     WARMUP = 400
     MAX_ENTRIES_PER_BAR = 5
-    MAX_POSITIONS_HINT = 50
+    # Matches the --max-portfolio-positions 30 used to generate the v4
+    # reference fixture (v5/tests/fixtures/m7_s524m_parity/
+    # v4_reference_metrics.json). Changing this invalidates AC-S10 parity
+    # unless the fixture is regenerated with a matching portfolio cap.
+    MAX_POSITIONS_HINT = 30
     CONVICTION_NORM = 3.0
 
     # TOTAL2 feature toggles (v4 sweep-proven defaults)

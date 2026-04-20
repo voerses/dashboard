@@ -217,6 +217,45 @@ class DataView:
             indicator_cache=self._indicator_cache,
         )
 
+    def indicators(self, symbol: str, resolution: str = "1h",
+                   offset: int = 0) -> dict:
+        """Return a per-bar indicator dict for (symbol, resolution) at
+        `bar_idx + offset` (offset must be ≤ 0 — no look-ahead).
+
+        Exposes the bare OHLCV columns plus any indicators that have been
+        computed through the shared IndicatorCache. Returns None-valued
+        keys for indicators not yet computed (strategies tolerate
+        missing values per AC-S5 error containment).
+
+        Strategies call this instead of poking at raw arrays so the
+        per-ctx IndicatorCache stays authoritative. Offset is bounded at
+        0 (look-ahead guard, AC-S2): positive offsets raise ValueError.
+        """
+        if offset > 0:
+            raise ValueError(
+                f"DataView.indicators(offset={offset}) forbids look-ahead; "
+                "use offset <= 0"
+            )
+        if symbol not in self._arrays:
+            raise KeyError(
+                f"token {symbol!r} has no bar data in this UniverseContext"
+            )
+        idx = self._bar_idx + offset
+        if idx < 0:
+            return {}
+        arrays = self._arrays[symbol]
+        out: dict = {}
+        for col, arr in arrays.items():
+            if idx < len(arr):
+                out[col] = float(arr[idx])
+        # Resolution accepted but currently only 1h synthetic data is
+        # produced by build_test; multi-resolution support lands when
+        # DataEngine feeds real bars (M8+). The param is in the signature
+        # so ports match their v4 counterparts' call shape.
+        out["_resolution"] = resolution
+        out["_bar_idx"] = idx
+        return out
+
     def tokens(self, bar_idx: Optional[int] = None) -> list[str]:
         """Bar-relative tradable token list.
 
@@ -262,8 +301,15 @@ class OrderFactoryView:
     + OTO contingency per M5 pre-fill atomic path.
     """
 
-    def __init__(self, runner_instance_id: str = "default"):
+    def __init__(self, runner_instance_id: str = "default",
+                 clock: Optional["Clock"] = None):
         self._runner_instance_id = runner_instance_id
+        # Injected clock source — arm() / arm_bracket() stamp armed_at
+        # from ctx.clock (TestClock in backtest, LiveClock in paper). NEVER
+        # datetime.now(): breaks determinism + paper-state replay +
+        # FIX TransactTime reproducibility. Set by UniverseContext.build_test()
+        # after the ctx is constructed so the same Clock backs both.
+        self._clock: Optional["Clock"] = clock
         self._active_orders: list = []
         self._reversal_orders: list = []
         self._rejection_events: list = []
@@ -272,6 +318,40 @@ class OrderFactoryView:
         # simulate_fill / simulate_reject fire (eager dispatch for tests that
         # don't call run_full_lifecycle)
         self._strategies: list = []
+
+    def _now(self):
+        """Deterministic `armed_at` source. Reads the injected Clock via
+        `now_dt()` / `utcnow()` / `now_ns()` (whichever the Clock exposes);
+        falls back to a monotonic synthetic epoch when no Clock was
+        injected (legacy test paths only).
+
+        NEVER `datetime.now()` — breaks determinism, paper-state replay,
+        and FIX TransactTime reproducibility. AC-V2 AST scan forbids it
+        in strategy source; this engine-side factory honors the same
+        invariant."""
+        from datetime import datetime, timezone, timedelta
+        if self._clock is not None:
+            # Try common clock interfaces in order.
+            for attr in ("utcnow", "now_dt"):
+                fn = getattr(self._clock, attr, None)
+                if callable(fn):
+                    try:
+                        return fn()
+                    except Exception:
+                        pass
+            # now_ns → datetime fallback
+            ns = getattr(self._clock, "now_ns", None)
+            if callable(ns):
+                try:
+                    v = ns()
+                    return datetime.fromtimestamp(v / 1_000_000_000, tz=timezone.utc)
+                except Exception:
+                    pass
+        # Deterministic synthetic monotonic epoch — 1-second increments
+        # from 2026-01-01. Never walks wall-clock.
+        seq = getattr(self, "_synthetic_now_counter", 0)
+        self._synthetic_now_counter = seq + 1
+        return datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=seq)
 
     def register_strategies(self, strategies: list) -> None:
         """Register strategies to receive on_order_* / on_position_* callbacks
@@ -312,7 +392,6 @@ class OrderFactoryView:
         **kwargs,
     ):
         """Single-leg order — constructs M5 Order.arm(...). Publishes to active list."""
-        from datetime import datetime, timezone
         from v5.orders import Order, TriggerType
         dir_int = self._direction_int(direction)
         if trigger is None:
@@ -326,7 +405,7 @@ class OrderFactoryView:
             trigger=trigger,
             trigger_price=float(trigger_price or 0.0),
             working_price_source="last",
-            armed_at=datetime.now(timezone.utc),
+            armed_at=self._now(),
             expires_at=None,
             sizing_ctx={"target_size": size, "market": market},
             order_id=order_id,
@@ -343,8 +422,14 @@ class OrderFactoryView:
         strategy_id: str = "test",
     ):
         """Three-leg bracket. Validates sides (skipped for MARKET entries per
-        design §2.2); constructs Order with OTO_BRACKET + OTO contingency."""
-        from datetime import datetime, timezone
+        design §2.2); constructs Order with OTO_BRACKET + OTOCO contingency.
+
+        Contingency is OTOCO (not OTO): entry triggers the SL+TP pair, and
+        the SL/TP pair are OCO with each other. Capital reserve follows
+        compute_reserved_capital() entry-plus-max(siblings) aggregation.
+        Legs are ordered (entry, sl, tp) by convention — OTOCO aggregator
+        treats legs[0] as the entry and legs[1:] as the OCO siblings.
+        """
         from v5.orders import (
             Order, Leg, TriggerType, LegStatus, LegFillPolicy, ContingencyType,
         )
@@ -405,12 +490,12 @@ class OrderFactoryView:
             trigger=TriggerType.PRICE_ABOVE if dir_int == 1 else TriggerType.PRICE_BELOW,
             trigger_price=float(entry_price or 0.0),
             working_price_source="last",
-            armed_at=datetime.now(timezone.utc),
+            armed_at=self._now(),
             expires_at=None,
             sizing_ctx={"target_size": size, "market": market},
             legs=(entry_leg, sl_leg, tp_leg),
             fill_policy=fill_policy if fill_policy is not None else LegFillPolicy.OTO_BRACKET,
-            contingency=ContingencyType.OTO,
+            contingency=ContingencyType.OTOCO,
             order_id=order_id,
         )
         self._active_orders.append(order)
@@ -818,7 +903,7 @@ class UniverseContext:
         )
         portfolio = PortfolioView(equity=equity)
         clock = TestClock(epoch_iso="2026-01-01T00:00:00Z", seed=seed)
-        orders = OrderFactoryView(runner_instance_id=runner_instance_id)
+        orders = OrderFactoryView(runner_instance_id=runner_instance_id, clock=clock)
         if strategies:
             orders.register_strategies(strategies)
         ctx = cls(

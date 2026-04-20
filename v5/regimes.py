@@ -11,14 +11,32 @@ a new ctx per fold (AC-V1).
 """
 from __future__ import annotations
 
+from collections import OrderedDict
 from typing import Any, Optional
 
 
-# Per-ctx call counter (test observability)
+# Bounded per-ctx regime cache. Keying is (ctx_uid, bar_idx); entries
+# are inserted in LRU order so reaching _CACHE_CAP evicts the oldest.
+# Unbounded growth (pre-fix) would let the module-level cache accumulate
+# entries forever across folds — the exact invariant v5/strategy_loader
+# rejects in strategies. Per-ctx call counts live in a parallel dict
+# that purges entries whose parent cache has been evicted entirely.
+_CACHE_CAP: int = 1 << 16  # ~65k entries; ≈ 100 folds × 650 bars ceiling
+_cache: "OrderedDict[tuple[int, int], Any]" = OrderedDict()
+
+# Per-ctx call counter (test observability). Decays with _cache evictions.
 _call_counts: dict[int, int] = {}
 
-# Per-ctx regime cache keyed by (id(ctx), bar_idx)
-_cache: dict[tuple[int, int], Any] = {}
+
+def _maybe_evict() -> None:
+    """Drop oldest entries once the cache exceeds _CACHE_CAP. Also purge
+    call-count entries for ctx_uids with no remaining cache rows so the
+    counter dict doesn't grow forever in long-lived processes."""
+    while len(_cache) > _CACHE_CAP:
+        evicted_key, _ = _cache.popitem(last=False)
+        evicted_ctx = evicted_key[0]
+        if not any(k[0] == evicted_ctx for k in _cache):
+            _call_counts.pop(evicted_ctx, None)
 
 
 def _ctx_id(ctx) -> int:
@@ -57,6 +75,8 @@ def detect_regime(ctx, bar_idx: int, *, compute_fn=None) -> Any:
     cid = _ctx_id(ctx)
     key = (cid, bar_idx)
     if key in _cache:
+        # Move to end — LRU touch
+        _cache.move_to_end(key)
         return _cache[key]
     # Cache miss — compute + record call
     _call_counts[cid] = _call_counts.get(cid, 0) + 1
@@ -68,4 +88,5 @@ def detect_regime(ctx, bar_idx: int, *, compute_fn=None) -> Any:
     else:
         result = compute_fn(ctx, bar_idx)
     _cache[key] = result
+    _maybe_evict()
     return result
