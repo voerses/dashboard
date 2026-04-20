@@ -283,27 +283,48 @@ def _scan_engine_private_attribute_access(path: Path, tree: ast.AST) -> None:
     `v5.universe_context` (the main engine module with sensitive state
     like the quarantine registry).
 
-    Catches forms like:
-      import v5.universe_context as mod
-      mod._QUARANTINE_REGISTRY.clear()
-
-    by tracking which local names alias the engine module and then
-    rejecting any Attribute access on those names whose attr starts
-    with '_' (round-7 Quant MAJOR NEW-9).
+    Catches:
+      1) `mod._X` where `mod` aliases v5.universe_context
+      2) `v5.universe_context._X` (no alias)
+      3) `getattr(mod, '_X')` / `getattr(v5.universe_context, '_X')`
+         (round-8 Quant MAJOR NEW-15)
+      4) `importlib.import_module('v5.universe_context')._X`
+         (round-8 Quant MAJOR NEW-16)
     """
     ENGINE_MODULE = "v5.universe_context"
     engine_aliases: set[str] = set()
+    # Also track local names bound from `importlib.import_module(...)`
+    # calls targeting the engine module — those names should also be
+    # treated as engine-module aliases.
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
                 if alias.name == ENGINE_MODULE:
                     engine_aliases.add(alias.asname or alias.name.split(".")[0])
-    if not engine_aliases:
-        return
+        # importlib aliases: `x = importlib.import_module('v5.universe_context')`
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
+            call = node.value
+            is_import_module = False
+            if (isinstance(call.func, ast.Attribute)
+                    and isinstance(call.func.value, ast.Name)
+                    and call.func.value.id == "importlib"
+                    and call.func.attr == "import_module"):
+                is_import_module = True
+            elif isinstance(call.func, ast.Name) and call.func.id == "import_module":
+                is_import_module = True
+            if is_import_module and call.args:
+                arg0 = call.args[0]
+                if (isinstance(arg0, ast.Constant)
+                        and isinstance(arg0.value, str)
+                        and arg0.value == ENGINE_MODULE):
+                    for target in node.targets:
+                        if isinstance(target, ast.Name):
+                            engine_aliases.add(target.id)
+
     for node in ast.walk(tree):
+        # Form 1 + 2: Attribute access on engine module / alias
         if isinstance(node, ast.Attribute):
             base = node.value
-            # Only flag direct access on the aliased module name.
             if isinstance(base, ast.Name) and base.id in engine_aliases:
                 if node.attr.startswith("_"):
                     raise StrategyLoadError(
@@ -312,8 +333,6 @@ def _scan_engine_private_attribute_access(path: Path, tree: ast.AST) -> None:
                         f"prefixed attributes of {ENGINE_MODULE} are "
                         f"engine-only. Use the public UniverseContext API."
                     )
-            # Handle `v5.universe_context._X` (no alias) — base is
-            # ast.Attribute representing v5.universe_context.
             chain = _walk_attribute_chain(node)
             if (len(chain) >= 3 and chain[0] == "v5"
                     and chain[1] == "universe_context"
@@ -323,6 +342,34 @@ def _scan_engine_private_attribute_access(path: Path, tree: ast.AST) -> None:
                     f"private `v5.universe_context.{chain[2]}`. "
                     f"Underscore-prefixed attributes are engine-only."
                 )
+
+        # Form 3: getattr(<engine_alias>, '_X') OR
+        #         getattr(v5.universe_context, '_X')
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            if node.func.id == "getattr" and len(node.args) >= 2:
+                target = node.args[0]
+                name = node.args[1]
+                if (isinstance(name, ast.Constant)
+                        and isinstance(name.value, str)
+                        and name.value.startswith("_")):
+                    # getattr(alias, '_X')
+                    if isinstance(target, ast.Name) and target.id in engine_aliases:
+                        raise StrategyLoadError(
+                            f"{path}:{node.lineno}: strategy bypass via "
+                            f"getattr({target.id}, {name.value!r}) — "
+                            f"engine-private access. Use the public "
+                            f"UniverseContext API."
+                        )
+                    # getattr(v5.universe_context, '_X')
+                    target_chain = _walk_attribute_chain(target) if isinstance(target, ast.Attribute) else ()
+                    if (len(target_chain) >= 2
+                            and target_chain[0] == "v5"
+                            and target_chain[1] == "universe_context"):
+                        raise StrategyLoadError(
+                            f"{path}:{node.lineno}: strategy bypass via "
+                            f"getattr(v5.universe_context, {name.value!r}) — "
+                            f"engine-private access."
+                        )
 
 
 def _scan_engine_internal_imports(path: Path, tree: ast.AST) -> None:
