@@ -1384,19 +1384,22 @@ def _stage2_process_new_signals(
     if not candidates:
         return
 
-    # Order candidates by (priority DESC, strategy_id ASC, token ASC).
-    # Priority is the new v5-native field (int32). Legacy strategies emit
-    # conviction was deleted in M9 C-1; priority now scalar via TokenSignal.
-    # Deterministic tie-break on (strategy_id, token) for reproducibility.
-    def _sort_key(idx):
-        sid, tok, sig = candidates[idx]
-        bm = bar_maps[tok]
-        lb = int(bm[global_bar])
-        prio = 0
-        if sig.priority is not None and 0 <= lb < len(sig.priority):
-            prio = int(sig.priority[lb])
-        return (-prio, sid, tok)  # priority DESC via neg, strategy_id/token ASC
-    indices = sorted(range(len(candidates)), key=_sort_key)
+    # M9 C-5 Phase 3.0: risk-component pre-arbitration hook.
+    # Runs on aggregate candidate list BEFORE arbitration. Risk components
+    # can REJECT (drop from list), REDUCE (scale SizingRequest), or HALT
+    # (return TradingState=HALTED → no entries this bar). M8 clamps run
+    # later at per-order release_atomic — complementary, not redundant.
+    candidates = _apply_risk_components_phase_30(candidates, bar_maps, global_bar, config, state)
+    if not candidates:
+        return
+
+    # M9 C-1: arbitration via pluggable SignalArbitrationPolicy. Falls
+    # back to priority-sort when config doesn't specify one. Arbitration
+    # emits one row per candidate to v5/logs/arbitration.jsonl (AC #18)
+    # with rank_in / rank_out / admitted / displaced_by fields.
+    indices = _run_arbitration_dispatch(
+        candidates, bar_maps, global_bar, config, state
+    )
 
     # Cache resolved sizing per strategy (resolve once, not per candidate)
     _resolved_sizing_cache: dict = {}
@@ -2200,6 +2203,198 @@ def _record_equity_snapshot(
     mtm_equity = state.portfolio_equity + mtm_unrealized
     state.max_equity_watermark = max(state.max_equity_watermark, mtm_equity)
     state.equity_snapshots.append((timestamp, mtm_equity))
+
+
+# ============================================================
+# M9 C-5 Phase 3.0: risk-component pre-arbitration hook.
+# ============================================================
+
+
+def _apply_risk_components_phase_30(candidates, bar_maps, global_bar, config, state):
+    """M9 C-5 Phase 3.0: run risk components on aggregate candidates
+    BEFORE arbitration. Each component's verdict determines whether
+    the candidate stays (ACCEPT/REDUCE) or drops (REJECT/HALT).
+
+    - ACCEPT: candidate passes.
+    - REDUCE: sizing throttled but candidate stays (component already
+      mutated candidate.sizing.fraction_of_equity in-place).
+    - REJECT: candidate dropped.
+    - HALT: all remaining candidates dropped (TradingState.HALTED
+      flipped on state; persists until manual reset).
+
+    Returns the filtered candidates list (same tuple shape). No-op
+    when config.risk_components is empty.
+    """
+    components = getattr(config, "risk_components", None) or []
+    if not components:
+        return candidates
+
+    # If trading_state already HALTED from a prior bar, drop all entries.
+    ts = getattr(state, "trading_state", "ACTIVE")
+    if ts == "HALTED":
+        return []
+
+    from v5.risk import RiskDecision
+    from v5.arbitration import EntryCandidate
+
+    # Build a lightweight risk-state view from SimulationState.
+    # Only fields the shipped risk components read.
+    positions = getattr(state, "position_manager", None)
+    open_notional = {}
+    per_sym_strats: dict = {}
+    if positions is not None and hasattr(positions, "open_positions"):
+        try:
+            for p in positions.open_positions.values():
+                tok = getattr(p, "token", None)
+                if not tok:
+                    continue
+                notional = float(getattr(p, "initial_margin", 0.0) or 0.0) * \
+                    float(getattr(p, "leverage", 1.0) or 1.0) * \
+                    float(getattr(p, "direction", 1) or 1)
+                open_notional[tok] = open_notional.get(tok, 0.0) + notional
+                per_sym_strats.setdefault(tok, set()).add(
+                    getattr(p, "strategy_id", "")
+                )
+        except Exception:
+            pass
+
+    equity = float(getattr(state, "portfolio_equity", 0.0) or 0.0)
+    peak_equity = float(getattr(state, "max_equity_watermark", equity) or equity)
+
+    class _RiskStateShim:
+        pass
+    rss = _RiskStateShim()
+    rss.equity = equity
+    rss.peak_equity = peak_equity
+    rss.open_positions_notional_usd = open_notional
+    rss.open_orders_count = len(open_notional)
+    rss.realized_pnl_today_usd = float(getattr(state, "realized_pnl_today_usd", 0.0) or 0.0)
+    rss.funding_rate_bps = {}
+    rss.per_symbol_strategies = per_sym_strats
+    rss.correlation_matrix = {}
+    rss.trading_state = ts
+
+    kept = []
+    halted = False
+    for (sid, tok, sig) in candidates:
+        # Wrap as EntryCandidate for component compatibility.
+        ec = EntryCandidate(strategy_id=sid, token=tok, priority=0.0)
+        ec.sizing = None
+        ec.notional_usd = None
+
+        decision = RiskDecision.ACCEPT
+        for comp in components:
+            try:
+                d = comp.check(ec, rss, clock_now_ns=int(global_bar) * 3_600_000_000_000)
+            except Exception:
+                d = RiskDecision.ACCEPT  # never fail hot path on risk bug
+            if d == RiskDecision.HALT:
+                halted = True
+                break
+            if d == RiskDecision.REJECT:
+                decision = RiskDecision.REJECT
+                break
+            # ACCEPT / REDUCE: keep candidate. REDUCE already mutated sizing.
+        if halted:
+            break
+        if decision == RiskDecision.REJECT:
+            continue
+        kept.append((sid, tok, sig))
+
+    if halted:
+        object.__setattr__(state, "trading_state", "HALTED")
+        return []
+    return kept
+
+
+# ============================================================
+# M9 C-1: arbitration dispatch — wires SignalArbitrationPolicy into
+# the engine's candidate-ranking step. Replaces the legacy
+# `(-priority, sid, tok)` sort with config.arbitration_policy.rank()
+# and emits per-candidate telemetry to arbitration.jsonl.
+# ============================================================
+
+
+def _run_arbitration_dispatch(candidates, bar_maps, global_bar, config, state):
+    """M9 C-1 Phase 3.1: arbitrate candidates via pluggable policy.
+
+    `candidates` is a list of `(strategy_id, token, sig)` tuples
+    collected pre-ranking. Returns indices into that list in
+    arbitrated order.
+
+    Side effects: writes one row per candidate to
+    `v5/logs/arbitration.jsonl` via ArbitrationLogWriter attached to
+    `state._arbitration_log_writer` (lazy-created on first call).
+    """
+    from v5.arbitration import EntryCandidate, SimulationState as _ArbState
+    import numpy as np
+
+    # Build EntryCandidate list + track original indices for return mapping.
+    arb_cands = []
+    idx_by_cand_key = {}
+    for orig_idx, (sid, tok, sig) in enumerate(candidates):
+        bm = bar_maps[tok]
+        lb = int(bm[global_bar])
+        priority = 0.0
+        if sig.priority is not None and 0 <= lb < len(sig.priority):
+            priority = float(sig.priority[lb])
+        key = (sid, tok, orig_idx)
+        ec = EntryCandidate(strategy_id=sid, token=tok, priority=priority)
+        arb_cands.append(ec)
+        idx_by_cand_key[(sid, tok)] = orig_idx
+
+    # Resolve arbitration policy (default to PriorityDesc if config absent).
+    policy = getattr(config, "arbitration_policy", None)
+    if policy is None:
+        from v5.arbitration import PriorityDesc
+        policy = PriorityDesc()
+
+    arb_state = _ArbState(
+        rng=np.random.default_rng(
+            getattr(config, "seed", 42) + global_bar
+        ),
+        equity=float(getattr(state, "portfolio_equity", 0.0) or 0.0),
+    )
+
+    ranked = policy.rank(arb_cands, arb_state, scope="portfolio")
+
+    # Emit telemetry — one row per candidate (in rank_in order).
+    writer = getattr(state, "_arbitration_log_writer", None)
+    if writer is None:
+        try:
+            from v5.arbitration import ArbitrationLogWriter
+            from pathlib import Path
+            log_dir = Path("v5/logs")
+            writer = ArbitrationLogWriter(log_dir=log_dir)
+            object.__setattr__(state, "_arbitration_log_writer", writer)
+        except Exception:
+            writer = None
+
+    ranked_lookup = {(c.strategy_id, c.token): r_idx for r_idx, c in enumerate(ranked)}
+    if writer is not None:
+        try:
+            for cand_in_idx, c in enumerate(arb_cands):
+                rank_out = ranked_lookup.get((c.strategy_id, c.token))
+                writer.write({
+                    "bar_idx": int(global_bar),
+                    "strategy_id": c.strategy_id,
+                    "token": c.token,
+                    "rank_in": cand_in_idx,
+                    "rank_out": rank_out,
+                    "tier": c.tier,
+                    "admitted": rank_out is not None,
+                    "displaced_by": None,
+                })
+        except Exception:
+            pass  # telemetry never fails the hot path
+
+    # Map ranked order back to indices into the original `candidates` list.
+    out = []
+    for c in ranked:
+        k = (c.strategy_id, c.token)
+        if k in idx_by_cand_key:
+            out.append(idx_by_cand_key[k])
+    return out
 
 
 # ============================================================
