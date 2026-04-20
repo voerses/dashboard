@@ -321,6 +321,23 @@ def _scan_engine_private_attribute_access(path: Path, tree: ast.AST) -> None:
                         if isinstance(target, ast.Name):
                             engine_aliases.add(target.id)
 
+    def _is_inline_import_module_call(call: ast.Call) -> bool:
+        """True iff `call` is `importlib.import_module('v5.universe_context'
+        [,...])` or the bare `import_module(...)` variant."""
+        fn = call.func
+        is_target = False
+        if isinstance(fn, ast.Attribute) and isinstance(fn.value, ast.Name):
+            if fn.value.id == "importlib" and fn.attr == "import_module":
+                is_target = True
+        elif isinstance(fn, ast.Name) and fn.id == "import_module":
+            is_target = True
+        if not is_target or not call.args:
+            return False
+        arg0 = call.args[0]
+        return (isinstance(arg0, ast.Constant)
+                and isinstance(arg0.value, str)
+                and arg0.value == ENGINE_MODULE)
+
     for node in ast.walk(tree):
         # Form 1 + 2: Attribute access on engine module / alias
         if isinstance(node, ast.Attribute):
@@ -332,6 +349,15 @@ def _scan_engine_private_attribute_access(path: Path, tree: ast.AST) -> None:
                         f"private `{base.id}.{node.attr}`. Underscore-"
                         f"prefixed attributes of {ENGINE_MODULE} are "
                         f"engine-only. Use the public UniverseContext API."
+                    )
+            # Form 5 (round-9): inline-chained importlib bypass,
+            # e.g. `importlib.import_module('v5.universe_context')._X`
+            if isinstance(base, ast.Call) and _is_inline_import_module_call(base):
+                if node.attr.startswith("_"):
+                    raise StrategyLoadError(
+                        f"{path}:{node.lineno}: strategy bypass via inline "
+                        f"`importlib.import_module({ENGINE_MODULE!r})."
+                        f"{node.attr}` — engine-private access."
                     )
             chain = _walk_attribute_chain(node)
             if (len(chain) >= 3 and chain[0] == "v5"
