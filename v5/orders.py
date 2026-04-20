@@ -1136,23 +1136,54 @@ class Order:
         # status derivation (F1) propagates the REJECTED to Order-level.
         return out
 
-    def release_atomic(self, *, available_capital_usd: float) -> "Order":
-        """TRIGGERED/ARMED -> RELEASED (atomic) or REJECTED (F2 / Task 8c).
+    def release_atomic(
+        self,
+        *,
+        available_capital_usd: float,
+        market_state=None,
+        policy=None,
+        config=None,
+    ) -> "Order":
+        """TRIGGERED/ARMED -> RELEASED (atomic) or REJECTED.
 
-        Aggregates per-leg margin under the Order's ``contingency`` rule
-        (see :func:`compute_reserved_capital`) and compares against the
-        caller-supplied ``available_capital_usd``. If the aggregate exceeds
-        available capital the Order transitions to REJECTED with
-        ``reject_reason="risk_on_release_atomic"`` and NO LEG OPENS (F2
-        pre-fill atomic invariant). Otherwise the Order transitions to
-        RELEASED; Wave F follow-ups transition legs to WORKING.
+        **M8 integration (Task 16)**: when `market_state` + `config` are
+        supplied, runs the full 6-clamp pipeline (ADV cap → concentration
+        → free capital → min size → liquidation distance → slippage),
+        emits the binding-log JSONL entry, and transitions state based on
+        the pipeline verdict.
 
-        Accepts both TRIGGERED (canonical) and ARMED (multi-leg variant —
-        leg-level derivation can suppress a TRIGGERED bare state when all
-        legs are still ARMED; see ``__post_init__`` derivation guard).
+        **Legacy path** (M5/M7): when clamp kwargs are omitted, falls back
+        to the pre-M8 `compute_reserved_capital` vs `available_capital_usd`
+        check only. Preserves backward compat for callers that haven't
+        migrated to the clamp pipeline yet (Wave G Tasks 22+23).
+
+        **AC-Sz7 error containment**: ClampError exceptions inside the
+        pipeline are caught and mapped to `state=REJECTED` with
+        `reject_reason=f"clamp_error_{name}"`. BarProcessor never crashes.
         """
         if self.state not in (OrderStatus.TRIGGERED, OrderStatus.ARMED):
             return self
+
+        # Full M8 clamp pipeline — only when all three clamp args supplied
+        if market_state is not None and config is not None:
+            from v5.sizing.allocation import SharedPoolPolicy
+            from v5.sizing.clamps import run_clamp_pipeline
+            # run_clamp_pipeline handles its own AC-Sz7 error containment
+            # (catches clamp exceptions → REJECTED with reject_reason
+            # "clamp_error_<name>" + emits error-path binding-log entry).
+            new_order, _log = run_clamp_pipeline(
+                self,
+                available_capital_usd=available_capital_usd,
+                market_state=market_state,
+                policy=policy if policy is not None else SharedPoolPolicy(),
+                config=config,
+            )
+            if new_order.state == OrderStatus.REJECTED:
+                return new_order
+            # Clamp pipeline produced a sized Order; transition to RELEASED.
+            return new_order._transit(OrderStatus.RELEASED)
+
+        # Legacy path — compute_reserved_capital only, pre-M8 semantics.
         aggregate = compute_reserved_capital(self)
         if aggregate > float(available_capital_usd):
             return self._transit(

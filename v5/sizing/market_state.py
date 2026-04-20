@@ -112,6 +112,50 @@ class _BaseSyntheticAdapter:
         return self._equity
 
 
+def compute_available_capital_usd(
+    *,
+    margin_mode: str,
+    portfolio: dict,
+) -> float:
+    """Compute the pool of capital visible to the free-capital clamp,
+    branching on `margin_mode`.
+
+    Binance-style semantics (AC-Sz3 clause 3 cross-margin correctness):
+
+      **isolated** — only the position's own initial_margin is locked to
+        it. Available = wallet_balance − sum(initial_margin per position).
+        Each position's unrealized PnL is isolated from the pool; losses
+        can only consume that position's initial margin.
+
+      **cross** — all positions share the wallet pool. Available =
+        wallet_balance + sum(unrealized_pnl) − sum(initial_margin) −
+        sum(open_order_initial_margin). Unrealized losses reduce the
+        shared pool in real time; gains increase it.
+
+    This is the formula most commonly wrong in production sizing engines
+    (cited by risk-reviewer 2020 incident). Centralized here so both
+    Simulator and DataEngine paths produce identical values.
+    """
+    positions = portfolio.get("positions", [])
+    wallet = float(portfolio.get("wallet_balance", 0.0))
+    total_initial = sum(float(p.get("initial_margin", 0.0)) for p in positions)
+    total_open_order = sum(
+        float(p.get("open_order_initial_margin", 0.0)) for p in positions
+    )
+    if margin_mode == "isolated":
+        # Isolated: wallet minus locked initial margins. Unrealized PnL is
+        # scoped to each position and does NOT affect the free pool.
+        return wallet - total_initial - total_open_order
+    if margin_mode == "cross":
+        # Cross: wallet + net unrealized PnL across the book, minus locked
+        # initial margins. Losses cut into the shared pool immediately.
+        total_upnl = sum(float(p.get("unrealized_pnl", 0.0)) for p in positions)
+        return wallet + total_upnl - total_initial - total_open_order
+    raise ValueError(
+        f"margin_mode must be 'isolated' or 'cross'; got {margin_mode!r}"
+    )
+
+
 class SimulatorMarketState(_BaseSyntheticAdapter):
     """Backtest adapter. Wraps `v5.simulator.SimulationState` + precomputed
     signal arrays. Production callsite wires the real backend in Task 22."""

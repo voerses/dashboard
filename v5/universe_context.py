@@ -539,6 +539,14 @@ class OrderFactoryView:
             trigger = TriggerType.PRICE_ABOVE if dir_int == 1 else TriggerType.PRICE_BELOW
         seq = self._next_seq()
         order_id = f"order-{seq:08x}"
+        # M8 — strategies may pass a SizingRequest via `sizing=...`. Route
+        # it into sizing_ctx under the "sizing" key so the clamp pipeline
+        # reads it at release_atomic time. Back-compat: `size` kwarg still
+        # populates `target_size` for legacy callers.
+        sizing_ctx: dict = {"target_size": size, "market": market}
+        sizing_req = kwargs.get("sizing")
+        if sizing_req is not None:
+            sizing_ctx["sizing"] = sizing_req
         order = Order.arm(
             strategy_id=strategy_id,
             token=symbol,
@@ -548,7 +556,7 @@ class OrderFactoryView:
             working_price_source="last",
             armed_at=self._now(),
             expires_at=None,
-            sizing_ctx={"target_size": size, "market": market},
+            sizing_ctx=sizing_ctx,
             order_id=order_id,
         )
         self._active_orders.append(order)
