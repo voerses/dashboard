@@ -100,53 +100,47 @@ After M1-M9, v5 is functionally complete but has accumulated:
 8. After 7 days green: `--commit-migration` moves `.v1.bak` to `backups/v4-archive/{timestamp}/` (retained 90 days, not deleted). Explicit `--purge-archive` required for permanent deletion.
 9. If anything regresses: stop v5, restore `.v1.bak`, restart v4
 
-### M9 carry-overs — ACTUAL Wave D deferrals (per final reviewer audit 2026-04-20)
+### M9 carry-overs — post-Option-A finish (2026-04-20 final)
 
-**HONEST STATUS**: M9 completed Waves A/B/E/F. Wave C (AC-S10 bridge inner-loop wiring) and Wave D (shim deletion cascade) were deferred due to scope. M10 MUST close these:
+**STATUS**: M9 shipped at ~85% (10 commits on `feat/m7-strategy-api`, pushed as `ba1977d..01116ef`). Option A finish (Phases 1-6) landed after the first honest-close commit. Remaining deferrals are scoped + carry real surgical risk — M10 closes them.
 
-1. **Wave D — 12 shim deletion cascade**:
-   - Delete `use_m8_clamps` flag + both branches (replay-parity gate first)
-   - Delete `sizing_legacy.py` + `globals()["get_sizing_model"]` alias
-   - Flip `use_multi_leg_orders` default True + delete legacy `trigger_combined_entry` branch (~140 lines in simulator.py)
-   - Delete `Position.leg: str = "primary"` field + migrate 8 simulator read sites
-   - Delete `Instrument.contract_type` free-string
-   - Delete `armed_log.jsonl` dual-write
-   - Delete `paper_engine._armed_tokens` alias
-   - Pick `Leg.settlement_type` over `Leg.market` (drop latter)
-   - **Actual deletion** (not rename) of `_legacy_conv` / `_legacy_regime` / `_legacy_min_conv` fields from TokenBarArrays + engine.py + all 24 call sites in simulator.py / paper_engine.py / engine.py
-   - Delete `bear_target_mult` / `bear_max_hold` behavior knobs
-2. **Wave C completion — AC-S10 bridge inner-loop wiring**:
-   - `simulate_portfolio(strategies=, ctx=)` bridge path currently builds `bridge_signals` but DOESN'T feed them into the vectorized `_process_orders` / `_process_exits` inner loop. Wire that. 
-   - 6 strict-xfail tests in `test_m8_ac_s10_s524m_parity.py` must flip to PASS within 0.5% tolerance on Q-DEC4 2025 206-token fold.
-3. **Replay-parity fixture build (T34)** — 7-day parquet-windowed fixture forcing each of 6 M8 clamps to bind. 2 tests in `test_m9_replay_parity.py` skip until this exists.
-4. **apply_arbitration engine wiring**:
-   - `v5/simulator.py:1391` still uses legacy `_sort_key`; replace with `config.arbitration_policy.rank(candidates, state, scope="portfolio")`.
-   - Wire `ArbitrationLogWriter` into the rank-dispatch flow so `arbitration.jsonl` actually receives rows.
-5. **Phase 3.0 risk-component integration** — risk components exist as library code but never run in the engine hot path. Wire `_apply_risk_components` at simulator.py:~1305 before arbitration.
-6. **WalkForwardRunner dispatch cleanup** — M9 currently dispatches M8 vs M9 via `__new__` kwarg detection (back-compat shim). M10 consolidates to single canonical M9 runner once AC-S10 bridge is wired.
+#### ✅ COMPLETED in M9 Option A finish (do NOT redo in M10)
 
-### Items that were in scope for M9 and DID ship
+- **Actual field deletions**: `_legacy_conv`, `_legacy_regime`, `_legacy_min_conv`, `bear_target_mult`, `bear_max_hold` fields deleted from TokenBarArrays + `engine.py` StrategyContext. 24 call sites in `simulator.py` / `paper_engine.py` migrated with None-safe fallbacks (Phase 1, commit `20cc03a`).
+- **`apply_arbitration` wired into engine**: `simulator.py:1391` now calls `_run_arbitration_dispatch()` which invokes `config.arbitration_policy.rank()`. Legacy `_sort_key` deleted. `ArbitrationLogWriter` lazily instantiated on state; writes to `v5/logs/arbitration.jsonl` with full AC #18 schema (Phase 2, commit `533e07a`).
+- **Phase 3.0 risk hook wired**: `_apply_risk_components_phase_30()` inserted in `_stage2_process_new_signals` BEFORE arbitration. HALT/REJECT/REDUCE/ACCEPT verdicts honored; `TradingState` flips on halt (Phase 3, commit `533e07a`).
+- **Flag flips**: `PortfolioConfig.use_m8_clamps` default → True (legacy branch inlined); `StrategySpec.use_multi_leg_orders` default → True; `Instrument.contract_type` free-string DELETED (Phase 5, commit `fdf197f`). Test-dispute #3 logged.
+- **Replay-parity scaffold**: `v5/tools/replay_parity.py` stub + `v5/tests/fixtures/m9_replay_parity_7d/manifest.json` so test collection works (Phase 6, commit `01116ef`).
 
-See .specs/active/m9-cleanups/ for what actually landed (Waves A, B, E, F). Key deliverables:
-- `v5/arbitration.py` (library only; engine wiring deferred)
-- `v5/risk.py` (library only; Phase 3.0 hook deferred)
-- `v5/regimes.py` enhancements
-- `v5/indicators.py` MTF-safe cache key
-- BarContext enrichment
-- `ValidationConfig` + `CPCVSpec` + CPCV math
-- Dashboard `/v5` path + v5 paper runner scripts (feature-flagged OFF)
-- `TickCadencePolicy` scaffold
-- Arbitration analyzer CLI (library only; production emission deferred)
+#### ⏳ REMAINING for M10 (surgical risk — careful)
 
-All items below (M10's original scope) continue as planned in M10.
+1. **AC-S10 bridge inner-loop wiring** (~20-30h, the capstone):
+   - `simulate_portfolio(strategies=, ctx=)` builds `bridge_signals` dict via `_build_token_bar_arrays_from_generate` but doesn't feed them into the vectorized `_process_orders` / `_process_exits` inner loop — returns `SimulationState` with `_bridge_signals` attached but metrics empty.
+   - Wire bridge output into `all_signals` consumed by `simulate_portfolio` inner loop.
+   - Thread through `compute_portfolio_metrics` so xfails produce real numbers.
+   - 6 strict-xfail tests in `test_m8_ac_s10_s524m_parity.py` must flip to PASS within 0.5% relative tolerance on Q-DEC4 2025 206-token fold.
+   - s524m v5 target: 1,094% annual sum v4 baseline match.
 
-- **scale_check_fn removal** — pulled into Wave F (M9)
-- **Full strategy signature audit** — pulled into Wave F (M9)
-- **TickCadencePolicy production scaffolding** — pulled into Wave F (M9)
-- **Arbitration telemetry analyzer CLI** — pulled into Wave F (M9)
-- **Cross-strategy correlation tuning** — handled in M9 Wave A + test suite
+2. **Replay-parity fixture GENERATOR** (~5-10h):
+   - Write `v5/tests/fixtures/generate_m9_replay_parity_7d.py` that builds parquet-windowed slices from `data/perp/1m_cache/` + `data/perp/1h_cache/` engineering each of 6 M8 clamps to bind at least once.
+   - Extend `v5/tools/replay_parity.py::run_replay_parity_*` stubs to actually run paper_engine twice + diff archives.
+   - Unlocks the 2 currently-skipped tests in `test_m9_replay_parity.py`.
 
-### Items that remain in M10 (genuinely final polish)
+3. **Remaining shim deletions** (replay-parity gate first, then delete):
+   - `sizing_legacy.py` — 3 callers (`simulator.py:35`, `paper_engine.py:1629`, `test_v5_portfolio.py:29`). Deletion requires surgery on `simulator.py:1425` `get_sizing_model` resolver + removing `globals()["get_sizing_model"]` alias. Now that `use_m8_clamps` is unconditional, the legacy path is dead — but `sizing_model.compute_size()` is still invoked for initial sizing input to the clamp pipeline. Refactor.
+   - `Position.leg: str = "primary"` field — 8 read sites in `simulator.py:413, 541, 589, 1045, 1065, 1191, 2111, 2278`. Migrate to `leg_ref_id` + venue/market lookup.
+   - `trigger_combined_entry` legacy branch (~140 lines in `simulator.py:~2740-2877`) — M5 multi-leg OTOCO is now canonical (flag flipped in M9 Phase 5); delete once replay-parity passes on multi-leg fixture.
+   - `armed_log.jsonl` dual-write — delete dual-write in `paper_engine.py`; `orders_log.jsonl` sole sink.
+   - `paper_engine._armed_tokens` property + alias — T16b migration; delete the back-compat property.
+   - `Leg.market` vs `Leg.settlement_type` — pick settlement_type (maps to FIX LegSettlType(587)); drop market.
+
+4. **WalkForwardRunner dispatch cleanup** — currently dispatches M8 vs M9 via `__new__` kwarg detection (back-compat shim added in `1c42b4e`). M10 consolidates to a single canonical M9 runner once AC-S10 bridge is wired.
+
+5. **Strategy re-port refinements**:
+   - Once AC-S10 bridge wires, verify s524m, s523c, s513 `to_token_bar_arrays()` outputs byte-identical to `_engine_precompute_fallback` on the Q-DEC4 2025 fold (AC #7 parity).
+   - Once bridge runs, verify `test_m9_c7_bridge_interface.py::TestPaperVsVectorizedParity` actually exercises the paper-vs-vectorized code path (currently exercises the precompute loop on both sides).
+
+### Items that remain in M10 (genuinely final polish — unchanged)
 
 - Paper state migrator v1→v2 (step 0 pre-flight of migration runbook)
 - Documentation (ARCHITECTURE.md, MIGRATION.md, ROLLBACK.md)
@@ -198,8 +192,19 @@ Note on FixedBudgetPolicy: removed from M9 scope per user directive; not deferre
 
 ## Time Estimate
 
-**14-20 hours** (M9 carry-overs pulled back into M9; M10 stays as final polish)
+**50-70 hours** (revised — M9 deferrals + original polish scope)
 
+M9 Option-A carry-overs (surgical):
+- ~20-30h: AC-S10 bridge inner-loop wiring — 6 xfails flip to PASS within 0.5% tolerance
+- ~5-10h: Replay-parity fixture generator + 2 currently-skipped test unlocks
+- ~6-10h: `sizing_legacy.py` + `get_sizing_model` resolver surgery
+- ~3-4h: `Position.leg` field deletion + 8 simulator read-site migration
+- ~2-3h: `trigger_combined_entry` legacy branch deletion (~140 lines)
+- ~1-2h: `armed_log.jsonl` dual-write + `_armed_tokens` alias deletion
+- ~1h: `Leg.market` drop (keep `settlement_type`)
+- ~1h: WalkForwardRunner dispatch cleanup (single canonical M9 runner)
+
+Original M10 polish:
 - ~3h: Compat shim removal + grep verification
 - ~2h: Naming consistency audit + fixes
 - ~4h: Documentation (ARCHITECTURE.md with Trade Identity Model detail, MIGRATION.md, ROLLBACK.md)
