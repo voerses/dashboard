@@ -1,0 +1,14 @@
+# M10 F4 / AC #2 — audit_naming.sh exceptions list.
+#
+# Format: one substring-to-ignore per line. Lines starting with `#`
+# are comments; blank lines ignored. Matching is fixed-string
+# (`grep -vFf`), so each line is an exact substring of an offending
+# `rg -n` hit, e.g. `v5/paper_config.py:42:    api_token: str`.
+#
+# Phase 4 implementers: populate this list ONLY for true legitimate
+# exceptions (external-API terminology, CEX-provided field names,
+# environment-variable names). Do NOT use it to whitelist grep-gaming.
+#
+# Example legitimate entries:
+# v5/live_fetcher.py: api_token
+# v5/paper_config.py: API_TOKEN

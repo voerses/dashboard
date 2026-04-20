@@ -1,0 +1,16 @@
+# M10 G10 / AC #26 — pytest.ini filterwarnings patch.
+#
+# Phase 4 implementer: APPEND the following block to pytest.ini
+# `[pytest]` section AFTER the 743-warning baseline (AC #26) is cleared.
+# Landing this patch before the warnings are fixed will turn every
+# warning into an ERROR and break CI. G10 deliberately sequences LAST in
+# the cluster for that reason.
+#
+# The `ignore::DeprecationWarning:third_party_module` line is a STUB.
+# Phase 4 identifies the real third-party module names (likely pandas,
+# numpy, pyarrow) emitting DeprecationWarnings that are outside our
+# control and appends one line per legitimate external module.
+
+filterwarnings =
+    error
+    ignore::DeprecationWarning:third_party_module

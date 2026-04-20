@@ -1,0 +1,63 @@
+{
+  "_meta": {
+    "source": "v4/portfolio_backtest.py",
+    "cmd_template": "python v4/portfolio_backtest.py --strategy s524m --capital 100000 --market perp --conviction-mode ranked --adv-cap 0.005 --max-portfolio-positions 50 --skip-wf --start-date {YYYY}-01-01 --end-date {YYYY}-12-31 --seed 42",
+    "windows": {
+      "2022": "2022-01-01 to 2022-12-31",
+      "2023": "2023-01-01 to 2023-12-31",
+      "2024": "2024-01-01 to 2024-12-31",
+      "2025": "2025-01-01 to 2025-12-31",
+      "2026Q1": "2026-01-01 to 2026-03-31"
+    },
+    "universe": "v4 default perp universe",
+    "annual_sum_total_return_expected": 0.0,
+    "stub": true,
+    "stub_reason": "Phase-4 regenerates this fixture with real v4 baseline numbers (see brief AC #10 per-year table).",
+    "recorded_at": "2026-04-20"
+  },
+  "2022": {
+    "total_return": 0.0,
+    "sharpe": 0.0,
+    "sortino": 0.0,
+    "calmar": 0.0,
+    "max_drawdown": 0.0,
+    "total_trades": 0,
+    "win_rate_pct": 0.0
+  },
+  "2023": {
+    "total_return": 0.0,
+    "sharpe": 0.0,
+    "sortino": 0.0,
+    "calmar": 0.0,
+    "max_drawdown": 0.0,
+    "total_trades": 0,
+    "win_rate_pct": 0.0
+  },
+  "2024": {
+    "total_return": 0.0,
+    "sharpe": 0.0,
+    "sortino": 0.0,
+    "calmar": 0.0,
+    "max_drawdown": 0.0,
+    "total_trades": 0,
+    "win_rate_pct": 0.0
+  },
+  "2025": {
+    "total_return": 0.0,
+    "sharpe": 0.0,
+    "sortino": 0.0,
+    "calmar": 0.0,
+    "max_drawdown": 0.0,
+    "total_trades": 0,
+    "win_rate_pct": 0.0
+  },
+  "2026Q1": {
+    "total_return": 0.0,
+    "sharpe": 0.0,
+    "sortino": 0.0,
+    "calmar": 0.0,
+    "max_drawdown": 0.0,
+    "total_trades": 0,
+    "win_rate_pct": 0.0
+  }
+}
