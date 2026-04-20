@@ -149,20 +149,41 @@ def _concentration_clamp(notional: float, order, market_state,
 def _free_capital_clamp(notional: float, order, market_state, policy,
                         available_capital_usd: float,
                         config: ClampsConfig) -> Tuple[float, float]:
-    """Clamp #3 — policy-driven free capital. Funding buffer subtracted
-    BEFORE policy call (design §7.1); policy gets post-buffer value.
+    """Clamp #3 — policy-driven free capital with margin_mode branching.
 
-    For FIXED_FRACTION orders, `notional` already uses the request's
-    leverage so the ceiling is the available margin × leverage. For
-    FIXED_NOTIONAL, margin = notional / leverage and margin must fit.
+    Funding buffer subtracted BEFORE policy call (design §7.1); policy
+    gets post-buffer value. When the order's `SizingRequest.margin_mode`
+    is set AND MarketState exposes `portfolio_snapshot()`, the clamp
+    branches via `compute_available_capital_usd(margin_mode=...)`:
+      - **isolated**: per-position margin (unrealized PnL is scoped)
+      - **cross**: portfolio-level pool + net unrealized PnL (Binance
+        semantics — historical sizing-engine bug site)
+    The branched value becomes the margin pool fed to the policy.
     """
     try:
         sizing = order.sizing_ctx.get("sizing") if isinstance(order.sizing_ctx, dict) else None
         leverage = float(sizing.leverage) if sizing is not None else 1.0
+        margin_mode = (sizing.margin_mode if sizing is not None else "isolated")
         equity = float(market_state.equity(order.strategy_id))
         # Funding buffer subtracted BEFORE policy call — design §7.1.
         buffer = equity * float(config.funding_buffer_pct)
         post_buffer_available = max(0.0, float(available_capital_usd) - buffer)
+
+        # Margin-mode branching. When MarketState exposes a portfolio
+        # snapshot we compute the mode-aware available-capital pool via
+        # the centralized formula in market_state.compute_available_
+        # capital_usd (which is the sizing-engine bug-site fix for
+        # cross vs isolated).
+        snapshot_fn = getattr(market_state, "portfolio_snapshot", None)
+        if callable(snapshot_fn) and margin_mode in ("isolated", "cross"):
+            from v5.sizing.market_state import compute_available_capital_usd
+            portfolio = snapshot_fn()
+            mode_available = compute_available_capital_usd(
+                margin_mode=margin_mode, portfolio=portfolio,
+            )
+            # Mode-aware available replaces post_buffer_available as the
+            # seed. Funding buffer still subtracts on top.
+            post_buffer_available = max(0.0, mode_available - buffer)
 
         # Build the narrow AllocationState view and invoke the policy via
         # the MarketState adapter (delegation keeps the cross-margin formula

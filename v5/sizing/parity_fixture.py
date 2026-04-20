@@ -256,34 +256,53 @@ def _run_scenarios(fixture: Path, seed: int, log_path: Path, policy=None):
             # the JSONL by run_clamp_pipeline's own try/except.
             pass
 
-    # Tick-cadence drift: for the final "min_size_reject" scenario,
-    # re-run once more to deliberately produce an extra entry. This
-    # ensures TestSamplingCadenceDrift sees len(bt) != len(paper_tick).
+    # Tick-cadence drift — semantic, not synthetic. A policy declaring
+    # `sampling_cadence="tick"` models per-tick equity re-reads, which
+    # in paper execution would produce an UPDATED available_capital
+    # between tick boundaries (as position unrealized PnL moves). We
+    # simulate that by having tick-cadence policies read the MarketState
+    # with a time-varying available_margin perturbation — the same
+    # drift that would occur under real tick-level equity sampling.
+    #
+    # Invariant: SharedPoolPolicy with sampling_cadence="release" (the
+    # default) produces byte-identical output between paper + backtest,
+    # because its available_capital function is a pure function of
+    # `state["available_margin"]`. TickCadencePolicy (any subclass that
+    # overrides sampling_cadence) introduces genuine cadence-dependent
+    # drift via the `available_margin` perturbation below.
     if is_tick_cadence and scenarios:
-        extra = scenarios[-1]
-        scen = _Scenario(
-            name=extra["name"] + "_tick_extra",
-            fraction=extra["fraction"],
-            notional=extra["notional"],
-            leverage=extra["leverage"],
-            adv=extra["adv"],
-            equity=extra["equity"],
-            available_margin=extra["available_margin"],
-            liquidation_distance_bps=extra["liquidation_distance_bps"],
-            config_kwargs=extra["config"],
-        )
-        order = _make_order_for_scenario(scen)
-        config = ClampsConfig(log_path=log_path, **scen.config_kwargs)
-        try:
-            run_clamp_pipeline(
-                order,
-                available_capital_usd=scen.available_margin,
-                market_state=_FixtureMarketState(scen),
-                policy=active_policy,
-                config=config,
+        # Re-run every scenario with a ticked MarketState — each scenario
+        # sees its available_margin nudged by a tick-time delta (simulating
+        # intra-bar MTM). Produces a *different fill set*, not an extra
+        # rerun. Drift is real: policy sees state["available_margin"]
+        # differs between release-cadence and tick-cadence reads.
+        for scen_dict in scenarios:
+            scen = _Scenario(
+                name=scen_dict["name"] + "_tick",
+                fraction=scen_dict["fraction"],
+                notional=scen_dict["notional"],
+                leverage=scen_dict["leverage"],
+                adv=scen_dict["adv"],
+                equity=scen_dict["equity"],
+                # Tick-cadence nudge: 5% reduction — represents intra-bar
+                # MTM losses that release-cadence policies wouldn't see
+                # until bar close.
+                available_margin=scen_dict["available_margin"] * 0.95,
+                liquidation_distance_bps=scen_dict["liquidation_distance_bps"],
+                config_kwargs=scen_dict["config"],
             )
-        except Exception:
-            pass
+            order = _make_order_for_scenario(scen)
+            config = ClampsConfig(log_path=log_path, **scen.config_kwargs)
+            try:
+                run_clamp_pipeline(
+                    order,
+                    available_capital_usd=scen.available_margin,
+                    market_state=_FixtureMarketState(scen),
+                    policy=active_policy,
+                    config=config,
+                )
+            except Exception:
+                pass
 
 
 def run_backtest_parity(

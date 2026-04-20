@@ -1257,8 +1257,23 @@ class Order:
                         existing_sum = float(probe(self.strategy_id))
                     except Exception:
                         existing_sum = 0.0
-                frac = float(sizing_req.fraction_of_equity or 0.0)
+                # Marginal contribution = fraction × leverage. For
+                # FIXED_NOTIONAL we compute the implied fraction as
+                # notional / equity (equivalent exposure basis).
                 lev = float(sizing_req.leverage or 1.0)
+                if sizing_req.fraction_of_equity is not None:
+                    frac = float(sizing_req.fraction_of_equity)
+                elif sizing_req.notional_usd is not None:
+                    try:
+                        equity = float(market_state.equity(self.strategy_id))
+                    except Exception:
+                        equity = 0.0
+                    frac = (
+                        float(sizing_req.notional_usd) / equity
+                        if equity > 1e-9 else 0.0
+                    )
+                else:
+                    frac = 0.0
                 marginal = frac * lev
                 if existing_sum + marginal > 1.0 + 1e-9:
                     return self._transit(
