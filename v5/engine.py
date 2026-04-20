@@ -956,17 +956,13 @@ class StrategyResult:
     # None = use config.entry_delay_bars for all entries (backwards compatible).
     entry_delay: Optional[np.ndarray] = None      # int, 0 = immediate entry
 
-    # Regime-conditional target: tighter TP in DOWNTREND regime.
-    bear_target_mult: float = 0.0
-    # Regime-conditional max hold: shorter hold in DOWNTREND (0 = use max_hold)
-    bear_max_hold: int = 0
+    # M9 C-4 / C-1 FINAL DELETION: bear_target_mult, bear_max_hold,
+    # _legacy_conv fields removed. Regime-conditional behavior lives in
+    # strategy check_exit hooks; conviction is TokenSignal.priority scalar.
 
     # Configurable exit constants (extracted from hardcoded values)
     convex_bar_thresholds: tuple = (48, 12)         # (mature_bars, early_bars)
     convex_multipliers: tuple = (2.0, 1.5, 0.3)    # (mature_trail_atr, early_profit_mult, early_be_offset)
-
-    # Conviction score: per-bar signal strength in [0, 1] for entry prioritization.
-    _legacy_conv: Optional[np.ndarray] = None
 
     # Futures support (defaults preserve backward compatibility)
     market_type: int = 0        # MarketType.SPOT

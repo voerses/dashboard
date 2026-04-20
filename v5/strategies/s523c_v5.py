@@ -3,7 +3,7 @@
 Ported from `strategies/s523c_growth.py` to the M7 unified Strategy Protocol.
 
 v4→v5 changes applied (per M7 design §4 "conviction→priority split"):
-  - v4 `_legacy_conv` array (sizing input) → `TokenSignal.priority`
+  - v4 conviction array (deleted M9) (sizing input) → `TokenSignal.priority`
     (ranking only) + `TokenSignal.sizing.fraction_of_equity` (capital
     allocation, derived from conviction via explicit formula).
   - Module-level state purged:

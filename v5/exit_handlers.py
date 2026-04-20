@@ -509,11 +509,10 @@ class TakeProfitHandler:
         pass
 
     def check_exit(self, pos: Position, bar: BarContext) -> ExitCheck:
+        # M9 C-4: regime-conditional TP deleted. Strategies that want
+        # regime-aware exits use their own check_exit hook with
+        # v5.regimes.detect_crisis(bar_ctx.ctx, bar_ctx.bar_idx).
         eff_target = pos.target_mult
-        if self._sig.bear_target_mult > 0.0:
-            if bar.regime == 4:  # DOWNTREND
-                eff_target = self._sig.bear_target_mult
-
         d = pos.direction
         atr = max(bar.atr, 1e-10)
         if pos.convex_exit:

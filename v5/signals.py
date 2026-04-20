@@ -37,10 +37,10 @@ from v5.strategy_api import TokenSignal, UniverseSignals, SizingRequest  # noqa:
 DATA_DIR = str(_project_root / "data")
 logger = logging.getLogger(__name__)
 
-# M9 C-1: conviction->priority shim DELETED (clean cut). Strategies emit
-# priority directly on TokenSignal (scalar per bar). The legacy int32
-# priority array and _legacy_conv array on TokenBarArrays are also
-# deleted. See brief.md C-1 for rationale.
+# M9 C-1 FINAL DELETION (Phase 1 of 6): the legacy conviction array,
+# the int32 priority array, and the conviction->priority shim are all
+# gone from TokenBarArrays. Strategies emit TokenSignal.priority as a
+# scalar float per M7 API. See brief.md C-1 for rationale.
 
 
 @dataclass(slots=True)
@@ -57,7 +57,6 @@ class TokenBarArrays:
     low: np.ndarray
     atr: np.ndarray
     rolling_adv: np.ndarray
-    _legacy_regime: np.ndarray
     funding_1h: np.ndarray        # zeros for spot
     # Trade params (per-bar or scalar)
     stop_mult: np.ndarray
@@ -68,13 +67,8 @@ class TokenBarArrays:
     max_hold: int
     edge: float
     leverage: np.ndarray
-    # M9 C-1 transition: conviction shim logic deleted from __post_init__;
-    # both fields kept as Optional[None] placeholder so runtime code that
-    # defensively reads `sig._legacy_conv` / `sig.priority` arrays
-    # continues to see None (not AttributeError). Wave F final sweep
-    # deletes the fields + all string references to satisfy the M9 C-1
-    # zero-grep acceptance gate.
-    _legacy_conv: Optional[np.ndarray] = None
+    # M9 C-1 FINAL DELETION: legacy conviction-array field removed.
+    # Strategies emit `TokenSignal.priority: float` scalar per M7 API.
     priority: Optional[np.ndarray] = None
     trail_schedule: Optional[np.ndarray] = None
     time_trail_schedule: Optional[np.ndarray] = None
@@ -85,10 +79,8 @@ class TokenBarArrays:
     breakeven_atr: float = 0.0
     # Chandelier stop: trail from highest-high over N-bar lookback window (0 = disabled)
     chandelier_lookback: int = 0
-    # Regime-conditional target: tighter TP in bear regimes (0 = disabled, use target_mult)
-    bear_target_mult: float = 0.0
-    # Regime-conditional max hold: shorter hold in DOWNTREND (0 = use max_hold)
-    bear_max_hold: int = 0
+    # M9 C-4 FINAL DELETION: bear_target_mult + bear_max_hold removed
+    # (regime-conditional behavior lives in strategy check_exit hooks).
     # Configurable exit constants
     convex_bar_thresholds: tuple = (48, 12)
     convex_multipliers: tuple = (2.0, 1.5, 0.3)
@@ -527,18 +519,9 @@ def precompute_strategy_signals(
                 sr_entry_delay = sr_entry_delay[:n_safe].copy()
             sr_convex_bar_thresholds = tuple(getattr(sr, 'convex_bar_thresholds', (48, 12)))
             sr_convex_multipliers = tuple(getattr(sr, 'convex_multipliers', (2.0, 1.5, 0.3)))
-            sr_bear_target_mult = float(getattr(sr, 'bear_target_mult', 0.0))
-            sr_bear_max_hold = int(getattr(sr, 'bear_max_hold', 0))
-            # Conviction score: use explicit if provided by strategy, else None.
-            # (Legacy fallback normalization was removed in M1 AC11 sizing purge.)
-            sr_conviction = None
-            if getattr(sr, '_legacy_conv', None) is not None:
-                sr_conviction = _to_array(sr._legacy_conv, n_safe)
-
-            # Priority field: strategies may emit priority directly. If they do,
-            # we pass through. If they emit only _legacy_conv, the shim in
-            # TokenBarArrays.__post_init__ will auto-derive priority on the
-            # constructed TokenBarArrays below — no work needed here beyond extracting.
+            # M9 C-4 + C-1 FINAL DELETION: legacy bear-regime target/max-hold
+            # behavior and legacy conviction-array paths all removed.
+            # Strategies emit TokenSignal.priority scalar per M7 API.
             sr_priority = None
             if getattr(sr, 'priority', None) is not None:
                 sr_priority = np.asarray(sr.priority[:n_safe], dtype=np.int32)
@@ -638,7 +621,6 @@ def precompute_strategy_signals(
                 low=p_low,
                 atr=p_atr,
                 rolling_adv=p_adv,
-                regime=p_regime,
                 funding_1h=p_funding,
                 stop_mult=sr_stop_mult,
                 trail_mult=sr_trail_mult,
@@ -648,7 +630,6 @@ def precompute_strategy_signals(
                 max_hold=sr_max_hold,
                 edge=sr_edge,
                 leverage=sr_leverage,
-                _legacy_conv=sr_conviction,
                 priority=sr_priority,
                 trail_schedule=trail_sched,
                 time_trail_schedule=time_trail_sched,
@@ -656,8 +637,6 @@ def precompute_strategy_signals(
                 funding_exit_threshold=sr_funding_exit_threshold,
                 breakeven_atr=sr_breakeven_atr,
                 chandelier_lookback=sr_chandelier_lookback,
-                bear_target_mult=sr_bear_target_mult,
-                bear_max_hold=sr_bear_max_hold,
                 convex_bar_thresholds=sr_convex_bar_thresholds,
                 convex_multipliers=sr_convex_multipliers,
                 convex_exit=sr_convex_exit,

@@ -109,8 +109,9 @@ def load_multi_config(path: str) -> list[PaperConfig]:
             dashboard_push=merged.get("dashboard_push", False),
             dynamic_weights=merged.get("dynamic_weights", False),
             dynamic_weights_smoothing=merged.get("dynamic_weights_smoothing", 0.3),
-            conviction_mode=merged.get("conviction_mode", "shuffle"),
-            _legacy_min_conv=merged.get("_legacy_min_conv", 0.0),
+            # M9 C-1: legacy selection-mode + min-score-threshold deleted.
+            # Arbitration fairness is now v5.arbitration.SignalArbitrationPolicy
+            # (config.arbitration_policy = RandomShuffle()) via M9 C-1.
             max_sizing_equity=merged.get("max_sizing_equity", None),
             sentinel_mode=merged.get("sentinel_mode", "off"),
             confirmation_tiers=merged.get("confirmation_tiers", {"btc_eth": 30, "top10": 60, "other": 90}),

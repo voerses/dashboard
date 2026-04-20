@@ -574,7 +574,7 @@ def _run_cpcv_v4(strategy_id: str, ticker: str,
             max_trail_mult=np.asarray(result.max_trail_mult, dtype=np.float32)[:fold_len].copy() if result.max_trail_mult is not None else None,
             funding_exit_threshold=float(getattr(result, 'funding_exit_threshold', 0.0)),
             breakeven_atr=float(getattr(result, 'breakeven_atr', 0.0)),
-            bear_target_mult=float(getattr(result, 'bear_target_mult', 0.0)),
+            # M9 C-4: bear_target_mult removed; regime-conditional TP in strategy check_exit
             convex_exit=result.convex_exit,
             rsi=p_rsi,
             rsi_exit_level=float(result.rsi_exit_level),

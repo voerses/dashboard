@@ -1125,7 +1125,8 @@ def _process_exits(
             low=low_val,
             atr=cur_atr,
             rsi=rsi_val,
-            regime=(int(getattr(sig, "_legacy_regime", None)[local_bar]) if getattr(sig, "_legacy_regime", None) is not None else 0),
+            # M9 C-4: engine regime deleted; strategies read v5.regimes.detect_crisis(bar_ctx.ctx, bar_idx)
+            regime=None,
             bars_held=bars_held,
             local_bar=local_bar,
             funding_val=funding_val,
@@ -1281,8 +1282,7 @@ def _stage1_trigger_armed_orders(
         # opens the Position at this bar's close.
         sig.entry_mask[local_bar] = True
         sig.direction[local_bar] = int(order.direction)
-        if sig._legacy_conv is not None and local_bar < len(sig._legacy_conv):
-            sig._legacy_conv[local_bar] = conviction
+            # M9 C-1: conviction write removed; strategies emit TokenSignal.priority scalar
         # Set entry_limit_price to armed level for precise fill at target.
         if sig.armed_levels is not None and local_bar < len(sig.armed_levels):
             armed_price = float(sig.armed_levels[local_bar])
@@ -1386,7 +1386,7 @@ def _stage2_process_new_signals(
 
     # Order candidates by (priority DESC, strategy_id ASC, token ASC).
     # Priority is the new v5-native field (int32). Legacy strategies emit
-    # _legacy_conv which is auto-mapped to priority by signals.py's shim.
+    # conviction was deleted in M9 C-1; priority now scalar via TokenSignal.
     # Deterministic tie-break on (strategy_id, token) for reproducibility.
     def _sort_key(idx):
         sid, tok, sig = candidates[idx]
@@ -1442,8 +1442,7 @@ def _stage2_process_new_signals(
                     continue
                 if _mult == 0.0:
                     continue  # strategy says block (slot available for next candidate)
-                if _mult < 1.0 and sig._legacy_conv is not None and local_bar < len(sig._legacy_conv):
-                    sig._legacy_conv[local_bar] *= _mult
+                # M9 C-1: conviction scaling removed; strategies handle via SizingRequest.fraction_of_equity
             except Exception:
                 pass  # filter error, allow entry
 
@@ -1482,8 +1481,7 @@ def _stage2_process_new_signals(
 
         if (_delay > 0 or _has_armed_level) and not _already_pending:
             conv = 1.0
-            if sig._legacy_conv is not None and 0 <= local_bar < len(sig._legacy_conv):
-                conv = float(sig._legacy_conv[local_bar])
+            # M9 C-1: conviction-derived priority path removed
             # M5 Task 14b — arm an Order on state.open_orders instead of the
             # legacy PendingEntry dataclass. Legacy scalar fields (signal_bar,
             # entry_bar, conviction) survive in strategy_params so Stage 1

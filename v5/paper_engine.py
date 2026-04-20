@@ -1378,7 +1378,7 @@ class PaperPortfolioEngine:
 
                 # Effective target (use cached bear_target_mult if in bear regime)
                 eff_target = pos.target_mult
-                bear_target = bar_data.get("bear_target_mult", 0.0)
+                bear_target = 0.0  # M9 C-4: bear_target_mult removed; strategies own regime-conditional TP
                 regime = bar_data.get("regime", 0)
                 if bear_target > 0.0 and regime == 4:
                     eff_target = bear_target
@@ -1438,9 +1438,7 @@ class PaperPortfolioEngine:
                 # Falls back to tick-based bars_held if entry_timestamp is missing.
                 if reason is None and pos.max_hold > 0:
                     eff_max_hold = pos.max_hold
-                    bear_max_hold = bar_data.get("bear_max_hold", 0)
-                    if bear_max_hold > 0 and regime == 4:
-                        eff_max_hold = bear_max_hold
+                    # M9 C-4: legacy regime-conditional max-hold branch removed
                     if pos.entry_timestamp:
                         try:
                             entry_dt = datetime.strptime(
@@ -1485,7 +1483,7 @@ class PaperPortfolioEngine:
                                 linked_spec = strategy_specs.get(linked.strategy_id)
                                 linked_cb_r = linked_spec.circuit_breaker_r if linked_spec else 0.0
                                 linked_eff_target = linked.target_mult
-                                linked_bear_target = linked_bar_data.get("bear_target_mult", 0.0)
+                                linked_bear_target = 0.0  # M9 C-4: bear_target_mult removed
                                 linked_regime = linked_bar_data.get("regime", 0)
                                 if linked_bear_target > 0.0 and linked_regime == 4:
                                     linked_eff_target = linked_bear_target
@@ -2011,7 +2009,7 @@ class PaperPortfolioEngine:
         all_signals: dict[str, dict],
         bar_maps: dict[str, np.ndarray],
     ) -> None:
-        """Cache ATR/regime/bear_target_mult per (strategy_id, token) for sub-hourly exit checks.
+        """Cache ATR per (strategy_id, token) for sub-hourly exit checks. (M9 C-4: regime/bear_target_mult removed.)
 
         Called at the end of each hourly tick so sub-hourly exits between ticks
         have access to the latest hourly bar data.  Keyed by (strategy_id, token)
@@ -2039,12 +2037,9 @@ class PaperPortfolioEngine:
                 self._cached_bar_data[(sid, token)] = {
                     "atr": float(atr_val) if not np.isnan(atr_val) else 0.0,
                     "adv": float(adv_val) if not np.isnan(adv_val) else 0.0,
-                    "regime": (int(getattr(sig, "_legacy_regime", None)[local_bar]) if getattr(sig, "_legacy_regime", None) is not None else 0) if sig.regime is not None and local_bar < len(sig.regime) else 0,
-                    "bear_target_mult": sig.bear_target_mult if hasattr(sig, 'bear_target_mult') else 0.0,
-                    "bear_max_hold": sig.bear_max_hold if hasattr(sig, 'bear_max_hold') else 0,
-                    # M2 (AC18 / Task 11): cache sig reference for scale_check_fn
-                    # invocation at sub-hourly ticks. _dispatch_scale_action uses
-                    # sig for ScalingEvent fields and per-token bookkeeping.
+                    # M9 C-4: regime/bear_target_mult/bear_max_hold deleted.
+                    # M2 (AC18 / Task 11): cache sig reference for
+                    # _dispatch_scale_action invocation at sub-hourly ticks.
                     "sig": sig,
                 }
 
@@ -2468,8 +2463,8 @@ class PaperPortfolioEngine:
                     ),
                     # Conviction score for threshold check
                     "conviction": (
-                        float(sig._legacy_conv[local_bar])
-                        if getattr(sig, '_legacy_conv', None) is not None and local_bar < len(sig._legacy_conv)
+                        0.0  # M9 C-1: conviction deleted
+                        if False
                         else 1.0
                     ),
                     # Exit handler parameters (backtest parity for Position fields)
@@ -3770,7 +3765,7 @@ class PaperPortfolioEngine:
                 if bm is not None and self.tick_counter < len(bm):
                     local_bar = bm[self.tick_counter]
                     if 0 <= local_bar < sig.n_bars and hasattr(sig, 'regime') and sig.regime is not None:
-                        btc_regime = (int(getattr(sig, "_legacy_regime", None)[local_bar]) if getattr(sig, "_legacy_regime", None) is not None else 0)
+                        btc_regime = 0  # M9 C-4: engine regime deleted; strategies call v5.regimes.detect_crisis()
                 break  # Only need BTC from one strategy
 
         # Compute dynamic weights
@@ -3802,7 +3797,7 @@ class PaperPortfolioEngine:
                     if local_bar >= 0 and local_bar < sig.n_bars:
                         self._last_known_prices[token] = float(sig.close[local_bar])
                         if hasattr(sig, 'regime') and sig.regime is not None:
-                            self._last_known_regimes[token] = (int(getattr(sig, "_legacy_regime", None)[local_bar]) if getattr(sig, "_legacy_regime", None) is not None else 0)
+                            self._last_known_regimes[token] = 0  # M9 C-4: engine regime deleted; strategies call v5.regimes.detect_crisis()
 
     # ------------------------------------------------------------------
     # Quick price refresh — update MTM without running a full tick
