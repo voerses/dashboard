@@ -100,9 +100,45 @@ After M1-M9, v5 is functionally complete but has accumulated:
 8. After 7 days green: `--commit-migration` moves `.v1.bak` to `backups/v4-archive/{timestamp}/` (retained 90 days, not deleted). Explicit `--purge-archive` required for permanent deletion.
 9. If anything regresses: stop v5, restore `.v1.bak`, restart v4
 
-### M9 carry-over items (pulled back into M9 per user directive "don't defer to M10")
+### M9 carry-overs — ACTUAL Wave D deferrals (per final reviewer audit 2026-04-20)
 
-All items below are now **in M9 scope**. User directive: "dont defer to m10 pls". Only genuinely final-polish items remain in M10.
+**HONEST STATUS**: M9 completed Waves A/B/E/F. Wave C (AC-S10 bridge inner-loop wiring) and Wave D (shim deletion cascade) were deferred due to scope. M10 MUST close these:
+
+1. **Wave D — 12 shim deletion cascade**:
+   - Delete `use_m8_clamps` flag + both branches (replay-parity gate first)
+   - Delete `sizing_legacy.py` + `globals()["get_sizing_model"]` alias
+   - Flip `use_multi_leg_orders` default True + delete legacy `trigger_combined_entry` branch (~140 lines in simulator.py)
+   - Delete `Position.leg: str = "primary"` field + migrate 8 simulator read sites
+   - Delete `Instrument.contract_type` free-string
+   - Delete `armed_log.jsonl` dual-write
+   - Delete `paper_engine._armed_tokens` alias
+   - Pick `Leg.settlement_type` over `Leg.market` (drop latter)
+   - **Actual deletion** (not rename) of `_legacy_conv` / `_legacy_regime` / `_legacy_min_conv` fields from TokenBarArrays + engine.py + all 24 call sites in simulator.py / paper_engine.py / engine.py
+   - Delete `bear_target_mult` / `bear_max_hold` behavior knobs
+2. **Wave C completion — AC-S10 bridge inner-loop wiring**:
+   - `simulate_portfolio(strategies=, ctx=)` bridge path currently builds `bridge_signals` but DOESN'T feed them into the vectorized `_process_orders` / `_process_exits` inner loop. Wire that. 
+   - 6 strict-xfail tests in `test_m8_ac_s10_s524m_parity.py` must flip to PASS within 0.5% tolerance on Q-DEC4 2025 206-token fold.
+3. **Replay-parity fixture build (T34)** — 7-day parquet-windowed fixture forcing each of 6 M8 clamps to bind. 2 tests in `test_m9_replay_parity.py` skip until this exists.
+4. **apply_arbitration engine wiring**:
+   - `v5/simulator.py:1391` still uses legacy `_sort_key`; replace with `config.arbitration_policy.rank(candidates, state, scope="portfolio")`.
+   - Wire `ArbitrationLogWriter` into the rank-dispatch flow so `arbitration.jsonl` actually receives rows.
+5. **Phase 3.0 risk-component integration** — risk components exist as library code but never run in the engine hot path. Wire `_apply_risk_components` at simulator.py:~1305 before arbitration.
+6. **WalkForwardRunner dispatch cleanup** — M9 currently dispatches M8 vs M9 via `__new__` kwarg detection (back-compat shim). M10 consolidates to single canonical M9 runner once AC-S10 bridge is wired.
+
+### Items that were in scope for M9 and DID ship
+
+See .specs/active/m9-cleanups/ for what actually landed (Waves A, B, E, F). Key deliverables:
+- `v5/arbitration.py` (library only; engine wiring deferred)
+- `v5/risk.py` (library only; Phase 3.0 hook deferred)
+- `v5/regimes.py` enhancements
+- `v5/indicators.py` MTF-safe cache key
+- BarContext enrichment
+- `ValidationConfig` + `CPCVSpec` + CPCV math
+- Dashboard `/v5` path + v5 paper runner scripts (feature-flagged OFF)
+- `TickCadencePolicy` scaffold
+- Arbitration analyzer CLI (library only; production emission deferred)
+
+All items below (M10's original scope) continue as planned in M10.
 
 - **scale_check_fn removal** — pulled into Wave F (M9)
 - **Full strategy signature audit** — pulled into Wave F (M9)

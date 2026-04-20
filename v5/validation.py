@@ -1265,10 +1265,39 @@ WalkForwardRunner.run = _m8_run
 # ============================================================
 
 # M9 overrides: import-time consumers of `WalkForwardRunner` / `WalkForwardResult`
-# get the M9 implementations. M8's `WalkForwardRunner` (renamed via monkey-patch
-# above) is no longer canonical. Legacy M7/M8 callers still in-tree use the
-# underscored aliases for back-compat.
+# get the M9 implementations. M8's `WalkForwardRunner` is preserved under
+# the `_M8WalkForwardRunner` alias so M8 parity tests that construct with
+# `(strategy=..., data_bundle=..., seed=...)` kwargs continue to work.
 _M8WalkForwardRunner = WalkForwardRunner        # preserved for legacy callers
 
-WalkForwardRunner = _M9WalkForwardRunner
+
+class WalkForwardRunner:
+    """M9 C-2 canonical — dispatches to M9 or M8 impl based on kwargs.
+
+    `WalkForwardRunner(config=...)` → M9 CPCV math runner.
+    `WalkForwardRunner(strategy=..., data_bundle=..., seed=...)` → M8
+    legacy AC-S10 stub runner (pre-bridge xfail harness).
+
+    Kept as a shim class during M9-to-M10 transition — M10 deletes the
+    legacy M8 path once AC-S10 bridge wiring is complete.
+    """
+
+    def __new__(cls, *args, **kwargs):
+        # M9 canonical: WalkForwardRunner(config=ValidationConfig(...))
+        # Detect by presence of `config` kwarg and no `strategy`/`data_bundle`.
+        if (
+            "config" in kwargs
+            and "strategy" not in kwargs
+            and "data_bundle" not in kwargs
+            and not args
+        ):
+            instance = object.__new__(_M9WalkForwardRunner)
+            _M9WalkForwardRunner.__init__(instance, config=kwargs["config"])
+            return instance
+        # Legacy M8 kwargs path (strategy=, data_bundle=, seed=, config=)
+        instance = object.__new__(_M8WalkForwardRunner)
+        _M8WalkForwardRunner.__init__(instance, *args, **kwargs)
+        return instance
+
+
 WalkForwardResult = _M9WalkForwardResult
