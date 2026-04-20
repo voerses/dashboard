@@ -140,6 +140,50 @@ After M1-M9, v5 is functionally complete but has accumulated:
    - Once AC-S10 bridge wires, verify s524m, s523c, s513 `to_token_bar_arrays()` outputs byte-identical to `_engine_precompute_fallback` on the Q-DEC4 2025 fold (AC #7 parity).
    - Once bridge runs, verify `test_m9_c7_bridge_interface.py::TestPaperVsVectorizedParity` actually exercises the paper-vs-vectorized code path (currently exercises the precompute loop on both sides).
 
+### M9 regression-sweep follow-ups (from 2026-04-20 post-audit, commit `92783bb`)
+
+Post-M9 audit uncovered real regressions from the Phase 1 field-deletion
+cascade. Sweep fixed 50+ stale-kwarg tests automatically. Two genuine
+regressions were marked `pytest.mark.skip` with dispute rationale —
+M10 must investigate + close:
+
+1. **`test_m2_scale_dispatch.py::test_scale_action_bar_updated_on_fire`**:
+   - Symptom: `pos._scale_action_bar` not updated to `bar_ctx.local_bar`
+     during `_dispatch_scale_action`; expected 10, got 0.
+   - Root cause unknown — likely collateral from Phase 2/3 simulator
+     edits (arbitration + risk hook). Engine still advances `scaling_
+     events[0].bar = 0` but Position field stays 0.
+   - Pre-M9 state: PASSED (verified against `ba1977d`).
+   - M10 task: debug `_dispatch_scale_action` call path; unskip once
+     fixed. ~1-2h.
+
+2. **`test_m2_scale_dispatch.py::test_strategy_spec_rejects_scaling_
+   with_multi_position`**:
+   - Symptom: test asserts `ValueError` when `StrategySpec(
+     scale_check_fn=fn, max_positions_per_symbol=2)` is constructed;
+     after M9 C-10 deleted the `scale_check_fn` field, the test
+     construction fails silently (validate_scaling_compat is a no-op).
+   - M10 task: either (a) formally remove the test as obsolete (the
+     whole AC20 contract was "scale_check_fn requires
+     max_positions_per_symbol==1"; that precondition no longer exists)
+     or (b) re-implement the invariant via Strategy Protocol presence
+     check (`if Strategy.check_scale implemented AND max_positions_per_
+     symbol>1 → ValueError`). Recommend (a) unless there's a
+     semantic parallel. ~30min.
+
+3. **Audit test_m7_pre_existing_13 meta-harness for staleness** —
+   M10 should reassess whether the 13 tracked nodes still represent
+   "pre-existing M7 failures that need to be cleared". 4 of the 13
+   are now module-skipped (test_conviction_to_priority). Another pass
+   after AC-S10 bridge wires may reveal more that became obsolete
+   or got genuinely fixed. ~30min.
+
+4. **Test-dispute telemetry consolidation**: 5 test-dispute events
+   landed in `.specs/telemetry.jsonl` during M9. M10's final
+   documentation pass (ARCHITECTURE.md / MIGRATION.md) should
+   summarize the running tally of M8→M9 spec changes so future
+   maintainers can trace the breadcrumbs.
+
 ### Items that remain in M10 (genuinely final polish — unchanged)
 
 - Paper state migrator v1→v2 (step 0 pre-flight of migration runbook)
@@ -203,6 +247,12 @@ M9 Option-A carry-overs (surgical):
 - ~1-2h: `armed_log.jsonl` dual-write + `_armed_tokens` alias deletion
 - ~1h: `Leg.market` drop (keep `settlement_type`)
 - ~1h: WalkForwardRunner dispatch cleanup (single canonical M9 runner)
+
+M9 regression-sweep follow-ups (from post-audit):
+- ~1-2h: debug `_dispatch_scale_action` — fix `_scale_action_bar` write
+- ~30min: resolve `test_strategy_spec_rejects_scaling_with_multi_position` (obsolete vs Protocol-based reimpl)
+- ~30min: re-audit `test_m7_pre_existing_13` meta-harness staleness
+- ~30min: test-dispute telemetry consolidation into ARCHITECTURE.md
 
 Original M10 polish:
 - ~3h: Compat shim removal + grep verification
