@@ -320,7 +320,7 @@ class OrderFactoryView:
         self._active_orders: list = []
         self._reversal_orders: list = []
         self._rejection_events: list = []
-        self._next_order_seq = 0
+        # (sequence numbers come from module-level _ORDER_SEQ_COUNTER — see _next_seq)
         # M7 Task 12 — registered strategies receive on_order_* callbacks when
         # simulate_fill / simulate_reject fire (eager dispatch for tests that
         # don't call run_full_lifecycle)
@@ -369,11 +369,16 @@ class OrderFactoryView:
         """AC-S5 per-handler try/except when dispatching to registered strategies.
 
         Bumps `exception_counter` on the offending strategy so the
-        quarantine threshold eventually fires (fix for round-3 Quant
-        MAJOR: earlier version swallowed silently, hiding repeat crashes
-        in on_order_*/on_position_* callbacks from the quarantine logic).
+        quarantine threshold eventually fires. Honors per-strategy
+        `_quarantined` flag — once set (by run_full_lifecycle's tick
+        counter, or externally), this dispatcher stops invoking the
+        strategy entirely. Round-4 Quant MAJOR: dispatch-stop was only
+        honored inside run_full_lifecycle; broadcast paths kept invoking
+        quarantined strategies and mutating counters indefinitely.
         """
         for s in self._strategies:
+            if getattr(s, "_quarantined", False):
+                continue
             fn = getattr(s, method, None)
             if fn is None:
                 continue
@@ -555,8 +560,16 @@ class OrderFactoryView:
     def simulate_ack(self, order_id: str) -> None:
         for o in self._active_orders:
             if o.order_id == order_id:
-                seq_hex = order_id.split("-", 1)[1] if "-" in order_id else "00000001"
-                seq_hex = (seq_hex + "0" * 8)[:8]
+                # Always mint a fresh sequence for venue_order_id rather
+                # than trying to parse the ClOrdID — order_id comes in
+                # three shapes (`order-{seq:08x}`, `_gen_order_id`
+                # output `{strategy}-{token}-{N}`, or JSON-restored
+                # arbitrary strings) and the earlier split('-',1)[1]
+                # parser produced bogus seq_hex for the latter two
+                # (round-4 FIX MAJOR-3: latent brittleness). Using a
+                # fresh _next_seq() guarantees a FIX-unique OrderID(37)
+                # that never depends on ClOrdID internal structure.
+                seq_hex = f"{self._next_seq():08x}"
                 # M5 Order is frozen — §2.8 ID1 object.__setattr__ single-field mutation
                 # MUST populate venue_order_id BEFORE on_order_accepted fires (AC-O4)
                 object.__setattr__(o, "venue_order_id", self._paper_venue_id(seq_hex))
@@ -766,12 +779,18 @@ class UniverseContext:
 
         def _tick_counter(s, method: str) -> None:
             """AC-S5: increment exception_counter + publish Quarantined if
-            crossing threshold for the first time."""
+            crossing threshold for the first time. Also sets `_quarantined`
+            attribute on the strategy so _broadcast/_dispatch (outside
+            this scope) honor the dispatch-stop (round-4 Quant MAJOR)."""
             s.exception_counter = getattr(s, "exception_counter", 0) + 1
             if id(s) in quarantined:
                 return
             if s.exception_counter >= threshold:
                 quarantined.add(id(s))
+                try:
+                    s._quarantined = True
+                except Exception:
+                    pass  # defensive for non-standard strategy objects
                 from v5.strategy_api import StrategyQuarantined
                 evt = StrategyQuarantined(
                     strategy_id=getattr(s, "strategy_id", type(s).__name__),
@@ -837,18 +856,19 @@ class UniverseContext:
     # ---- Event-cascade helpers (§2.6 dispatch order) ----
 
     def _broadcast(self, strategies, method_name: str, *args) -> None:
-        """AC-S5: per-handler try/except so one strategy's crash doesn't
-        starve siblings. Bumps `exception_counter` on the offending
-        strategy so the quarantine threshold eventually fires (fix for
-        round-3 Quant MAJOR: earlier version swallowed silently which
-        let 10/14 callbacks crash forever without counter observability).
+        """AC-S5 per-handler try/except. Bumps `exception_counter` on
+        crash and respects the per-strategy `_quarantined` flag.
 
-        The quarantine publication itself happens inside run_full_lifecycle
-        via _tick_counter (peer-isolation scope) — _broadcast only needs
-        to increment the counter; the lifecycle tick-counter sees the
-        bumped value on the next evaluation cycle.
+        Round-4 Quant MAJOR: earlier version kept invoking quarantined
+        strategies' optional callbacks (because the `quarantined` set
+        lived in `run_full_lifecycle`'s local scope, unreachable from
+        here). Now both `_dispatch` and `_broadcast` skip any strategy
+        with `_quarantined=True`, matching the spec "quarantined → no
+        further dispatch".
         """
         for s in strategies:
+            if getattr(s, "_quarantined", False):
+                continue
             fn = getattr(s, method_name, None)
             if fn is None:
                 continue

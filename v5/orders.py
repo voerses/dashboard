@@ -437,15 +437,16 @@ class Order:
                 f">=2 elements; got 1 element. Single-leg orders use bare "
                 f"Order fields; legs tuple is for multi-leg only."
             )
-        # Auto-generate order_id (FIX ClOrdID(11)) if not provided. Callers
-        # can pre-compute a stable ID; otherwise the (strategy_id, token,
-        # armed_at) composite key is sufficient for backtest/paper use.
+        # Auto-generate order_id (FIX ClOrdID(11)) if not provided. Route
+        # through _gen_order_id so every path produces a unique monotonic
+        # ClOrdID capped at 36 chars — a prior composite fallback
+        # `{strategy_id}:{token}:{armed_at.isoformat()}` collided under
+        # TestClock and exceeded Binance's newClientOrderId limit
+        # (round-4 FIX MINOR — latent foot-gun).
         if not self.order_id:
-            oid = (
-                f"{self.strategy_id}:{self.token}:"
-                f"{self.armed_at.isoformat() if self.armed_at is not None else ''}"
+            object.__setattr__(
+                self, "order_id", _gen_order_id(self.strategy_id, self.token),
             )
-            object.__setattr__(self, "order_id", oid)
         # Derive Order.state from legs when multi-leg (F1 derivation table).
         # Empty-legs case: state is carried from the bare field (unchanged).
         #
@@ -470,6 +471,22 @@ class Order:
                 ):
                     pass
                 else:
+                    # Multi-leg state derivation — log FIX state change so
+                    # fix_audit_log captures the derived transition (G8
+                    # audit contract; round-4 FIX MAJOR-2: on_leg_fill/
+                    # _reject/_price produce derived state changes but
+                    # bypassed log_fix_state_change → empty audit log).
+                    wire = derived.to_fix_ordstatus()
+                    tag = derived.fix_custom_tag
+                    entry = f"{derived.name}:OrdStatus={wire}"
+                    if tag:
+                        entry += f":tag={tag}"
+                    # fix_audit_log is mutable-by-reference so this append
+                    # is visible on both the pre- and post-replace Order.
+                    try:
+                        self.fix_audit_log.append(entry)
+                    except Exception:
+                        pass  # defensive; should never fire for normal Order
                     object.__setattr__(self, "state", derived)
 
     def log_fix_state_change(self, new_state: "OrderStatus") -> None:

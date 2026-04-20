@@ -94,39 +94,89 @@ def _collect_banned_bare_aliases(tree: ast.AST) -> dict[str, str]:
     return banned_local
 
 
-def _is_mutable_expr(value: ast.AST) -> Optional[str]:
+# Names that produce mutable containers when called. Attribute form is
+# `collections.<name>` / `np.<name>` / `array.<name>` etc.; bare-name form
+# covers `from X import Y as Z; Z()` after resolution via
+# `_collect_mutable_ctor_aliases`.
+_MUTABLE_CTOR_BARE = frozenset({
+    "dict", "list", "set", "bytearray",
+})
+_MUTABLE_CTOR_ATTR: frozenset[tuple[str, str]] = frozenset({
+    # collections
+    ("collections", "defaultdict"),
+    ("collections", "OrderedDict"),
+    ("collections", "deque"),
+    ("collections", "Counter"),
+    ("collections", "ChainMap"),
+    # numpy/pandas/array — zero-initialised arrays are mutable state too
+    ("np", "zeros"), ("np", "ones"), ("np", "empty"),
+    ("np", "full"), ("np", "array"),
+    ("numpy", "zeros"), ("numpy", "ones"), ("numpy", "empty"),
+    ("numpy", "full"), ("numpy", "array"),
+    ("pd", "DataFrame"), ("pd", "Series"),
+    ("pandas", "DataFrame"), ("pandas", "Series"),
+    ("array", "array"),
+})
+
+
+def _collect_mutable_ctor_aliases(tree: ast.AST) -> dict[str, str]:
+    """Return {local_name: "origin.constructor"} for any import binding
+    that resolves to a banned mutable constructor. Handles:
+
+      from collections import deque           → {'deque':    'collections.deque'}
+      from collections import deque as dq     → {'dq':       'collections.deque'}
+      import collections                      → (no alias; attr form catches it)
+      import collections as c                 → {'c.deque':  'collections.deque'} no-op
+                                                (attr-form path handles c.<name>)
+    """
+    banned_local: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            src_mod = node.module or ""
+            for alias in node.names:
+                key = (src_mod, alias.name)
+                if key in _MUTABLE_CTOR_ATTR:
+                    local = alias.asname or alias.name
+                    banned_local[local] = f"{src_mod}.{alias.name}"
+    return banned_local
+
+
+def _is_mutable_expr(value: ast.AST,
+                     mutable_aliases: Optional[dict[str, str]] = None,
+                     ) -> Optional[str]:
     """Return a short description if `value` is a mutable container expr.
 
-    Catches dict/list/set literals AND their constructor-call equivalents
-    (`dict()`, `list()`, `set()`, also `collections.defaultdict(...)`,
-    `collections.OrderedDict(...)`, `collections.deque(...)`). Returns
-    None for immutable expressions (tuple/frozenset/primitives/Call to
-    frozenset/tuple/etc.).
+    Catches dict/list/set literals, comprehensions, and constructor calls
+    (builtins, `collections.*`, `np.*`, `pd.*`, `array.*`). When
+    `mutable_aliases` is provided, also resolves bare-name / aliased
+    imports back to their banned origin (fix for round-4 Quant MAJOR-2).
     """
-    if isinstance(value, ast.Dict):
-        return "{...}"
-    if isinstance(value, ast.List):
-        return "[...]"
-    if isinstance(value, ast.Set):
-        return "{...}"
+    # Literals
+    if isinstance(value, (ast.Dict, ast.DictComp)):
+        return "{...}" if isinstance(value, ast.Dict) else "{k:v for ...}"
+    if isinstance(value, (ast.List, ast.ListComp)):
+        return "[...]" if isinstance(value, ast.List) else "[x for ...]"
+    if isinstance(value, (ast.Set, ast.SetComp)):
+        return "{...}" if isinstance(value, ast.Set) else "{x for ...}"
+    # Constructor calls
     if isinstance(value, ast.Call):
-        # dict(), list(), set()
+        # Bare name: builtins + aliased imports
         if isinstance(value.func, ast.Name):
-            if value.func.id in ("dict", "list", "set", "bytearray"):
-                return f"{value.func.id}(...)"
-        # collections.defaultdict(...), collections.OrderedDict(...),
-        # collections.deque(...), collections.Counter(...), collections.ChainMap(...)
+            name = value.func.id
+            if name in _MUTABLE_CTOR_BARE:
+                return f"{name}(...)"
+            if mutable_aliases and name in mutable_aliases:
+                return f"{mutable_aliases[name]}(...)"
+        # Attribute form: module.constructor
         if isinstance(value.func, ast.Attribute) and isinstance(value.func.value, ast.Name):
-            mod = value.func.value.id
-            attr = value.func.attr
-            if mod in ("collections",) and attr in (
-                "defaultdict", "OrderedDict", "deque", "Counter", "ChainMap",
-            ):
-                return f"{mod}.{attr}(...)"
+            pair = (value.func.value.id, value.func.attr)
+            if pair in _MUTABLE_CTOR_ATTR:
+                return f"{pair[0]}.{pair[1]}(...)"
     return None
 
 
-def _scan_class_level_mutable_state(path: Path, cls: ast.ClassDef) -> None:
+def _scan_class_level_mutable_state(path: Path, cls: ast.ClassDef,
+                                     mutable_aliases: dict[str, str]) -> None:
     """Reject class-body assignments to mutable containers.
 
     Class-level mutables are shared across ALL instances (including across
@@ -137,7 +187,7 @@ def _scan_class_level_mutable_state(path: Path, cls: ast.ClassDef) -> None:
     for stmt in cls.body:
         if not isinstance(stmt, ast.Assign):
             continue
-        mut_desc = _is_mutable_expr(stmt.value)
+        mut_desc = _is_mutable_expr(stmt.value, mutable_aliases)
         if mut_desc is None:
             continue
         for target in stmt.targets:
@@ -151,7 +201,8 @@ def _scan_class_level_mutable_state(path: Path, cls: ast.ClassDef) -> None:
                 )
 
 
-def _scan_function_default_mutable(path: Path, fn: ast.AST) -> None:
+def _scan_function_default_mutable(path: Path, fn: ast.AST,
+                                     mutable_aliases: dict[str, str]) -> None:
     """Reject `def fn(x={}, y=[])` — Python evaluates defaults ONCE at
     module load, so they behave as hidden module-level mutables.
 
@@ -163,7 +214,7 @@ def _scan_function_default_mutable(path: Path, fn: ast.AST) -> None:
     for default in fn.args.defaults + fn.args.kw_defaults:
         if default is None:
             continue
-        mut_desc = _is_mutable_expr(default)
+        mut_desc = _is_mutable_expr(default, mutable_aliases)
         if mut_desc is not None:
             raise StrategyLoadError(
                 f"{path}:{default.lineno}: function `{fn.name}` uses "
@@ -182,10 +233,15 @@ def _scan_module_level_mutable_state(path: Path, tree: ast.AST) -> None:
     caches (e.g. `_composite_cache = {}`) persist across folds via module
     identity → fold N+1 sees fold N's data.
 
-    Extended (round 3) to catch the bypass patterns surfaced by the Quant
-    reviewer: function-default mutables, class-level mutables, and the
-    `collections.{deque,defaultdict,OrderedDict}` constructor family.
+    Extended (round 3 + 4) to catch bypass patterns surfaced by the Quant
+    reviewer: function-default mutables, class-level mutables, collections
+    constructor family, np/pd array constructors, comprehension literals,
+    and bare-import / aliased-import constructor calls.
     """
+    # Build alias table so `from collections import deque as dq; dq()`
+    # resolves back to collections.deque (round-4 Quant MAJOR).
+    mutable_aliases = _collect_mutable_ctor_aliases(tree)
+
     for stmt in tree.body:
         # `global X` declarations at module level (inside functions) — flag any
         # function that declares `global` so we catch `global _COUNTER` patterns
@@ -198,7 +254,7 @@ def _scan_module_level_mutable_state(path: Path, tree: ast.AST) -> None:
                         f"must keep mutable state on `self` (AC-V1 — fresh "
                         f"Strategy per WF fold)."
                     )
-            _scan_function_default_mutable(path, stmt)
+            _scan_function_default_mutable(path, stmt, mutable_aliases)
 
         # Top-level assignments to mutable containers (dict/list/set literals or
         # constructor calls): `_STATE = {}`, `_HISTORY = []`, `_SEEN = set()`
@@ -206,7 +262,7 @@ def _scan_module_level_mutable_state(path: Path, tree: ast.AST) -> None:
             for target in stmt.targets:
                 if not isinstance(target, ast.Name):
                     continue
-                mut_desc = _is_mutable_expr(stmt.value)
+                mut_desc = _is_mutable_expr(stmt.value, mutable_aliases)
                 if mut_desc is not None:
                     raise StrategyLoadError(
                         f"{path}:{stmt.lineno}: top-level mutable "
@@ -216,10 +272,10 @@ def _scan_module_level_mutable_state(path: Path, tree: ast.AST) -> None:
 
         # Class-level mutables inside a ClassDef body
         if isinstance(stmt, ast.ClassDef):
-            _scan_class_level_mutable_state(path, stmt)
+            _scan_class_level_mutable_state(path, stmt, mutable_aliases)
             # Also scan nested functions/methods for default-mutable bypass
             for inner in stmt.body:
-                _scan_function_default_mutable(path, inner)
+                _scan_function_default_mutable(path, inner, mutable_aliases)
 
 
 def _scan_source(path: Path, source: str) -> None:

@@ -11,7 +11,7 @@ Memory projection reuses M4's shipped constants (`_FIELDS_PER_BAR`,
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Literal, Tuple
+from typing import Dict, List, Tuple
 
 import numpy as np
 
