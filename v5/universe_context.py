@@ -49,55 +49,69 @@ import weakref as _weakref
 
 
 class _QuarantineRegistry:
-    """Engine-only quarantine state. Not importable as a bare symbol
-    because the class is "_" prefixed AND the singleton is a name-mangled
-    module attribute (`__quarantine_registry__` via a getter). Strategies
-    have no API surface for querying or mutating this state."""
+    """Engine-only quarantine state. Encapsulates a set of monotonic uids
+    for weakrefable strategies plus a parallel id-set for non-weakrefable
+    fallbacks — both namespaces consulted on both mark + query so slotted
+    Strategy subclasses without __weakref__ stay quarantine-able (round-7
+    Quant MAJOR NEW-11: earlier asymmetric fallback returned None on
+    query for non-weakrefable objects, silently un-quarantining them).
+    """
 
     def __init__(self):
-        # Map strategy_uid (monotonic) → exception_counter snapshot at
-        # quarantine. Using a dict keyed on uid (not id()) prevents
-        # id-recycling false-positives: a fresh Strategy created after
-        # a prior one is GC'd never inherits the prior uid.
         self._quarantined_uids: set[int] = set()
+        # Fallback set for non-weakrefable Strategy objects (slotted
+        # subclasses without `__weakref__` slot). Keyed by id(). Accepts
+        # the id-reuse risk for these edge cases; the vast majority of
+        # strategies are weakrefable and use the uid path.
+        self._quarantined_fallback_ids: set[int] = set()
 
     def mark(self, strategy) -> None:
-        uid = _strategy_uid_of(strategy)
-        self._quarantined_uids.add(uid)
+        uid = _strategy_uid_of(strategy, create=True)
+        if uid is not None:
+            self._quarantined_uids.add(uid)
+        else:
+            # Non-weakrefable — fall back to id(). Bounded in practice
+            # (quarantined count ≤ running strategy count).
+            self._quarantined_fallback_ids.add(id(strategy))
 
     def is_quarantined(self, strategy) -> bool:
         uid = _strategy_uid_of(strategy, create=False)
-        if uid is None:
-            return False
-        return uid in self._quarantined_uids
+        if uid is not None and uid in self._quarantined_uids:
+            return True
+        # Consult fallback namespace for non-weakrefable objects.
+        if id(strategy) in self._quarantined_fallback_ids:
+            return True
+        return False
 
     def clear(self) -> None:
         """Engine-only reset for tests that run multiple lifecycle passes."""
         self._quarantined_uids.clear()
+        self._quarantined_fallback_ids.clear()
 
 
 _QUARANTINE_REGISTRY = _QuarantineRegistry()
 
 # Strategy → monotonic uid map. WeakKeyDictionary so uids auto-free when
 # the strategy is GC'd. Monotonic `itertools.count` assignment guarantees
-# no two Strategy objects ever share a uid within a process lifetime —
-# unlike id() which Python recycles after GC (round-6 Quant MAJOR-NEW-8).
+# no two weakrefable Strategy objects ever share a uid within a process
+# lifetime — unlike id() which Python recycles after GC
+# (round-6 Quant MAJOR-NEW-8).
 _STRATEGY_UID_MAP: "_weakref.WeakKeyDictionary" = _weakref.WeakKeyDictionary()
 _STRATEGY_UID_COUNTER = itertools.count(1)
 
 
 def _strategy_uid_of(strategy, create: bool = True) -> Optional[int]:
     """Return the monotonic uid for a Strategy instance, assigning a new
-    one on first access. `create=False` returns None if never assigned."""
+    one on first access. Returns None for non-weakrefable strategies so
+    callers can fall back to an id()-keyed namespace (round-7 Quant
+    MAJOR NEW-11: uid==id() fallback was asymmetric, regressed the
+    round-5 slotted-strategy quarantine fix). `create=False` returns
+    None if no uid has ever been assigned."""
     try:
         existing = _STRATEGY_UID_MAP.get(strategy)
     except TypeError:
-        # Non-weakrefable types (rare — Strategy Protocol isn't slotted
-        # by default, but custom slotted strategies without __weakref__
-        # would trip here). Fall back to id() — acceptable since the
-        # fallback path is only hit by non-weakrefable objects which
-        # also don't survive GC (no id-reuse for live objects).
-        return id(strategy) if create else None
+        # Non-weakrefable — caller must consult the fallback id() set.
+        return None
     if existing is not None:
         return existing
     if not create:
@@ -106,15 +120,16 @@ def _strategy_uid_of(strategy, create: bool = True) -> Optional[int]:
     try:
         _STRATEGY_UID_MAP[strategy] = uid
     except TypeError:
-        return id(strategy)
+        return None
     return uid
 
 
 def _mark_quarantined(strategy) -> None:
     """Engine-side quarantine: adds the strategy to the process-wide
-    registry. Safe for slotted Strategy subclasses — no attribute write.
-    Registry uses monotonic uid (not id()) so fresh strategies never
-    inherit a GC'd predecessor's quarantine status."""
+    registry. Safe for slotted Strategy subclasses whether or not they
+    reserve a `__weakref__` slot. Registry uses monotonic uid (weakref
+    path) or id() (fallback path); fresh strategies on the uid path
+    never inherit a GC'd predecessor's quarantine status."""
     _QUARANTINE_REGISTRY.mark(strategy)
 
 

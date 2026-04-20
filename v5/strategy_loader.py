@@ -278,6 +278,92 @@ def _scan_module_level_mutable_state(path: Path, tree: ast.AST) -> None:
                 _scan_function_default_mutable(path, inner, mutable_aliases)
 
 
+def _scan_engine_private_attribute_access(path: Path, tree: ast.AST) -> None:
+    """Reject strategy access to any `_`-prefixed attribute of
+    `v5.universe_context` (the main engine module with sensitive state
+    like the quarantine registry).
+
+    Catches forms like:
+      import v5.universe_context as mod
+      mod._QUARANTINE_REGISTRY.clear()
+
+    by tracking which local names alias the engine module and then
+    rejecting any Attribute access on those names whose attr starts
+    with '_' (round-7 Quant MAJOR NEW-9).
+    """
+    ENGINE_MODULE = "v5.universe_context"
+    engine_aliases: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == ENGINE_MODULE:
+                    engine_aliases.add(alias.asname or alias.name.split(".")[0])
+    if not engine_aliases:
+        return
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute):
+            base = node.value
+            # Only flag direct access on the aliased module name.
+            if isinstance(base, ast.Name) and base.id in engine_aliases:
+                if node.attr.startswith("_"):
+                    raise StrategyLoadError(
+                        f"{path}:{node.lineno}: strategy accessed engine-"
+                        f"private `{base.id}.{node.attr}`. Underscore-"
+                        f"prefixed attributes of {ENGINE_MODULE} are "
+                        f"engine-only. Use the public UniverseContext API."
+                    )
+            # Handle `v5.universe_context._X` (no alias) — base is
+            # ast.Attribute representing v5.universe_context.
+            chain = _walk_attribute_chain(node)
+            if (len(chain) >= 3 and chain[0] == "v5"
+                    and chain[1] == "universe_context"
+                    and chain[2].startswith("_")):
+                raise StrategyLoadError(
+                    f"{path}:{node.lineno}: strategy accessed engine-"
+                    f"private `v5.universe_context.{chain[2]}`. "
+                    f"Underscore-prefixed attributes are engine-only."
+                )
+
+
+def _scan_engine_internal_imports(path: Path, tree: ast.AST) -> None:
+    """Reject strategy imports of engine-internal quarantine state.
+
+    Strategies must not be able to reach the engine's quarantine
+    registry — otherwise a malicious or buggy strategy could
+    un-quarantine itself by:
+      `from v5.universe_context import _QUARANTINE_REGISTRY`
+      `_QUARANTINE_REGISTRY.clear()`
+    or equivalent (round-7 Quant MAJOR NEW-9).
+
+    Banned symbols from v5.universe_context: any underscore-prefixed
+    name. Engine callers (BarProcessor, WalkForwardRunner) load via
+    direct import outside the strategy path and aren't subject to this
+    scan.
+    """
+    ENGINE_MODULE = "v5.universe_context"
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == ENGINE_MODULE:
+            for alias in node.names:
+                name = alias.name
+                if name.startswith("_"):
+                    raise StrategyLoadError(
+                        f"{path}:{node.lineno}: strategy imports engine-"
+                        f"internal `{ENGINE_MODULE}.{name}`. Underscore-"
+                        f"prefixed names are engine-only (AC-V2/AC-S5 "
+                        f"isolation). Public surface: UniverseContext, "
+                        f"DataView, PortfolioView, OrderFactoryView."
+                    )
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == ENGINE_MODULE:
+                    # `import v5.universe_context` alone is allowed, but
+                    # accessing underscore attributes via dot notation is
+                    # caught by attribute-chain checks below. We allow
+                    # the bare module import so strategies can type-hint
+                    # against UniverseContext without triggering.
+                    pass
+
+
 def _scan_source(path: Path, source: str) -> None:
     """Raise StrategyLoadError if banned clock calls or module-level mutable
     state are present."""
@@ -289,6 +375,8 @@ def _scan_source(path: Path, source: str) -> None:
         ) from e
 
     _scan_module_level_mutable_state(path, tree)
+    _scan_engine_internal_imports(path, tree)
+    _scan_engine_private_attribute_access(path, tree)
 
     bare_banned = _collect_banned_bare_aliases(tree)
 
