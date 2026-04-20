@@ -46,19 +46,10 @@ NON_OVERRIDABLE = {
 }
 
 
-@dataclass(frozen=True)
-class RegimeConfig:
-    """Custom regime detection parameters for per-strategy regime overrides."""
-    adx_threshold: float = 25.0
-    crisis_mult: float = 2.0
-    quiet_mult: float = 0.7
-    ema_pair: Tuple[int, int] = (20, 50)
-    min_periods: int = 60
-
-    def __post_init__(self):
-        # JSON parses lists not tuples; coerce to tuple for equality checks
-        if isinstance(self.ema_pair, list):
-            object.__setattr__(self, 'ema_pair', tuple(self.ema_pair))
+# M9 C-4: RegimeConfig DELETED (clean cut). Strategies that want regime
+# detection call `v5.regimes.detect_crisis(ctx, bar_idx)` directly; the
+# per-strategy `regime_params` override pipeline is removed entirely.
+# See brief.md C-4 and design.md §3.4 for the architectural rationale.
 
 
 def resolve_sizing(defaults: SizingDefaults, overrides: dict) -> SizingDefaults:

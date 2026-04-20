@@ -34,7 +34,7 @@ from v5.strategy_api import (
 )
 
 
-CRISIS = 0  # engine regime constant
+from v5.regimes import CRISIS  # M9 C-4: import from canonical module
 
 
 # Token blacklist — 50 value-destroying tokens from L12M optimization sweep.
@@ -228,10 +228,27 @@ class S523CGrowth(BaseStrategy):
         )
 
     def check_exit(self, pos, bar_ctx):
-        """Strategy-level CRISIS exit — mirrors v4 _crisis_exit."""
-        bars_held = getattr(bar_ctx, "bars_held", 0) if bar_ctx is not None else 0
-        regime = getattr(bar_ctx, "regime", None) if bar_ctx is not None else None
-        if bars_held > 6 and regime == CRISIS:
+        """Strategy-level CRISIS exit — mirrors v4 _crisis_exit.
+
+        M9 C-4 re-port: reads crisis via `v5.regimes.detect_crisis` using
+        the enriched `bar_ctx.ctx` (preferred). Falls back to legacy
+        `bar_ctx.regime` when ctx is None for transitional callers."""
+        if bar_ctx is None:
+            return None
+        bars_held = getattr(bar_ctx, "bars_held", 0)
+        ctx = getattr(bar_ctx, "ctx", None)
+        bar_idx = getattr(bar_ctx, "bar_idx", getattr(bar_ctx, "local_bar", 0))
+        in_crisis = False
+        if ctx is not None:
+            from v5.regimes import detect_crisis
+            try:
+                in_crisis = detect_crisis(ctx, bar_idx)
+            except Exception:
+                in_crisis = False
+        else:
+            regime = getattr(bar_ctx, "regime", None)
+            in_crisis = (regime == CRISIS)
+        if bars_held > 6 and in_crisis:
             return ExitCheck(reason="crisis")
         return None
 
@@ -241,3 +258,16 @@ class S523CGrowth(BaseStrategy):
             "configs_loaded": len(self._token_configs),
             "composite_cache_size": len(self._composite_cache),
         }
+
+    def to_token_bar_arrays(self, ctx) -> dict:
+        """M9 C-7 VectorizedStrategy opt-in: delegate to engine shared
+        builder. Output matches `_engine_precompute_fallback` by
+        construction (AC #7 parity invariant)."""
+        from v5.simulator import _build_token_bar_arrays_from_generate
+        n_bars = getattr(ctx, "_lifecycle_config", {}).get("bars") or 0
+        return _build_token_bar_arrays_from_generate(
+            self, n_bars, ctx, guarded=False
+        )
+
+# M9 C-7: short name alias
+S523C = S523CGrowth

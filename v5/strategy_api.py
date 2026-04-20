@@ -162,6 +162,39 @@ class Strategy(Protocol):
     def view_state(self) -> dict: ...
 
 
+class StrategyStateMutationError(RuntimeError):
+    """M9 C-7: raised when a strategy mutates `self` state during
+    `_engine_precompute_fallback` (backtest setup loop calls
+    generate() across all bars upfront). Stateful-self mutation
+    during precompute silently diverges from paper per-tick dispatch.
+    Prevents the silent research-vs-paper drift class."""
+
+
+@runtime_checkable
+class VectorizedStrategy(Strategy, Protocol):
+    """M9 C-7 opt-in sub-Protocol for strategies that produce signal
+    arrays up-front (Zipline/Pipeline institutional pattern).
+
+    Strategies that can precompute cheaply (e.g. s524m's composite
+    z-score loop) implement `to_token_bar_arrays(ctx)` for the fast
+    path. Strategies that can't (s513 bar-reactive triggers) omit this
+    method and fall back to `_engine_precompute_fallback` which calls
+    `generate()` in a setup loop.
+
+    Parity test (AC #7): for every strategy implementing
+    VectorizedStrategy, `to_token_bar_arrays()` output must equal the
+    fallback output on the Q-DEC4 2025 fold (np.testing.assert_array_equal
+    on int fields + np.array_equal(equal_nan=True) on float fields —
+    zero tolerance)."""
+
+    def to_token_bar_arrays(self, ctx) -> dict:
+        """Return dict[str, TokenBarArrays] — the v4-shape arrays the
+        vectorized simulate_portfolio consumes. Typically a thin wrapper
+        around the strategy's internal precompute (e.g. s524m's
+        `_evaluate_token` loop)."""
+        ...
+
+
 class BaseStrategy:
     """Default no-op implementations for all 19 Protocol methods.
 

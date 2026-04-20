@@ -37,23 +37,10 @@ from v5.strategy_api import TokenSignal, UniverseSignals, SizingRequest  # noqa:
 DATA_DIR = str(_project_root / "data")
 logger = logging.getLogger(__name__)
 
-# conviction→priority migration shim: warn once per strategy_id per process
-_shim_warned: set[str] = set()
-
-
-def _log_shim_warning_once(strategy_id: str) -> None:
-    """Log a one-shot WARNING when a strategy's conviction_score is auto-mapped to priority.
-
-    Part of the conviction→priority refactor migration shim (AC4). Remove
-    together with the conviction_score field in a future milestone.
-    """
-    if strategy_id not in _shim_warned:
-        _shim_warned.add(strategy_id)
-        logger.warning(
-            "strategy %s uses legacy conviction_score; auto-mapping to priority "
-            "(will be removed in a future milestone). Migrate to emit priority directly.",
-            strategy_id,
-        )
+# M9 C-1: conviction->priority shim DELETED (clean cut). Strategies emit
+# priority directly on TokenSignal (scalar per bar). The legacy int32
+# priority array and conviction_score array on TokenBarArrays are also
+# deleted. See brief.md C-1 for rationale.
 
 
 @dataclass(slots=True)
@@ -81,8 +68,14 @@ class TokenBarArrays:
     max_hold: int
     edge: float
     leverage: np.ndarray
-    conviction_score: Optional[np.ndarray] = None  # DEPRECATED: per-bar [0,1] signal strength; migrated to `priority` via the conviction→priority shim
-    priority: Optional[np.ndarray] = None           # per-bar int32 entry priority (higher = executes first); auto-derived from conviction_score when not set
+    # M9 C-1 transition: conviction shim logic deleted from __post_init__;
+    # both fields kept as Optional[None] placeholder so runtime code that
+    # defensively reads `sig.conviction_score` / `sig.priority` arrays
+    # continues to see None (not AttributeError). Wave F final sweep
+    # deletes the fields + all string references to satisfy the M9 C-1
+    # zero-grep acceptance gate.
+    conviction_score: Optional[np.ndarray] = None
+    priority: Optional[np.ndarray] = None
     trail_schedule: Optional[np.ndarray] = None
     time_trail_schedule: Optional[np.ndarray] = None
     max_trail_mult: Optional[np.ndarray] = None
@@ -155,22 +148,13 @@ class TokenBarArrays:
         # score signals where 1e-7 precision is acceptable.
         for _fld in (
             "trail_schedule", "time_trail_schedule", "max_trail_mult",
-            "conviction_score", "volume", "vol_20", "ret_1h",
+            "volume", "vol_20", "ret_1h",
         ):
             _v = getattr(self, _fld, None)
             if _v is not None and isinstance(_v, np.ndarray) and _v.dtype != np.float32:
                 object.__setattr__(self, _fld, _v.astype(np.float32))
-
-        # AC4 conviction→priority migration shim. Fires on any TokenBarArrays
-        # construction — whether via precompute_strategy_signals or directly.
-        # If priority is None and conviction_score is populated, auto-derive
-        # priority and emit one warning per strategy_id per process.
-        if self.priority is None and self.conviction_score is not None:
-            self.priority = np.round(
-                np.clip(np.asarray(self.conviction_score, dtype=np.float64), 0.0, 1.0)
-                * 1_000_000
-            ).astype(np.int32)
-            _log_shim_warning_once(self.strategy_id)
+        # M9 C-1: conviction->priority shim deleted; strategies emit
+        # TokenSignal.priority directly (scalar per bar, not int32 array).
 
 
 def _rolling_funding_zscore(funding: np.ndarray, lookback: int = 168) -> np.ndarray:

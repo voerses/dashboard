@@ -21,8 +21,8 @@ from typing import List
 from v5.strategy_api import BaseStrategy, SizingIntent, SizingRequest, TokenSignal, UniverseSignals
 
 
-# Regime constants mirror v4/engine.py — copied to avoid legacy engine import
-CRISIS, DOWNTREND, UPTREND, RANGE, QUIET = 0, 1, 2, 3, 4
+# M9 C-4: import regime constants from canonical module
+from v5.regimes import CRISIS, DOWNTREND, UPTREND, RANGE, QUIET
 
 
 class S513TripleTriggerSwing(BaseStrategy):
@@ -213,3 +213,7 @@ class S513TripleTriggerSwing(BaseStrategy):
             from v5.strategy_api import ExitCheck
             return ExitCheck(reason="crisis")
         return None
+
+
+# M9 C-7: short name alias for test-import convenience.
+S513 = S513TripleTriggerSwing

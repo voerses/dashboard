@@ -58,7 +58,7 @@ from v5.strategy_api import (
 )
 
 
-CRISIS = 0
+from v5.regimes import CRISIS  # M9 C-4: import from canonical module
 
 
 class S524M(BaseStrategy):
@@ -331,10 +331,31 @@ class S524M(BaseStrategy):
                 continue
 
     def check_exit(self, pos, bar_ctx):
-        """Strategy-level CRISIS exit (v4 _crisis_exit parity)."""
-        bars_held = getattr(bar_ctx, "bars_held", 0) if bar_ctx is not None else 0
-        regime = getattr(bar_ctx, "regime", None) if bar_ctx is not None else None
-        if bars_held > 6 and regime == CRISIS:
+        """Strategy-level CRISIS exit (v4 _crisis_exit parity).
+
+        M9 C-4 re-port: reads crisis state via `v5.regimes.detect_crisis`
+        using the enriched `bar_ctx.ctx` (BarContext enrichment) instead
+        of engine-populated `bar_ctx.regime` field (deleted Wave B3).
+        Falls back to `bar_ctx.regime` if ctx is None (back-compat for
+        legacy call sites during M9 transition)."""
+        if bar_ctx is None:
+            return None
+        bars_held = getattr(bar_ctx, "bars_held", 0)
+        # Prefer v5.regimes when ctx available (M9 canonical); fall back
+        # to legacy bar_ctx.regime for transitional call sites.
+        ctx = getattr(bar_ctx, "ctx", None)
+        bar_idx = getattr(bar_ctx, "bar_idx", getattr(bar_ctx, "local_bar", 0))
+        in_crisis = False
+        if ctx is not None:
+            from v5.regimes import detect_crisis
+            try:
+                in_crisis = detect_crisis(ctx, bar_idx)
+            except Exception:
+                in_crisis = False
+        else:
+            regime = getattr(bar_ctx, "regime", None)
+            in_crisis = (regime == CRISIS)
+        if bars_held > 6 and in_crisis:
             return ExitCheck(reason="crisis")
         return None
 
@@ -345,3 +366,14 @@ class S524M(BaseStrategy):
             "liq_history_size": len(self._liq_history),
             "composite_cache_size": len(self._composite_cache),
         }
+
+    def to_token_bar_arrays(self, ctx) -> dict:
+        """M9 C-7 VectorizedStrategy opt-in: delegate to engine shared
+        builder — calls `generate(ctx, bar_idx)` upfront and assembles
+        arrays. By construction, output matches `_engine_precompute_fallback`
+        output exactly (AC #7 parity test)."""
+        from v5.simulator import _build_token_bar_arrays_from_generate
+        n_bars = getattr(ctx, "_lifecycle_config", {}).get("bars") or 0
+        return _build_token_bar_arrays_from_generate(
+            self, n_bars, ctx, guarded=False
+        )
