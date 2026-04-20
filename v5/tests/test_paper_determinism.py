@@ -79,7 +79,6 @@ def _make_synthetic_signals():
         low=close - 1.0,
         atr=np.full(n_bars, 2.0),
         rolling_adv=np.full(n_bars, 5_000_000.0),
-        regime=np.zeros(n_bars, dtype=np.int8),
         funding_1h=np.zeros(n_bars),
         stop_mult=np.full(n_bars, 2.0),
         trail_mult=np.full(n_bars, 3.0),

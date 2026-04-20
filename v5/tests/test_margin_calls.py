@@ -133,7 +133,6 @@ def _make_token_signals(
         low=low_array,
         atr=atr_array,
         rolling_adv=adv_array,
-        regime=regime_array,
         funding_1h=funding_array,
         stop_mult=stop_arr,
         trail_mult=trail_arr,

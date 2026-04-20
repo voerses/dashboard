@@ -53,14 +53,12 @@ def _make_token_signals(n: int = 20):
         high=close_f64 + 1.0, low=close_f64 - 1.0,
         atr=np.full(n, 5.0, dtype=np.float64),
         rolling_adv=np.full(n, 1e9, dtype=np.float64),
-        regime=np.zeros(n, dtype=np.int8),
         funding_1h=np.zeros(n, dtype=np.float64),
         stop_mult=np.full(n, 2.0, dtype=np.float64),
         trail_mult=np.full(n, 3.0, dtype=np.float64),
         target_mult=5.0, no_stop_bars=6, min_hold=6, max_hold=720,
         edge=0.35,
         leverage=np.ones(n, dtype=np.float64),
-        conviction_score=np.full(n, 0.5, dtype=np.float64),
         trail_schedule=np.full(n, 3.0, dtype=np.float64),
         time_trail_schedule=np.full(n, 2.5, dtype=np.float64),
         max_trail_mult=np.full(n, 4.0, dtype=np.float64),
@@ -98,10 +96,12 @@ class TestAC9Float32Fields:
         assert sig.max_trail_mult is not None
         assert sig.max_trail_mult.dtype == np.float32
 
+    @pytest.mark.skip(reason=(
+        "M9 C-1: conviction_score field deleted from TokenBarArrays. "
+        "Float32 downcast invariant no longer applies."
+    ))
     def test_conviction_score_is_float32(self):
-        sig = _make_token_signals()
-        assert sig.conviction_score is not None
-        assert sig.conviction_score.dtype == np.float32
+        pass  # pragma: no cover
 
 
 # ===================================================================
@@ -196,7 +196,6 @@ class TestAC9DowncastActuallyHappens:
             close=close_f64, high=close_f64 + 1, low=close_f64 - 1,
             atr=np.full(n, 5.0, dtype=np.float64),
             rolling_adv=np.full(n, 1e9),
-            regime=np.zeros(n, dtype=np.int8),
             funding_1h=np.zeros(n),
             stop_mult=np.full(n, 2.0), trail_mult=np.full(n, 3.0),
             target_mult=5.0, no_stop_bars=6, min_hold=6, max_hold=720,
