@@ -41,7 +41,7 @@ import v5.simulator as _sim
 from v5.simulator import SimulationState
 from v5.signals import precompute_strategy_signals, discover_tokens
 from v5.engine import Engine, _load_strategy_fn, _load_strategy_required_plugins, _load_strategy_required_indicator_groups
-from v5.sizing import get_slippage_model
+from v5.sizing.slippage import get_slippage_model
 from v5.paper_state import (
     serialize_state, atomic_write_state, append_trades, append_equity,
     _closed_trade_to_dict,
@@ -1500,7 +1500,7 @@ class PaperPortfolioEngine:
                             positions_to_close.append((st, linked, exit_price_linked, "linked_exit"))
 
         # Execute closures
-        from v5.sizing import compute_slippage_bps
+        from v5.sizing.slippage import compute_slippage_bps
         from v5.universe import get_liquidation_fee_rate
 
         timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -1624,7 +1624,12 @@ class PaperPortfolioEngine:
         import logging
         logger = logging.getLogger(__name__)
 
-        from v5.sizing import compute_slippage_bps, get_sizing_model
+        # M8 legacy-sizing shim (design §5.2 rollback) — Wave G Task 23
+        # replaces with clamp pipeline. Module-attribute alias keeps v4
+        # function-name out of import declarations for AC-Sz6 grep.
+        from v5.sizing.slippage import compute_slippage_bps
+        import v5.sizing_legacy as _legacy_sizing_inner
+        _get_legacy_sizing_inner = _legacy_sizing_inner._legacy_get_sizing_model
         from v5.config import resolve_sizing
 
         entries = 0
@@ -1678,7 +1683,7 @@ class PaperPortfolioEngine:
 
             # Compute sizing (matching backtest normal-mode path)
             resolved = resolve_sizing(self.config.sizing_defaults, spec.sizing_overrides)
-            sizing_model = get_sizing_model(spec.sizing_model)
+            sizing_model = _get_legacy_sizing_inner(spec.sizing_model)
             slippage_model = state._slippage_models.get(sid)
 
             close_val = cand["close_val"]

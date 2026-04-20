@@ -4,6 +4,20 @@
 
 ---
 
+## Meta-Rule: design over code (M5-M10 v5 rebuild mode)
+
+This milestone operates under the **design over code** meta-rule, inherited from the M5-M10 collective v5 rebuild policy. The v5 rebuild is a redesign, not incremental maintenance. Legacy behaviors exposed by the rebuild are **fixed, not preserved**, unless a hard parity gate explicitly requires preservation (e.g. hourly-only trade archives bit-identical per AC14).
+
+**Consequences**:
+- Hourly-only strategies: bit-identical backtest preservation (AC14-style).
+- Non-trivial migrations: shadow-replay validation (AC41-style, 4 ULP / 5 bps / 10 bps tolerances) with documented per-strategy deltas in `fleet_behavior_delta.md`.
+- Determinism (AC24-style within-build): absolute.
+- Sign-off thresholds for documented behavior changes: ≤20 bps auto / 20-100 bps quant / >100 bps design review.
+
+**Sunset**: meta-rule applies to M5-M10 (the v5 rebuild). Post-M10 reverts to CLAUDE.md default (`code over specs`).
+
+---
+
 ## Problem
 
 After M7 ships the unified Strategy API, several v4 legacy patterns remain that are awkward, misleading, or incomplete:
@@ -182,3 +196,128 @@ After M7 ships the unified Strategy API, several v4 legacy patterns remain that 
 - s524m strategy works with regime logic in strategy.generate() (not engine)
 - Risk components can be disabled (no-op) for parity with v4 behavior
 - Memoized indicators produce identical values to v4's pre-computed indicators
+
+---
+
+## M4 Impact (status — completed in Phase 4 Round 2)
+
+**T16b and `paper_candle_exits.py` absorption were originally deferred to M9 but were completed during M4 Phase 4 Round 2 (post-review)**. Status retained here for traceability:
+
+- ✅ **T16b (`_armed_tokens` → `_pending_entries`)** — COMPLETE. `_pending_entries: dict[(sid,token), PendingEntry]` is now the primary write storage (0 remaining write sites on `_armed_tokens`). `_armed_tokens` is a back-compat `@property` returning a derived dict view. Structural invariants asserted by `v5/tests/test_m4_pending_entries_primary_storage.py` (5 tests).
+- ✅ **`paper_candle_exits.py` absorbed** — COMPLETE. File deleted; helpers inlined into `v5/paper_engine.py` at module scope. AC3 still green, AC4 (dispatcher unification) still green.
+
+**Remaining M4 follow-up in M9 scope**:
+
+None of the above carry over. M9's M4 cleanup is now limited to the original housekeeping:
+
+Original cleanup scope:
+- **Remove legacy armed-entry shims**: any `paper_engine._armed_tokens` property or compatibility alias pointing to the new `_pending_entries` attribute.
+- **Rename artifacts**: drop `armed_log.jsonl` alias; only `pending_entries_log.jsonl` remains.
+- **Rename stale memory entries**: grep for `ArmedEntry|armed_entry|armed_tokens` in memory/, docs/, and internal notes.
+
+---
+
+## M6 Impact — Cleanup M6 leaves for M9
+
+M6 ships `v5/data/instruments.py::Instrument` with a narrowed `contract_subtype: Literal["perpetual","quarterly","dated","european","american"] | None` field (C2 from M6 Round 2 brief review). The legacy free-string `contract_type: str | None` field is kept in M6 **as a deprecated alias** during migration, so callers can be updated incrementally without breaking. M9 removes it:
+
+- **Drop `Instrument.contract_type` field entirely** — the deprecated alias field introduced during M6 migration. All callers must read `instrument.contract_subtype` (typed `Literal`) instead. Rename audit: grep `contract_type` across `v5/`, `tests/`, and strategies; update every read site to `contract_subtype`.
+- **Verify semantics mapping** is still honored after the deletion:
+  - `asset_class="spot"` → `contract_subtype=None`
+  - `asset_class="perp"` → `contract_subtype="perpetual"`
+  - `asset_class="future"` → `contract_subtype="quarterly"` | `"dated"`
+  - `asset_class="option"` → `contract_subtype="european"` | `"american"`
+- **Grep test**: zero hits for `contract_type` in `v5/` after M9 ships (analogous to the `conviction_score` zero-hit AC in C-1).
+
+---
+
+## M5 Impact — Additional cleanup M5 leaves for M9
+
+M5 ships `v5/orders.py` with FIX-aligned types + feature-flagged multi-leg migration behind `StrategySpec.use_multi_leg_orders: bool = False`. M5 preserves both codepaths to avoid AC14 parity break on the current hourly-only fleet. M9 drops the legacy path:
+
+- **Flip `use_multi_leg_orders` default to `True` permanently** — parity-validated via shadow replay during M5 is the prerequisite. Delete the flag entirely once all strategies have migrated.
+- **Delete legacy `Position.linked_position_id`-based path** — the combined primary/secondary pair logic that relied on `linked_position_id` + `pos.leg: str ("primary"|"secondary")` gets removed. M5 Order.legs with `ContingencyType.NONE + sum()` capital aggregation (design.md F3) becomes the sole combined-strategy path.
+- **Remove `Position.leg: str` field** in favor of `leg_ref_id` exclusively. Touches 8 read sites in exit_handlers.py + simulator.py (design.md F6). Price-routing logic that currently checks `pos.leg == "secondary"` must migrate to venue/market-based lookup.
+- **Consolidate `Leg.market` + `Leg.settlement_type` redundancy** — M5 keeps both during migration (design.md F10). M9 picks one as authoritative and drops the other.
+- **Drop `armed_log.jsonl` dual-write** — M5 dual-writes legacy events to both `orders_log.jsonl` (new) and `armed_log.jsonl` (compat) per design.md F11. M9 drops the old file; `orders_log.jsonl` is sole sink.
+
+### M4 deferred tests — M9 completion gate
+
+10 M4 acceptance tests currently fail RED with `pytest.fail("blocked on ...")` because they exercise APIs deferred to M9. M9 must land these APIs AND verify all 10 go green before shipping.
+
+**Blocked on T16b (_armed_tokens → _pending_entries migration + `replay_paper_ticks`)** — 6 tests:
+- `v5/tests/test_m4_parity_paper.py::TestAC19PaperParity::test_paper_replay_matches_pre_m4_state`
+- `v5/tests/test_m4_parity_paper.py::TestAC19PaperParity::test_paper_and_backtest_trade_archives_equal`
+- `v5/tests/test_m4_parity_mtf.py::TestAC31MTFCodePathIdentity::test_backtest_vs_paper_archive_match`
+- `v5/tests/test_m4_parity_mtf.py::TestAC31MTFCodePathIdentity::test_pending_entry_log_diff_zero`
+- `v5/tests/test_m4_parity_mtf.py::TestAC37MinuteExitsParityFixture::test_reproduction_bit_identical`
+- `v5/tests/test_m4_parity_mtf.py::TestAC37MinuteExitsParityFixture::test_expected_archive_bit_identical`
+
+**Blocked on T15c/T17 plumbing (`run_backtest_mtf(output_path=, seed=, tick_fixture_path=)`)** — 3 tests:
+- `v5/tests/test_m4_parity_hourly.py::TestAC18HourlyParity::test_hourly_only_archive_bit_identical`
+- `v5/tests/test_m4_parity_mtf.py::TestAC31MTFCodePathIdentity::test_48h_mtf_fixture_generates_archive`
+- `v5/tests/test_m4_parity_paper.py::TestAC19PaperParity::test_paper_24h_deterministic`
+
+**Blocked on T11 look-ahead anchor semantics (implicit `start_ts_ns` anchor)** — 1 test:
+- `v5/tests/test_m4_look_ahead.py::TestAC15LookAheadSafety::test_signal_close_unreadable_before_bar_close`
+
+**M9 completion gate**: `pytest v5/tests/test_m4_parity_hourly.py v5/tests/test_m4_parity_paper.py v5/tests/test_m4_parity_mtf.py v5/tests/test_m4_look_ahead.py -v` must return 10/10 green before M9 ships. If any of these reveal a design issue requiring spec change, trigger test-dispute resolution protocol.
+
+---
+
+## M7 Impact — Carry-over cleanups from M7 ship reviews
+
+M7 shipped after 10 review rounds (FIX architect + Quant architect). Final verdicts: both SHIP. A handful of non-blocking items were explicitly deferred here. All 10 review artifacts live under `.specs/active/m7-strategy-api/reviews/{fix,quant}-review-round{1..10}.json` — use them as the reference when scheduling these.
+
+### FIX wire-encoder completeness (flagged 5+ rounds, non-blocking)
+
+1. **Fill dataclass missing FIX ExecReport tags** (`v5/fill.py:27-46`) — reviewer: 4 rounds
+   - Add fields: `symbol: str` (FIX 55), `side: Literal[-1, 1]` (FIX 54), `order_qty: float` (FIX 38), `ord_type: OrderType` (FIX 40).
+   - Backfill via Order↔Fill `cl_ord_id` linkage is currently relied on at reconciliation time; M9 closes this by embedding the tags directly in Fill for wire-round-trip independence.
+
+2. **Leg FIX serializers missing** (`v5/orders.py:~384-414`)
+   - Add `Leg.to_fix_leg_side()` → LegSide(624) `'1'` / `'2'` from `direction`.
+   - Add `Leg.to_fix_leg_ord_type()` → OrdType(40) from `Leg.order_type`.
+   - `Leg.to_json` already emits `.name` values so persistence is safe; these methods are wire-encoder sugar for the FIX gateway M10+.
+
+### Observability / threat-model
+
+3. **AC-S4 ctx runtime-mutation** (Quant round-8 NEW-17, threat-model call deferred)
+   - Current state: strategies can mutate `ctx._lifecycle_config` dict contents and call `object.__setattr__(ctx, '_stopped', True)`. AST scan cannot track taint on method parameters.
+   - Proposal: wrap `_lifecycle_config` in `types.MappingProxyType` in `UniverseContext.__post_init__` (or via a custom `_private_mapping` class if MappingProxyType is too strict for engine writes). `_stopped` gets renamed to `__stopped` (name-mangled) OR moved to an engine-owned side-channel registry (same pattern as `_QUARANTINE_REGISTRY`).
+   - Acceptance: strategy loader rejects any `ctx._lifecycle_config[...] = ...` / `.clear()` / `object.__setattr__(ctx, ...)` form.
+
+4. **Uid leak in quarantine registry** (Quant round-7 MINOR, round-6 NEW-12)
+   - `_quarantined_uids` keeps dead uids after GC (WeakKeyDictionary correctly drops the strategy → uid mapping, but the uid entry in `_quarantined_uids` stays). Bounded (≤ running strategy count) but docstring claim "auto-decays" is false.
+   - Fix: on `WeakKeyDictionary` finalizer, also remove the uid from `_quarantined_uids`. Or switch to `WeakValueDictionary` semantics + `weakref.finalize` callback.
+
+5. **Production integration of quarantine API** (Quant round-7 MINOR, round-7 NEW-13)
+   - Currently `_mark_quarantined` / `_is_quarantined` are only exercised by tests. BarProcessor's 15-callback dispatch at `v5/bar_processor.py` should consult `_is_quarantined` before invoking generate/check_*/filter_entry/on_*.
+   - Acceptance: run a paper session with a strategy forced to exception_counter ≥ threshold — BarProcessor skips it on subsequent bars.
+
+6. **Stale XPASS markers** (Quant round-3/4/6 MINOR)
+   - Two `@pytest.mark.xfail` markers in the v5 suite produce XPASS (test passes but stays marked xfail). Identify via `pytest --runxfail -v` and convert to plain passes or `strict=True` per intent.
+
+7. **Synthetic-clock fallback non-determinism** (Quant round-3 MINOR)
+   - `OrderFactoryView._now()` fallback path produces deterministic epoch monotonically, BUT `_now_ns` falls back to `_now()` which picks wall-clock-ish synthetic timestamps when no Clock injected. Tighten or document the injection contract: all production paths MUST inject a Clock.
+
+### Other
+
+8. **exception_counter class-attr style** (Quant round-1 NIT)
+   - `BaseStrategy.exception_counter: int = 0` at class level → mutated via `self.exception_counter += 1`. Works, but clearer as an `__init__` `self.exception_counter = 0` to avoid the shared-class-attribute confusion for readers.
+
+9. **Integer overflow in `_STRATEGY_UID_COUNTER`** (Quant round-7 MINOR context)
+   - `itertools.count(1)` returns Python ints — no overflow risk in practice, but document that `_strategy_uid_of` is monotonic only up to process restart. Fine for intra-run; paper-state persistence does NOT rely on uid equality across restarts.
+
+### Acceptance
+
+- FIX items 1-2: add 4 fields to Fill + 2 methods to Leg with FIX tag docstrings. No behavior change for existing callers.
+- Observability items 3-7: structural hardening; acceptance is empirical (run the round-9/10 test scripts from the review artifacts).
+- Items 8-9: single-line cleanup + one-line docstring.
+
+**Total estimated effort**: 4-6h (field additions + MappingProxyType wrapper + BarProcessor quarantine wiring).
+
+### Not carry-over (resolved during M7)
+
+- closed_trades deque/list AC-H1 row #13 — resolved via union-type test acceptance (commit 0959875 era); zero downstream cascade.
+- WalkForwardRunner per-fold synthetic data regeneration (Quant round-3 MAJOR-4) — already acknowledged as Wave-B scaffold; real data wiring happens naturally when M8 brings up the simulator + bar loader.

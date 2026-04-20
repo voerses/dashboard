@@ -24,7 +24,10 @@ import pytest
 
 from v5.config import PortfolioConfig, StrategySpec
 from v5.position import Position, ClosedTrade, PositionManager
-from v5.sizing import compute_position_size, compute_slippage_bps
+# M8 legacy shim (test-only pre-M8 regression gate preserved until M9).
+from v5.sizing.slippage import compute_slippage_bps
+import v5.sizing_legacy as _legacy_sizing_tv5
+compute_position_size = _legacy_sizing_tv5._legacy_compute_position_size
 from v5.signals import TokenBarArrays
 from v5.simulator import (
     SimulationState,

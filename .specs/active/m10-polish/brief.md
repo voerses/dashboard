@@ -4,6 +4,19 @@
 
 ---
 
+## Meta-Rule: design over code (M5-M10 v5 rebuild mode — final milestone)
+
+This milestone operates under the **design over code** meta-rule, inherited from the M5-M10 collective v5 rebuild policy. M10 is the LAST milestone under this mode. After M10 ships, the engine enters steady-state maintenance mode and reverts to the CLAUDE.md default (`code over specs`).
+
+**Consequences**:
+- Hourly-only strategies: bit-identical backtest preservation (AC14-style) — this is the final parity check before v4 is frozen.
+- Non-trivial migrations: shadow-replay validation (AC41-style, 4 ULP / 5 bps / 10 bps tolerances) with documented per-strategy deltas in `fleet_behavior_delta.md`.
+- Determinism (AC24-style within-build): absolute.
+- Sign-off thresholds for documented behavior changes: ≤20 bps auto / 20-100 bps quant / >100 bps design review.
+- **Post-M10**: any future milestone re-invoking design-over-code must declare it explicitly in its own brief + reference this precedent.
+
+---
+
 ## Problem
 
 After M1-M9, v5 is functionally complete but has accumulated:

@@ -52,6 +52,19 @@ class SqrtImpactSlippage:
 _DEFAULT_SLIPPAGE = SqrtImpactSlippage()
 
 
+# Slippage model registry — preserved from pre-M8 v5/sizing.py for Wave G
+# callsite migration (simulator.py + paper_engine.py still look up
+# models by name). M9+ may narrow this when clamp #6 is the sole consumer.
+_SLIPPAGE_MODELS: dict = {
+    "sqrt": _DEFAULT_SLIPPAGE,
+}
+
+
+def get_slippage_model(name: str = "sqrt") -> SlippageModel:
+    """Look up a slippage model by name. Raises KeyError for unknowns."""
+    return _SLIPPAGE_MODELS[name]
+
+
 def compute_slippage_bps(
     pos_usd: float, adv: float,
     base_spread_bps: float = 3.0,

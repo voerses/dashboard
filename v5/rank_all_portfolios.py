@@ -108,7 +108,8 @@ def run_backtest(pdef, months, data_end, heatmap):
         specs[sid] = StrategySpec(
             strategy_id=sid, weight=weight, max_positions=max_pos,
             market=market,
-            adv_sizing_enabled=True, adv_sizing_base=75_000_000,
+            # M8 — adv_sizing_enabled deleted per AC-Sz6 (v4 opaque pipeline).
+            # Equivalent M8 clamp: adv_cap_pct on PortfolioConfig below.
         )
     config = PortfolioConfig(
         capital=CAPITAL,

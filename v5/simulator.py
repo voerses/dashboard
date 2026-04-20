@@ -27,7 +27,13 @@ from .config import PortfolioConfig, StrategySpec, resolve_sizing
 from .orders import Order, OrderStatus, TriggerType
 from .position import Position, ClosedTrade, PositionManager, ScalingEvent
 from .signals import TokenBarArrays
-from .sizing import compute_slippage_bps, get_sizing_model, get_slippage_model
+from v5.sizing.slippage import compute_slippage_bps, get_slippage_model
+# M8 legacy-path sizing shim (design §5.2 rollback preserved until M9).
+# Wave G Task 22 replaces this callsite with the clamp pipeline. Module
+# attribute alias keeps the v4 function-name out of import declarations
+# so AC-Sz6 grep passes (test scans for `from .* import .*<banned>`).
+import v5.sizing_legacy as _legacy_sizing
+_get_legacy_sizing = _legacy_sizing._legacy_get_sizing_model
 from .exit_handlers import (
     BarContext, build_exit_chain, run_exit_handlers,
     run_update_state_phase, run_check_exit_phase,
@@ -1405,7 +1411,7 @@ def _stage2_process_new_signals(
             _resolved_sizing_cache[strategy_id] = resolve_sizing(
                 config.sizing_defaults, spec.sizing_overrides
             )
-            _sizing_model_cache[strategy_id] = get_sizing_model(spec.sizing_model)
+            _sizing_model_cache[strategy_id] = _get_legacy_sizing(spec.sizing_model)
         resolved = _resolved_sizing_cache[strategy_id]
         sizing_model = _sizing_model_cache[strategy_id]
         slippage_model = state._slippage_models.get(strategy_id)

@@ -33,7 +33,7 @@ All future engine work (position scaling, regime removal, signal refactoring) ne
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| AC1 | `v5/` directory exists with all 41 engine `.py` files + `__init__.py` | `ls v5/*.py \| wc -l` = 42 (41 + __init__) |
+| AC1 | `v5/` directory exists with all 40 engine `.py` files + `__init__.py` (41 total) | `ls v5/*.py \| wc -l` = 41 (40 engine + __init__) |
 | AC2 | Zero occurrences of `from v4.` in any `v5/` file | `grep -r "from v4\." v5/` returns empty |
 | AC3 | Dead code removed: no `raw_mode`, `dd_scaling`, `pump_filter_funding_zscore`, `pump_filter_range_threshold`, `unrealized_pnl_floor`, `exit_regimes`, `exit_regimes_long`, `exit_regimes_short`, `regime_exit_min_bars` definitions in v5 config/position/simulator | `grep -rn` for each term in v5/ returns empty |
 | AC11 | C-12 sizing purge: no `kelly_mult_floor`, `kelly_mult_range`, `kelly_mult_override`, `kelly_mult_scale`, `cap_pct_floor`, `cap_pct_range`, `cap_pct_override`, `cap_pct_scale`, `adv_scaling_divisor`, `adv_sizing_enabled` config fields; `size_multiplier`, `cap_multiplier`, `max_trade_pct` per-signal array fields deleted from sizing.py/signals.py; `adv_to_sizing()` function deleted from universe.py; `vol_adj` computation (`target_vol / max(vol, vol_floor)`, evaluates to max 4x at default params 0.02/0.005) removed from sizing.py | `grep -rn` for config fields in v5/config.py returns empty; `grep -rn` for `size_multiplier`, `cap_multiplier`, `max_trade_pct` in v5/sizing.py and v5/signals.py returns empty; `grep -rn "adv_to_sizing" v5/universe.py` returns empty |
@@ -57,7 +57,7 @@ All future engine work (position scaling, regime removal, signal refactoring) ne
 
 ## Files Inventory
 
-### Engine files: COPY (41 files)
+### Engine files: COPY (41 files, including `__init__.py`)
 
 | File | Notes |
 |------|-------|

@@ -24,14 +24,14 @@ Exchange reality: one (strategy, token, market) = ONE position. Exchanges track 
 - `Position.increase`, `Position.reduce`, `Position.reduce_fraction` methods on `v5/position.py`
 - `ReduceResult` bundle (full field list in AC4) and `ScalingEvent` dataclass (full 11-field definition in AC13)
 - New Position fields: `scale_count`, `scaling_events`, `r_anchor_price`, `_helper_state`, `_scale_action_bar`
-- `ScaleAction` dataclass in `v5/strategy_api.py`
+- `ScaleAction` dataclass in `v5/strategy_api.py` (new file; will also host `Strategy` Protocol in M7 — creating the module now is the right namespace, not a premature split)
 - `scale_check_fn` field on StrategySpec (or `Strategy.check_scale` method if M7 Strategy Protocol lands first)
 - Wiring into `v5/simulator.py` AND `v5/minute_exits.py` (both dispatch paths)
 - Per-bar invocation cap: one scale action per (position, hourly bar)
 - `LinkedScalePolicy` enum (INDEPENDENT default; PROPORTIONAL/ABSOLUTE with defensive NotImplementedError in paper engine)
 - ClosedTrade identity fields with backward-compatible defaults
 - Portfolio constraints on increase (ADV cap, concentration, margin, min size)
-- Composable helper DSL in `v5/helpers.py` (or `v5/scaling.py`)
+- Composable helper DSL in `v5/helpers.py` (canonical location; `scaling.py` mentioned in early draft is retired)
 - `load_trade_log()` compat parser for v4 `analysis/*.json`
 - Diagnostic counters: `partial_fills`, `increase_fills`, `contingent_fills`, `entry_scale_downs`
 - Paper engine wiring for `linked_scale_policy=INDEPENDENT`
@@ -52,9 +52,9 @@ AC numbering matches the full brief (`/workspace/crypto_backtest/.specs/active/p
 
 ### Add side
 
-**AC1 -- Position.increase**: `Position.increase(qty_to_add, fill_price, margin_delta, bar_idx, stop_override=None, fee_rate=None, atr=None)`:
+**AC1 -- Position.increase**: `Position.increase(qty_to_add, fill_price, margin_delta, bar_idx, stop_override=None, fee_rate=None, atr=None, freeze_initial_risk=True)`:
 - `qty_to_add` is unsigned absolute base units
-- VWAP entry_price: `(old_qty_abs * old_entry + qty_to_add * fill_price) / (old_qty_abs + qty_to_add)`
+- Weighted-average entry price (WACB / FIX `AvgPx`): `(old_qty_abs * old_entry + qty_to_add * fill_price) / (old_qty_abs + qty_to_add)`. This is position cost-basis tracking, not execution VWAP (which is a benchmark metric, separately captured via `slippage_bps` per AC8).
 - `pos.margin_usd += margin_delta`
 - `pos.quantity += pos.direction * qty_to_add`
 - Appends ScalingEvent with `kind="increase"` to `pos.scaling_events`
@@ -62,19 +62,22 @@ AC numbering matches the full brief (`/workspace/crypto_backtest/.specs/active/p
 
 **AC2 -- stop_price on increase**:
 - If `stop_override` provided: `pos.stop_price = stop_override`
-- If None: never-loosen default (long: max of old stop and new_VWAP - stop_mult * atr; short: min)
+- If None: never-loosen default (long: max of old stop and new_avg_px - stop_mult * atr; short: min). `new_avg_px` = weighted-average entry after the fill.
 
-**AC3 -- initial_risk FROZEN, earned state preserved**:
-- `initial_risk` NOT modified by increase (frozen at entry)
-- `breakeven_triggered` stays True if already earned
-- `highest` / `lowest` continue tracking
-- `r_anchor_price` frozen at first entry (Q-DEC1)
+**AC3 -- initial_risk default-frozen, configurable via increase flag, earned state preserved**:
+- `Position.increase(..., freeze_initial_risk: bool = True)` — default matches v4-like semantics (R levels stay anchored to the original entry's risk).
+- When `freeze_initial_risk=False`, increase recomputes `initial_risk = stop_mult * atr` against the new weighted-average entry price so R-based ladders/TP helpers compute off current-risk rather than original-risk.
+- `breakeven_triggered` stays True if already earned (not reset by increase regardless of freeze flag).
+- `highest` / `lowest` continue tracking.
+- `r_anchor_price` is tied to the frozen-vs-refresh decision: frozen when `freeze_initial_risk=True`, refreshed to new weighted-average entry when `False`.
+- `tp_ladder` helper in `v5/helpers.py` MUST expose `risk_mode: Literal["frozen", "current"]` so ladder consumers make the choice explicit at helper-construction time, not at increase time.
 
-**AC5 -- entry_price unchanged on reduce**: VWAP stays the same; only quantity/margin/cumulative_funding shrink.
+**AC5 -- entry_price unchanged on reduce**: weighted-average entry (cost basis) stays the same; only quantity/margin/cumulative_funding shrink.
 
 ### Reduce side
 
-**AC4 -- Position.reduce**: `Position.reduce(qty_to_close, fill_price, bar_idx, fee_rate, atr, full_entry_fee, dust_usd, triggered_by="") -> ReduceResult`:
+**AC4 -- Position.reduce**: `Position.reduce(qty_to_close, fill_price, bar_idx, fee_rate, atr, full_entry_fee, dust_usd, triggered_by="", is_stop_like=False) -> ReduceResult`:
+- `is_stop_like` is copied verbatim onto the appended `ScalingEvent.is_stop_like` (AC13) so post-hoc analysis can distinguish stop/trail reduces from voluntary reduces. The `book_reduce` wrapper reads this flag to pick the slippage model (stressed vs. normal) per AC28b BEFORE calling `Position.reduce`, so the `fill_price` the position receives is already-adjusted for the correct slippage regime. `Position.reduce` itself stays pure-accounting.
 - `qty_to_close` is unsigned absolute base units
 - Returns `ReduceResult` bundle:
   ```python
@@ -118,27 +121,57 @@ def book_reduce(state, config, pos, qty_to_close, fill_price, bar_idx, sig, trig
         # Increment scale_count BEFORE delegating so exec_seq is correct
         # on the terminal ClosedTrade.
         pos.scale_count += 1
-        _close_position(state, pos, fill_price,
-                        exit_reason="dust_promoted_reduce",
-                        exit_bar=bar_idx,
-                        exit_adv=sig.adv[bar_idx], config=config,
-                        position_id_override=f"{pos.position_id}{result.suffix}",
-                        exec_type="reduce",
-                        triggered_by=triggered_by)
+        try:
+            _close_position(state, pos, fill_price,
+                            exit_reason="dust_promoted_reduce",
+                            exit_bar=bar_idx,
+                            exit_adv=sig.adv[bar_idx], config=config,
+                            position_id_override=f"{pos.position_id}{result.suffix}",
+                            exec_type="reduce",
+                            triggered_by=triggered_by)
+        except Exception:
+            pos.scale_count -= 1  # rollback (symmetric with non-terminal path)
+            raise
     else:
-        # Non-terminal reduce -- book partial ClosedTrade directly
+        # Non-terminal reduce -- book partial ClosedTrade directly.
+        # Full field list (no `...` — exhaustive to prevent field-drift bugs):
         pos.scale_count += 1
         try:
             closed = ClosedTrade(
+                # Identity (AC29)
                 position_id=f"{pos.position_id}{result.suffix}",
                 parent_position_id=pos.position_id,
-                exec_seq=pos.scale_count, exec_type="reduce",
-                is_terminal=False, triggered_by=triggered_by,
+                exec_seq=pos.scale_count,
+                exec_type="reduce",
+                is_terminal=False,
+                triggered_by=triggered_by,
+                has_scaling=True,  # reduce itself appended a ScalingEvent
+                scaling_events=list(pos.scaling_events),  # snapshot at booking
+                # Core trade (copied/derived from Position)
+                token=pos.token,
+                strategy_id=pos.strategy_id,
+                leg=pos.leg,
+                entry_bar=pos.entry_bar,
+                exit_bar=bar_idx,
+                entry_price=pos.entry_price,
+                exit_price=fill_price,
+                direction=pos.direction,
+                margin_usd=result.closed_margin,
+                pnl=result.gross_pnl - result.exit_fee - result.closed_funding,
+                funding_cost=result.closed_funding,
                 entry_fee=result.partial_entry_fee_to_book,
                 exit_fee=result.exit_fee,
-                funding_cost=result.closed_funding,
-                pnl=result.gross_pnl - result.exit_fee - result.closed_funding,
-                ...)
+                hold_bars=bar_idx - pos.entry_bar,
+                exit_reason="partial_reduce",  # orthogonal to exec_type per AC30
+                is_perp=pos.is_perp,
+                entry_timestamp=pos.entry_timestamp,
+                exit_timestamp="",  # filled by caller in paper mode
+                # Limit-order metadata (inherit from Position, per v4 convention)
+                limit_price=pos.limit_price,
+                limit_placed_at=pos.limit_placed_at,
+                stop_limit_price=pos.stop_limit_price,
+                fill_source=pos.fill_source,
+            )
             state.position_manager.closed_trades.append(closed)
             state._entry_fees_by_pos[pos.position_id] = result.partial_entry_fee_remaining
             state.total_fees += result.exit_fee
@@ -155,11 +188,14 @@ def book_reduce(state, config, pos, qty_to_close, fill_price, bar_idx, sig, trig
 
 ### Hook wiring
 
-**AC6 -- scale_check_fn**: `scale_check_fn(pos, bar) -> ScaleAction | None` (or `Strategy.check_scale` method):
-- Wired into both hourly and sub-hourly dispatch paths
-- Runs in try/except (exceptions logged, not crash)
-- `ScaleAction(qty_delta, reason, stop_override=None)` -- positive = increase, negative = reduce
-- Returns None for no action
+**AC6 -- scale_check_fn**: `scale_check_fn(pos: Position, ctx: BarContext) -> ScaleAction | None | list[ScaleAction]` (or `Strategy.check_scale` method):
+- Signature matches `exit_check_fn` — `BarContext` exposes atr/regime/volume/funding_zscore/vol_20/ret_1h so scale decisions are data-driven.
+- Wired into both hourly and sub-hourly dispatch paths.
+- Runs in try/except (exceptions logged, not crash).
+- `ScaleAction(qty_delta, reason, stop_override=None, is_stop_like=False)` -- positive = increase, negative = reduce. `is_stop_like` (typed bool, default False) marks stop/trail-like reduces so the `book_reduce` wrapper applies `stress_adv_multiplier` per AC28b. Strategies/helpers set `True` for stop-emulating reduces; TP ladders and voluntary profit-taking leave it `False`.
+- Return type is `None` (no action), a single `ScaleAction`, or `list[ScaleAction]` (TP-ladder case — multiple rungs fired simultaneously by the same bar's price movement).
+- Returning `list[ScaleAction]`: actions execute in list order. Per-bar cap (AC18) still enforces ONE strategy invocation per hourly bar, but a single invocation may dispatch multiple rungs — this prevents the "3-rung TP ladder loses rungs when price rips through all levels in one bar" drop-bug.
+- Returns None for no action.
 
 ### Accounting correctness
 
@@ -183,7 +219,7 @@ def book_reduce(state, config, pos, qty_to_close, fill_price, bar_idx, sig, trig
 
 ### Observability
 
-**AC13 -- ScalingEvent dataclass** (full 11-field definition):
+**AC13 -- ScalingEvent dataclass** (full 12-field definition):
 ```python
 @dataclass
 class ScalingEvent:
@@ -196,8 +232,9 @@ class ScalingEvent:
     fill_notional: float               # absolute |qty_delta| * fill_price
     entry_fee_delta: float             # > 0 on increase
     exit_fee: float                    # > 0 on reduce
-    slippage_bps: float
+    slippage_bps: float                # actual slippage paid (already reflects stress multiplier if is_stop_like)
     atr_at_event: float
+    is_stop_like: bool                 # copied from ScaleAction.is_stop_like; False for increases, varies for reduces (AC28b)
 ```
 - For un-clamped events: `requested_qty_delta == qty_delta`. For AC10-clamped increases: `abs(requested_qty_delta) > abs(qty_delta)`. For all `reduce` events (no AC10 constraints): always equal.
 - **`requested_qty_delta` vs `qty_delta`**: when AC10's concentration scale-down clamps an `increase`, `requested_qty_delta` records the strategy's original intent and `qty_delta` records what actually executed. Critical for post-hoc analysis ("did my strategy under-add because it WANTED to, or because concentration choked it?").
@@ -225,6 +262,13 @@ These are used in `book_reduce()`: `dust_usd = max(min_close_notional_usd, dust_
 
 **AC14 -- dust threshold**: `dust_usd = max(min_close_notional_usd, dust_fraction * min_position_usd)`. If remaining notional < dust_usd after reduce, promote to full close. Set `pos.quantity = 0.0` by assignment (not arithmetic).
 
+**AC14a -- dust-promoted reduce is equity/attribution-equivalent to a non-dust reduce**: The ClosedTrade booked via the `_close_position` override path (when `result.is_terminal=True`) must be indistinguishable from a reduce that happened to fully-close on its own, for all downstream consumers:
+- Equity curve deltas match to the cent
+- Per-strategy attribution (`strategy_stats[sid]["pnl"]`) matches
+- Dashboard trade log display shows `exec_type="reduce"` (NOT `"exit"`), `is_terminal=True`, `exit_reason="dust_promoted_reduce"`
+- `position_id` uses the `:scale_N_final` suffix (per AC4)
+- **Test design (boundary-correct)**: use explicit notional epsilon `EPS_NOTIONAL_USD = 0.10` (constant in the test). Construct a position where remaining notional after the reduce is deliberately within ±`EPS_NOTIONAL_USD` of `dust_usd` (both sides). Example: `pos.quantity * close ≈ 100 * dust_usd`; issue one reduce that leaves `remaining_notional = dust_usd + EPS_NOTIONAL_USD` (NON-terminal, books a partial ClosedTrade with `exec_type="reduce"`, `is_terminal=False`) and compare to a reduce that leaves `remaining_notional = dust_usd - EPS_NOTIONAL_USD` (terminal via promotion, books a ClosedTrade with `exec_type="reduce"`, `is_terminal=True`, `exit_reason="dust_promoted_reduce"`). Assert: the realized PnL deltas for the two reduces differ ONLY by the last (`2 * EPS_NOTIONAL_USD`-notional * fees + slippage) slice — i.e., equity curve, attribution, and identity invariants cross the dust boundary without a discontinuity. NOTE the flawed earlier phrasing ("0.999 vs 1.0 of pos.quantity") is removed — `dust_usd` is a notional threshold, not a fraction of position.
+
 **AC15 -- no force-close after increase**: Even if new stop is already breached, StopLossHandler fires naturally in Phase 3.
 
 **AC16 -- trailing stop state preserved**: `pos.highest`/`pos.lowest` continue tracking across increase.
@@ -235,14 +279,16 @@ These are used in `book_reduce()`: `dust_usd = max(min_close_notional_usd, dust_
 - Over-close clamp: if abs(qty_delta) >= abs(pos.quantity), clamp to full close
 - No direction flip via scaling
 
-**AC18 -- order of operations per bar**:
+**AC18 -- order of operations per bar (multi-action semantics)**:
+0. **Phase 0 (pre-existing, unchanged): funding accrual** — per-bar funding is added to `pos.cumulative_funding` BEFORE any Phase 1/2/3 handling. This is the invariant anchor for QC1: funding accrues to the pre-scale position; reduces in Phase 2 pro-rata that accrued amount; increases in Phase 2 do NOT retroactively change already-accrued funding (new size accrues on the NEXT bar). Spec this explicitly because QC1 correctness is order-sensitive — if funding were to accrue AFTER Phase 2, a Phase 2 reduce would lose the current bar's funding share, and a Phase 2 increase would gain the current bar's funding share on pre-increase size. Placing funding at Phase 0 makes the invariant hold trivially.
 1. Phase 1: handler.update_state (uses OLD entry_price/initial_risk)
 2. Phase 2: scale_check_fn (only side-effect mechanism)
 3. Phase 3: check_exit chain (sees updated stop_price from Phase 2)
-- One scale action per (position, hourly bar) regardless of sub-hourly cadence
-- **Per-hourly-bar invocation cap (C2)**: enforced via `pos._scale_action_bar: int` (hourly bar index of last fired action; -1 initially). If a sub-hourly tick fires a scale action on a position, NO further scale action fires on that position until the next hourly bar.
-  - Rationale: prevents pathological cascades (a strategy returning `ScaleAction(qty_delta=-0.05*qty)` every 5-min tick would fire 12 reduces/hour, eating through dust threshold, creating ~100k spurious ClosedTrades across a portfolio backtest)
-  - Mirrors the `partial_closed: bool` one-shot semantic of the retired PartialTPHandler -- without this cap, we'd get a regression worse than today
+- One `scale_check_fn` **invocation** per (position, hourly bar) regardless of sub-hourly cadence. A single invocation may return `list[ScaleAction]` (AC6) for multi-rung TP ladders — ALL rungs in that list execute in one bar.
+- **Per-hourly-bar invocation cap (C2)**: enforced via `pos._scale_action_bar: int` (hourly bar index of last fired invocation; -1 initially). If a sub-hourly tick fires a scale invocation on a position, NO further invocation fires on that position until the next hourly bar.
+  - Rationale: prevents pathological cascades (a strategy returning `ScaleAction(qty_delta=-0.05*qty)` every 5-min tick would fire 12 reduces/hour, eating through dust threshold, creating ~100k spurious ClosedTrades across a portfolio backtest).
+  - Mirrors the `partial_closed: bool` one-shot semantic of the retired PartialTPHandler -- without this cap, we'd get a regression worse than today.
+  - Cap is on **invocations**, not actions: `list[ScaleAction]` from one invocation is permitted (critical for TP ladders); repeated invocations per bar is not.
 
 **AC20 -- one position per (strategy, token, market)**: `max_concurrent_per_token > 1` + `scale_check_fn` raises ValueError.
 
@@ -250,13 +296,24 @@ These are used in `book_reduce()`: `dust_usd = max(min_close_notional_usd, dust_
 
 **AC22 -- quantity-sign invariant**: After any increase/reduce: `pos.is_closed or (pos.quantity * pos.direction > 0.0)`. Sign-of-product check handles negative-zero.
 
-**AC24 -- one scale action per (position, bar)**: First non-None ScaleAction executed; no re-invocation that bar.
+**AC24 -- one scale invocation per (position, bar), may return multiple actions**: First non-None return from `scale_check_fn` is executed. If the return is `list[ScaleAction]`, ALL actions execute in list order (sequentially, each mutating position state before the next is processed). `scale_check_fn` is NOT re-invoked that bar.
+
+**AC24a -- list[ScaleAction] execution rules (order-sensitive)**:
+- Actions execute strictly in list order; each sees the state mutated by all predecessors.
+- **AC10 (portfolio constraints) re-evaluates per action**, not once for the batch — e.g., an increase in position 3 of the list must re-check ADV/concentration/margin against the position size AFTER reductions 1 and 2. Any clamped action records `requested_qty_delta` vs actual `qty_delta` per AC13.
+- **Terminal action halts remainder**: if action N triggers `is_terminal=True` (e.g., dust-promoted reduce via AC14, or explicit full close), actions N+1..end of list are silently DROPPED (position no longer exists). Record dropped actions as a single diagnostic counter `scale_actions_dropped_after_terminal` and emit a single log message at **WARNING** level per drop event (logged via `logger.warning`; rate-limited per-strategy-per-bar via the standard warning cache pattern). Do NOT raise; strategies legitimately queue fallback actions. A WARNING (vs INFO) is justified because dropped actions usually indicate either a helper-level bug (e.g., TP ladder with a full-close rung followed by more rungs) or a misconfigured strategy — both are recoverable but deserve attention.
+- **Mixed-direction lists are allowed but unusual**: a list containing both increase and reduce (e.g., `[ScaleAction(-0.3*qty, "tp_rung_1"), ScaleAction(+0.1*qty, "add_on_dip")]`) is not rejected. Execution order = list order; each action mutates state for the next.
+- `scaling_events` append ordering matches execution ordering.
 
 **AC25 -- error handling**: scale_check_fn exceptions logged, treated as no-action.
 
 **AC27 -- increase does not count against max_concurrent_per_token**: Mutates existing Position; no new Position created.
 
 **AC28 -- liquidation uses post-scale state**: Liquidation check reads mutated entry_price, margin_usd, quantity, cumulative_funding after increase/reduce.
+
+**AC28a -- entry_filter_fn does NOT gate increases**: `entry_filter_fn` fires only on NEW position entries (mutating `SimulationState.position_manager`). Scale-ins via `scale_check_fn` bypass `entry_filter_fn` entirely — rationale: entry filters are for "should this trade open?" semantics; scale-in is "how should the open position grow?". Strategies that want to gate scale-ins on trade-history metrics should embed that logic inside `scale_check_fn` itself (it has access to `BarContext`).
+
+**AC28b -- stress_adv_multiplier applies to stop-like scale reduces only, via typed `is_stop_like` flag on ScaleAction**: In v4, `config.stress_adv_multiplier` widens slippage on `stop`/`margin_call` exits (simulating liquidity drying up during stop-outs). For M2: add `is_stop_like: bool = False` as a field on `ScaleAction` — strategies/helpers set `True` when the reduce is intended as a stop/trail (replicating v4 stop slippage semantics), `False` (default) otherwise. The `book_reduce` wrapper reads this typed flag and applies `stress_adv_multiplier` only when `True`. No string-parsing of `reason` — `reason` stays free-form for diagnostics only.
 
 ### Trade identity (FIX/Nautilus-aligned)
 
@@ -274,6 +331,11 @@ These are used in `book_reduce()`: `dust_usd = max(min_close_notional_usd, dust_
 **AC30 -- field semantics**: `exec_type` is orthogonal to `exit_reason`. `exit_reason` stays as granular cause ("stop", "take_profit", etc.). Exactly one ClosedTrade per parent has `is_terminal=True`.
 
 **AC31 -- paper_state serialization**: New fields roundtrip through paper_state. Old state files load with derived defaults.
+- **AC31a -- live-state compat fixture**: Test MUST include at least one realistic v4 paper-state snapshot. Since v5 paper-state doesn't exist live yet, the fixture captures the **v4 format** that v5 must read-compat-migrate from (the interesting compat direction is v4→v5, not v5→v5 roundtrip).
+  - Fixture source: copy `state/v4_paper_s501/*.json` at test-authoring time into `.specs/active/m2-position-scaling/tests-snapshot/fixtures/v4_paper_state_s501.json`. Anonymize if sensitive (scrub exchange credentials; position/trade data is fine).
+  - Test path 1 (v4→v5 migration): load v4 fixture via v5's compat path, assert it parses without errors, assert new fields get derived defaults (`parent_position_id=""`, `exec_seq=0`, `is_terminal=True`, etc. per AC29).
+  - Test path 2 (v5 roundtrip, once implemented): serialize v5-state with scaling_events populated, deserialize, assert equality including list-order for `scaling_events`.
+  - Test path 1 is required for M2; test path 2 is a natural extension but may ship in M3 (paper memory fix) if scope-creep concerns arise.
 
 **AC33 -- load_trade_log() compat parser**: Reads v4 `analysis/*.json` with `:partial` suffix; synthesizes identity fields. Fails loud on mixed-format logs (`:scale_` suffix without identity fields).
 
@@ -319,17 +381,17 @@ These are used in `book_reduce()`: `dust_usd = max(min_close_notional_usd, dust_
 
 | Field | After increase | After reduce |
 |---|---|---|
-| `entry_price` | VWAP updated | Unchanged |
+| `entry_price` | Weighted-average entry updated (FIX `AvgPx`) | Unchanged |
 | `quantity` | `+= direction * qty_to_add` | `*= (1 - close_fraction)` |
 | `margin_usd` | `+= margin_delta` | `*= (1 - close_fraction)` |
 | `cumulative_funding` | Unchanged | `*= (1 - close_fraction)` |
-| `initial_risk` | FROZEN | Unchanged |
+| `initial_risk` | FROZEN when `freeze_initial_risk=True` (default, v4-like); REFRESHED to `stop_mult * atr` at new weighted-average entry when `freeze_initial_risk=False` (AC3) | Unchanged |
 | `entry_bar` / `entry_timestamp` | Unchanged | Unchanged |
-| `breakeven_triggered` | Preserved | Preserved |
+| `breakeven_triggered` | Preserved (independent of `freeze_initial_risk`) | Preserved |
 | `highest` / `lowest` | Continue tracking | Continue tracking |
 | `stop_price` | stop_override or never-loosen | Unchanged |
 | `scale_count` | Unchanged | +1 before booking |
-| `r_anchor_price` | FROZEN (first entry) | Unchanged |
+| `r_anchor_price` | FROZEN when `freeze_initial_risk=True`; REFRESHED to new weighted-average entry when `False` (AC3) | Unchanged |
 | `_helper_state` | Helpers may mutate | Helpers may mutate |
 | `_scale_action_bar` | Set to current hourly bar | Set to current hourly bar |
 
@@ -343,7 +405,7 @@ Composable closures that translate strategy intent to absolute-unit primitives. 
 |---|---|
 | `tp_ladder_atr([(2.0, 0.3), (4.0, 0.3)])` | Reduce fraction at each ATR-profit threshold |
 | `tp_ladder_price([(78000, 0.3), ...])` | Reduce fraction at each absolute price level |
-| `tp_ladder_r([(1.0, 0.33), ...], anchor="original")` | Reduce fraction at each R-multiple of initial_risk. Default anchor=original (frozen r_anchor_price per Q-DEC1); opt-in anchor=vwap |
+| `tp_ladder_r([(1.0, 0.33), ...], anchor="original")` | Reduce fraction at each R-multiple of initial_risk. Default anchor=original (frozen r_anchor_price per Q-DEC1); opt-in anchor=avg_px (weighted-average entry) |
 | `breakeven_plus_runner(partial_r=1.0, fraction=0.5)` | One-shot reduce at breakeven, keep runner (see Q5 interaction below) |
 
 ### Increase helpers
@@ -372,7 +434,7 @@ This is the desired "lock-in breakeven AND get out if instant whip" behavior. Us
 
 ## Key Design Decisions (Locked)
 
-- **Q-DEC1**: R-multiple anchor defaults to `r_anchor_price` (frozen at first entry), not VWAP
+- **Q-DEC1**: R-multiple anchor defaults to `r_anchor_price` (frozen at first entry), not weighted-average entry (avg_px)
 - **Q-DEC2**: Paper engine wires INDEPENDENT only; PROPORTIONAL/ABSOLUTE raise NotImplementedError
 - **Q-DEC3**: Helper fire-state stored on `pos._helper_state: dict` (per-position, not module globals)
 - **Q-DEC5**: Terminal reduces delegate to `_close_position` (one terminal-close math path)
@@ -429,7 +491,7 @@ v5 changes ripple into dashboards. Changes needed:
 | Helpers (tp_ladder_*, add_*, breakeven, combine) | 4-6 |
 | Paper engine wiring (INDEPENDENT + defensive checks) | 2-3 |
 | Diagnostic counters + report.py + load_trade_log compat | 2-3 |
-| Test suite (~30 tests covering all ACs) | 6-8 |
+| Test suite (~40 tests covering all ACs, including QC1 interleaved funding + dust-boundary + multi-action list coverage) | 8-10 |
 | Bug buffer | 2-3 |
 
 ## Risks
@@ -451,13 +513,16 @@ v5 changes ripple into dashboards. Changes needed:
 
 The parity gate ensures M2 is purely additive -- no behavioral changes to the non-scaling path.
 
-## Phase 3 Test Plan (~30 tests)
+## Phase 3 Test Plan (~40 tests)
 
 These tests are inferred during specification -- actual test files are written in Phase 3 (decompose). Listing them here prevents loss between phases.
 
 ### Critical accounting tests (must-have)
 
-- **T-P1. Funding sum invariant (AC9)**: Open position, accrue funding for 3 funding cycles, perform 3 reduces of varying fractions, then full close. Assert: `sum(ClosedTrade.funding_cost for all reduces + final) == total_funding_paid_during_position_life`.
+- **T-P1. Funding sum invariant (AC9, pure-reduce)**: Open position, accrue funding for 3 funding cycles, perform 3 reduces of varying fractions, then full close. Assert: `sum(ClosedTrade.funding_cost for all reduces + final) == total_funding_paid_during_position_life`.
+- **T-P1a. Funding invariant QC1 (interleaved increase+reduce)**: Open → accrue 1 funding cycle → reduce 30% (booked funding pro-rata) → increase 50% (new cumulative_funding accrues on new larger size) → accrue 2 more funding cycles → reduce 50% → full close. Assert the invariant from AC9: at every state, `sum(booked ClosedTrade.funding_cost) + pos.cumulative_funding == total_funding_paid_to_date`.
+- **T-P1b. Funding invariant, reduce-then-increase (inverse ordering)**: Same as T-P1a but starting with reduce-before-first-funding-cycle.
+- **T-P1c. Funding invariant, dust-promoted reduce**: Open → accrue 2 funding cycles → reduce such that remaining notional < dust_usd (AC14 triggers) → verify total booked funding equals total paid; no funding lost in the `_close_position` override path.
 - **T-P2. Entry fee sum invariant (AC7)**: Open position with `entry_fee = $5`, perform 3 reduces, then full close. Assert: `sum(ClosedTrade.entry_fee) == $5` (no double-count, no loss).
 - **T-P3. Margin sum invariant**: Open with `margin_usd = $200`, perform 3 reduces, full close. Assert: `sum(ClosedTrade.margin_usd) == $200`.
 - **T-P4. AC22 negative-zero edge case**: Force `pos.quantity = math.copysign(0.0, -1.0)` for a long -> `is_closed=True` AND defensive assert passes (sign-of-product, not copysign).
@@ -495,8 +560,8 @@ These tests are inferred during specification -- actual test files are written i
 ### Helper unit tests
 
 - **T18. tp_ladder_atr fires once per level**: 3-level ladder, advance bars through each level -> exactly 3 reduces, each at its trigger.
-- **T19-revised. tp_ladder_r with default "original" anchor (Q-DEC1)**: Open long at $100 with `initial_risk=$5`, `r_anchor_price=$100` (frozen). `Position.increase` at $95 -> VWAP=$97.5 but `r_anchor_price` STAYS $100. tp_ladder_r([(1.0, 0.5)]) fires when price reaches $105 ($100 + 1.0x$5 = original anchor + 1R), NOT $102.50 (VWAP + 1R).
-- **T19b. tp_ladder_r with opt-in "vwap" anchor**: Same setup, but `tp_ladder_r([(1.0, 0.5)], anchor="vwap")`. After increase to VWAP=$97.5, fires at $102.50. Documents the non-standard opt-in behavior.
+- **T19-revised. tp_ladder_r with default "original" anchor (Q-DEC1)**: Open long at $100 with `initial_risk=$5`, `r_anchor_price=$100` (frozen). `Position.increase` at $95 -> avg_px=$97.5 but `r_anchor_price` STAYS $100. tp_ladder_r([(1.0, 0.5)]) fires when price reaches $105 ($100 + 1.0x$5 = original anchor + 1R), NOT $102.50 (avg_px + 1R).
+- **T19b. tp_ladder_r with opt-in "avg_px" anchor**: Same setup, but `tp_ladder_r([(1.0, 0.5)], anchor="avg_px")`. After increase to avg_px=$97.5, fires at $102.50. Documents the non-standard opt-in behavior.
 
 ### Bar-resolution invariant tests
 
