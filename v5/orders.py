@@ -1199,8 +1199,22 @@ class Order:
                         "current_position_qty", 0.0
                     ))
                 # reduce_only order direction is opposite the position.
-                # Order size from sizing_ctx target_size (qty).
+                # Order size derived from sizing_ctx target_size OR
+                # SizingRequest.notional_usd / mark_price (Risk-reviewer
+                # round-3 MAJOR: target_size-only read would let a
+                # notional-sized reduce_only order slip to order_qty=0
+                # and fall through to the clamp pipeline which could
+                # OPEN a counter-position).
                 order_qty = float(self.sizing_ctx.get("target_size", 0.0))
+                if order_qty <= 0.0 and sizing_req is not None:
+                    if sizing_req.notional_usd is not None:
+                        mark = 0.0
+                        try:
+                            mark = float(market_state.mark_price(self.token))
+                        except Exception:
+                            mark = 0.0
+                        if mark > 0:
+                            order_qty = float(sizing_req.notional_usd) / mark
                 # Direction check: order.direction must be opposite current
                 # position sign. Long position (qty>0) → reduce_only SHORT
                 # (direction=-1) expected. If order tries to open same
@@ -1221,6 +1235,9 @@ class Order:
                 pos_abs = abs(current_qty)
                 if order_qty > pos_abs:
                     # Partial: fill up to pos_abs, reject the overage.
+                    # AC-Sz5 binding-log emission for the partial fill
+                    # (Risk-reviewer round-3 MAJOR: partial-fill path
+                    # previously skipped the log entirely → PM debug gap).
                     overage = order_qty - pos_abs
                     self._events.append({
                         "exec_type": ExecType.TRADE,
@@ -1235,6 +1252,36 @@ class Order:
                         "leaves_qty": overage,
                         "reason": "reduce_only_overfill",
                     })
+                    # Emit binding-log entry if config has log_path set.
+                    if config is not None and getattr(config, "log_path", None):
+                        try:
+                            from v5.sizing.binding_log import write_sizing_fill_entry
+                            mark_for_log = 0.0
+                            try:
+                                mark_for_log = float(market_state.mark_price(self.token))
+                            except Exception:
+                                pass
+                            partial_entry = {
+                                "order_id": self.order_id,
+                                "symbol": self.token,
+                                "strategy_id": self.strategy_id,
+                                "intent": sizing_req.intent.value if sizing_req else "FIXED_NOTIONAL",
+                                "requested_fraction": None,
+                                "requested_notional": order_qty * mark_for_log,
+                                "leverage": float(sizing_req.leverage) if sizing_req else 1.0,
+                                "reduce_only": True,
+                                "margin_mode": sizing_req.margin_mode if sizing_req else "isolated",
+                                "clamp_values": {},
+                                "binding_constraint": "reduce_only_partial",
+                                "filled_margin": 0.0,
+                                "filled_notional": pos_abs * mark_for_log,
+                                "fill_price": mark_for_log,
+                                "slippage_bps": 0.0,
+                                "error": None,
+                            }
+                            write_sizing_fill_entry(self, partial_entry, path=config.log_path)
+                        except Exception:
+                            pass
                     return self._transit(
                         OrderStatus.PARTIALLY_FILLED,
                         reject_reason="reduce_only_overfill",

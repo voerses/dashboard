@@ -142,15 +142,27 @@ def compute_available_capital_usd(
     total_open_order = sum(
         float(p.get("open_order_initial_margin", 0.0)) for p in positions
     )
+    total_maint = sum(float(p.get("maintenance_margin", 0.0)) for p in positions)
     if margin_mode == "isolated":
         # Isolated: wallet minus locked initial margins. Unrealized PnL is
         # scoped to each position and does NOT affect the free pool.
+        # Maintenance margin also scoped to the position (does not reduce
+        # free pool in isolated mode).
         return wallet - total_initial - total_open_order
     if margin_mode == "cross":
         # Cross: wallet + net unrealized PnL across the book, minus locked
-        # initial margins. Losses cut into the shared pool immediately.
+        # initial margins, minus maintenance margins across the book.
+        # Binance `availableBalance` for cross accounts formula:
+        #   availableBalance = walletBalance + totalUnrealizedProfit
+        #                      - totalInitialMargin - totalOpenOrderIM
+        #                      - totalMaintMargin
+        # Missing `totalMaintMargin` was the historical 2020-incident
+        # sizing-engine bug site — Risk-reviewer round 3 BLOCKER fix.
         total_upnl = sum(float(p.get("unrealized_pnl", 0.0)) for p in positions)
-        return wallet + total_upnl - total_initial - total_open_order
+        return (
+            wallet + total_upnl
+            - total_initial - total_open_order - total_maint
+        )
     raise ValueError(
         f"margin_mode must be 'isolated' or 'cross'; got {margin_mode!r}"
     )
