@@ -1575,11 +1575,11 @@ def _stage2_process_new_signals(
         # validation; M8 green-light for opt-in in tests + research.
         if getattr(config, "use_m8_clamps", False) and pos_usd > 0:
             try:
+                from pathlib import Path as _Path
                 from v5.sizing.allocation import SharedPoolPolicy
-                from v5.sizing.clamps import ClampsConfig, run_clamp_pipeline
+                from v5.sizing.clamps import ClampsConfig, _lookup_mmr, DEFAULT_MMR_SCHEDULE
                 from v5.sizing.intents import SizingIntent, SizingRequest
-                from v5.orders import Order, TriggerType
-                # Minimal single-leg Order for release_atomic.
+                from v5.orders import Order, OrderStatus, TriggerType
                 m8_req = SizingRequest(
                     intent=SizingIntent.FIXED_NOTIONAL,
                     notional_usd=float(pos_usd),
@@ -1601,29 +1601,48 @@ def _stage2_process_new_signals(
                         "sizing": m8_req,
                     },
                 )
+                # Flag-path MarketState. `liquidation_distance` computes
+                # (1/L - mmr) × 10000 via the Binance tiered MMR schedule
+                # (matches clamp #5 math — FIX reviewer round-2 MAJOR:
+                # previously hardcoded 10_000 bps made liq clamp inert).
+                _adv_val, _close_val = adv_val, close_val
+                _strategy_equity = strategy_equity
 
                 class _SimMktState:
-                    def adv(self, t): return adv_val
-                    def rolling_adv(self, t, window_hours=24): return adv_val
-                    def mark_price(self, t): return close_val
-                    def equity(self, sid): return strategy_equity
-                    def liquidation_distance(self, p, l): return 10_000.0
+                    def adv(self, t): return _adv_val
+                    def rolling_adv(self, t, window_hours=24): return _adv_val
+                    def mark_price(self, t): return _close_val
+                    def equity(self, sid): return _strategy_equity
+                    def liquidation_distance(self, p, l):
+                        notional = abs(float(_strategy_equity) * float(l))
+                        mmr = _lookup_mmr(notional, DEFAULT_MMR_SCHEDULE)
+                        return max(0.0, (1.0 / max(float(l), 1e-9) - mmr) * 10_000.0)
 
-                _, m8_log = run_clamp_pipeline(
-                    m8_order,
+                # Route through release_atomic — NOT run_clamp_pipeline
+                # directly. This ensures aggregate-leverage pre-clamp +
+                # reduce_only overfill gates fire in the flag-ON sim
+                # path (FIX reviewer round-2 MAJOR). log_path wired so
+                # AC-Sz5 binding-log JSONL persists.
+                m8_cfg = ClampsConfig(
+                    adv_cap_pct=config.adv_cap_pct,
+                    concentration_limit=config.concentration_limit,
+                    min_position_usd=config.min_position_usd,
+                    min_liquidation_distance_bps=100.0,
+                    log_path=_Path("v5/logs/sizing_fills.jsonl"),
+                )
+                released = m8_order.release_atomic(
                     available_capital_usd=strategy_equity,
                     market_state=_SimMktState(),
                     policy=SharedPoolPolicy(),
-                    config=ClampsConfig(
-                        adv_cap_pct=config.adv_cap_pct,
-                        concentration_limit=config.concentration_limit,
-                        min_position_usd=config.min_position_usd,
-                        min_liquidation_distance_bps=100.0,
-                    ),
+                    config=m8_cfg,
                 )
-                # Clamp pipeline produces `filled_notional` (post-clamp).
-                # Let legacy slippage apply separately; only swap pos_usd.
-                pos_usd = float(m8_log.get("filled_notional", pos_usd))
+                if released.state == OrderStatus.RELEASED:
+                    pos_usd = float(
+                        released.sizing_ctx.get("margin_usd", pos_usd)
+                        * float(lev_val)
+                    )
+                else:
+                    pos_usd = 0.0  # clamp-rejected → skip entry
             except Exception:
                 # AC-Sz7 — clamp errors don't crash the backtest loop.
                 # Fall through to legacy pos_usd from sizing_model.

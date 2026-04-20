@@ -275,19 +275,27 @@ def _slippage_clamp(notional: float, order, market_state, config: ClampsConfig,
 def _emit_binding_log(config: ClampsConfig, entry: Dict[str, Any]) -> None:
     """Write a binding-log entry to JSONL if config.log_path is set.
 
-    Wave D Task 15 is co-implemented here (single file; lightweight JSONL
-    append semantics don't warrant a separate module). Delegates to
-    `v5.sizing.binding_log.write_sizing_fill_entry` if present for forward
-    compatibility.
+    Delegates to `v5.sizing.binding_log.write_sizing_fill_entry` — single
+    writer, single JSON-serialization policy (default=str for
+    non-serializable types). FIX reviewer round-2 MAJOR-2 resolution:
+    eliminate duplicate writer semantics.
     """
     if config.log_path is None:
         return
-    import json
-    import os
-    path = str(config.log_path)
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(entry) + "\n")
+    from pathlib import Path
+    from v5.sizing.binding_log import write_sizing_fill_entry
+
+    # The canonical writer merges `binding` / `error` overrides; pass
+    # the entry as-is since run_clamp_pipeline has already populated
+    # the binding_constraint + error fields.
+    class _OrderShim:
+        """Order-shaped proxy so write_sizing_fill_entry's setdefault
+        calls don't crash when reading order.order_id / .token etc."""
+        order_id = entry.get("order_id", "")
+        token = entry.get("symbol", "")
+        strategy_id = entry.get("strategy_id", "")
+
+    write_sizing_fill_entry(_OrderShim, entry, path=Path(str(config.log_path)))
 
 
 def run_clamp_pipeline(
