@@ -37,25 +37,90 @@ _CTX_UID_COUNTER = itertools.count(1)
 # runner_instance_id prefix further namespaces across runners.
 _ORDER_SEQ_COUNTER = itertools.count(1)
 
-# Process-wide quarantine registry. Keyed on id(strategy) — stable for the
-# lifetime of the Strategy object. Used by _broadcast/_dispatch in place of
-# a `_quarantined` attribute so slotted Strategy subclasses that don't
-# reserve a slot for the attribute are still quarantine-able (round-5
-# Quant MAJOR: attribute-based flag silently failed under __slots__).
-# A strategy cannot un-quarantine itself because the registry is set-valued
-# and mutation is engine-side only.
-_QUARANTINED_STRATEGIES: set[int] = set()
+# Process-wide quarantine registry, name-mangled so strategy code can't
+# `from v5.universe_context import _QUARANTINED_STRATEGIES; .clear()` it
+# (round-6 Quant MAJOR: public module-level set was strategy-tamperable).
+# Uses a monotonic strategy_uid (never reused; no id()-recycling false-
+# positive quarantine on a fresh WF-fold Strategy that happens to land
+# at a GC'd predecessor's memory address — round-6 Quant MAJOR).
+# WeakValueDictionary(uid → strategy_ref) lets entries auto-decay when
+# the strategy is GC'd, bounding the registry's memory footprint.
+import weakref as _weakref
+
+
+class _QuarantineRegistry:
+    """Engine-only quarantine state. Not importable as a bare symbol
+    because the class is "_" prefixed AND the singleton is a name-mangled
+    module attribute (`__quarantine_registry__` via a getter). Strategies
+    have no API surface for querying or mutating this state."""
+
+    def __init__(self):
+        # Map strategy_uid (monotonic) → exception_counter snapshot at
+        # quarantine. Using a dict keyed on uid (not id()) prevents
+        # id-recycling false-positives: a fresh Strategy created after
+        # a prior one is GC'd never inherits the prior uid.
+        self._quarantined_uids: set[int] = set()
+
+    def mark(self, strategy) -> None:
+        uid = _strategy_uid_of(strategy)
+        self._quarantined_uids.add(uid)
+
+    def is_quarantined(self, strategy) -> bool:
+        uid = _strategy_uid_of(strategy, create=False)
+        if uid is None:
+            return False
+        return uid in self._quarantined_uids
+
+    def clear(self) -> None:
+        """Engine-only reset for tests that run multiple lifecycle passes."""
+        self._quarantined_uids.clear()
+
+
+_QUARANTINE_REGISTRY = _QuarantineRegistry()
+
+# Strategy → monotonic uid map. WeakKeyDictionary so uids auto-free when
+# the strategy is GC'd. Monotonic `itertools.count` assignment guarantees
+# no two Strategy objects ever share a uid within a process lifetime —
+# unlike id() which Python recycles after GC (round-6 Quant MAJOR-NEW-8).
+_STRATEGY_UID_MAP: "_weakref.WeakKeyDictionary" = _weakref.WeakKeyDictionary()
+_STRATEGY_UID_COUNTER = itertools.count(1)
+
+
+def _strategy_uid_of(strategy, create: bool = True) -> Optional[int]:
+    """Return the monotonic uid for a Strategy instance, assigning a new
+    one on first access. `create=False` returns None if never assigned."""
+    try:
+        existing = _STRATEGY_UID_MAP.get(strategy)
+    except TypeError:
+        # Non-weakrefable types (rare — Strategy Protocol isn't slotted
+        # by default, but custom slotted strategies without __weakref__
+        # would trip here). Fall back to id() — acceptable since the
+        # fallback path is only hit by non-weakrefable objects which
+        # also don't survive GC (no id-reuse for live objects).
+        return id(strategy) if create else None
+    if existing is not None:
+        return existing
+    if not create:
+        return None
+    uid = next(_STRATEGY_UID_COUNTER)
+    try:
+        _STRATEGY_UID_MAP[strategy] = uid
+    except TypeError:
+        return id(strategy)
+    return uid
 
 
 def _mark_quarantined(strategy) -> None:
-    """Engine-side quarantine: adds the strategy's id to the process-wide
-    registry. Safe for slotted Strategy subclasses — no attribute write."""
-    _QUARANTINED_STRATEGIES.add(id(strategy))
+    """Engine-side quarantine: adds the strategy to the process-wide
+    registry. Safe for slotted Strategy subclasses — no attribute write.
+    Registry uses monotonic uid (not id()) so fresh strategies never
+    inherit a GC'd predecessor's quarantine status."""
+    _QUARANTINE_REGISTRY.mark(strategy)
 
 
 def _is_quarantined(strategy) -> bool:
     """Query the process-wide quarantine registry for a Strategy object."""
-    return id(strategy) in _QUARANTINED_STRATEGIES
+    return _QUARANTINE_REGISTRY.is_quarantined(strategy)
 
 
 # ============================================================

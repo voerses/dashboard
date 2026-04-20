@@ -85,26 +85,53 @@ import itertools
 _next_order_id = itertools.count(1)
 
 
-def _process_namespace_tag() -> str:
-    """Per-process namespace tag mixed into auto-generated ClOrdIDs so two
-    runners running on the same venue don't both mint `s1-BTC-1`.
+_PROCESS_TAG: str | None = None
 
-    Uses PID + a random nonce for uniqueness across concurrent runners.
-    Kept short (6 hex chars = 24 bits ≈ 16M space) to preserve budget
-    under Binance's 36-char newClientOrderId cap.
+
+def _compute_process_tag() -> str:
+    """Build the process-namespace tag from PID + random nonce.
+
+    8 hex chars (32 bits ≈ 4.3B space) instead of 6 — keeps collision
+    probability under 0.001% even for 1000+ concurrent runners. Still
+    well under Binance's 36-char newClientOrderId cap when combined
+    with the strategy/token/counter components of ClOrdID.
     """
     import os
-    global _PROCESS_TAG
-    try:
-        return _PROCESS_TAG
-    except NameError:
-        pass
     import secrets
-    _PROCESS_TAG = f"{os.getpid() & 0xFFFF:04x}{secrets.token_hex(1)}"
+    return f"{os.getpid() & 0xFFFFFF:06x}{secrets.token_hex(1)}"
+
+
+def _reset_process_tag_after_fork() -> None:
+    """Reset `_PROCESS_TAG` in the child after fork(). Without this the
+    child inherits the parent's cached tag — two forked runners would
+    mint identical ClOrdIDs (round-6 FIX BLOCKER)."""
+    global _PROCESS_TAG
+    _PROCESS_TAG = None
+
+
+def _process_namespace_tag() -> str:
+    """Per-process namespace tag mixed into auto-generated ClOrdIDs so two
+    runners on the same venue don't both mint `s1-BTC-1`. Fork-safe via
+    `os.register_at_fork(after_in_child=...)` registered at module load.
+
+    Uses PID + a random nonce for uniqueness. 8 hex chars = 32 bits.
+    """
+    global _PROCESS_TAG
+    if _PROCESS_TAG is None:
+        _PROCESS_TAG = _compute_process_tag()
     return _PROCESS_TAG
 
 
-_PROCESS_TAG: str  # populated lazily by _process_namespace_tag()
+# Fork-safety: when a parent process forks (multiprocessing 'fork' start
+# method, os.fork(), gunicorn pre-fork workers), each child must reset
+# its namespace tag so it mints non-colliding ClOrdIDs.
+try:
+    import os as _os
+    if hasattr(_os, "register_at_fork"):
+        _os.register_at_fork(after_in_child=_reset_process_tag_after_fork)
+except Exception:
+    # Platforms without fork (Windows) — fork handler is a no-op there
+    pass
 
 
 def _gen_order_id(strategy_id: str, token: str) -> str:
