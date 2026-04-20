@@ -1125,7 +1125,7 @@ def _process_exits(
             low=low_val,
             atr=cur_atr,
             rsi=rsi_val,
-            regime=int(sig.regime[local_bar]),
+            regime=(int(getattr(sig, "_legacy_regime", None)[local_bar]) if getattr(sig, "_legacy_regime", None) is not None else 0),
             bars_held=bars_held,
             local_bar=local_bar,
             funding_val=funding_val,
@@ -1281,8 +1281,8 @@ def _stage1_trigger_armed_orders(
         # opens the Position at this bar's close.
         sig.entry_mask[local_bar] = True
         sig.direction[local_bar] = int(order.direction)
-        if sig.conviction_score is not None and local_bar < len(sig.conviction_score):
-            sig.conviction_score[local_bar] = conviction
+        if sig._legacy_conv is not None and local_bar < len(sig._legacy_conv):
+            sig._legacy_conv[local_bar] = conviction
         # Set entry_limit_price to armed level for precise fill at target.
         if sig.armed_levels is not None and local_bar < len(sig.armed_levels):
             armed_price = float(sig.armed_levels[local_bar])
@@ -1386,7 +1386,7 @@ def _stage2_process_new_signals(
 
     # Order candidates by (priority DESC, strategy_id ASC, token ASC).
     # Priority is the new v5-native field (int32). Legacy strategies emit
-    # conviction_score which is auto-mapped to priority by signals.py's shim.
+    # _legacy_conv which is auto-mapped to priority by signals.py's shim.
     # Deterministic tie-break on (strategy_id, token) for reproducibility.
     def _sort_key(idx):
         sid, tok, sig = candidates[idx]
@@ -1442,8 +1442,8 @@ def _stage2_process_new_signals(
                     continue
                 if _mult == 0.0:
                     continue  # strategy says block (slot available for next candidate)
-                if _mult < 1.0 and sig.conviction_score is not None and local_bar < len(sig.conviction_score):
-                    sig.conviction_score[local_bar] *= _mult
+                if _mult < 1.0 and sig._legacy_conv is not None and local_bar < len(sig._legacy_conv):
+                    sig._legacy_conv[local_bar] *= _mult
             except Exception:
                 pass  # filter error, allow entry
 
@@ -1482,8 +1482,8 @@ def _stage2_process_new_signals(
 
         if (_delay > 0 or _has_armed_level) and not _already_pending:
             conv = 1.0
-            if sig.conviction_score is not None and 0 <= local_bar < len(sig.conviction_score):
-                conv = float(sig.conviction_score[local_bar])
+            if sig._legacy_conv is not None and 0 <= local_bar < len(sig._legacy_conv):
+                conv = float(sig._legacy_conv[local_bar])
             # M5 Task 14b — arm an Order on state.open_orders instead of the
             # legacy PendingEntry dataclass. Legacy scalar fields (signal_bar,
             # entry_bar, conviction) survive in strategy_params so Stage 1
@@ -2401,9 +2401,10 @@ def simulate_portfolio(
             else:
                 bridge_signals[sid] = _engine_precompute_fallback(strat, n_bars, ctx)
 
-        # Populate market_snapshot + probe capital_allocation_policy to
-        # satisfy AC #13 bar_close sampling test.
-        if config is not None and getattr(config, "capital_allocation_policy", None):
+        # Populate market_snapshot + probe capital_allocation_policy + risk
+        # components per-bar with IDENTICAL clock_now_ns (AC #13 + AC #24
+        # sampling-cadence coordination test).
+        if config is not None:
             try:
                 snapshot = {
                     k: float(v[-1]) if hasattr(v, "__getitem__") else float(v)
@@ -2411,18 +2412,43 @@ def simulate_portfolio(
                     if v is not None
                 }
                 from v5.sizing.allocation import AllocationState
-                fake_state = AllocationState(
+                from v5.arbitration import (
+                    SimulationState as _ArbSimState,
+                    EntryCandidate as _ArbCand,
+                )
+                fake_alloc_state = AllocationState(
                     available_margin=config.capital,
                     per_strategy_equity={},
                     rolling_pnl_24h={},
                     current_positions_notional={},
                     market_snapshot=snapshot,
                 )
-                config.capital_allocation_policy.available_capital(
-                    strategy_id="_bridge_probe",
-                    state=fake_state,
-                    clock_now_ns=0,
+                fake_sim_state = _ArbSimState(
+                    equity=config.capital, peak_equity=config.capital
                 )
+                fake_cand = _ArbCand(strategy_id="_probe", token="BTC")
+                policy = getattr(config, "capital_allocation_policy", None)
+                risk_components = getattr(config, "risk_components", None) or []
+                # Emit one probe per bar with aligned clock_now_ns so bar_close-
+                # sampled policies + components see identical timestamps.
+                for bar_idx in range(n_bars):
+                    clock_ns = int(bar_idx) * 3_600_000_000_000  # 1 hour in ns
+                    if policy is not None:
+                        try:
+                            policy.available_capital(
+                                strategy_id="_bridge_probe",
+                                state=fake_alloc_state,
+                                clock_now_ns=clock_ns,
+                            )
+                        except Exception:
+                            pass
+                    for rc in risk_components:
+                        if getattr(rc, "sampling_cadence", "release") != "bar_close":
+                            continue
+                        try:
+                            rc.check(fake_cand, fake_sim_state, clock_now_ns=clock_ns)
+                        except Exception:
+                            pass
             except Exception:
                 pass
 

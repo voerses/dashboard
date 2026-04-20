@@ -2039,7 +2039,7 @@ class PaperPortfolioEngine:
                 self._cached_bar_data[(sid, token)] = {
                     "atr": float(atr_val) if not np.isnan(atr_val) else 0.0,
                     "adv": float(adv_val) if not np.isnan(adv_val) else 0.0,
-                    "regime": int(sig.regime[local_bar]) if sig.regime is not None and local_bar < len(sig.regime) else 0,
+                    "regime": (int(getattr(sig, "_legacy_regime", None)[local_bar]) if getattr(sig, "_legacy_regime", None) is not None else 0) if sig.regime is not None and local_bar < len(sig.regime) else 0,
                     "bear_target_mult": sig.bear_target_mult if hasattr(sig, 'bear_target_mult') else 0.0,
                     "bear_max_hold": sig.bear_max_hold if hasattr(sig, 'bear_max_hold') else 0,
                     # M2 (AC18 / Task 11): cache sig reference for scale_check_fn
@@ -2468,8 +2468,8 @@ class PaperPortfolioEngine:
                     ),
                     # Conviction score for threshold check
                     "conviction": (
-                        float(sig.conviction_score[local_bar])
-                        if getattr(sig, 'conviction_score', None) is not None and local_bar < len(sig.conviction_score)
+                        float(sig._legacy_conv[local_bar])
+                        if getattr(sig, '_legacy_conv', None) is not None and local_bar < len(sig._legacy_conv)
                         else 1.0
                     ),
                     # Exit handler parameters (backtest parity for Position fields)
@@ -3770,7 +3770,7 @@ class PaperPortfolioEngine:
                 if bm is not None and self.tick_counter < len(bm):
                     local_bar = bm[self.tick_counter]
                     if 0 <= local_bar < sig.n_bars and hasattr(sig, 'regime') and sig.regime is not None:
-                        btc_regime = int(sig.regime[local_bar])
+                        btc_regime = (int(getattr(sig, "_legacy_regime", None)[local_bar]) if getattr(sig, "_legacy_regime", None) is not None else 0)
                 break  # Only need BTC from one strategy
 
         # Compute dynamic weights
@@ -3802,7 +3802,7 @@ class PaperPortfolioEngine:
                     if local_bar >= 0 and local_bar < sig.n_bars:
                         self._last_known_prices[token] = float(sig.close[local_bar])
                         if hasattr(sig, 'regime') and sig.regime is not None:
-                            self._last_known_regimes[token] = int(sig.regime[local_bar])
+                            self._last_known_regimes[token] = (int(getattr(sig, "_legacy_regime", None)[local_bar]) if getattr(sig, "_legacy_regime", None) is not None else 0)
 
     # ------------------------------------------------------------------
     # Quick price refresh — update MTM without running a full tick

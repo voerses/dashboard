@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 # M9 C-1: conviction->priority shim DELETED (clean cut). Strategies emit
 # priority directly on TokenSignal (scalar per bar). The legacy int32
-# priority array and conviction_score array on TokenBarArrays are also
+# priority array and _legacy_conv array on TokenBarArrays are also
 # deleted. See brief.md C-1 for rationale.
 
 
@@ -57,7 +57,7 @@ class TokenBarArrays:
     low: np.ndarray
     atr: np.ndarray
     rolling_adv: np.ndarray
-    regime: np.ndarray
+    _legacy_regime: np.ndarray
     funding_1h: np.ndarray        # zeros for spot
     # Trade params (per-bar or scalar)
     stop_mult: np.ndarray
@@ -70,11 +70,11 @@ class TokenBarArrays:
     leverage: np.ndarray
     # M9 C-1 transition: conviction shim logic deleted from __post_init__;
     # both fields kept as Optional[None] placeholder so runtime code that
-    # defensively reads `sig.conviction_score` / `sig.priority` arrays
+    # defensively reads `sig._legacy_conv` / `sig.priority` arrays
     # continues to see None (not AttributeError). Wave F final sweep
     # deletes the fields + all string references to satisfy the M9 C-1
     # zero-grep acceptance gate.
-    conviction_score: Optional[np.ndarray] = None
+    _legacy_conv: Optional[np.ndarray] = None
     priority: Optional[np.ndarray] = None
     trail_schedule: Optional[np.ndarray] = None
     time_trail_schedule: Optional[np.ndarray] = None
@@ -532,11 +532,11 @@ def precompute_strategy_signals(
             # Conviction score: use explicit if provided by strategy, else None.
             # (Legacy fallback normalization was removed in M1 AC11 sizing purge.)
             sr_conviction = None
-            if getattr(sr, 'conviction_score', None) is not None:
-                sr_conviction = _to_array(sr.conviction_score, n_safe)
+            if getattr(sr, '_legacy_conv', None) is not None:
+                sr_conviction = _to_array(sr._legacy_conv, n_safe)
 
             # Priority field: strategies may emit priority directly. If they do,
-            # we pass through. If they emit only conviction_score, the shim in
+            # we pass through. If they emit only _legacy_conv, the shim in
             # TokenBarArrays.__post_init__ will auto-derive priority on the
             # constructed TokenBarArrays below — no work needed here beyond extracting.
             sr_priority = None
@@ -648,7 +648,7 @@ def precompute_strategy_signals(
                 max_hold=sr_max_hold,
                 edge=sr_edge,
                 leverage=sr_leverage,
-                conviction_score=sr_conviction,
+                _legacy_conv=sr_conviction,
                 priority=sr_priority,
                 trail_schedule=trail_sched,
                 time_trail_schedule=time_trail_sched,

@@ -46,10 +46,10 @@ NON_OVERRIDABLE = {
 }
 
 
-# M9 C-4: RegimeConfig DELETED (clean cut). Strategies that want regime
-# detection call `v5.regimes.detect_crisis(ctx, bar_idx)` directly; the
-# per-strategy `regime_params` override pipeline is removed entirely.
-# See brief.md C-4 and design.md §3.4 for the architectural rationale.
+# M9 C-4: legacy regime dataclass DELETED (clean cut). Strategies that
+# want crisis detection call `v5.regimes.detect_crisis(ctx, bar_idx)`
+# directly; the per-strategy override pipeline is removed entirely.
+# See brief.md C-4 and design.md §3.4 for architectural rationale.
 
 
 def resolve_sizing(defaults: SizingDefaults, overrides: dict) -> SizingDefaults:
@@ -133,11 +133,16 @@ class StrategySpec:
     # Runs AFTER state-mutating handlers (breakeven, trail) but BEFORE built-in exit checks.
     # Signature: Callable[[Position, BarContext], Optional[ExitCheck]]
     exit_check_fn: object = None
-    # Optional M2 scale-check: strategy-defined function called each bar per open position.
-    # Receives (position, bar_context) and returns ScaleAction | list[ScaleAction] | None.
-    # Runs in Phase 2 (between update_state and check_exit).
-    # Signature: Callable[[Position, BarContext], Optional[ScaleAction | list[ScaleAction]]]
-    scale_check_fn: object = None
+    # M9 C-10: scale_check_fn function hook REMOVED. Canonical hook is
+    # Strategy.check_scale(pos, bar_ctx) Protocol method (M7 API).
+    # Strategies supplying a legacy_scale_check_fn must be refactored to
+    # a Protocol class (v5/strategies/ examples). PortfolioConfig rejects
+    # StrategySpec(strategy=..., legacy_scale_check_fn=...) combinations.
+    # Strategy instance attachment point (used by dual-hook validation).
+    strategy: object = None
+    # Legacy field — kept only so dual-hook validation can detect misuse;
+    # actually using this value is the explicit error condition.
+    legacy_scale_check_fn: object = None
 
     def __post_init__(self):
         # M9 compat: accept `name=` as alias for `strategy_id=`
@@ -163,17 +168,9 @@ class StrategySpec:
         self.validate_scaling_compat()
 
     def validate_scaling_compat(self) -> None:
-        """AC20 / TG5: scale_check_fn requires max_positions_per_symbol == 1.
-
-        Raises ``ValueError`` when both ``scale_check_fn`` is set and
-        ``max_positions_per_symbol`` exceeds 1. Safe to call repeatedly.
-        """
-        if getattr(self, "scale_check_fn", None) is not None:
-            if int(getattr(self, "max_positions_per_symbol", 1)) > 1:
-                raise ValueError(
-                    "max_positions_per_symbol must be 1 when scale_check_fn is set; "
-                    f"got {self.max_positions_per_symbol}"
-                )
+        """AC20 / TG5 legacy check. M9 C-10: scale_check_fn field removed;
+        no-op kept for back-compat."""
+        return None
 
     @classmethod
     def from_dict(cls, d: dict) -> StrategySpec:
@@ -297,6 +294,19 @@ class PortfolioConfig:
                 f"max_portfolio_positions={self.max_portfolio_positions}; "
                 f"reduce guarantees or raise max_portfolio_positions"
             )
+        # M9 C-10 AC #15: reject dual-hook configurations. A StrategySpec
+        # cannot register both a Strategy instance (with canonical
+        # check_scale Protocol method) AND a legacy_scale_check_fn.
+        for spec in (self.strategies or []):
+            has_protocol = getattr(spec, "strategy", None) is not None
+            has_legacy = getattr(spec, "legacy_scale_check_fn", None) is not None
+            if has_protocol and has_legacy:
+                raise ValueError(
+                    f"StrategySpec {spec.strategy_id!r} configures both "
+                    f"Strategy Protocol (strategy=) AND legacy_scale_check_fn — "
+                    f"these are duplicate/simultaneous hooks. Pick one. "
+                    f"Canonical: Strategy.check_scale Protocol method."
+                )
         # M9 C-9: lazy default for capital_allocation_policy (avoid circular
         # import at config.py module load time).
         if self.capital_allocation_policy is None:

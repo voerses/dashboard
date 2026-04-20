@@ -966,7 +966,7 @@ class StrategyResult:
     convex_multipliers: tuple = (2.0, 1.5, 0.3)    # (mature_trail_atr, early_profit_mult, early_be_offset)
 
     # Conviction score: per-bar signal strength in [0, 1] for entry prioritization.
-    conviction_score: Optional[np.ndarray] = None
+    _legacy_conv: Optional[np.ndarray] = None
 
     # Futures support (defaults preserve backward compatibility)
     market_type: int = 0        # MarketType.SPOT

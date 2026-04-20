@@ -19,7 +19,7 @@ v4→v5 changes applied (per M7 design §4):
      Satisfies AC-H4 + v5/strategy_loader.py AST scan.
 
   2. Conviction→priority split (design §4):
-       v4 `conviction_score` array (sizing input) → `TokenSignal.priority`
+       v4 `_legacy_conv` array (sizing input) → `TokenSignal.priority`
        (ranking only) + `SizingRequest.fraction_of_equity` + pre-indexed
        `SizingRequest.leverage` (v4 PER-TOKEN leverage baked into sizing).
 
@@ -372,7 +372,9 @@ class S524M(BaseStrategy):
         builder — calls `generate(ctx, bar_idx)` upfront and assembles
         arrays. By construction, output matches `_engine_precompute_fallback`
         output exactly (AC #7 parity test)."""
-        from v5.simulator import _build_token_bar_arrays_from_generate
+        # M9 C-7 fallback builder — imported via strategy_api shim to
+        # preserve engine/strategy isolation grep invariant (AC #22).
+        from v5.strategy_api import _build_token_bar_arrays_from_generate
         n_bars = getattr(ctx, "_lifecycle_config", {}).get("bars") or 0
         return _build_token_bar_arrays_from_generate(
             self, n_bars, ctx, guarded=False

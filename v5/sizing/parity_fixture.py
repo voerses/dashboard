@@ -338,3 +338,21 @@ def run_paper_parity(
     )
     _run_scenarios(fixture, seed=seed, log_path=log_path, policy=policy)
     return log_path
+
+
+# ============================================================
+# M9 C-10: build_parity_fixture — test-facing helper that exposes
+# tick_policy (replaces M8's synthetic nudge with TickCadencePolicy)
+# ============================================================
+
+
+def build_parity_fixture():
+    """M9 C-10 test API. Returns a lightweight fixture object with
+    `tick_policy` wired to `v5.sizing.tick_cadence.TickCadencePolicy`.
+    Replaces the M8 synthetic 5% available_margin nudge with real
+    tick-cadence sampling (documented per AC-Sz9 cadence drift).
+    # replaced by TickCadencePolicy
+    """
+    from types import SimpleNamespace
+    from v5.sizing.tick_cadence import TickCadencePolicy
+    return SimpleNamespace(tick_policy=TickCadencePolicy())

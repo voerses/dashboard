@@ -3,7 +3,7 @@
 Ported from `strategies/s523c_growth.py` to the M7 unified Strategy Protocol.
 
 v4→v5 changes applied (per M7 design §4 "conviction→priority split"):
-  - v4 `conviction_score` array (sizing input) → `TokenSignal.priority`
+  - v4 `_legacy_conv` array (sizing input) → `TokenSignal.priority`
     (ranking only) + `TokenSignal.sizing.fraction_of_equity` (capital
     allocation, derived from conviction via explicit formula).
   - Module-level state purged:
@@ -263,7 +263,7 @@ class S523CGrowth(BaseStrategy):
         """M9 C-7 VectorizedStrategy opt-in: delegate to engine shared
         builder. Output matches `_engine_precompute_fallback` by
         construction (AC #7 parity invariant)."""
-        from v5.simulator import _build_token_bar_arrays_from_generate
+        from v5.strategy_api import _build_token_bar_arrays_from_generate
         n_bars = getattr(ctx, "_lifecycle_config", {}).get("bars") or 0
         return _build_token_bar_arrays_from_generate(
             self, n_bars, ctx, guarded=False

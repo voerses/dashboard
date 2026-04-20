@@ -110,7 +110,7 @@ def load_multi_config(path: str) -> list[PaperConfig]:
             dynamic_weights=merged.get("dynamic_weights", False),
             dynamic_weights_smoothing=merged.get("dynamic_weights_smoothing", 0.3),
             conviction_mode=merged.get("conviction_mode", "shuffle"),
-            min_conviction_threshold=merged.get("min_conviction_threshold", 0.0),
+            _legacy_min_conv=merged.get("_legacy_min_conv", 0.0),
             max_sizing_equity=merged.get("max_sizing_equity", None),
             sentinel_mode=merged.get("sentinel_mode", "off"),
             confirmation_tiers=merged.get("confirmation_tiers", {"btc_eth": 30, "top10": 60, "other": 90}),

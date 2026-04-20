@@ -306,3 +306,70 @@ def _dedup_by_symbol(
         group.sort(key=lambda c: -(c.priority or 0.0))
         out.extend(group[:cap])
     return out
+
+
+# ============================================================
+# M9 C-1 / C-10 — ArbitrationLogWriter with 500MB gzip rotation
+# ============================================================
+
+
+class ArbitrationLogWriter:
+    """M9 telemetry sink for `arbitration.jsonl`. Rotates at 500MB
+    default with gzip compression on rotated segments. 1-year 3-strategy
+    × 200-token backtest stays <2GB total under this config.
+
+    Schema per row:
+      {bar_idx, strategy_id, token, rank_in, rank_out, tier,
+       admitted, displaced_by}
+    """
+
+    def __init__(
+        self,
+        *,
+        log_dir,
+        base_name: str = "arbitration.jsonl",
+        rotate_size_bytes: int = 500 * 1024 * 1024,
+    ):
+        from pathlib import Path
+        self.log_dir = Path(log_dir)
+        self.log_dir.mkdir(parents=True, exist_ok=True)
+        self.base_name = base_name
+        self.rotate_size_bytes = int(rotate_size_bytes)
+        self._current_path = self.log_dir / base_name
+        self._fh = open(self._current_path, "a", encoding="utf-8")
+        self._seq = 0
+
+    def write(self, record: dict) -> None:
+        """Append one JSONL row; rotate when current segment > threshold."""
+        import json as _json
+        self._fh.write(_json.dumps(record) + "\n")
+        self._fh.flush()
+        # Rotation check — cheap O(1) via tell()
+        if self._fh.tell() > self.rotate_size_bytes:
+            self._rotate()
+
+    def _rotate(self) -> None:
+        """Close current segment, gzip it, start a new segment."""
+        import gzip as _gz
+        self._fh.close()
+        self._seq += 1
+        archive_path = self.log_dir / f"{self.base_name}.{self._seq}.gz"
+        # Compress current segment -> .gz
+        with open(self._current_path, "rb") as src:
+            with _gz.open(archive_path, "wb", compresslevel=6) as dst:
+                dst.write(src.read())
+        # Truncate current segment for next writes
+        self._current_path.unlink()
+        self._fh = open(self._current_path, "a", encoding="utf-8")
+
+    def close(self) -> None:
+        try:
+            self._fh.close()
+        except Exception:
+            pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
