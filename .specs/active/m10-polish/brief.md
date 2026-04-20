@@ -96,12 +96,12 @@ After M1-M9, v5 is functionally complete but has accumulated:
 
 - **CLAUDE.md update**: Add "v4/ is FROZEN as of {date}. All engine, validation, simulation, and universe code lives in v5/." Mirror the existing v3 freeze language exactly: `v4/ is FROZEN. Never modify files in v4/. All engine, validation, simulation, and universe code lives in v5/. The v4/ directory is legacy reference only — all imports have been migrated to v5/.`
 
-- **Memory monitoring**: `v5/run_paper_multi.py` logs RSS every minute; alerts at 1.2GB threshold. Periodic `tracemalloc` snapshot every 6h for first week post-deploy. Memory soak test validates RSS growth < 100MB over 24h simulated paper run.
+- **Memory monitoring** (replay-based, NOT live soak): `v5/run_paper_multi.py` logs RSS every minute in live mode; alerts at 1.2GB threshold; `tracemalloc` snapshot hook available for operator debugging. **Test coverage is replay-based**: `v5/tests/test_m10_memory_growth_replay.py` drives `paper_engine` over a deterministic 24h replay fixture and asserts `RSS_end - RSS_start < 100MB` + tracemalloc top-10 allocators bounded. No test depends on live data collection.
 
 - **`state_schema_version` field** — reconciliation (not addition): M9 v5 paper_state already exposes `STATE_SCHEMA_VERSION = 3` at `v5/paper_state.py:45` + emits via `paper_state.py:1519`. DO NOT add a second field. M10 task: ensure dashboard frontend reads the existing field; delete any v4-only schema assumption.
 
 - **v5 runner default-on cutover** (operational):
-  - Post-48h-soak: `tools/start_all_services.sh` modified to launch `v5.run_paper_multi` instead of `v4.run_paper_multi` (or publish new `tools/start_v5_services.sh` as canonical + archive v4 launcher).
+  - After replay-parity + short parallel smoke passes (NOT after 48h live soak): `tools/start_all_services.sh` modified to launch `v5.run_paper_multi` instead of `v4.run_paper_multi` (or publish new `tools/start_v5_services.sh` as canonical + archive v4 launcher).
   - `/srv/data/state_v5.json` present + `state.json` symlinked/redirected OR dashboard defaults to v5 URL.
   - Feature flag `V5_PAPER_ENABLED=1` is the default in the v5 runner script after M10 ship.
 
@@ -119,6 +119,17 @@ After M1-M9, v5 is functionally complete but has accumulated:
   - `v5/tests/test_m10_daily_pnl_rollover.py` — realized_pnl_today_usd reset at UTC midnight; DailyLossLimit interaction
   - `v5/tests/test_m10_funding_accrual_multi_window.py` — 3-window funding accrual (24h fixture), sign correctness, 00/08/16 UTC snap points
   - `v5/tests/test_m10_liquidation_cascade.py` — 3-position simultaneous liquidation; deterministic ordering; equity floor + HALTED transition
+
+- **Audit-driven new tests (ACs #8, #18-#25)** — all replay-based, none depend on live data collection:
+  - `v5/tests/test_m10_memory_growth_replay.py` — replaces 48h-live soak (AC #8)
+  - `v5/tests/test_m10_funding_backtest_paper_parity.py` — closes M8 funding-cadence deferral (AC #18)
+  - `v5/tests/test_m10_data_engine_default.py` — closes M7 `use_data_engine` deferral (AC #19)
+  - `v5/tests/test_m10_rollback_drill.py` — executed rollback rehearsal (AC #20)
+  - `v5/tests/test_m10_fee_classification.py` — maker/taker discrimination (AC #21)
+  - `v5/tests/test_m10_log_rotation.py` — all JSONL sinks rotate at 500MB (AC #22)
+  - `v5/tests/test_m10_clock_drift.py` — WARN/HALT thresholds for exchange-clock skew (AC #23)
+  - `v5/tests/test_m10_state_corruption.py` — schema + checksum + uniqueness guards (AC #24)
+  - `v5/tests/test_m10_ws_ratelimit_parallel.py` — short-smoke 429 guard (AC #25)
 
 ### Paper Migration Runbook (11 steps)
 
@@ -257,17 +268,33 @@ Note on FixedBudgetPolicy: removed from M9 scope per user directive; not deferre
 
 7. **Full test suite green**: `pytest v5/tests/` exits 0 with 1671+ passed. Allowed: ≤2 replay-parity tests skipped pending fixture-generator ship (AC #9). 0 xfailed after AC-S10 bridge flips the 6 capstone xfails (AC #10). 0 orphaned/dead-skip tests (delete `test_m7_paper_8site.py:80` stale skip).
 
-8. **48h paper soak**: v5 paper trader runs 48 hours without errors; RSS growth < 100MB over the window; trade-rate within ±20% of v4 baseline; zero state-corruption events. Measured via `v5/run_paper_multi.py` memory monitor + trade-count diff.
+8. **Replay-based stability test (NOT live soak)**: `test_m10_memory_growth_replay.py` drives `paper_engine` through a deterministic 24h replay fixture (built by the AC #9 fixture generator) and asserts:
+    - `RSS_end - RSS_start < 100MB` over the full 24h simulated run
+    - `tracemalloc.get_traced_memory()` top-10 allocators all bounded (no unbounded accumulators)
+    - Zero state-corruption events (checksum after each `paper_state.persist()` matches on re-load)
+    - Trade-rate within ±20% of v4 reference-backtest baseline over the same fixture window
+    - **Rationale**: per user directive 2026-04-20, NO M10 test depends on wall-clock live data collection. All stability/memory/parity claims must be reproducible via fixtures + replay.
 
 9. **Replay-parity test + fixture ACTUALLY RUN (not scaffold)**:
     - `v5/tests/fixtures/generate_m9_replay_parity_7d.py` exists and produces a 7-day parquet-windowed fixture forcing each of 6 M8 clamps to bind at least once. Manifest at `v5/tests/fixtures/m9_replay_parity_7d/manifest.json` points to generated slices (status: "ready", not "scaffold").
     - `v5/tools/replay_parity.py::run_replay_parity_m8_clamps` and `run_replay_parity_multi_leg` are REAL implementations (not `pytest.skip` stubs) — they run paper_engine twice with flag=False / flag=True and diff archives.
     - **The 2 tests in `test_m9_replay_parity.py` PASS** (not skip): `test_use_m8_clamps_nonbinding_bars_byte_identical` + `test_use_multi_leg_orders_nonbinding_bars_byte_identical`. Non-binding bars byte-identical; binding bars have matching `sizing_fills.jsonl` entry with documented clamp name.
 
-10. **AC-S10 backtest-vs-backtest parity CLOSED (the capstone)**:
-    - 6 strict-xfail tests in `test_m8_ac_s10_s524m_parity.py` flip to PASS within **0.5% relative tolerance** on Q-DEC4 2025 206-token fold.
-    - s524m v5 backtest total_return / sharpe / sortino / calmar / max_drawdown all match v4 backtest (1,094% annual sum baseline) within 0.5%.
-    - `SimulationState._bridge_signals` private attribute DELETED after real wiring lands (not just "attached for inspection").
+10. **AC-S10 backtest-vs-backtest parity CLOSED (the capstone)** — audit-tightened:
+    - 6 strict-xfail tests in `test_m8_ac_s10_s524m_parity.py` flip to PASS on Q-DEC4 2025 206-token fold. `@pytest.mark.xfail(strict=True)` decorators DELETED (not left as XPASS — the decorator itself is removed and the tests must affirmatively pass).
+    - **Positive-assertion guards (mandatory, must run BEFORE the parity comparisons)**:
+        - `assert len(state.closed_trades) > 0` — at least one trade materialized
+        - `assert len(state.equity_curve) == n_bars` — equity curve populated across the full fold
+        - `assert state.cum_pnl_usd[-1] != 0.0` — cumulative PnL is non-zero (rejects silent-zero scaffolding)
+        - `assert not hasattr(state, "_bridge_signals")` — the private attribute has been deleted
+    - **Per-metric tolerance classes (NOT uniform 0.5%)** — Phase 2 design must document provenance for each; default values below:
+        - `total_return` (annual sum): rtol ≤ **0.5%**
+        - `sharpe`, `sortino`: rtol ≤ **5%** (noise floor dominated by per-trade stop-path variance)
+        - `max_drawdown`: rtol ≤ **10%** (path-dependent peak-trough; v4 baseline 1,094% with DD ~35-42% typical fold)
+        - `calmar`: rtol ≤ **5%**
+        - `turnover` (trades/year): rtol ≤ **10%**
+        - `win_rate`: rtol ≤ **2%** absolute
+    - s524m v5 backtest metrics match v4 backtest (1,094% annual sum baseline) within the above class tolerances.
     - `WalkForwardRunner.__new__` dispatch shim at `v5/validation.py:1275-1298` CONSOLIDATED to a single canonical M9 runner (no more M8-vs-M9 kwarg routing).
     - Real engine call path exercises: precompute arrays → vectorized `_process_exits` / `_process_margin_calls` / `_process_orders` → `compute_portfolio_metrics`. Not an array-builder that discards output.
 
@@ -275,21 +302,25 @@ Note on FixedBudgetPolicy: removed from M9 scope per user directive; not deferre
     - `test_m8_paper_backtest_parity.py` stays green (already passing 8/8 — keep it green through M10).
     - NEW AC: 1-day v5 paper-tick replay through `BarProcessor` vs v5 backtest over the same bar range produces byte-identical `TokenBarArrays` per strategy (verified for s524m + s523c via `test_m9_c7_bridge_interface.py::TestPaperVsVectorizedParity`, currently passing but paper path is synthetic — M10 wires real paper ticks).
 
-11. **M9 regression skips closed**: `test_m2_scale_dispatch.py::test_scale_action_bar_updated_on_fire` unskipped + passing (debug `_dispatch_scale_action` write site). `test_m2_scale_dispatch.py::test_strategy_spec_rejects_scaling_with_multi_position` either formally retired (scale_check_fn deleted; contract gone) or re-implemented via Strategy Protocol presence check.
+11. **M9 regression skips + test_m7_pre_existing_13 staleness closed (concrete, not hand-wave)**:
+    - `test_m2_scale_dispatch.py::test_scale_action_bar_updated_on_fire` unskipped + passing (debug `_dispatch_scale_action` write site).
+    - `test_m2_scale_dispatch.py::test_strategy_spec_rejects_scaling_with_multi_position` either formally retired (scale_check_fn deleted; contract gone) or re-implemented via Strategy Protocol presence check.
+    - **`test_m7_pre_existing_13` concrete deliverable** (replaces the M9 "30min audit" hand-wave): produce `.specs/active/m10-polish/m7_pre_existing_13_audit.md` with a 13-row table (node_id × outcome × M10 action). Outcome per node: PASSING-in-v5 / OBSOLETE-delete-node / STILL-RED-debug-and-fix. STILL-RED rows must be resolved (fix or formally retire with telemetry entry) before AC #11 closes. No "audit later" residue.
 
-12. **v5/v4 parallel ops — dashboard side-by-side comparison (THE M10 operational AC)**:
-    - **Both runners LIVE simultaneously**: v4 runner at PID `/tmp/paper_runner.pid` writes `/srv/data/state.json` → rendered at `/` (legacy). v5 runner at PID `/tmp/paper_runner_v5.pid` writes `/srv/data/state_v5.json` → rendered at `/v5` (URL path detection from M9 C-8).
+12. **v5/v4 parallel-ops SHORT smoke test — dashboard side-by-side works (NOT a 48h soak)**:
+    - **Scope per user directive 2026-04-20**: parallel-run is a wiring-verification smoke, not a parity gate. Parity evidence lives in AC #9 (replay) + AC #10 (backtest-to-backtest) + AC #8 (replay-based stability). Parallel-run confirms the dashboard + both runners come up cleanly for visual comparison; operator tears down when satisfied.
+    - **Both runners START simultaneously**: v4 runner at PID `/tmp/paper_runner.pid` writes `/srv/data/state.json` → rendered at `/` (legacy). v5 runner at PID `/tmp/paper_runner_v5.pid` writes `/srv/data/state_v5.json` → rendered at `/v5` (URL path detection from M9 C-8).
     - **Zero cross-contamination**: `tools/start_all_services.sh` launches v4 (unchanged for M10 duration); `tools/start_v5_paper.sh` launches v5 (feature-flagged, M9-landed). Both run under separate PID files, state dirs, log files, dashboard URLs.
     - **Dashboard wiring verified**: `/srv/dashboard/current/index.html` path-aware JS routes requests correctly; both views load, refresh, and render without interfering. Dashboard headers label "V4 Live" and "V5 Live" distinctly.
-    - **Side-by-side equity + trade-rate comparison**: the operator can open two browser tabs (`/` and `/v5`) and visually compare equity curves, open-position counts, MTM, trade-rate. At the end of 48h soak, v5 trade-rate within ±20% of v4 AND v5 equity drift within ±3% of v4 (documented in soak log).
-    - **Full engine wiring**: every M9-shipped library piece actually executes in the v5 runner:
+    - **30-60 minute wall-clock smoke**: both runners alive simultaneously for a short window; operator visually confirms dashboard rendering both views; verifies WS rate-limit collision guard (AC #25) passes; tears down. No multi-day equity drift check — that is NOT the parallel-run's job.
+    - **Full engine wiring** (during the smoke window, every M9-shipped library piece actually executes in the v5 runner):
         - `apply_arbitration` + `ArbitrationLogWriter` → writing `v5/logs/arbitration.jsonl` during live bars
         - `RiskComponent` Phase 3.0 hook → firing on every entry candidate
         - `CapitalAllocationPolicy` → invoked at bar_close per sampling_cadence
         - `TickCadencePolicy` → wired if tick-cadence policy configured
         - Dashboard shows binding_constraint column (from M8 sizing_fills.jsonl JOIN)
         - FIX-aligned counters visible in state_v5.json (partial_fills, increase_fills, contingent_fills, entry_scale_downs)
-    - **`tools/start_all_services.sh` default flip** (end of M10): modified to launch `v5.run_paper_multi` as canonical — AFTER 48h side-by-side soak verifies parity. v4 runner script moved to `tools/start_v4_legacy.sh` for reference.
+    - **`tools/start_all_services.sh` default flip** (end of M10): modified to launch `v5.run_paper_multi` as canonical — gated by AC #9 (replay-parity green) + AC #10 (backtest-vs-backtest PASS) + AC #8 (replay stability green) + this AC's smoke. v4 runner script moved to `tools/start_v4_legacy.sh` for reference.
 
 13. **Remaining shim deletion cascade complete**: `sizing_legacy.py` deleted + `globals()["get_sizing_model"]` hack in `v5/simulator.py:31-41` removed; `Position.leg` string field deleted + 8 simulator read-sites migrated to `leg_ref_id`; `trigger_combined_entry` legacy branch (~140 lines) deleted; `armed_log.jsonl` dual-write deleted; `paper_engine._armed_tokens` alias deleted; `Leg.market` deleted (keep `settlement_type`).
 
@@ -319,6 +350,60 @@ Note on FixedBudgetPolicy: removed from M9 scope per user directive; not deferre
     - verifies `SimulationState.portfolio_equity` never goes negative even under simultaneous cascade
     - verifies `state.trading_state` flips to HALTED if drawdown threshold breached mid-cascade
 
+18. **Funding cross-path parity (M8 deferral CLOSED)**:
+    - New `test_m10_funding_backtest_paper_parity.py` opens a position at a non-window-aligned bar (e.g. 03:17 UTC) and runs the SAME fixture through:
+        * `simulator.run_backtest` → produces `v5/logs/funding_accruals.jsonl`
+        * `paper_engine` under `TestClock` with deterministic 1m bars → produces `v5/logs/funding_accruals.jsonl`
+    - Asserts both archives are byte-identical across 3 funding snaps (00/08/16 UTC)
+    - Asserts the 08:00 UTC debit on a position opened at 03:17 is charged identically on both paths (no lump-sum-vs-time-weighted asymmetry; M8 left this open, M10 closes it per user directive "everything deferred MUST be implemented")
+    - Gates removal of the "funding cadence asymmetry" note from ARCHITECTURE.md
+
+19. **Backtest `use_data_engine=True` default flip (M7 deferral CLOSED)**:
+    - `DataEngine` becomes the default backtest data source; the old `_engine_precompute_fallback` path is removed or explicitly gated to `use_data_engine=False` for debug-only use (and that flag is removed entirely if no other consumers).
+    - 206-token Q-DEC4 2025 fold produces byte-identical precomputed TokenBarArrays on both paths (DataEngine vs fallback) before the fallback is deleted.
+    - M7 brief line 91 "still deferred to M9+" contract honored here — M10 is the last milestone so this cannot carry further.
+    - Regression-guarded by `test_m10_data_engine_default.py` asserting `PortfolioConfig.use_data_engine` default == `True` and that the `use_data_engine=False` branch either raises `DeprecatedPathError` or is deleted.
+
+20. **Rollback drill executed (not just documented)**:
+    - `ROLLBACK.md` is REHEARSED — not just written — via a replay-based drill:
+    - `test_m10_rollback_drill.py` runs the following sequence against a sandbox state dir (`state/v5_paper_multi_rehearsal/`):
+        1. Seed a v4 state file; run migrator → v5 state
+        2. Inject 500 bars of v5 paper activity via replay fixture (trades, fills, closed_trades written to state.json)
+        3. Execute `ROLLBACK.md` steps programmatically (stop v5, restore `.v1.bak`, restart v4)
+        4. Verify v4 loads the restored state, equity continuity within $0.01, no position loss
+    - A rollback procedure that has never been executed is a design document, not a rollback. This AC removes that risk.
+
+21. **Maker/taker fee discrimination**:
+    - New `test_m10_fee_classification.py` verifies:
+        * An `order_type='market'` entry (or triggered entry that crosses the book) charges TAKER fee
+        * An `order_type='limit'` entry that rests and fills charges MAKER fee
+        * ClosedTrade `entry_fee` / `exit_fee` math == `fill_size × fill_price × {maker|taker}_bps` from `v5/data/instruments.py` Binance schedule
+    - No M9 test covers maker/taker discrimination today — this closes the gap before live-cutover.
+
+22. **Log rotation policy (all JSONL sinks)**:
+    - `v5/logs/LogRotator` class (or equivalent) applies to every JSONL sink under `v5/logs/`: `arbitration.jsonl` (already rotates per M9 AC #18), `sizing_fills.jsonl`, `orders_log.jsonl`, `funding_accruals.jsonl`, `paper_runner_v5.log`, `risk_decisions.jsonl` (new per AC #23 below if emitted).
+    - Rotate at 500MB; gzip rotated file; keep last 10; configurable via env var.
+    - `test_m10_log_rotation.py` writes >500MB synthetic payload to each sink and asserts rotation fires + gzip produced + active sink is newly opened.
+
+23. **Clock-drift detection (paper runner)**:
+    - Every 60s, `v5/run_paper_multi.py` compares `LiveClock.now_ns()` vs `BinanceRESTClient.server_time_ns()`:
+        * `|delta| > 500ms` → WARN to `v5/logs/clock_drift.jsonl`
+        * `|delta| > 5s` → HALT (flip TradingState to HALTED; no new entries; existing exits allowed)
+    - `test_m10_clock_drift.py` uses a monkey-patched server-clock to verify WARN + HALT thresholds fire correctly.
+    - `v5/clock.py` exists but has no drift check today — closes that gap.
+
+24. **State-corruption guard on load**:
+    - `paper_state.load()` validates:
+        * `schema_version == 3` (else raise `StateSchemaMismatchError` pointing to `.v1.bak` restore procedure)
+        * Checksum of `active_positions[]` + `open_orders[]` present and matches in-file checksum
+        * Every `active_position.position_id` appears at most once; every `open_order.order_id` appears at most once
+    - `test_m10_state_corruption.py` corrupts a state file (wrong schema, mutated checksum, duplicate position_id) and asserts load raises with a user-actionable message.
+
+25. **Parallel-run WS rate-limit collision guard** (smoke-only, NOT 48h):
+    - During the AC #12 short parallel-ops smoke window, both v4 + v5 runners share the Binance WS rate-limit budget.
+    - `test_m10_ws_ratelimit_parallel.py` starts both runners, monitors `/srv/data/ws_errors.jsonl` for the smoke window (30-60 min), and asserts `count(429 errors) == 0`.
+    - If 429s appear: the v5 runner must back off via existing WS-client retry logic; test captures and reports the backoff latency. Non-zero 429s do NOT block M10 as long as the backoff path works.
+
 ---
 
 ## Dependencies
@@ -346,7 +431,7 @@ M9 Option-A carry-overs (surgical):
 M9 regression-sweep follow-ups (from post-audit):
 - ~1-2h: debug `_dispatch_scale_action` — fix `_scale_action_bar` write
 - ~30min: resolve `test_strategy_spec_rejects_scaling_with_multi_position` (obsolete vs Protocol-based reimpl)
-- ~30min: re-audit `test_m7_pre_existing_13` meta-harness staleness
+- ~1-2h: `test_m7_pre_existing_13` 13-row audit table + per-node resolution (was 30min hand-wave; promoted per AC #11 tightening)
 - ~30min: test-dispute telemetry consolidation into ARCHITECTURE.md
 
 Post-audit scope additions (from 2026-04-20 M10 brief review):
@@ -367,7 +452,7 @@ Original M10 polish:
 - ~1h: CLAUDE.md update (stale v4-reference docstrings handled separately above)
 - ~1h: Memory monitoring setup (RSS logging, 1.2GB alert, tracemalloc snapshots)
 - ~2h: Final test audit + cleanup (baseline: 1671 passed, target: 1671+ passed with 0 xfail post-AC-S10)
-- ~2h: 48h soak test monitoring (async)
+- ~1h: Short parallel-ops smoke verification (30-60 min wall-clock; WS rate-limit collision check per AC #25)
 
 Enhanced scenario coverage (ACs #14-#17):
 - ~1-1.5h: `test_m10_pnl_path_invariants.py` — 200-bar fixture + 4 invariants (cumulative = ΣClosedTrade.pnl, equity identity, watermark monotone, equity-curve reconstruction)
@@ -375,20 +460,38 @@ Enhanced scenario coverage (ACs #14-#17):
 - ~1-1.5h: `test_m10_funding_accrual_multi_window.py` — 24h 3-window fixture at 00/08/16 UTC; sign correctness + MTM integration
 - ~1-1.5h: `test_m10_liquidation_cascade.py` — 3-position simultaneous-crash fixture; deterministic ordering + equity floor + HALTED flip
 
-**Revised total: 64-88 hours** (up from 60-82h; +4-6h for 4 new scenario tests).
+Audit-driven additions (ACs #8, #18-#25 — all replay-based, no live-wall-clock tests):
+- ~2h: `test_m10_memory_growth_replay.py` — 24h replay fixture + RSS + tracemalloc asserts (replaces 48h live soak per user directive)
+- ~3-4h: `test_m10_funding_backtest_paper_parity.py` + TestClock paper harness — closes M8 funding-cadence deferral (AC #18)
+- ~4-6h: Backtest `use_data_engine=True` default flip + parity verification + fallback-path deletion (AC #19)
+- ~2-3h: `test_m10_rollback_drill.py` — executed rollback drill against sandbox state dir (AC #20)
+- ~1-1.5h: `test_m10_fee_classification.py` — maker/taker discrimination (AC #21)
+- ~2h: `LogRotator` implementation + `test_m10_log_rotation.py` covering all JSONL sinks (AC #22)
+- ~2h: Clock-drift detector in `run_paper_multi.py` + `test_m10_clock_drift.py` (AC #23)
+- ~2h: State-corruption guard in `paper_state.load()` + `test_m10_state_corruption.py` (AC #24)
+- ~1h: `test_m10_ws_ratelimit_parallel.py` short-smoke 429 guard (AC #25)
+
+Per-metric tolerance provenance work for AC #10 (replaces blanket 0.5%):
+- ~2h: Phase-2 design note justifying per-metric rtol classes (return 50bp / Sharpe-Sortino-Calmar 5% / drawdown 10% / turnover 10% / win_rate 2% abs)
+
+**Revised total: 82-110 hours** (up from 64-88h; +18-22h for 8 new audit-driven ACs + tolerance-provenance work; AC-S10 wiring work unchanged).
+
+**Realism note**: Given M5 (scoped 100h → 110h shipped), M6 (120h → 135h), M9 (150-200h), a 110h ceiling still carries downside risk — if AC-S10 wiring exposes a structural vectorized-vs-per-bar semantic divergence, add 30-50h. The "NO DEFERRALS" policy means that risk must be absorbed inside M10, not kicked.
 
 ---
 
 ## Parity Gate
 
-- **Full v5 test suite**: 1671+ passed, 0 failed, ≤2 documented skips (replay-parity fixture-gated is acceptable or should be closed), 0 xfailed, 0 xpassed (all trip-wires resolved)
-- **AC-S10 backtest-vs-backtest parity CLOSED**: 6 strict-xfail tests in `test_m8_ac_s10_s524m_parity.py` flip to PASS within 0.5% on Q-DEC4 2025 206-token fold (v4 s524m baseline 1,094% ± 0.5%); `_bridge_signals` private attribute removed
-- **Replay-parity tests ACTUALLY PASS** (not skip): both tests in `test_m9_replay_parity.py` green; fixture generator shipped; real diff-runner wiring complete
-- **v5/v4 parallel-ops dashboard LIVE**: both runners alive simultaneously during 48h soak; `/` renders v4 state.json, `/v5` renders state_v5.json, both refresh with fresh data; operator visually confirms via the dashboard
-- **Paper trader 48h soak**: v5 runner runs 48h clean; RSS growth < 100MB; trade-rate within ±20% of v4 baseline; zero state corruption
-- **v5-runner default-on cutover**: `tools/start_all_services.sh` launches v5; `/srv/data/state_v5.json` populated; dashboard routes correctly
-- **Documentation canonical**: ARCHITECTURE.md / MIGRATION.md / ROLLBACK.md / NAMING_CONVENTIONS.md all exist + non-empty
-- **Grep-zero invariants**: `v4 compat`, `backward compat`, `# TODO: remove`, `DEPRECATED` (excl. 1 allowlisted banner per AC #1), `confirmation_tiers`, stale v4-active-engine docstrings → 0 hits in v5/ non-test
-- **M9 regression skips closed**: both `test_m2_scale_dispatch.py` skips resolved (unskipped-passing OR formally retired per AC #11)
-- **12 shim deletion cascade verified**: `sizing_legacy.py`, `Position.leg`, `trigger_combined_entry`, `armed_log.jsonl`, `_armed_tokens`, `Leg.market`, `confirmation_tiers`, `cpcv.deflated_sharpe` stub — all deleted; no grep hits
-- **CLAUDE.md v4 freeze notice in place**; v5 paper runner is live; v4 is frozen reference
+- **Full v5 test suite**: 1671+ passed, 0 failed, 0 skipped (all prior skips resolved — replay-parity fixture-generator ships per AC #9; `test_m7_paper_8site.py:80` stale skip deleted; `test_m2_scale_dispatch` regressions closed per AC #11), 0 xfailed, 0 xpassed. No residual skips allowed at M10 close per "NO DEFERRALS" policy.
+- **AC-S10 backtest-vs-backtest parity CLOSED**: 6 `strict=True` xfails in `test_m8_ac_s10_s524m_parity.py` have their decorators DELETED + positive-assertion guards PASS (`closed_trades` non-empty, `equity_curve` populated, `cum_pnl_usd[-1]` non-zero, `_bridge_signals` attribute deleted) + per-metric tolerances met on Q-DEC4 2025 206-token fold (v4 s524m baseline 1,094%): return ≤50bp, Sharpe/Sortino/Calmar ≤5%, drawdown ≤10%, turnover ≤10%, win_rate ≤2% absolute.
+- **Replay-parity tests ACTUALLY PASS** (not skip): both tests in `test_m9_replay_parity.py` green; fixture generator shipped; real diff-runner wiring complete.
+- **v5/v4 parallel-ops SMOKE confirms dashboard wiring** (NOT a multi-day soak per user directive): both runners come up simultaneously, `/` renders v4 state.json, `/v5` renders state_v5.json, WS rate-limit 429 count == 0 over a 30-60 min window (AC #25); operator tears down after visual verification.
+- **Replay-based stability**: `test_m10_memory_growth_replay.py` green — 24h replay fixture, RSS growth <100MB, tracemalloc bounded, zero state-corruption events. Replaces any live-wall-clock soak per user directive.
+- **Deferred-items CLOSED** (M7 + M8 carry-overs): funding cross-path parity (AC #18) green; backtest `use_data_engine=True` default flipped (AC #19); fallback path deleted; rollback drill executed (AC #20) with $0.01 equity continuity.
+- **v5-runner default-on cutover**: `tools/start_all_services.sh` launches v5; `/srv/data/state_v5.json` populated; dashboard routes correctly. Gated by replay-parity + AC-S10 + replay-stability + short parallel smoke — NOT by a live soak.
+- **Documentation canonical**: ARCHITECTURE.md / MIGRATION.md / ROLLBACK.md / NAMING_CONVENTIONS.md / DASHBOARD_V5.md / V5_SIZING_SYSTEM.md all exist + non-empty.
+- **Grep-zero invariants**: `v4 compat`, `backward compat`, `# TODO: remove`, `DEPRECATED` (excl. 1 allowlisted banner per AC #1), `confirmation_tiers`, stale v4-active-engine docstrings, `xfail(strict=True)` on AC-S10 nodes → 0 hits in v5/ non-test.
+- **M9 regression skips closed**: both `test_m2_scale_dispatch.py` skips resolved (unskipped-passing OR formally retired per AC #11); `test_m7_pre_existing_13` 13-row audit produced with per-node resolution.
+- **12+ shim deletion cascade verified**: `sizing_legacy.py`, `Position.leg`, `trigger_combined_entry`, `armed_log.jsonl`, `_armed_tokens`, `Leg.market`, `confirmation_tiers`, `cpcv.deflated_sharpe` stub, `use_data_engine=False` fallback branch, `WalkForwardRunner.__new__` dispatch shim — all deleted; no grep hits.
+- **Operational guards live**: log rotation for all JSONL sinks (AC #22), clock-drift detector (AC #23), state-corruption guard (AC #24) all in place with passing tests.
+- **CLAUDE.md v4 freeze notice in place**; v5 paper runner is live; v4 is frozen reference.
