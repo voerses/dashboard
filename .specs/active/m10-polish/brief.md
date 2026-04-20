@@ -114,6 +114,12 @@ After M1-M9, v5 is functionally complete but has accumulated:
   - **Actual baseline at M9 close** (verified 2026-04-20): 1671 passed, 7 skipped, 13 xfailed, 2 xpassed — NOT the old ~1,450-1,600 estimate.
   - M10 target: 1671+ passed, ≤2 documented skips (replay-parity fixture-gated until generator ships), 0 xfailed after AC-S10 bridge flips the 6 capstone xfails, 0 orphans.
 
+- **Enhanced scenario coverage** (new test files per ACs #14-#17):
+  - `v5/tests/test_m10_pnl_path_invariants.py` — cumulative PnL / equity-identity / watermark-monotonicity over 200-bar fixture
+  - `v5/tests/test_m10_daily_pnl_rollover.py` — realized_pnl_today_usd reset at UTC midnight; DailyLossLimit interaction
+  - `v5/tests/test_m10_funding_accrual_multi_window.py` — 3-window funding accrual (24h fixture), sign correctness, 00/08/16 UTC snap points
+  - `v5/tests/test_m10_liquidation_cascade.py` — 3-position simultaneous liquidation; deterministic ordering; equity floor + HALTED transition
+
 ### Paper Migration Runbook (11 steps)
 
 0. **Pre-flight verification**: Run v5 backtest on s524m reference strategy. Verify metrics are reasonable (no NaN, Sharpe > 0, drawdown < 50%). Do NOT stop v4 paper until this passes. Step 0 includes rewriting s513, s523c, s524m for v5 API. These are clean rewrites, not mechanical ports. Rewrite validates: s513 ~2h, s523c ~3h, s524m ~5h.
@@ -287,6 +293,32 @@ Note on FixedBudgetPolicy: removed from M9 scope per user directive; not deferre
 
 13. **Remaining shim deletion cascade complete**: `sizing_legacy.py` deleted + `globals()["get_sizing_model"]` hack in `v5/simulator.py:31-41` removed; `Position.leg` string field deleted + 8 simulator read-sites migrated to `leg_ref_id`; `trigger_combined_entry` legacy branch (~140 lines) deleted; `armed_log.jsonl` dual-write deleted; `paper_engine._armed_tokens` alias deleted; `Leg.market` deleted (keep `settlement_type`).
 
+14. **Multi-bar PnL accrual invariants**: new `test_m10_pnl_path_invariants.py` verifies over a 200-bar fixture:
+    - cumulative `realized_pnl_today_usd` at bar N equals sum of all ClosedTrade pnls closed at bar ≤ N
+    - `portfolio_equity` at bar N = `initial_capital + sum(realized_pnl) + sum(unrealized_pnl_at_N)` (fundamental identity)
+    - `max_equity_watermark` is monotone non-decreasing
+    - equity curve matches reconstructed-from-trades equity curve bit-identical
+
+15. **Realized-PnL day-boundary rollover** (DailyLossLimit dependency):
+    - `test_m10_daily_pnl_rollover.py` simulates 48h fixture crossing a UTC-midnight boundary
+    - verifies `realized_pnl_today_usd` resets to 0 at 00:00:00 UTC
+    - verifies DailyLossLimit halt state clears at the new day (or persists per config)
+    - verifies PnL accrued pre-boundary is captured in lifetime cumulative stats but excluded from day counter
+
+16. **Funding cost integration across 8h windows**:
+    - `test_m10_funding_accrual_multi_window.py` runs a 24h (3-window) fixture with positive and negative funding rates
+    - verifies Position.cumulative_funding accumulates correctly across 3 funding snaps
+    - verifies equity MTM correctly incorporates funding cost at each window edge
+    - verifies `sign(direction) × funding_rate × notional` math at each window
+    - verifies funding snap happens at 00:00, 08:00, 16:00 UTC (no drift)
+
+17. **Liquidation cascade** (multiple positions liquidate same bar):
+    - `test_m10_liquidation_cascade.py` constructs a 3-position fixture where all 3 cross their liq threshold in the same bar (market-wide crash scenario)
+    - verifies all 3 positions close in the same bar
+    - verifies deterministic ordering (by liq_distance ascending, then strategy_id+token lex tie-break)
+    - verifies `SimulationState.portfolio_equity` never goes negative even under simultaneous cascade
+    - verifies `state.trading_state` flips to HALTED if drawdown threshold breached mid-cascade
+
 ---
 
 ## Dependencies
@@ -337,7 +369,13 @@ Original M10 polish:
 - ~2h: Final test audit + cleanup (baseline: 1671 passed, target: 1671+ passed with 0 xfail post-AC-S10)
 - ~2h: 48h soak test monitoring (async)
 
-**Revised total: 60-82 hours** (up from 53-74h).
+Enhanced scenario coverage (ACs #14-#17):
+- ~1-1.5h: `test_m10_pnl_path_invariants.py` — 200-bar fixture + 4 invariants (cumulative = ΣClosedTrade.pnl, equity identity, watermark monotone, equity-curve reconstruction)
+- ~1-1.5h: `test_m10_daily_pnl_rollover.py` — 48h UTC-midnight fixture + DailyLossLimit interaction
+- ~1-1.5h: `test_m10_funding_accrual_multi_window.py` — 24h 3-window fixture at 00/08/16 UTC; sign correctness + MTM integration
+- ~1-1.5h: `test_m10_liquidation_cascade.py` — 3-position simultaneous-crash fixture; deterministic ordering + equity floor + HALTED flip
+
+**Revised total: 64-88 hours** (up from 60-82h; +4-6h for 4 new scenario tests).
 
 ---
 
