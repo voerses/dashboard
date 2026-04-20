@@ -22,5 +22,20 @@ Out of scope (deferred):
   - M9: funding 8h cadence parity between backtest and paper
 """
 from v5.sizing.intents import SizingIntent, SizingRequest
+# Slippage back-compat re-exports (v5.sizing was flat before M8 delete;
+# legacy tests like test_slippage_fixes still import from the package).
+from v5.sizing.slippage import (
+    SqrtImpactSlippage,
+    SlippageModel,
+    compute_slippage_bps,
+    get_slippage_model,
+)
 
-__all__ = ["SizingIntent", "SizingRequest"]
+__all__ = [
+    "SizingIntent",
+    "SizingRequest",
+    "SqrtImpactSlippage",
+    "SlippageModel",
+    "compute_slippage_bps",
+    "get_slippage_model",
+]

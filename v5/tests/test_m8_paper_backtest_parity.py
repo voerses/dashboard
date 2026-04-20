@@ -35,7 +35,7 @@ NON_FLOAT_COLUMNS = ("binding_constraint", "intent", "symbol", "strategy_id")
 FLOAT_COLUMNS = ("filled_margin", "filled_notional", "fill_price", "slippage_bps")
 REQUIRED_BINDING_CONSTRAINTS = {
     "adv_cap", "concentration", "free_capital",
-    "min_size", "liq_distance",
+    "min_size", "liquidation_distance",
     # slippage is NOT a binding constraint — it's a price adjust — so we
     # assert slippage_bps > 0 somewhere instead.
 }

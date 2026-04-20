@@ -447,7 +447,14 @@ def _build_log(
     leverage = float(sizing.leverage) if sizing is not None else 1.0
     margin_mode = sizing.margin_mode if sizing is not None else "isolated"
     reduce_only = bool(sizing.reduce_only) if sizing is not None else False
+    from datetime import datetime, timezone
     return {
+        # Timestamp at log-write time. Deterministic under TestClock via
+        # ctx.clock; the standalone run_clamp_pipeline doesn't have a
+        # clock, so we stamp ISO UTC at build_log time. Paper-vs-backtest
+        # parity tolerates this as non-float byte-identity is off this
+        # field (tests strip or ignore timestamp for parity comparison).
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "order_id": getattr(order, "order_id", ""),
         "symbol": order.token,
         "strategy_id": order.strategy_id,
