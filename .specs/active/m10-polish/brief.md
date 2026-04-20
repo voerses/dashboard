@@ -404,6 +404,13 @@ Note on FixedBudgetPolicy: removed from M9 scope per user directive; not deferre
     - `test_m10_ws_ratelimit_parallel.py` starts both runners, monitors `/srv/data/ws_errors.jsonl` for the smoke window (30-60 min), and asserts `count(429 errors) == 0`.
     - If 429s appear: the v5 runner must back off via existing WS-client retry logic; test captures and reports the backoff latency. Non-zero 429s do NOT block M10 as long as the backoff path works.
 
+26. **Zero test warnings** (743 → 0):
+    - Baseline measured 2026-04-20: 1761 passed with **743 warnings** (UserWarning ×~739, PytestCollectionWarning ×3, Pandas4Warning ×1).
+    - **~739 UserWarning** at `v5/signals.py:434` (s56 combined-mode fallback) — downgrade to `logger.debug()` OR emit once-per-strategy via a `_warned_set` sentinel (not once-per-token-per-test). Fallback behavior itself stays correct; only the emission policy changes.
+    - **3 PytestCollectionWarning** at `v5/testing.py:17` — set `TestClock.__test__ = False` so pytest stops trying to collect the helper class.
+    - **1 Pandas4Warning** at `v5/data_resampler.py:270` — drop the deprecated `copy=False` kwarg or switch to `.copy()`; pandas 3.0 Copy-on-Write makes it a no-op anyway.
+    - **Hardening**: add `filterwarnings = error` to `pytest.ini` (v5 test scope) so any future warning hard-fails the suite. Test run at M10 close: `pytest v5/tests/` reports `0 warnings`.
+
 ---
 
 ## Dependencies
@@ -470,11 +477,12 @@ Audit-driven additions (ACs #8, #18-#25 — all replay-based, no live-wall-clock
 - ~2h: Clock-drift detector in `run_paper_multi.py` + `test_m10_clock_drift.py` (AC #23)
 - ~2h: State-corruption guard in `paper_state.load()` + `test_m10_state_corruption.py` (AC #24)
 - ~1h: `test_m10_ws_ratelimit_parallel.py` short-smoke 429 guard (AC #25)
+- ~30-60min: zero-warnings cleanup (AC #26) — s56 fallback emission policy, `TestClock.__test__`, pandas `copy=False`, `filterwarnings=error` in pytest.ini
 
 Per-metric tolerance provenance work for AC #10 (replaces blanket 0.5%):
 - ~2h: Phase-2 design note justifying per-metric rtol classes (return 50bp / Sharpe-Sortino-Calmar 5% / drawdown 10% / turnover 10% / win_rate 2% abs)
 
-**Revised total: 82-110 hours** (up from 64-88h; +18-22h for 8 new audit-driven ACs + tolerance-provenance work; AC-S10 wiring work unchanged).
+**Revised total: 82-111 hours** (up from 64-88h; +18-23h for 8 new audit-driven ACs + tolerance-provenance work + zero-warnings AC #26; AC-S10 wiring work unchanged).
 
 **Realism note**: Given M5 (scoped 100h → 110h shipped), M6 (120h → 135h), M9 (150-200h), a 110h ceiling still carries downside risk — if AC-S10 wiring exposes a structural vectorized-vs-per-bar semantic divergence, add 30-50h. The "NO DEFERRALS" policy means that risk must be absorbed inside M10, not kicked.
 
@@ -482,7 +490,7 @@ Per-metric tolerance provenance work for AC #10 (replaces blanket 0.5%):
 
 ## Parity Gate
 
-- **Full v5 test suite**: 1671+ passed, 0 failed, 0 skipped (all prior skips resolved — replay-parity fixture-generator ships per AC #9; `test_m7_paper_8site.py:80` stale skip deleted; `test_m2_scale_dispatch` regressions closed per AC #11), 0 xfailed, 0 xpassed. No residual skips allowed at M10 close per "NO DEFERRALS" policy.
+- **Full v5 test suite**: 1671+ passed, 0 failed, 0 skipped (all prior skips resolved — replay-parity fixture-generator ships per AC #9; `test_m7_paper_8site.py:80` stale skip deleted; `test_m2_scale_dispatch` regressions closed per AC #11), 0 xfailed, 0 xpassed, **0 warnings** (AC #26 closes the 743-warning baseline). No residual skips allowed at M10 close per "NO DEFERRALS" policy.
 - **AC-S10 backtest-vs-backtest parity CLOSED**: 6 `strict=True` xfails in `test_m8_ac_s10_s524m_parity.py` have their decorators DELETED + positive-assertion guards PASS (`closed_trades` non-empty, `equity_curve` populated, `cum_pnl_usd[-1]` non-zero, `_bridge_signals` attribute deleted) + per-metric tolerances met on Q-DEC4 2025 206-token fold (v4 s524m baseline 1,094%): return ≤50bp, Sharpe/Sortino/Calmar ≤5%, drawdown ≤10%, turnover ≤10%, win_rate ≤2% absolute.
 - **Replay-parity tests ACTUALLY PASS** (not skip): both tests in `test_m9_replay_parity.py` green; fixture generator shipped; real diff-runner wiring complete.
 - **v5/v4 parallel-ops SMOKE confirms dashboard wiring** (NOT a multi-day soak per user directive): both runners come up simultaneously, `/` renders v4 state.json, `/v5` renders state_v5.json, WS rate-limit 429 count == 0 over a 30-60 min window (AC #25); operator tears down after visual verification.
