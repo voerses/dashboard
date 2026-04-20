@@ -52,12 +52,13 @@ class StrategySpec:
     warmup_bars: int = 0
     # T-M5-13 / AC13: feature flag gating combined primary/secondary migration
     # from the M2 ``linked_position_id`` path to the M5 ``Order.legs`` multi-leg
-    # path. Defaults to False — combined strategies continue using M2 semantics
-    # until explicitly opted in. When True, ``trigger_combined_entry`` emits an
-    # ``Order(legs=[primary, secondary], contingency=OCO)`` and both Positions
-    # carry the same ``order_id``. See design.md §"Combined primary/secondary
-    # migration" + F6 (coexistence lifetime through M9).
-    use_multi_leg_orders: bool = False
+    # path. M9 Wave D: default flipped True — multi-leg OTOCO Orders
+    # are the canonical combined-entry path per M5. Legacy
+    # `trigger_combined_entry` branch retained in simulator.py with a
+    # deprecation notice; final deletion gated on replay-parity
+    # validation (T35b) against the multi-leg fixture.
+    # Historical: see design.md §"Combined primary/secondary migration".
+    use_multi_leg_orders: bool = True
 
     def __init__(
         self,

@@ -44,8 +44,8 @@ class Instrument:
     contract_subtype: Optional[
         Literal["perpetual", "quarterly", "dated", "european", "american"]
     ] = None
-    # Deprecated alias during M6 migration; removed in M9 (see M9 brief "M6 Impact")
-    contract_type: Optional[str] = None
+    # M9 Wave D: legacy free-string contract_type field DELETED. Callers
+    # must read `contract_subtype: Literal[...]` (typed enum).
 
     def __post_init__(self):
         if self.contract_subtype is not None and self.contract_subtype not in _VALID_CONTRACT_SUBTYPES:

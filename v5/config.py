@@ -235,7 +235,10 @@ class PortfolioConfig:
     # sizing_model.compute_size path (pre-M8 behavior preserved). Set
     # True → Order.release_atomic clamp pipeline with 6-clamp sequence
     # + binding-log JSONL. Flag preserved until M9 post-paper validation.
-    use_m8_clamps: bool = False
+    # M9 Wave D: use_m8_clamps flag flipped to True + branches inlined
+    # at simulator release_atomic callsite. Kept as dataclass field
+    # with default True for config-file back-compat; runtime unconditional.
+    use_m8_clamps: bool = True
     # Maximum rows to keep in hist_cache per token (0 = unlimited for backtest)
     cache_max_rows: int = 0
     # Delayed/armed entry: signal fires on bar B, actual entry on bar B + entry_delay_bars.

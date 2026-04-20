@@ -1569,12 +1569,10 @@ def _stage2_process_new_signals(
             leverage=lev_val,
         )
 
-        # M8 Task 22 — clamp pipeline path (config.use_m8_clamps=True).
-        # Ships alongside legacy sizing_model.compute_size; the flag
-        # controls which produces the final notional. Rollback protocol
-        # per design §5.2. Legacy path is default-on until M9 paper
-        # validation; M8 green-light for opt-in in tests + research.
-        if getattr(config, "use_m8_clamps", False) and pos_usd > 0:
+        # M8 clamp pipeline (M9 Wave D: flag flipped to True default,
+        # legacy path deleted. `use_m8_clamps` kept as config field for
+        # back-compat but runtime is unconditional).
+        if pos_usd > 0:
             try:
                 from pathlib import Path as _Path
                 from v5.sizing.allocation import SharedPoolPolicy

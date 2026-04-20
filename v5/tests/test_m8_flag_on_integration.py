@@ -75,12 +75,16 @@ class TestUseM8ClampsFlag:
         assert cfg_on.use_m8_clamps is True
 
     def test_flag_default_is_legacy_path(self):
-        """Default False — legacy sizing_model.compute_size path."""
+        """M9 test-dispute #3 (reviewer-approved): M8 asserted default False
+        (legacy path until paper validation). M9 Wave D flips the default
+        to True per brief AC #10 — the replay-parity gate closure. M8 test
+        updated to match M9 canonical default. Rationale logged to
+        .specs/telemetry.jsonl."""
         from v5.config import PortfolioConfig
         cfg = PortfolioConfig()
-        assert cfg.use_m8_clamps is False, (
-            "Default must be legacy path; rollback flag defaults False "
-            "until M9 post-paper validation."
+        # M9 default-on (was False under M8's rollback-protocol scaffold).
+        assert cfg.use_m8_clamps is True, (
+            "M9 Wave D: default flipped to True; clamp pipeline is canonical."
         )
 
     def test_clamp_pipeline_invoked_under_flag_on(self, monkeypatch):
