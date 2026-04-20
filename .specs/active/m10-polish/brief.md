@@ -1,6 +1,8 @@
-# M10 — Final Polish + Rename
+# M10 — Final Polish + Rename + v5/v4 Parallel Ops
 
-**Summary**: Remove all remaining v4 compatibility shims, finalize API naming, write architecture documentation, ship the paper state migrator, and freeze v4 — completing the v5 engine transition.
+**Summary**: The FINAL milestone — ships everything. Remove all remaining v4 compatibility shims, finalize API naming, complete AC-S10 capstone parity, ship paper state migrator + replay-parity fixture generator, rewire all M9 library code into live engine paths, and achieve **v5 engine running in parallel with v4** behind isolated dashboard/state/runner paths so the operator can compare results side-by-side via the `/v5` URL.
+
+**Policy**: NO DEFERRALS. No carry-over to a hypothetical M11. No "scaffold only". Every item in this brief ships or M10 doesn't close.
 
 ---
 
@@ -38,13 +40,28 @@ After M1-M9, v5 is functionally complete but has accumulated:
 ### In scope
 
 - **Compat shim removal**: Find and delete all `# v4 compat` or `# backward compat` marked code in v5/. Remove any import aliases that map v4 names to v5 names.
+  - **Specific targets** (from 2026-04-20 scope audit):
+    * `v5/paper_config.py:39,128` — `confirmation_tiers: dict = ... # deprecated` field + reader → delete
+    * `v5/cpcv.py:58-70` — `deflated_sharpe()` DeprecationWarning-raising stub → archive or delete
+    * `v5/paper_state.py:1178` — `# v4 compatibility loaders (AC31a, AC33, AC34)` banner → rename comment; keep function bodies
+    * `v5/universe.py:180`, `v5/metrics.py:326,336`, `v5/signals.py:434` — review 4 `warnings.warn` call sites; keep only user-facing warnings, delete code-smell ones
+    * `v5/tests/test_m7_paper_8site.py:80` — dead `pytest.skip("v5/paper_engine.py not present")` (file exists) → delete
+
+- **Stale v4-reference docstrings**: grep-blind compat rot (not caught by `v4 compat` string):
+  - `v5/engine.py:1,9,1511,1544` — module + class docstrings refer to v4 as the "active engine"
+  - `v5/validation.py:6,16,18` — same pattern
+  - Rewrite to reflect v5-canonical status. No code change; docstrings only.
 
 - **API naming consistency pass**:
   - Audit all public APIs across v5/ modules for consistent terminology
   - Standardize: `symbol` (not `token` or `instrument` for the string identifier), `instrument` (for metadata object), `bar` (not `candle`), `position` (not `trade` for open), `closed_trade` (for completed)
   - Ensure all Protocol method signatures use consistent parameter names
 
-- **Documentation**:
+- **Documentation** (4 canonical docs + 1 optional):
+  - `knowledge/NAMING_CONVENTIONS.md` — source of truth for AC #2 naming audit (symbol/instrument/bar/position/closed_trade canonical terms + rationale)
+  - `knowledge/DASHBOARD_V5.md` — `/v5` URL routing, state_v5.json schema, cutover procedure, kill-switch drill
+  - `knowledge/V5_SIZING_SYSTEM.md` — companion to archived V4_SIZING_SYSTEM.md; documents M8 clamp pipeline + M9 SignalArbitrationPolicy + CapitalAllocationPolicy after v4 freeze
+  - (optional, nice-to-have) `knowledge/V5_RELEASE_NOTES.md` or `CHANGELOG.md` — 10-milestone summary
   - `knowledge/ARCHITECTURE.md` — Trade Identity Model section with full detail:
     - `parent_position_id: str` — immutable join key (FIX `OrderID(37)` analog)
     - `exec_seq: int` — monotonic per parent_position_id (FIX `ExecID(17)` analog)
@@ -81,9 +98,21 @@ After M1-M9, v5 is functionally complete but has accumulated:
 
 - **Memory monitoring**: `v5/run_paper_multi.py` logs RSS every minute; alerts at 1.2GB threshold. Periodic `tracemalloc` snapshot every 6h for first week post-deploy. Memory soak test validates RSS growth < 100MB over 24h simulated paper run.
 
-- **`state_schema_version` field**: Added to state.json for dashboard schema transition. Dashboard frontend tolerates both v4 and v5 schemas during transition period by checking this field.
+- **`state_schema_version` field** — reconciliation (not addition): M9 v5 paper_state already exposes `STATE_SCHEMA_VERSION = 3` at `v5/paper_state.py:45` + emits via `paper_state.py:1519`. DO NOT add a second field. M10 task: ensure dashboard frontend reads the existing field; delete any v4-only schema assumption.
 
-- **Final test suite audit**: Verify all v5 tests are categorized (unit/integration/parity), no orphaned tests, no tests that only pass due to compat shims. Expected: v4 surviving tests (~1,250-1,300 functions after dead code deletion in M1) + new v5 tests added in M2-M9 (~200-300) = ~1,450-1,600 total test functions. Exact count validated during M10.
+- **v5 runner default-on cutover** (operational):
+  - Post-48h-soak: `tools/start_all_services.sh` modified to launch `v5.run_paper_multi` instead of `v4.run_paper_multi` (or publish new `tools/start_v5_services.sh` as canonical + archive v4 launcher).
+  - `/srv/data/state_v5.json` present + `state.json` symlinked/redirected OR dashboard defaults to v5 URL.
+  - Feature flag `V5_PAPER_ENABLED=1` is the default in the v5 runner script after M10 ship.
+
+- **v4 paper runner shutdown procedure** (missing from runbook step 1):
+  - Concrete signal: `SIGTERM` via `bash tools/stop_all_services.sh` (existing script); wait 30s for drain; escalate to `SIGKILL` only if PID still alive.
+  - Verify `state/v4_paper_multi/paper.pid` removed.
+  - Confirm no partial writes to `state/v4_paper_multi/trades.csv` (tail the last row; must be complete trade record).
+
+- **Final test suite audit**: Verify all v5 tests are categorized (unit/integration/parity), no orphaned tests, no tests that only pass due to compat shims.
+  - **Actual baseline at M9 close** (verified 2026-04-20): 1671 passed, 7 skipped, 13 xfailed, 2 xpassed — NOT the old ~1,450-1,600 estimate.
+  - M10 target: 1671+ passed, ≤2 documented skips (replay-parity fixture-gated until generator ships), 0 xfailed after AC-S10 bridge flips the 6 capstone xfails, 0 orphans.
 
 ### Paper Migration Runbook (11 steps)
 
@@ -208,21 +237,55 @@ Note on FixedBudgetPolicy: removed from M9 scope per user directive; not deferre
 
 ## Key Acceptance Criteria
 
-1. **Zero compat shims**: A grep for `v4 compat`, `backward compat`, `# deprecated`, `# TODO: remove` in v5/ returns zero results. All temporary bridges are deleted.
+1. **Zero compat shims**: A grep for `v4 compat`, `backward compat`, `# TODO: remove`, `DEPRECATED` (excluding the rename-commented `# deprecated` banner in `v5/paper_state.py:1178` — the renamed banner is a legitimate v4-log loader for dashboard back-compat per AC #5) returns zero results in v5/ non-test code. All temporary bridges deleted.
 
-2. **Naming audit passes**: A script (or manual audit) confirms all public v5 APIs use the standardized terminology. No public method uses `token` where `symbol` is the standard, etc.
+2. **Naming audit passes**: `knowledge/NAMING_CONVENTIONS.md` exists as the source of truth + a grep script in `tools/audit_naming.sh` verifies zero violations across `v5/*.py` + `v5/strategies/*.py`. Standardized terms: `symbol` (string identifier), `instrument` (metadata object), `bar` (not `candle`), `position` / `closed_trade`.
 
-3. **ARCHITECTURE.md exists**: `knowledge/ARCHITECTURE.md` contains a Trade Identity Model section explaining parent_position_id, ScalingEvent, and ClosedTrade lineage with a diagram.
+3. **ARCHITECTURE.md exists**: `knowledge/ARCHITECTURE.md` contains (a) Trade Identity Model (parent_position_id / ScalingEvent / ClosedTrade lineage + diagram), (b) `TickCadencePolicy` wiring path (M9 deliverable not yet documented), (c) running tally of 5 M8→M9 test-dispute spec changes from `.specs/telemetry.jsonl`.
 
-4. **Migration runbook exists**: `knowledge/MIGRATION.md` contains numbered steps for migrating one strategy from v4 to v5, including: code changes, config changes, paper state migration, verification steps, rollback steps.
+4. **Migration runbook exists**: `knowledge/MIGRATION.md` contains numbered steps for migrating one strategy from v4 to v5, including: code changes, config changes, paper state migration, verification steps, rollback steps. **Concrete v4 shutdown** (SIGTERM via `tools/stop_all_services.sh`, 30s drain, SIGKILL escalation). **Dashboard cutover** (URL, state.json redirect).
 
 5. **Paper state migrator works**: `v5/migrate_state_v1_to_v2.py` converts a v4 paper state file to v5 format. A test round-trips a real v4 state file through the migrator and verifies all positions and orders are preserved.
 
-6. **CLAUDE.md updated**: CLAUDE.md contains the v4 freeze notice with the freeze date. The v3 freeze notice is unchanged.
+6. **CLAUDE.md + stale docstrings updated**: (a) CLAUDE.md contains the v4 freeze notice with freeze date; v3 notice unchanged. (b) `v5/engine.py:1,9,1511,1544` + `v5/validation.py:6,16,18` module/class docstrings rewritten to reflect v5-canonical status (no more "v4 is active engine" prose inside v5/).
 
-7. **Full test suite green**: All v5 tests pass. `pytest v5/tests/` exits 0. No skipped tests, no xfail.
+7. **Full test suite green**: `pytest v5/tests/` exits 0 with 1671+ passed. Allowed: ≤2 replay-parity tests skipped pending fixture-generator ship (AC #9). 0 xfailed after AC-S10 bridge flips the 6 capstone xfails (AC #10). 0 orphaned/dead-skip tests (delete `test_m7_paper_8site.py:80` stale skip).
 
-8. **48h paper soak**: Paper trader runs for 48 hours on v5 without errors, memory growth, or state corruption (manual verification, not automated test).
+8. **48h paper soak**: v5 paper trader runs 48 hours without errors; RSS growth < 100MB over the window; trade-rate within ±20% of v4 baseline; zero state-corruption events. Measured via `v5/run_paper_multi.py` memory monitor + trade-count diff.
+
+9. **Replay-parity test + fixture ACTUALLY RUN (not scaffold)**:
+    - `v5/tests/fixtures/generate_m9_replay_parity_7d.py` exists and produces a 7-day parquet-windowed fixture forcing each of 6 M8 clamps to bind at least once. Manifest at `v5/tests/fixtures/m9_replay_parity_7d/manifest.json` points to generated slices (status: "ready", not "scaffold").
+    - `v5/tools/replay_parity.py::run_replay_parity_m8_clamps` and `run_replay_parity_multi_leg` are REAL implementations (not `pytest.skip` stubs) — they run paper_engine twice with flag=False / flag=True and diff archives.
+    - **The 2 tests in `test_m9_replay_parity.py` PASS** (not skip): `test_use_m8_clamps_nonbinding_bars_byte_identical` + `test_use_multi_leg_orders_nonbinding_bars_byte_identical`. Non-binding bars byte-identical; binding bars have matching `sizing_fills.jsonl` entry with documented clamp name.
+
+10. **AC-S10 backtest-vs-backtest parity CLOSED (the capstone)**:
+    - 6 strict-xfail tests in `test_m8_ac_s10_s524m_parity.py` flip to PASS within **0.5% relative tolerance** on Q-DEC4 2025 206-token fold.
+    - s524m v5 backtest total_return / sharpe / sortino / calmar / max_drawdown all match v4 backtest (1,094% annual sum baseline) within 0.5%.
+    - `SimulationState._bridge_signals` private attribute DELETED after real wiring lands (not just "attached for inspection").
+    - `WalkForwardRunner.__new__` dispatch shim at `v5/validation.py:1275-1298` CONSOLIDATED to a single canonical M9 runner (no more M8-vs-M9 kwarg routing).
+    - Real engine call path exercises: precompute arrays → vectorized `_process_exits` / `_process_margin_calls` / `_process_orders` → `compute_portfolio_metrics`. Not an array-builder that discards output.
+
+10b. **Backtest-vs-paper parity (v5 intra-mode consistency)**:
+    - `test_m8_paper_backtest_parity.py` stays green (already passing 8/8 — keep it green through M10).
+    - NEW AC: 1-day v5 paper-tick replay through `BarProcessor` vs v5 backtest over the same bar range produces byte-identical `TokenBarArrays` per strategy (verified for s524m + s523c via `test_m9_c7_bridge_interface.py::TestPaperVsVectorizedParity`, currently passing but paper path is synthetic — M10 wires real paper ticks).
+
+11. **M9 regression skips closed**: `test_m2_scale_dispatch.py::test_scale_action_bar_updated_on_fire` unskipped + passing (debug `_dispatch_scale_action` write site). `test_m2_scale_dispatch.py::test_strategy_spec_rejects_scaling_with_multi_position` either formally retired (scale_check_fn deleted; contract gone) or re-implemented via Strategy Protocol presence check.
+
+12. **v5/v4 parallel ops — dashboard side-by-side comparison (THE M10 operational AC)**:
+    - **Both runners LIVE simultaneously**: v4 runner at PID `/tmp/paper_runner.pid` writes `/srv/data/state.json` → rendered at `/` (legacy). v5 runner at PID `/tmp/paper_runner_v5.pid` writes `/srv/data/state_v5.json` → rendered at `/v5` (URL path detection from M9 C-8).
+    - **Zero cross-contamination**: `tools/start_all_services.sh` launches v4 (unchanged for M10 duration); `tools/start_v5_paper.sh` launches v5 (feature-flagged, M9-landed). Both run under separate PID files, state dirs, log files, dashboard URLs.
+    - **Dashboard wiring verified**: `/srv/dashboard/current/index.html` path-aware JS routes requests correctly; both views load, refresh, and render without interfering. Dashboard headers label "V4 Live" and "V5 Live" distinctly.
+    - **Side-by-side equity + trade-rate comparison**: the operator can open two browser tabs (`/` and `/v5`) and visually compare equity curves, open-position counts, MTM, trade-rate. At the end of 48h soak, v5 trade-rate within ±20% of v4 AND v5 equity drift within ±3% of v4 (documented in soak log).
+    - **Full engine wiring**: every M9-shipped library piece actually executes in the v5 runner:
+        - `apply_arbitration` + `ArbitrationLogWriter` → writing `v5/logs/arbitration.jsonl` during live bars
+        - `RiskComponent` Phase 3.0 hook → firing on every entry candidate
+        - `CapitalAllocationPolicy` → invoked at bar_close per sampling_cadence
+        - `TickCadencePolicy` → wired if tick-cadence policy configured
+        - Dashboard shows binding_constraint column (from M8 sizing_fills.jsonl JOIN)
+        - FIX-aligned counters visible in state_v5.json (partial_fills, increase_fills, contingent_fills, entry_scale_downs)
+    - **`tools/start_all_services.sh` default flip** (end of M10): modified to launch `v5.run_paper_multi` as canonical — AFTER 48h side-by-side soak verifies parity. v4 runner script moved to `tools/start_v4_legacy.sh` for reference.
+
+13. **Remaining shim deletion cascade complete**: `sizing_legacy.py` deleted + `globals()["get_sizing_model"]` hack in `v5/simulator.py:31-41` removed; `Position.leg` string field deleted + 8 simulator read-sites migrated to `leg_ref_id`; `trigger_combined_entry` legacy branch (~140 lines) deleted; `armed_log.jsonl` dual-write deleted; `paper_engine._armed_tokens` alias deleted; `Leg.market` deleted (keep `settlement_type`).
 
 ---
 
@@ -254,22 +317,40 @@ M9 regression-sweep follow-ups (from post-audit):
 - ~30min: re-audit `test_m7_pre_existing_13` meta-harness staleness
 - ~30min: test-dispute telemetry consolidation into ARCHITECTURE.md
 
+Post-audit scope additions (from 2026-04-20 M10 brief review):
+- ~30min: delete `confirmation_tiers` in `v5/paper_config.py:39,128` + dead `deflated_sharpe` stub in `v5/cpcv.py:58-70`
+- ~30min: rewrite 6 stale v4-reference docstrings in `v5/engine.py` + `v5/validation.py`
+- ~30min: delete stale `pytest.skip` at `v5/tests/test_m7_paper_8site.py:80` + audit 4 `warnings.warn` sites
+- ~1h: v5-runner default-on cutover (modify `tools/start_all_services.sh` or replace with canonical v5 launcher; publish `/srv/data/state_v5.json`)
+- ~1h: document concrete v4 shutdown procedure in MIGRATION.md step 1
+- ~30min: reconcile `state_schema_version` field vs existing `STATE_SCHEMA_VERSION=3` at `v5/paper_state.py:45`
+- ~1h: write `NAMING_CONVENTIONS.md` + `audit_naming.sh` script (source of truth for AC #2)
+- ~1h: write `DASHBOARD_V5.md` + `V5_SIZING_SYSTEM.md` (or mark one-or-both as nice-to-have deferral)
+
 Original M10 polish:
 - ~3h: Compat shim removal + grep verification
 - ~2h: Naming consistency audit + fixes
 - ~4h: Documentation (ARCHITECTURE.md with Trade Identity Model detail, MIGRATION.md, ROLLBACK.md)
 - ~3h: Paper state migrator + `--commit-migration` flag + `load_trade_log()` compat parser
-- ~1h: CLAUDE.md update + `state_schema_version` field
+- ~1h: CLAUDE.md update (stale v4-reference docstrings handled separately above)
 - ~1h: Memory monitoring setup (RSS logging, 1.2GB alert, tracemalloc snapshots)
-- ~2h: Final test audit + cleanup (~1,450-1,600 test functions expected)
+- ~2h: Final test audit + cleanup (baseline: 1671 passed, target: 1671+ passed with 0 xfail post-AC-S10)
 - ~2h: 48h soak test monitoring (async)
+
+**Revised total: 60-82 hours** (up from 53-74h).
 
 ---
 
 ## Parity Gate
 
-- Full v5 test suite green (`pytest v5/tests/` exits 0)
-- Paper trader runs 48 hours clean (no errors, no memory growth, no state corruption)
-- CLAUDE.md updated with v4 freeze notice
-- Zero grep hits for compat shims in v5/
-- All documentation files exist and are non-empty
+- **Full v5 test suite**: 1671+ passed, 0 failed, ≤2 documented skips (replay-parity fixture-gated is acceptable or should be closed), 0 xfailed, 0 xpassed (all trip-wires resolved)
+- **AC-S10 backtest-vs-backtest parity CLOSED**: 6 strict-xfail tests in `test_m8_ac_s10_s524m_parity.py` flip to PASS within 0.5% on Q-DEC4 2025 206-token fold (v4 s524m baseline 1,094% ± 0.5%); `_bridge_signals` private attribute removed
+- **Replay-parity tests ACTUALLY PASS** (not skip): both tests in `test_m9_replay_parity.py` green; fixture generator shipped; real diff-runner wiring complete
+- **v5/v4 parallel-ops dashboard LIVE**: both runners alive simultaneously during 48h soak; `/` renders v4 state.json, `/v5` renders state_v5.json, both refresh with fresh data; operator visually confirms via the dashboard
+- **Paper trader 48h soak**: v5 runner runs 48h clean; RSS growth < 100MB; trade-rate within ±20% of v4 baseline; zero state corruption
+- **v5-runner default-on cutover**: `tools/start_all_services.sh` launches v5; `/srv/data/state_v5.json` populated; dashboard routes correctly
+- **Documentation canonical**: ARCHITECTURE.md / MIGRATION.md / ROLLBACK.md / NAMING_CONVENTIONS.md all exist + non-empty
+- **Grep-zero invariants**: `v4 compat`, `backward compat`, `# TODO: remove`, `DEPRECATED` (excl. 1 allowlisted banner per AC #1), `confirmation_tiers`, stale v4-active-engine docstrings → 0 hits in v5/ non-test
+- **M9 regression skips closed**: both `test_m2_scale_dispatch.py` skips resolved (unskipped-passing OR formally retired per AC #11)
+- **12 shim deletion cascade verified**: `sizing_legacy.py`, `Position.leg`, `trigger_combined_entry`, `armed_log.jsonl`, `_armed_tokens`, `Leg.market`, `confirmation_tiers`, `cpcv.deflated_sharpe` stub — all deleted; no grep hits
+- **CLAUDE.md v4 freeze notice in place**; v5 paper runner is live; v4 is frozen reference
