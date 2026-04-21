@@ -268,15 +268,48 @@ class SimulationState:
 
     @property
     def realized_pnl_today_usd_per_bar(self):
-        """AC #15 — per-bar realized PnL (daily, reset at UTC midnight if
-        timestamps are available). Minimal impl — derive from the deltas
-        of cum_pnl_usd. Day-boundary reset handled by Phase-4 day logic."""
+        """AC #15 — per-bar CUMULATIVE-WITHIN-DAY realized PnL, resets
+        to 0 at the first bar of each new UTC day. At bar N, value =
+        Σ (ct.pnl for ct.exit_bar in [day_start_bar, N]).
+
+        Day inferred from equity_snapshots timestamps (first element of
+        each tuple, nanoseconds-since-epoch). Fallback: 24-bars-per-day
+        for fixtures that don't carry timestamps.
+        """
         import numpy as _np
-        cum = self.cum_pnl_usd
-        if len(cum) == 0:
-            return cum
-        per = _np.diff(cum, prepend=0.0)
-        return per
+        n = self.n_bars
+        if n <= 0:
+            return _np.zeros(0, dtype=_np.float64)
+        # Build per-bar exit-day index.
+        _DAY_NS = 86_400 * 1_000_000_000
+        day_of_bar = _np.zeros(n, dtype=_np.int64)
+        if self.equity_snapshots:
+            for i, snap in enumerate(self.equity_snapshots[:n]):
+                ts = snap[0] if isinstance(snap, (tuple, list)) else None
+                try:
+                    ts_ns = int(ts)
+                    day_of_bar[i] = ts_ns // _DAY_NS
+                except Exception:
+                    day_of_bar[i] = i // 24
+        else:
+            day_of_bar[:] = _np.arange(n) // 24
+        # Per-bar realized delta (+= ct.pnl on ct.exit_bar).
+        per_bar_delta = _np.zeros(n, dtype=_np.float64)
+        for ct in self.position_manager.closed_trades:
+            eb = int(getattr(ct, "exit_bar", 0))
+            if 0 <= eb < n:
+                per_bar_delta[eb] += float(ct.pnl)
+        # Cumulative within day — reset at first bar of new day.
+        out = _np.zeros(n, dtype=_np.float64)
+        cur = 0.0
+        cur_day = day_of_bar[0]
+        for i in range(n):
+            if day_of_bar[i] != cur_day:
+                cur = 0.0
+                cur_day = day_of_bar[i]
+            cur += per_bar_delta[i]
+            out[i] = cur
+        return out
 
     @property
     def realized_pnl_per_bar(self):
