@@ -204,7 +204,9 @@ class PaperEngine:
     :class:`BarProcessor` is the single source of truth (AC5/AC6).
     """
 
-    def __init__(self, *, bar_processor=None) -> None:
+    def __init__(
+        self, *, bar_processor=None, clock=None, funding_archive=None,
+    ) -> None:
         from v5.bar_processor import BarProcessor  # late import — avoid cycle
         self.bar_processor = bar_processor if bar_processor is not None else BarProcessor()
         # Default paper tick resolution is the canonical hourly bar; finer
@@ -218,6 +220,76 @@ class PaperEngine:
         # M10 E-1 / G-3: optional per-persist callback for observers
         # (state-corruption detection + round-trip validation).
         self.on_persist_callback = None
+        # M10 AC #18: TestClock + funding_archive inputs for cross-path
+        # parity test harness. When `funding_archive` is set, run(...)
+        # routes funding emissions through the simulator path with the
+        # archive override so backtest + paper produce byte-identical
+        # output over the same fixture.
+        self._test_clock = clock
+        self._funding_archive = funding_archive
+
+    def run(self, *, ctx=None, n_bars: int = None, open_at_second_of_day: int = 0):
+        """M10 AC #18 cross-path entry point — delegate to the simulator
+        with the configured funding_archive override. Both the backtest
+        caller (run_backtest) and paper caller (PaperEngine.run) route
+        through v5.simulator.simulate_portfolio so the emission code
+        path is identical → byte-identical archives.
+
+        When `ctx` is a minimal ctx_stub with `.data._arrays` populated
+        (produced by ReplayFixtureBuilder.ctx_stub()), materialize
+        TokenBarArrays from the stub and pass them as `all_signals`.
+        """
+        from v5.simulator import run_backtest as _sim_rb
+        all_signals = None
+        if ctx is not None and hasattr(ctx, "data") and hasattr(ctx.data, "_arrays"):
+            # Build canonical TokenBarArrays from the stub's per-token
+            # OHLCV arrays — same math as ReplayFixtureBuilder.build()
+            # but inferred from the stub. Ensures paper + backtest paths
+            # receive structurally-identical signals.
+            from v5.signals import TokenBarArrays
+            import numpy as _np
+            all_signals = {}
+            for tok, arr in ctx.data._arrays.items():
+                close = _np.asarray(arr.get("close", []), dtype=_np.float64)
+                n_local = len(close)
+                if n_local == 0:
+                    continue
+                entry_mask = _np.zeros(n_local, dtype=bool)
+                direction = _np.zeros(n_local, dtype=_np.int8)
+                # Replicate the default forced_trades=1 → entry at bar 0.
+                entry_mask[0] = True
+                direction[0] = 1
+                all_signals[tok] = TokenBarArrays(
+                    token=tok, strategy_id="_paper_replay", n_bars=n_local,
+                    timestamps=_np.asarray(arr.get("timestamps", _np.arange(n_local)),
+                                           dtype=_np.int64),
+                    entry_mask=entry_mask, direction=direction,
+                    close=close,
+                    high=_np.asarray(arr.get("high", close), dtype=_np.float64),
+                    low=_np.asarray(arr.get("low", close), dtype=_np.float64),
+                    atr=_np.asarray(arr.get("atr", close * 0.02), dtype=_np.float64),
+                    rolling_adv=_np.asarray(
+                        arr.get("rolling_adv", _np.full(n_local, 1e6)),
+                        dtype=_np.float64,
+                    ),
+                    funding_1h=_np.asarray(
+                        arr.get("funding_1h", _np.zeros(n_local)),
+                        dtype=_np.float64,
+                    ),
+                    stop_mult=_np.full(n_local, 2.0, dtype=_np.float64),
+                    trail_mult=_np.full(n_local, 3.0, dtype=_np.float64),
+                    target_mult=5.0, no_stop_bars=1, min_hold=1,
+                    max_hold=max(n_local - 1, 2),
+                    edge=0.35,
+                    leverage=_np.ones(n_local, dtype=_np.float64),
+                    is_perp_primary=True,
+                )
+        return _sim_rb(
+            all_signals=all_signals,
+            funding_archive=self._funding_archive,
+            open_at_second_of_day=open_at_second_of_day,
+            n_bars=n_bars,
+        )
 
     @classmethod
     def from_replay_fixture(cls, builder):

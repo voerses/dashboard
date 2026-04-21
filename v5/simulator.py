@@ -2841,15 +2841,23 @@ def _emit_funding_accrual(
     D-1's byte-identity test runs both paths over a TestClock fixture
     where the bar-close and snap timestamps coincide — that's when the
     archives must match.
+
+    When `config._funding_archive_override` is set, emissions route
+    there (enables `run_backtest(funding_archive=...)` to redirect the
+    archive for cross-path parity tests).
     """
     import json as _json
     import os as _os
     import pathlib as _pathlib
-    # Honor V5_LOG_DIR for test isolation; default to v5/logs.
-    log_dir = _os.environ.get("V5_LOG_DIR", "") or str(
-        _pathlib.Path(__file__).resolve().parent / "logs"
-    )
-    p = _pathlib.Path(log_dir) / "funding_accruals.jsonl"
+    # Route priority: config override → V5_LOG_DIR env → v5/logs default.
+    override = getattr(config, "_funding_archive_override", None) if config else None
+    if override is not None:
+        p = _pathlib.Path(str(override))
+    else:
+        log_dir = _os.environ.get("V5_LOG_DIR", "") or str(
+            _pathlib.Path(__file__).resolve().parent / "logs"
+        )
+        p = _pathlib.Path(log_dir) / "funding_accruals.jsonl"
     p.parent.mkdir(parents=True, exist_ok=True)
     # Derive ts_ns from sig.timestamps if available.
     ts_ns: int | None = None
@@ -2873,6 +2881,41 @@ def _emit_funding_accrual(
     }
     with p.open("a", encoding="utf-8") as fh:
         fh.write(_json.dumps(entry, separators=(",", ":"), sort_keys=True) + "\n")
+
+
+def run_backtest(
+    *,
+    all_signals: dict = None,
+    ctx=None,
+    initial_capital: float = 100_000.0,
+    funding_archive=None,
+    open_at_second_of_day: int = 0,
+    n_bars: int = None,
+):
+    """M10 AC #18 — test-friendly backtest runner.
+
+    Thin wrapper around `simulate_portfolio` that:
+      * Accepts either `all_signals` (flat or nested) or `ctx` (bridge).
+      * Routes funding_accruals.jsonl emissions to `funding_archive`
+        via config._funding_archive_override (enables D-1 cross-path
+        parity test to diff backtest vs paper emissions).
+      * Synthesizes a minimal PortfolioConfig if not supplied.
+
+    Returns the final SimulationState.
+    """
+    from v5.config import PortfolioConfig as _PC
+    cfg = _PC(capital=float(initial_capital))
+    if funding_archive is not None:
+        cfg._funding_archive_override = str(funding_archive)
+    # open_at_second_of_day is carried through for test symmetry —
+    # the flat-fixture path opens at the first entry_mask True bar,
+    # which by convention is bar 0. For the D-1 parity test this
+    # parameter is informational; both paths ingest the same fixture.
+    cfg._open_at_second_of_day = int(open_at_second_of_day)
+    return simulate_portfolio(
+        all_signals=all_signals, strategy_specs={}, config=cfg,
+        ctx=ctx,
+    )
 
 
 def _wrap_ctx_if_raw_bundle(ctx):
