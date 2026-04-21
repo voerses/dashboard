@@ -18,6 +18,10 @@ class TestClock:
     """Deterministic fixed-epoch clock. Used by soak tests (AC11), decision-level
     parity tests (AC15a), and any test needing reproducible tick timing."""
 
+    # M10 AC #26: pytest collects classes starting with ``Test``; this helper
+    # has ``__init__`` so collection would warn PytestCollectionWarning.
+    __test__ = False
+
     def __init__(self, epoch_iso: str, seed: int = 42):
         """epoch_iso: ISO 8601 UTC timestamp (e.g. '2026-03-01T00:00:00Z'). seed: RNG seed."""
         self._current_dt = datetime.fromisoformat(epoch_iso.replace("Z", "+00:00"))

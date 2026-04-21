@@ -267,7 +267,9 @@ class DataResampler:
             # No-op resample — normalize columns but preserve values.
             out = source_df[["timestamp", "open", "high", "low", "close", "volume"]].copy()
             for col in ("open", "high", "low", "close", "volume"):
-                out[col] = out[col].astype(np.float64, copy=False)
+                # pandas 3.0: Copy-on-Write makes copy= a no-op; dropping the
+                # kwarg for M10 AC #26 (zero-warnings cleanup).
+                out[col] = out[col].astype(np.float64)
             return out.reset_index(drop=True)
 
         # Build a DatetimeIndex from the int64 timestamps and resample.

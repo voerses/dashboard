@@ -8,6 +8,7 @@
 4. **Trace before coding.** For cross-service changes, understand the end-to-end flow before modifying code.
 5. **Test like we test.** Follow existing test patterns in the codebase.
 6. **v3/ is FROZEN.** Never modify files in `v3/`. All engine, validation, simulation, and universe code lives in `v4/`. The `v3/` directory is legacy reference only — all imports have been migrated to `v4/`.
+7. **v4/ is FROZEN as of 2026-04-21.** Never modify files in `v4/`. All engine, validation, simulation, and universe code now lives in `v5/`. The `v4/` directory is legacy reference only — all imports have been migrated to `v5/`.
 
 ## Slash Commands
 

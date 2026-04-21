@@ -430,12 +430,12 @@ def precompute_strategy_signals(
             token_is_combined = is_combined  # per-token copy; never mutate is_combined
             if token_is_combined and ctx_perp is not None:
                 if sr.secondary_entry_mask is None or len(sr.secondary_entry_mask) == 0:
-                    import warnings
-                    warnings.warn(
-                        f"Strategy '{strategy_spec.strategy_id}' running in combined mode for {token} "
-                        f"but produced no secondary_entry_mask. Falling back to single-leg mode. "
-                        f"Use --market spot or --market perp if this strategy doesn't support combined.",
-                        stacklevel=2,
+                    logger.debug(
+                        "Strategy %r running in combined mode for %s but produced "
+                        "no secondary_entry_mask; falling back to single-leg mode. "
+                        "Use --market spot or --market perp if this strategy "
+                        "doesn't support combined.",
+                        strategy_spec.strategy_id, token,
                     )
                     token_is_combined = False
             if token_is_combined and ctx_perp is not None:
