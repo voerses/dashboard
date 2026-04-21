@@ -229,3 +229,32 @@ class InstrumentRegistry:
             iid for iid in self._metadata.get(venue, {})
             if iid.asset_class == "perp"
         ]
+
+
+# M10 E2 / AC #21 — fee schedule lookup by schedule name.
+# Returns the canonical maker/taker bps for a named schedule. Used by
+# AC #21 fee-classification test + Phase-4 fill-path classification.
+_FEE_SCHEDULES = {
+    "binance_perp": {"maker_bps": 2.0, "taker_bps": 4.0},
+    "binance_spot": {"maker_bps": 10.0, "taker_bps": 10.0},
+}
+
+
+def get_fee_schedule(schedule_name: str) -> dict:
+    """Return maker/taker bps schedule for the given schedule name.
+
+    Args:
+        schedule_name: e.g. "binance_perp", "binance_spot".
+
+    Returns:
+        {"maker_bps": float, "taker_bps": float}
+
+    Raises:
+        KeyError: if schedule_name is unknown.
+    """
+    if schedule_name not in _FEE_SCHEDULES:
+        raise KeyError(
+            f"Unknown fee schedule {schedule_name!r}; known: "
+            f"{sorted(_FEE_SCHEDULES)!r}"
+        )
+    return dict(_FEE_SCHEDULES[schedule_name])

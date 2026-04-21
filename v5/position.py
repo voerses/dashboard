@@ -529,6 +529,15 @@ class ClosedTrade:
     # default to None so M2 tests (21 importers) remain unaffected.
     order_id: Optional[str] = None
     leg_ref_id: Optional[str] = None
+    # M10 E2 / AC #21 — maker/taker discrimination on fees.
+    # `fill_type` applies to the ENTRY fill (maker if limit-rest-fill,
+    # taker if market-cross or triggered-entry). `exit_fill_type` applies
+    # to the EXIT fill — independent classification (AC #21 tightening
+    # mixed-path test). Both default to "taker" for backward-compat with
+    # existing ClosedTrade construction sites (majority of fills ARE
+    # taker on perp orders — market/stop/triggered-entry crosses).
+    fill_type: str = "taker"          # {"maker", "taker"} — ENTRY
+    exit_fill_type: str = "taker"     # {"maker", "taker"} — EXIT
 
 
 class PositionManager:

@@ -26,7 +26,60 @@ from v5.data_maintenance import ensure_data_fresh
 from v5.hourly_bar_collector import HourlyBarCollector
 from v5.live_fetcher import LiveFetcher
 from v5.price_monitor import PriceMonitor, _symbol_to_token
+from v5.clock import LiveClock
+from v5.data.clients.binance_rest import BinanceRESTClient
 logger = logging.getLogger(__name__)
+
+
+def _check_clock_drift(*, log_path, trading_state=None):
+    """M10 E4 / AC #23 — clock-drift detector.
+
+    Compares LiveClock.now_ns() vs BinanceRESTClient.server_time_ns().
+    Emits to ``log_path`` (clock_drift.jsonl):
+
+      * |delta| > 500ms  → WARN entry (no halt)
+      * |delta| > 5s     → HALT entry + flip trading_state.state to "HALTED"
+      * |delta| == 0     → no entry (sink stays empty)
+
+    Called once per 60s in the paper-runner main tick thread.
+    """
+    from pathlib import Path as _Path
+
+    local_ns = LiveClock.now_ns()
+    try:
+        server_ns = BinanceRESTClient.server_time_ns()
+    except Exception as e:
+        logger.warning("clock_drift: server_time_ns failed: %s", e)
+        return
+
+    delta_ns = int(server_ns) - int(local_ns)
+    delta_ms = delta_ns / 1_000_000.0
+
+    if abs(delta_ms) < 500.0:
+        return  # within tolerance — no log entry
+
+    level = "HALT" if abs(delta_ms) > 5_000.0 else "WARN"
+    entry = {
+        "level": level,
+        "delta_ms": round(delta_ms, 3),
+        "local_ns": int(local_ns),
+        "server_ns": int(server_ns),
+        "ts_utc": time.time(),
+    }
+    p = _Path(str(log_path))
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with p.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(entry, separators=(",", ":")) + "\n")
+
+    if level == "HALT" and trading_state is not None:
+        # object.__setattr__ in case trading_state is a frozen dataclass
+        try:
+            trading_state.state = "HALTED"
+        except Exception:
+            object.__setattr__(trading_state, "state", "HALTED")
+
+
+
 # AC10: Promote live→historical every 4 hours
 PROMOTE_INTERVAL_S = 14400
 # ---------------------------------------------------------------------------
