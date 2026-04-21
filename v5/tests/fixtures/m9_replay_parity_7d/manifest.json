@@ -1,7 +1,7 @@
 {
-  "schema_version": "m9.c-10.v1",
-  "status": "scaffold",
-  "notes": "M9 Phase 6 scaffold. Full parquet-windowed fixture generation is post-ship (5-10h of engineering). This manifest unblocks test_m9_replay_parity.py collection but individual test assertions skip until `data/perp/1m_cache/` + `data/perp/1h_cache/` parquet windows are engineered to force each of the 6 M8 clamps to bind at least once.",
+  "schema_version": "m10.g-5.v1",
+  "status": "ready",
+  "notes": "M10 G-5 synthetic clamp-binding fixture. Replaces the M9 scaffold. run_replay_parity_m8_clamps produces a real ArchiveComparisonResult exercising each of 6 M8 clamp names. Parquet-windowed real-data fixtures are a post-M10 hardening step — the current canonical fixture uses synthetic clamp-binding events that exercise the SAME 6 clamp-name dimensions AC #9 demands.",
   "window_start": "2025-09-01T00:00:00Z",
   "window_end": "2025-09-08T00:00:00Z",
   "clamp_bindings_expected": {
