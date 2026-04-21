@@ -103,9 +103,18 @@ class ReplayFixtureBuilder:
         from v5.signals import TokenBarArrays
 
         out = {}
+        n = self.n_bars
+        # For fixtures with forced_trades, size max_hold so each position
+        # closes before the next entry. Keeps the sim loop deterministic
+        # about open/close cycles (C1 PnL-path + C2 day-rollover tests).
+        if self.scenario.forced_trades > 0:
+            step = max(n // (self.scenario.forced_trades * 2), 1)
+            max_hold = max(step, 2)
+        else:
+            max_hold = max(n, 720)
+        min_hold = min(2, max(1, max_hold // 4))
         for i, tok in enumerate(self.tokens):
             arr = self._build_per_token_arrays(i)
-            n = self.n_bars
             out[tok] = TokenBarArrays(
                 token=tok,
                 strategy_id="_replay",
@@ -122,9 +131,9 @@ class ReplayFixtureBuilder:
                 stop_mult=np.full(n, 2.0, dtype=np.float64),
                 trail_mult=np.full(n, 3.0, dtype=np.float64),
                 target_mult=5.0,
-                no_stop_bars=6,
-                min_hold=6,
-                max_hold=720,
+                no_stop_bars=1,
+                min_hold=min_hold,
+                max_hold=max_hold,
                 edge=0.35,
                 leverage=np.ones(n, dtype=np.float64),
                 volume=arr["volume"],
