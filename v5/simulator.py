@@ -2918,11 +2918,31 @@ def simulate_portfolio(
     if all_signals is not None:
         _sample = next(iter(all_signals.values()), None) if all_signals else None
         if _sample is not None and isinstance(_sample, TokenBarArrays):
-            # Flat shape detected — wrap under a single synthetic strategy.
-            all_signals = {"_flat": dict(all_signals)}
-            if strategy_specs is None or "_flat" not in (strategy_specs or {}):
+            # Flat shape detected — wrap under the user-supplied strategy
+            # if there is exactly one; otherwise fall back to "_flat".
+            if strategy_specs and len(strategy_specs) == 1:
+                wrap_sid = next(iter(strategy_specs.keys()))
+            else:
+                wrap_sid = "_flat"
+            # Apply StrategySpec.max_leverage to TokenBarArrays.leverage
+            # so scenario fixtures (e.g. C4 liquidation cascade) can drive
+            # the liquidation path without duplicating the leverage in
+            # both the builder AND the spec.
+            _wrap_spec = (strategy_specs or {}).get(wrap_sid)
+            if (_wrap_spec is not None and
+                    getattr(_wrap_spec, "max_leverage", 0.0) > 0.0):
+                _ml = float(_wrap_spec.max_leverage)
+                for _tba in all_signals.values():
+                    try:
+                        _tba.leverage[:] = _ml
+                    except Exception:
+                        pass
+            all_signals = {wrap_sid: dict(all_signals)}
+            if strategy_specs is None or wrap_sid not in (strategy_specs or {}):
                 strategy_specs = dict(strategy_specs or {})
-                strategy_specs["_flat"] = StrategySpec(strategy_id="_flat", market="perp")
+                strategy_specs[wrap_sid] = StrategySpec(
+                    strategy_id=wrap_sid, market="perp",
+                )
     unified_ts, bar_maps = build_unified_index(all_signals)
     n_bars = len(unified_ts)
 

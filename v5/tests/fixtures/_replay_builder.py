@@ -21,6 +21,11 @@ class ScenarioSpec:
     crash_bar: Optional[int] = None
     crash_pct: float = -0.25
     funding_snaps: Optional[Sequence[Tuple[int, float]]] = None
+    # M10 C4 liquidation cascade: per-position leverage to trigger liq
+    # on the crash bar. 1.0 = spot/unleveraged (no liq check); 5.0 = 5x.
+    leverage: float = 1.0
+    # Mark positions as perp (enables liquidation path in _process_exits).
+    is_perp: bool = True
 
 
 class ReplayFixtureBuilder:
@@ -135,8 +140,9 @@ class ReplayFixtureBuilder:
                 min_hold=min_hold,
                 max_hold=max_hold,
                 edge=0.35,
-                leverage=np.ones(n, dtype=np.float64),
+                leverage=np.full(n, float(self.scenario.leverage), dtype=np.float64),
                 volume=arr["volume"],
+                is_perp_primary=bool(self.scenario.is_perp),
             )
         return out
 

@@ -122,6 +122,9 @@ class StrategySpec:
     slippage_model: str = "sqrt"
     # Max concurrent positions per token+strategy (1 = no re-entry, >1 = allow N concurrent)
     max_positions_per_symbol: int = 1
+    # M10 C4: per-strategy maximum leverage (caps sizing_overrides.leverage).
+    # 0.0 = unconstrained (default). Used by liquidation-cascade fixtures.
+    max_leverage: float = 0.0
     # Optional entry filter: strategy-defined function called before each entry.
     # Receives (token, direction, closed_trades_for_token) and returns conviction
     # multiplier (1.0=allow, 0.0=block, 0.5=demote). None=disabled (default).
