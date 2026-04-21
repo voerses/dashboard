@@ -1221,7 +1221,11 @@ def _process_exits(
 
         # Step 2: Accrue funding (perp only)
         if pos.is_perp:
-            notional = abs(pos.quantity * close_val)
+            # M10 AC #16 FIX-correct: notional uses ENTRY price (static
+            # at position open), not the current bar's close (MTM).
+            # Matches `notional = |qty × entry_price|` per the D-1
+            # cross-path parity contract.
+            notional = abs(pos.quantity * pos.entry_price)
             d_sign = 1.0 if pos.quantity > 0.0 else -1.0
             funding_cost = notional * funding_val * d_sign
             state.total_funding += funding_cost
