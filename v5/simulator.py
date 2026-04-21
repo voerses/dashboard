@@ -289,6 +289,11 @@ class SimulationState:
         return self.cum_pnl_usd
 
     @property
+    def cumulative_pnl_usd(self):
+        """AC #15 alias — lifetime cumulative PnL (realized) per bar."""
+        return self.cum_pnl_usd
+
+    @property
     def trading_state(self):
         """AC #10 / #17 — TradingState object exposed for risk-gated
         halt logic. Lazily constructs one if absent so positive-assertion

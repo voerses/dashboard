@@ -1308,14 +1308,29 @@ class WalkForwardRunner:
     """
 
     def __new__(cls, *args, **kwargs):
+        has_config = "config" in kwargs
+        has_strategy = "strategy" in kwargs
+        has_bundle = "data_bundle" in kwargs
+        # M10 B10-precursor: explicit mutual-exclusion detection before
+        # either dispatch. Row 3 test asserts a clear error message
+        # mentioning mutual/exclusive/ambiguous.
+        if has_config and (has_strategy or has_bundle):
+            raise TypeError(
+                "WalkForwardRunner: `config=` and `strategy=`/`data_bundle=` "
+                "are mutually exclusive. Pick one dispatch shape: "
+                "WalkForwardRunner(config=ValidationConfig(...)) for M9 "
+                "CPCV OR WalkForwardRunner(strategy=..., data_bundle=..., "
+                "seed=...) for M8 AC-S10 legacy. Ambiguous call rejected."
+            )
+        # Row 4: no args at all is invalid (neither dispatch can run).
+        if not args and not kwargs:
+            raise TypeError(
+                "WalkForwardRunner requires either `config=ValidationConfig(...)` "
+                "(M9) or `strategy=..., data_bundle=..., seed=...` (M8 legacy). "
+                "No dispatch arguments supplied."
+            )
         # M9 canonical: WalkForwardRunner(config=ValidationConfig(...))
-        # Detect by presence of `config` kwarg and no `strategy`/`data_bundle`.
-        if (
-            "config" in kwargs
-            and "strategy" not in kwargs
-            and "data_bundle" not in kwargs
-            and not args
-        ):
+        if has_config and not (has_strategy or has_bundle) and not args:
             instance = object.__new__(_M9WalkForwardRunner)
             _M9WalkForwardRunner.__init__(instance, config=kwargs["config"])
             return instance
