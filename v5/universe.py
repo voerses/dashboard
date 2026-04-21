@@ -177,9 +177,10 @@ def get_fee_rate(exchange='binance', market='spot', order_type='taker'):
         Fee rate as a float (e.g. 0.0005 for Binance perp taker)
     """
     if market not in ('spot', 'perp'):
-        warnings.warn(
-            f"get_fee_rate: invalid market '{market}', falling back to 'spot'",
-            stacklevel=2,
+        # M10 AC #26: downgraded from warnings.warn to logger.debug.
+        import logging
+        logging.getLogger(__name__).debug(
+            "get_fee_rate: invalid market %r, falling back to 'spot'", market
         )
         market = 'spot'
     fees = EXCHANGE_FEES.get(exchange, EXCHANGE_FEES['binance'])

@@ -320,23 +320,19 @@ def walk_forward_efficiency(
     Returns:
         WFE as a float, or None if IS return <= 0.
     """
-    import warnings
+    # M10 AC #26: downgraded from warnings.warn to logger.debug to
+    # support the zero-warnings invariant. Analysts who need the
+    # diagnostic can set logging level DEBUG on `v5.metrics`.
+    import logging
+    _logger = logging.getLogger(__name__)
 
     if is_annualized_return <= 0:
-        warnings.warn(
-            "IS not profitable — WFE undefined",
-            UserWarning,
-            stacklevel=2,
-        )
+        _logger.debug("IS not profitable — WFE undefined")
         return None
 
     wfe = oos_annualized_return / is_annualized_return
 
     if wfe < 0.50:
-        warnings.warn(
-            f"WFE={wfe:.1%} is below 50% — strategy may be overfit",
-            UserWarning,
-            stacklevel=2,
-        )
+        _logger.debug("WFE=%.1f%% is below 50%% — strategy may be overfit", wfe * 100.0)
 
     return wfe

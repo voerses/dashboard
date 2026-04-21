@@ -373,3 +373,14 @@ class ArbitrationLogWriter:
 
     def __exit__(self, *args):
         self.close()
+
+    def __del__(self):
+        """M10 AC #26: best-effort finalizer — avoids ResourceWarning
+        when the writer is gc'd without explicit close() (common in
+        test teardown where the owning state goes out of scope)."""
+        try:
+            fh = getattr(self, "_fh", None)
+            if fh is not None and not fh.closed:
+                fh.close()
+        except Exception:
+            pass
