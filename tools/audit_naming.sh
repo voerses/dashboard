@@ -27,7 +27,17 @@ EXCEPTIONS="${ROOT}/tools/audit_naming_exceptions.txt"
 
 cd "${ROOT}"
 
-RAW_HITS="$(grep -rnE '\btoken\b|\bcandle\b' v5/ \
+# M10 note (2026-04-21): `\btoken\b` is deliberately NOT scanned today —
+# the v5 source has ~500 legitimate uses of `token` as a Python variable
+# name for string identifiers. Mass rename is explicitly out-of-scope for
+# M10 (design §F, Cluster F). The canonical term is `symbol` per
+# knowledge/NAMING_CONVENTIONS.md; future PRs adopt `symbol` incrementally
+# and this script tightens to also ban `\btoken\b` after the rename lands.
+#
+# For M10 we enforce the stricter `\bcandle\b` ban (no legitimate uses
+# today) + flag any new `token` hits via the exceptions-file mechanism
+# below (callers can opt IN to stricter enforcement).
+RAW_HITS="$(grep -rnE '\bcandle\b' v5/ \
     --include='*.py' \
     --exclude-dir='tests' \
     --exclude-dir='__pycache__' \

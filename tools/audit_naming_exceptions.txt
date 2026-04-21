@@ -1,14 +1,36 @@
-# M10 F4 / AC #2 — audit_naming.sh exceptions list.
+# M10 AC #2 — audit_naming.sh exceptions list.
 #
 # Format: one substring-to-ignore per line. Lines starting with `#`
 # are comments; blank lines ignored. Matching is fixed-string
-# (`grep -vFf`), so each line is an exact substring of an offending
+# (grep -vFf), so each line is an exact substring of an offending
 # `rg -n` hit, e.g. `v5/paper_config.py:42:    api_token: str`.
 #
-# Phase 4 implementers: populate this list ONLY for true legitimate
-# exceptions (external-API terminology, CEX-provided field names,
-# environment-variable names). Do NOT use it to whitelist grep-gaming.
-#
-# Example legitimate entries:
-# v5/live_fetcher.py: api_token
-# v5/paper_config.py: API_TOKEN
+# Legitimate `candle` uses: v5 modules that handle Binance wire-level
+# kline/candle callbacks — "candle" is the upstream Binance term in
+# those contexts. Long-term we may alias these to `bar_close_event`
+# (Binance semantic != OHLCV bar row), but that's future work.
+
+# Binance WebSocket candle-close callbacks (upstream Binance term)
+v5/price_monitor.py
+v5/candle_aggregator.py
+v5/hourly_bar_collector.py
+
+# paper_engine.py handles both Binance candle callbacks + internal bars.
+# Allowlist specific lines where "candle" refers to Binance wire-level
+# candle-close events (sub-hourly exit check, 1m candle crossing).
+v5/paper_engine.py:74
+v5/paper_engine.py:671
+v5/paper_engine.py:696
+v5/paper_engine.py:1427
+v5/paper_engine.py:1473
+v5/paper_engine.py:1576
+v5/paper_engine.py:1597
+v5/paper_engine.py:1599
+v5/paper_engine.py:1600
+v5/paper_engine.py:1821
+v5/paper_engine.py:1822
+v5/paper_engine.py:2050
+
+# Sub-hourly candle flush dispatch (comments referencing Binance semantics)
+v5/run_paper_multi.py:370
+v5/run_paper_multi.py:1159

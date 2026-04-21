@@ -288,3 +288,124 @@ state/v4_paper/{portfolio_name}/
 | `v4/paper_engine.py` | `_extract_stop_levels()` and `_process_sentinel_exits()` integration points |
 | `tools/measure_stop_breach.py` | Historical analysis of delayed-stop cost (Phase 0 measurement) |
 | `tools/sentinel_shadow_report.py` | Joins sentinel events with trades for TP/FT/PRE classification |
+
+---
+
+# v5 Architecture Addendum (M10 — Final Milestone)
+
+## Trade Identity Model (FIX-aligned)
+
+v5 tracks every fill, scale, and exit as a **lineage tree** rooted at the
+original entry's `parent_position_id`. Each child trade (scale, partial
+fill, linked-leg propagation, exit) carries its position in the tree
+via a small set of immutable identity fields that map one-to-one onto
+FIX protocol fields.
+
+### Core identity fields (on `Position`, `ClosedTrade`, `ScalingEvent`)
+
+| v5 field | Type | FIX analog | Semantics |
+|---|---|---|---|
+| `parent_position_id` | `str` | `OrderID(37)` | Immutable join key. All rows of a lineage share this value. |
+| `exec_seq` | `int` | `ExecID(17)` | Monotonic per `parent_position_id`. 0 = open, increments on scale/reduce/exit. |
+| `exec_type` | `str` | `ExecType(150)` | One of: `"reduce"`, `"exit"`, `"linked_reduce"`. RESERVED values: `"open"`, `"increase"`. |
+| `is_terminal` | `bool` | `OrdStatus(39)=Filled` | Exactly one `ClosedTrade` per `parent_position_id` has `True`. |
+| `triggered_by` | `str` | `ExecRestatementReason(378)` | Set ONLY by linked-leg auto-propagation. Empty string for operator-initiated. |
+| `has_scaling` | `bool` | (v5-specific) | True on any `ClosedTrade` whose position recorded prior `ScalingEvent`s. |
+
+### Lineage diagram
+
+```
+Open: parent_position_id=BTC:s524m:42:primary  exec_seq=0  exec_type=(reserved "open")
+ │
+ ├── Scale-in: exec_seq=1  exec_type="increase"  (RESERVED — M11+)
+ ├── Partial reduce: exec_seq=2  exec_type="reduce"
+ ├── Linked propagation to BTC:s524m:42:secondary: exec_seq=3  exec_type="linked_reduce"  triggered_by=BTC:s524m:42:primary
+ └── Final exit: exec_seq=N  exec_type="exit"  is_terminal=True
+```
+
+The invariant: every `parent_position_id` has exactly ONE row with
+`is_terminal=True`. Partial reductions are non-terminal. Linked-leg
+auto-propagation produces rows whose `triggered_by` points to the
+primary leg's `position_id`.
+
+### ScalingEvent schema (pre-terminal events)
+
+```python
+@dataclass(slots=True)
+class ScalingEvent:
+    position_id: str           # which position scaled
+    parent_position_id: str    # lineage root
+    exec_seq: int              # monotonic sequence
+    bar: int                   # when
+    delta_size: float          # signed; negative = reduce
+    delta_margin_usd: float
+    exec_type: str             # "reduce" | "linked_reduce"
+    triggered_by: str          # position_id that caused the auto-propagation, else ""
+```
+
+### ClosedTrade lineage rules
+
+- `exec_seq == 0` implies the trade is a one-shot entry-to-exit with no scales.
+- `has_scaling == True` implies at least one `ScalingEvent` was recorded
+  against this position before closure.
+- `is_terminal == False` implies a partial-reduce row (closed portion of
+  a still-open position). Partial-reduce rows persist in
+  `ClosedTrade`-log form for reporting; the parent `Position` remains open.
+- `triggered_by != ""` implies a linked-leg propagation. Primary leg
+  closure triggers secondary leg `linked_reduce` with
+  `triggered_by = <primary.position_id>`.
+
+### FIX field mapping table
+
+| FIX tag | FIX field | v5 equivalent |
+|---|---|---|
+| 37 | OrderID | `parent_position_id` |
+| 17 | ExecID | `f"{parent_position_id}#{exec_seq}"` |
+| 150 | ExecType | `exec_type` |
+| 39 | OrdStatus | `"Filled"` if `is_terminal` else `"PartiallyFilled"` |
+| 378 | ExecRestatementReason | `triggered_by` (non-empty → auto-propagated) |
+| 654 | LegRefID | `Leg.leg_ref_id` (for multi-leg orders) |
+| 587 | LegSettlType | `Leg.settlement_type` ∈ {"spot","perp","futures"} |
+| 1098 | StrategyID | `ClosedTrade.strategy_id` |
+
+---
+
+## TickCadencePolicy Wiring (M9 deliverable)
+
+**Protocol** (in `v5/sizing/tick_cadence.py`): `TickCadencePolicy.sample()`
+returns `"bar_close" | "tick" | "release"` per policy. Injected at
+`PortfolioConfig.tick_cadence_policy`. Consumed in
+`v5/simulator.py::_stage2_process_new_signals` via `sampling_cadence`
+discipline — ensures AC-Sz9 parity (the same tick policy is honored on
+both backtest and paper paths).
+
+Default policy: `BarCloseCadence` (equivalent to M7 behavior — decide at
+bar_close only). Alternative policies: `TickCadence` (decide on every
+tick, used by `paper_engine` under TestClock-accelerated tests),
+`ReleaseCadence` (decide on trigger release, used by stop-armed entries).
+
+Bridge wiring path: `config.tick_cadence_policy.sample(ctx, bar)` is
+called before `apply_arbitration`. If the policy returns `"tick"`
+semantics during a bar_close context, the bar is deferred. See
+`.specs/done/m9-cleanups/brief.md` C-10 for the M9 spec.
+
+---
+
+## M8→M9 Test-Dispute Tally
+
+During M8 + M9 implementation, 7 tests were revised via the
+test-dispute protocol. Telemetry at `.specs/telemetry.jsonl`.
+
+| # | Test | Root cause | Resolution |
+|---|---|---|---|
+| 1 | `test_allocation_state_fields` (M9) | M8 asserted exactly 4 fields; M9 added `market_snapshot` | Relaxed to "at least these 4 core fields" |
+| 2 | `test_m8_site5_slippage` (M8) | Slippage bound on `adv_cap=0.005` differed from 0.010 baseline | Parameterized by adv_cap; added per-cap tolerance |
+| 3 | `test_paper_state_v2_round_trip` (M7) | Removed `regime` field broke deserialization | Migration path: strip on load + emit on persist with None default |
+| 4 | `test_backoff_constant` (M7) | Anchor-test required `BACKOFF == [30, 60, 120]` | Kept as regression lock (legitimate constant anchor) |
+| 5 | `test_ac_s10_xfail_flip` (M9) | xfail strict passes on any non-error return | M10 tightens with positive-assertion guards (AC #10) |
+| 6 | `test_name_not_importable[get_sizing_model]` (M8) | M8 banned symbol; M10 B11 re-admits via real import | Removed from M8 banned list (M10 2026-04-21) |
+| 7 | `test_name_not_importable[KellySizing]` (M8) | Substring regex false-matched `_LegacyKellySizing` | Tightened to word-boundary regex (M10 2026-04-21) |
+
+Policy: future test-disputes are logged to `.specs/telemetry.jsonl`
+with `event: "test_dispute_resolved"` and must name the resolver +
+resolution reason.
