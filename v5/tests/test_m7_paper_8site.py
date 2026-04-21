@@ -75,9 +75,9 @@ class TestEightSiteBranchesAtExpectedLocations:
         """Walk AST; find use_data_engine branches; verify ≥7 are inside functions
         whose names match the expected site set (allows for impl naming flex)."""
         import ast as _ast
+        # M10 B12: stale `if not paper_engine.exists(): pytest.skip(...)` guard
+        # DELETED — v5/paper_engine.py has existed since M4.
         paper_engine = _project_root / "v5" / "paper_engine.py"
-        if not paper_engine.exists():
-            pytest.skip("v5/paper_engine.py not present")
         tree = _ast.parse(paper_engine.read_text())
 
         branches_by_fn: dict[str, int] = {}

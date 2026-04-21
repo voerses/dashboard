@@ -137,9 +137,18 @@ class TestV5SizingModuleReplacedByPackage:
 class TestDeletedClassesNotImportable:
     """AC-Sz6 — v4 sizing class/function names not exported from v5."""
 
+    # M10 test-dispute (2026-04-21): `get_sizing_model` re-admitted via a
+    # real module-level import in `v5/sizing/__init__.py` per M10 B11 (AC
+    # #13) — the dynamic globals-resolver obfuscation is gone, replaced
+    # with a clean import. So `get_sizing_model` must NOT be banned.
+    #
+    # KellySizing: M10 B1 test (test_m10_sizing_fixed_fraction_equivalence)
+    # references `_LegacyKellySizing` as a target of a byte-identity
+    # test before final deletion in B2. Use word-boundary regex so the
+    # underscore-prefixed legacy name does not false-match.
     @pytest.mark.parametrize(
         "name",
-        ["KellySizing", "SizingModel", "compute_position_size", "get_sizing_model"],
+        ["KellySizing", "SizingModel", "compute_position_size"],
     )
     def test_name_not_importable(self, name):
         # Ensure no module under v5 re-exports these v4 names.
@@ -150,9 +159,9 @@ class TestDeletedClassesNotImportable:
             except (OSError, UnicodeDecodeError):
                 continue
             banned_patterns = [
-                f"class {name}",
-                f"def {name}",
-                f"from .* import .*{name}",
+                rf"class\s+{name}\b",
+                rf"def\s+{name}\b",
+                rf"from .* import .*\b{name}\b",
             ]
             import re
             for pat in banned_patterns:

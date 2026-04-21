@@ -36,7 +36,6 @@ class PaperConfig(PortfolioConfig):
     dynamic_weights: bool = False                # enable regime-conditional dynamic weights
     dynamic_weights_smoothing: float = 0.3       # EMA smoothing alpha for regime transitions
     config_path: str = ""                        # source file path (set by load_paper_config)
-    confirmation_tiers: dict = field(default_factory=lambda: {"btc_eth": 30, "top10": 60, "other": 90})  # deprecated
     carry_strategies: list = field(default_factory=list)  # strategy_ids excluded from monitoring
     bar_resolution: int = 0                       # 0=hourly only, 1/5/15/30=sub-hourly WebSocket candles
     dedicated_ws: bool = False                       # True = own WebSocket, skip shared monitor
@@ -125,7 +124,6 @@ def load_paper_config(path: str) -> PaperConfig:
         dynamic_weights=data.get("dynamic_weights", False),
         dynamic_weights_smoothing=data.get("dynamic_weights_smoothing", 0.3),
         max_sizing_equity=data.get("max_sizing_equity", None),
-        confirmation_tiers=data.get("confirmation_tiers", {"btc_eth": 30, "top10": 60, "other": 90}),
         carry_strategies=data.get("carry_strategies", []),
         bar_resolution=data.get("bar_resolution", data.get("exit_resolution", 0)),
         dedicated_ws=data.get("dedicated_ws", False),

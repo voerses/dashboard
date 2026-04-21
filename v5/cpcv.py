@@ -54,29 +54,5 @@ def generate_cpcv_splits(n_samples: int, n_groups: int = 6, n_test_groups: int =
     return splits
 
 
-def deflated_sharpe(returns: list) -> float:
-    """Deflated Sharpe ratio — DEPRECATED.
-
-    This implementation is incorrect (uses len(returns) as n_trials,
-    omits skewness term). Use v4.metrics.deflated_sharpe_ratio() instead.
-
-    Kept for backward compatibility. Issues a DeprecationWarning and
-    delegates to the correct implementation.
-    """
-    import warnings
-    warnings.warn(
-        "deflated_sharpe() is deprecated and incorrect. "
-        "Use v4.metrics.deflated_sharpe_ratio(sharpe, n_obs, skewness, kurtosis, n_trials) instead.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    if len(returns) < 3:
-        return 0.0
-    from v5.metrics import deflated_sharpe_ratio
-    arr = np.array(returns)
-    sr = float(np.mean(arr) / max(np.std(arr), 1e-10))
-    n_obs = len(arr)
-    skewness = float(pd.Series(arr).skew())
-    kurtosis = float(pd.Series(arr).kurtosis() + 3)  # pandas kurtosis is excess; formula needs raw
-    # Legacy behavior: use n_obs as n_trials (the original bug — preserved for compat)
-    return deflated_sharpe_ratio(sr, n_obs, skewness, kurtosis, n_trials=n_obs)
+# M10 B9: deflated_sharpe() DeprecationWarning stub DELETED.
+# Callers migrated to v5.metrics.deflated_sharpe_ratio() directly.

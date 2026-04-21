@@ -114,7 +114,6 @@ def load_multi_config(path: str) -> list[PaperConfig]:
             # (config.arbitration_policy = RandomShuffle()) via M9 C-1.
             max_sizing_equity=merged.get("max_sizing_equity", None),
             sentinel_mode=merged.get("sentinel_mode", "off"),
-            confirmation_tiers=merged.get("confirmation_tiers", {"btc_eth": 30, "top10": 60, "other": 90}),
             carry_strategies=merged.get("carry_strategies", []),
             exit_resolution=merged.get("exit_resolution", 0),
             dedicated_ws=merged.get("dedicated_ws", False),

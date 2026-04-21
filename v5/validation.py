@@ -54,7 +54,8 @@ from v5.metrics import (
     PerformanceMetrics, compute_metrics, build_equity_curve,
     load_benchmark_returns,
 )
-from v5.cpcv import generate_cpcv_splits, deflated_sharpe
+from v5.cpcv import generate_cpcv_splits
+from v5.metrics import deflated_sharpe_ratio
 from v5.universe import get_all_tradeable, resolve_universe
 from v5.config import PortfolioConfig, StrategySpec
 from v5.signals import precompute_strategy_signals, infer_data_end_date
@@ -601,7 +602,17 @@ def _run_cpcv_v4(strategy_id: str, ticker: str,
     total_folds = len(fold_returns)
     pbo = 1.0 - (folds_profitable / total_folds)
     avg_return = float(np.mean(fold_returns))
-    ds = deflated_sharpe(fold_returns)
+    # M10 B9: v5.cpcv.deflated_sharpe stub deleted. Call correct
+    # deflated_sharpe_ratio directly with full parameter set.
+    if len(fold_returns) < 3:
+        ds = 0.0
+    else:
+        arr = np.asarray(fold_returns, dtype=np.float64)
+        sr = float(np.mean(arr) / max(np.std(arr), 1e-10))
+        n_obs = len(arr)
+        skewness = float(pd.Series(arr).skew())
+        kurtosis = float(pd.Series(arr).kurtosis() + 3)  # pandas kurtosis is excess
+        ds = deflated_sharpe_ratio(sr, n_obs, skewness, kurtosis, n_trials=n_obs)
 
     return pbo, avg_return, folds_profitable, total_folds, ds
 

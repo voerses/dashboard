@@ -31,6 +31,22 @@ from v5.sizing.slippage import (
     get_slippage_model,
 )
 
+
+# M10 B11: real module-level `get_sizing_model` (replaces the
+# globals()["get_" + "sizing_model"] obfuscation at v5/simulator.py:41).
+# Delegates to sizing_legacy until B1 migrates simulator.py to
+# SizingIntent.FIXED_FRACTION (Cluster B1/B2 prereq).
+def get_sizing_model(name: str = "kelly"):
+    """Resolve a sizing-model implementation by name.
+
+    Delegates to the legacy Kelly implementation for now; Phase-4
+    Cluster-B1 migrates simulator.py:1562 to SizingIntent.FIXED_FRACTION
+    which removes the need for this resolver entirely.
+    """
+    from v5.sizing_legacy import _legacy_get_sizing_model
+    return _legacy_get_sizing_model(name)
+
+
 __all__ = [
     "SizingIntent",
     "SizingRequest",
@@ -38,4 +54,5 @@ __all__ = [
     "SlippageModel",
     "compute_slippage_bps",
     "get_slippage_model",
+    "get_sizing_model",
 ]

@@ -1175,7 +1175,11 @@ def deserialize_engine_state(data: dict) -> tuple:
 
 
 # ---------------------------------------------------------------------------
-# v4 compatibility loaders (AC31a, AC33, AC34 — Tasks 12 + 14)
+# Legacy-log parsers (v4 back-compat for /dashboard analysis JSON)
+# (AC31a, AC33, AC34 — Tasks 12 + 14)
+# M10 B13: renamed banner from "v4 compatibility loaders" to clarify these
+# parsers read v4 JSON analysis logs for back-compat dashboard display —
+# they are legitimate load paths, not deletable compat shims.
 # ---------------------------------------------------------------------------
 
 def load_v4_compat(state_path: str) -> tuple:
