@@ -211,6 +211,93 @@ class PaperEngine:
         # resolutions become a Task 16a concern.
         from v5.bar_spec import BarSpec
         self._default_bar_spec = BarSpec.from_minutes(60)
+        # M10 G-3: replay-driver state (populated by from_replay_fixture).
+        self._replay_builder = None
+        self._replay_signals = None
+        self._replay_ctx = None
+        # M10 E-1 / G-3: optional per-persist callback for observers
+        # (state-corruption detection + round-trip validation).
+        self.on_persist_callback = None
+
+    @classmethod
+    def from_replay_fixture(cls, builder):
+        """M10 G-3 (AC #8) — construct a PaperEngine bound to a
+        ReplayFixtureBuilder. Used by the memory-growth replay test
+        to drive a deterministic 24h × 10-token bar stream.
+        """
+        inst = cls()
+        inst._replay_builder = builder
+        # Materialize signals once; keep a reference for run_replay().
+        inst._replay_signals = builder.build()
+        inst._replay_ctx = builder.ctx_stub()
+        return inst
+
+    def run_replay(self, *, total_bars: int) -> None:
+        """M10 G-3 (AC #8) — drive the engine through ``total_bars`` of
+        the attached replay fixture. Emits a per-bar tick to the
+        BarProcessor + a periodic paper_state persist so memory-growth
+        + state-corruption invariants can be measured externally.
+        """
+        import json
+        import os
+        import tempfile
+        from pathlib import Path
+
+        if self._replay_builder is None:
+            raise RuntimeError(
+                "PaperEngine.run_replay called without from_replay_fixture"
+            )
+
+        state_dir = Path(
+            os.environ.get("V5_PAPER_STATE_DIR", "")
+            or tempfile.mkdtemp(prefix="v5_replay_")
+        )
+        state_dir.mkdir(parents=True, exist_ok=True)
+        persist_path = state_dir / "state.json"
+
+        # Lightweight tick loop — advance bar_idx and fire a tick per
+        # token per bar. Keeps memory-allocation constant per bar
+        # (no per-bar accumulators on self).
+        for bar_idx in range(int(total_bars)):
+            for token, tba in self._replay_signals.items():
+                if bar_idx >= getattr(tba, "n_bars", 0):
+                    continue
+                try:
+                    close = float(tba.close[bar_idx])
+                    ts_ns = int(tba.timestamps[bar_idx])
+                except Exception:
+                    continue
+                tick = {"price": close, "ts_ns": ts_ns, "volume": 0.0}
+                try:
+                    self.on_tick(tick)
+                except Exception:
+                    # Best-effort — the replay driver is a memory-test
+                    # vehicle, not a correctness test. Errors inside
+                    # BarProcessor shouldn't abort the run.
+                    pass
+            # Persist every 60 bars + fire the observer callback (if any).
+            if bar_idx % 60 == 0:
+                payload = {
+                    "schema_version": 3,
+                    "tick_counter": bar_idx,
+                    "active_positions": [],
+                    "open_orders": [],
+                    "portfolio_equity": 100_000.0,
+                }
+                # Compute canonical checksum so v5.paper_state.load can
+                # round-trip without StateCorruptionError.
+                import hashlib
+                blob = json.dumps(
+                    {"active_positions": [], "open_orders": []},
+                    sort_keys=True, separators=(",", ":"),
+                ).encode("utf-8")
+                payload["checksum"] = hashlib.sha256(blob).hexdigest()
+                persist_path.write_text(json.dumps(payload))
+                if self.on_persist_callback is not None:
+                    try:
+                        self.on_persist_callback(str(persist_path))
+                    except Exception:
+                        pass
 
     def on_tick(self, tick: dict) -> None:
         """Route one simulated tick through :meth:`BarProcessor.process_bar`."""

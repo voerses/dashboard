@@ -33,17 +33,30 @@ class ReplayFixtureBuilder:
 
     def __init__(
         self,
-        tokens,
-        n_bars: int,
-        start_ts_utc: int,
-        seed: int,
-        scenario: ScenarioSpec,
+        tokens=None,
+        n_bars: int = 0,
+        start_ts_utc: int = 0,
+        seed: int = 42,
+        scenario: ScenarioSpec = None,
+        *,
+        # M10 test-infra aliases: accept alternate kwarg names from
+        # different test generations without breaking callers.
+        bar_count: int = None,
+        start_ts=None,
+        scenario_spec: ScenarioSpec = None,
     ) -> None:
-        self.tokens = list(tokens)
-        self.n_bars = int(n_bars)
+        self.tokens = list(tokens or [])
+        self.n_bars = int(bar_count if bar_count is not None else n_bars)
+        # Accept ISO-string for start_ts; convert to epoch-ns.
+        if start_ts is not None and isinstance(start_ts, str):
+            import datetime as _dt
+            _epoch = _dt.datetime.fromisoformat(start_ts.replace("Z", "+00:00"))
+            start_ts_utc = int(_epoch.timestamp() * 1_000_000_000)
         self.start_ts_utc = int(start_ts_utc)
         self.seed = int(seed)
-        self.scenario = scenario
+        self.scenario = scenario_spec if scenario_spec is not None else (
+            scenario if scenario is not None else ScenarioSpec()
+        )
 
     def _build_price_array(self, rng: np.random.Generator) -> np.ndarray:
         """Random-walk close prices starting at 100.0 with scenario stddev.
