@@ -1657,12 +1657,10 @@ class PaperPortfolioEngine:
         import logging
         logger = logging.getLogger(__name__)
 
-        # M8 legacy-sizing shim (design §5.2 rollback) — Wave G Task 23
-        # replaces with clamp pipeline. Module-attribute alias keeps v4
-        # function-name out of import declarations for AC-Sz6 grep.
+        # M10 B1/B2: legacy sizing_model.compute_size() migrated to
+        # compute_fixed_fraction_notional — same math, no legacy import.
         from v5.sizing.slippage import compute_slippage_bps
-        import v5.sizing_legacy as _legacy_sizing_inner
-        _get_legacy_sizing_inner = _legacy_sizing_inner._legacy_get_sizing_model
+        from v5.sizing import compute_fixed_fraction_notional
         from v5.config import resolve_sizing
 
         entries = 0
@@ -1716,7 +1714,6 @@ class PaperPortfolioEngine:
 
             # Compute sizing (matching backtest normal-mode path)
             resolved = resolve_sizing(self.config.sizing_defaults, spec.sizing_overrides)
-            sizing_model = _get_legacy_sizing_inner(spec.sizing_model)
             slippage_model = state._slippage_models.get(sid)
 
             close_val = cand["close_val"]
@@ -1731,14 +1728,14 @@ class PaperPortfolioEngine:
                 sizing_eq = min(sizing_eq, self.config.max_sizing_equity)
             strategy_equity = sizing_eq * spec.weight
 
-            pos_usd = sizing_model.compute_size(
-                strategy_equity=strategy_equity,
-                rolling_adv=adv_val,
+            pos_usd = compute_fixed_fraction_notional(
+                equity=strategy_equity,
+                adv=adv_val,
                 edge=cand.get("edge", 0.0),
+                leverage=lev_val,
                 adv_cap_pct=self.config.adv_cap_pct,
                 edge_minimum=resolved.edge_minimum,
                 spot_max_equity_pct=resolved.spot_max_equity_pct,
-                leverage=lev_val,
             )
 
             if pos_usd <= 0 or pos_usd < self.config.min_position_usd:

@@ -69,16 +69,24 @@ def _clamp_pipeline_fixed_fraction(
 
 
 def _legacy_notional(equity: float, adv: float, edge: float, leverage: float) -> float:
-    from v5.sizing_legacy import _LegacyKellySizing
-    return _LegacyKellySizing().compute_size(
-        strategy_equity=equity,
-        rolling_adv=adv,
-        edge=edge,
-        adv_cap_pct=0.05,
-        edge_minimum=0.10,
-        spot_max_equity_pct=1.0,
-        leverage=leverage,
-    )
+    """Inline copy of `_LegacyKellySizing.compute_size()` math.
+
+    Test-dispute 2026-04-21: the B1 test was originally importing
+    `_LegacyKellySizing` from `v5/sizing_legacy.py` — but B2 deletes
+    that file entirely. Per the cluster-B sequencing (B1 → B2), B1's
+    equivalence gate is a one-shot check; after deletion, we preserve
+    the legacy math here so this test continues to serve as a
+    regression guard on `compute_fixed_fraction_notional`.
+    """
+    adv_cap_pct = 0.05
+    edge_minimum = 0.10
+    spot_max_equity_pct = 1.0
+    if edge < edge_minimum:
+        return 0.0
+    pos_usd = adv * adv_cap_pct
+    if leverage <= 1.0:
+        pos_usd = min(pos_usd, equity * spot_max_equity_pct)
+    return max(pos_usd, 0.0)
 
 
 class TestFixedFractionEquivalence:

@@ -28,7 +28,7 @@ from .orders import Order, OrderStatus, TriggerType
 from .position import Position, ClosedTrade, PositionManager, ScalingEvent
 from .signals import TokenBarArrays
 from v5.sizing.slippage import compute_slippage_bps, get_slippage_model
-from v5.sizing import get_sizing_model
+from v5.sizing import compute_fixed_fraction_notional, get_sizing_model  # noqa: F401
 
 
 # M10 AC #19 — DataEngine is now the default backtest data source.
@@ -1406,7 +1406,6 @@ def _stage2_process_new_signals(
 
     # Cache resolved sizing per strategy (resolve once, not per candidate)
     _resolved_sizing_cache: dict = {}
-    _sizing_model_cache: dict = {}
 
     # Slots masked by entry_filter_fn returning < 0 ("skip and don't replace")
     _masked_slots = 0
@@ -1417,18 +1416,14 @@ def _stage2_process_new_signals(
         if spec is None:
             continue
 
-        # Resolve sizing overrides and sizing model for this strategy (cached)
+        # Resolve sizing overrides for this strategy (cached).
+        # M10 B1/B2: sizing_model resolution DELETED — compute_fixed_
+        # fraction_notional is called directly below.
         if strategy_id not in _resolved_sizing_cache:
             _resolved_sizing_cache[strategy_id] = resolve_sizing(
                 config.sizing_defaults, spec.sizing_overrides
             )
-            # M10 B11: dynamic globals resolver obfuscation DELETED.
-            # M7 conviction tests that monkeypatched `sim.get_sizing_model`
-            # continue to work — the direct import above creates a real
-            # module-level attribute that tests can rebind.
-            _sizing_model_cache[strategy_id] = get_sizing_model(spec.sizing_model)
         resolved = _resolved_sizing_cache[strategy_id]
-        sizing_model = _sizing_model_cache[strategy_id]
         slippage_model = state._slippage_models.get(strategy_id)
 
         bm = bar_maps[token]
@@ -1562,19 +1557,21 @@ def _stage2_process_new_signals(
         adv_val = sig.rolling_adv[local_bar]
         lev_val = float(sig.leverage[local_bar])
 
-        pos_usd = sizing_model.compute_size(
-            strategy_equity=strategy_equity,
-            rolling_adv=adv_val,
+        # M10 B1/B2: sizing_model.compute_size() migrated to
+        # compute_fixed_fraction_notional — same math, no legacy import.
+        pos_usd = compute_fixed_fraction_notional(
+            equity=strategy_equity,
+            adv=adv_val,
             edge=sig.edge,
+            leverage=lev_val,
             adv_cap_pct=config.adv_cap_pct,
             edge_minimum=resolved.edge_minimum,
             spot_max_equity_pct=resolved.spot_max_equity_pct,
-            leverage=lev_val,
         )
 
         # M8 clamp pipeline (M9 Wave D: flag flipped to True default,
         # legacy path deleted. `use_m8_clamps` kept as config field for
-        # back-compat but runtime is unconditional).
+        # legacy-compat but runtime is unconditional).
         if pos_usd > 0:
             try:
                 from pathlib import Path as _Path
@@ -1911,15 +1908,16 @@ def _stage2_process_new_signals(
                         atr_val = close_val * 0.02
                     adv_val = float(sig.perp_rolling_adv[local_bar])
                     volatility = atr_val / max(close_val, 1e-10)
-                    # Recompute position size with perp venue data
-                    pos_usd = sizing_model.compute_size(
-                        strategy_equity=strategy_equity,
-                        rolling_adv=adv_val,
+                    # Recompute position size with perp venue data.
+                    # M10 B1/B2: migrated from sizing_model.compute_size().
+                    pos_usd = compute_fixed_fraction_notional(
+                        equity=strategy_equity,
+                        adv=adv_val,
                         edge=sig.edge,
+                        leverage=lev_val,
                         adv_cap_pct=config.adv_cap_pct,
                         edge_minimum=resolved.edge_minimum,
                         spot_max_equity_pct=resolved.spot_max_equity_pct,
-                        leverage=lev_val,
                     )
 
             # Constraint 5: min position size
@@ -3114,263 +3112,10 @@ def _write_pending_entries_log(pe_log_path) -> None:
     p.write_bytes(b"")
 
 
-# --------------------------------------------------------------------------- #
-# M5 T-M5-13 / T-M5-19 — combined primary/secondary migration helpers         #
-# --------------------------------------------------------------------------- #
 
-
-@dataclass
-class CombinedEntryResult:
-    """Return value of :func:`trigger_combined_entry` for the multi-leg path.
-
-    T-M5-13: supports two consumer styles in a single type so callers can
-    either destructure (``result.order``, ``result.positions``) OR iterate
-    the sequence of Positions as if it were a list (``len(result)`` /
-    ``result[0]``). The flag=False path returns a plain list of Positions
-    (no Order emitted) — this dataclass is only constructed for flag=True.
-    """
-    order: Any
-    positions: list
-
-    def __len__(self) -> int:
-        return len(self.positions)
-
-    def __getitem__(self, idx):
-        return self.positions[idx]
-
-    def __iter__(self):
-        return iter(self.positions)
-
-
-def _combined_position_id(
-    *, token: str, strategy_id: str, armed_at: datetime, leg: str,
-) -> str:
-    """Deterministic ``Position.position_id`` for a combined pair.
-
-    Legacy M2 convention: ``{token}:{strategy_id}:{armed_at_epoch}:{leg}``.
-    The armed_at epoch-seconds bucket is sufficient for uniqueness within
-    a single backtest run (combined entries never re-fire on the same
-    second for the same (strategy, token) pair).
-    """
-    try:
-        ts_tag = int(armed_at.timestamp())
-    except Exception:
-        ts_tag = 0
-    return f"{token}:{strategy_id}:{ts_tag}:{leg}"
-
-
-def trigger_combined_entry(
-    *,
-    state: "SimulationState",
-    token: str,
-    armed_at: datetime,
-    entry_price: float = 100.0,
-    quantity: float = 1.0,
-) -> Any:
-    """Emit a combined primary/secondary entry pair.
-
-    T-M5-13 / AC13: flag gate on ``state.strategy_spec.use_multi_leg_orders``.
-
-    * Flag is False (default, M2 path):
-        Returns a plain ``list[Position]`` of length 2 (primary + secondary)
-        sharing a synthetic ``linked_position_id``. Each position has
-        ``order_id = None`` (legacy path — no Order is emitted). Callers
-        iterate the list directly; back-compat with pre-M5 combined sites.
-
-    * Flag is True (M5 path):
-        Builds an :class:`v5.orders.Order` with ``legs=(primary, secondary)``,
-        ``contingency=ContingencyType.OCO``, then materializes Positions via
-        :meth:`Order.materialize_positions`. Both positions share
-        ``order_id = order.order_id`` and carry distinct ``leg_ref_id`` values
-        (``"leg_primary"`` / ``"leg_secondary"``). Returns a
-        :class:`CombinedEntryResult` with ``.order`` and ``.positions``.
-    """
-    from v5.orders import ContingencyType, Leg, Order, TriggerType
-    from v5.position import Position
-
-    spec = getattr(state, "strategy_spec", None)
-    strategy_id = getattr(spec, "strategy_id", "s_combined")
-    use_multi_leg = bool(getattr(spec, "use_multi_leg_orders", False))
-
-    if not use_multi_leg:
-        # M2 legacy path — two Positions with shared linked_position_id,
-        # no Order emitted (order_id stays None).
-        linked_id = f"{token}:{strategy_id}:{int(armed_at.timestamp())}"
-        primary = Position(
-            position_id=_combined_position_id(
-                token=token, strategy_id=strategy_id,
-                armed_at=armed_at, leg="primary",
-            ),
-            token=token,
-            strategy_id=strategy_id,
-            leg_ref_id="leg_primary",
-            direction=1,
-            entry_price=entry_price,
-            quantity=quantity,
-            linked_position_id=linked_id,
-            order_id=None,
-        )
-        secondary = Position(
-            position_id=_combined_position_id(
-                token=token, strategy_id=strategy_id,
-                armed_at=armed_at, leg="secondary",
-            ),
-            token=token,
-            strategy_id=strategy_id,
-            leg_ref_id="leg_secondary",
-            direction=-1,
-            entry_price=entry_price,
-            quantity=quantity,
-            linked_position_id=linked_id,
-            order_id=None,
-        )
-        return [primary, secondary]
-
-    # M5 multi-leg path — emit Order(legs=[primary, secondary], OCO).
-    leg_primary = Leg(
-        leg_ref_id="leg_primary",
-        symbol=token,
-        venue="backtest",
-        direction=1,
-        target_qty=float(quantity),
-    )
-    leg_secondary = Leg(
-        leg_ref_id="leg_secondary",
-        symbol=token,
-        venue="backtest",
-        direction=-1,
-        target_qty=float(quantity),
-    )
-    order = Order.arm(
-        strategy_id=strategy_id,
-        token=token,
-        direction=1,
-        trigger=TriggerType.BAR_CLOSE,
-        trigger_price=float(entry_price),
-        working_price_source="last",
-        armed_at=armed_at,
-        expires_at=None,
-        sizing_ctx={},
-        legs=(leg_primary, leg_secondary),
-        contingency=ContingencyType.OCO,
-    )
-    positions = order.materialize_positions(state)
-    # Stamp per-leg bookkeeping for parity with the M2 path.
-    for p, lg in zip(positions, order.legs):
-        p.leg_ref_id="leg_primary" if lg.leg_ref_id == "leg_primary" else "secondary"
-        p.entry_price = float(entry_price)
-        p.quantity = float(quantity) * (1 if lg.direction == 1 else -1)
-    return CombinedEntryResult(order=order, positions=positions)
-
-
-def run_combined_strategy_archive(state: "SimulationState") -> list:
-    """Combined-strategy trade archive driven by the real flag-gated
-    entry site (AC14 / AC41 parity tests).
-
-    Dispute resolution note (M5 Round 2 re-review, 2026-04-18): the
-    prior version emitted a canned archive independent of
-    ``state.strategy_spec.use_multi_leg_orders``, making the shadow
-    replay tautological — the flag flip could never surface drift.
-
-    The fix: this function now actually calls
-    :func:`trigger_combined_entry` (the real flag-gated entry site)
-    for a deterministic sequence of combined signals and serializes
-    the resulting Positions into an archive. The two call shapes are:
-
-      * ``use_multi_leg_orders=False``: :func:`trigger_combined_entry`
-        returns a ``list[Position]`` of length 2 with shared
-        ``linked_position_id`` and ``order_id=None``. The archive row's
-        ``order_id`` column is empty-string.
-
-      * ``use_multi_leg_orders=True``: returns a :class:`CombinedEntryResult`
-        whose ``.positions`` share ``order_id = order.order_id`` and
-        carry distinct ``leg_ref_id`` per leg. The archive row carries
-        the shared ``order_id`` + per-leg ``leg_ref_id``.
-
-    The archive itself is compared by shadow_replay on its 6-dim
-    identity tuple (strategy_id, token, entry_ts, direction,
-    leg_index, exit_reason) + prices + pnl. Those dims are designed
-    to be *bit-identical* across the flag flip — that's the whole
-    point of the contingency migration contract (AC41). If the flag
-    paths actually diverge on any of those dims, shadow_replay will
-    catch it; if the paths are contractually equivalent, this test
-    confirms so by running both paths.
-
-    Returns a list of archive dicts compatible with
-    :func:`v5.tests.shadow_replay.run_shadow_replay` (6-dim identity tuple
-    includes ``leg_index`` per M5 shadow-replay schema).
-    """
-    spec = getattr(state, "strategy_spec", None)
-    strategy_id = getattr(spec, "strategy_id", "s_combined")
-    use_multi_leg = bool(getattr(spec, "use_multi_leg_orders", False))
-
-    # Deterministic trigger sequence — three entries one hour apart.
-    base_ts_ns = 1_770_003_600 * 1_000_000_000  # 2026-02-26T01:00Z, fixed.
-    archive: list = []
-
-    for i in range(3):
-        ts_ns = base_ts_ns + i * 3600 * 1_000_000_000
-        armed_at = datetime.fromtimestamp(ts_ns / 1e9, tz=timezone.utc)
-        entry_price = 100.0 + i
-
-        # Drive the real flag-gated entry site. This is the production
-        # code path for combined strategies — not a synthetic dup.
-        result = trigger_combined_entry(
-            state=state,
-            token="BTC",
-            armed_at=armed_at,
-            entry_price=entry_price,
-            quantity=1.0,
-        )
-
-        # Normalize both return shapes (list OR CombinedEntryResult).
-        if isinstance(result, CombinedEntryResult):
-            positions = list(result.positions)
-            order_id = getattr(result.order, "order_id", "") or ""
-        else:
-            positions = list(result)
-            order_id = ""
-
-        # Serialize each leg Position into a trade-archive row. The
-        # exit math mirrors the legacy canned archive (primary +2%,
-        # secondary -1%) so per-trade pnl is deterministic; the
-        # per-leg identity fields (direction, leg_index, exit_reason,
-        # prices, pnl, notional) are the 6-dim shadow-replay axes.
-        # The `order_id` + `leg_ref_id` columns are where the flag
-        # flip's real difference lives: they are *informational*
-        # (shadow_replay does not compare them), but regressions to
-        # the contingency migration would flip the identity tuple
-        # (e.g. a bug that swapped directions between legs).
-        for leg_index, pos in enumerate(positions):
-            direction = int(getattr(pos, "direction", 1 if leg_index == 0 else -1))
-            # Price/pnl: primary long +2%, secondary short -1%.
-            if leg_index == 0:
-                exit_price = float(entry_price) * 1.02
-                pnl = float(entry_price) * 0.02
-            else:
-                exit_price = float(entry_price) * 0.99
-                pnl = float(entry_price) * 0.01
-            archive.append({
-                "strategy_id": strategy_id,
-                "token": "BTC",
-                "entry_ts": ts_ns,
-                "direction": direction,
-                "leg_index": leg_index,
-                "exit_reason": "take_profit",
-                "entry_price": float(entry_price),
-                "exit_price": float(exit_price),
-                "pnl": float(pnl),
-                "notional": float(entry_price),
-                # Flag-sensitive bookkeeping (informational; not in the
-                # 6-dim identity tuple but preserved so downstream
-                # diagnostics can surface the flag-path divergence).
-                "order_id": order_id if use_multi_leg else "",
-                "leg_ref_id": getattr(pos, "leg_ref_id", None) or "",
-                "linked_position_id": (
-                    getattr(pos, "linked_position_id", None) or ""
-                ),
-            })
-    return archive
+# M10 B4 (AC #13): trigger_combined_entry legacy branch + CombinedEntryResult
+# + _combined_position_id + run_combined_strategy_archive ~270 lines DELETED.
+# M5 multi-leg OTOCO via Order.arm(...) is canonical after M10.
 
 
 # M7 AC-H1: legacy-name alias for paper_engine.py:3042 compatibility.

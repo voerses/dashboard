@@ -14,6 +14,14 @@ do not exist.
 """
 from __future__ import annotations
 
+import pytest
+
+pytestmark = pytest.mark.skip(reason=(
+    "M10 B4: trigger_combined_entry + CombinedEntryResult DELETED. "
+    "Feature-flag-based dispatch obsoleted by M10 AC #13 — multi-leg "
+    "OTOCO is canonical. See .specs/telemetry.jsonl for the dispute."
+))
+
 import sys
 from datetime import datetime, timezone
 from pathlib import Path

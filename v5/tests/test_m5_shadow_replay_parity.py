@@ -11,6 +11,14 @@ flag path is not yet implemented; fixtures not yet generated.
 """
 from __future__ import annotations
 
+import pytest
+
+pytestmark = pytest.mark.skip(reason=(
+    "M10 B4: run_combined_strategy_archive + trigger_combined_entry "
+    "DELETED. Shadow-replay validation of the flag flip is obsolete "
+    "after M10 (multi-leg OTOCO is canonical)."
+))
+
 import copy
 import sys
 from datetime import datetime, timezone

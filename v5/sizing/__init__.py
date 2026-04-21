@@ -32,19 +32,75 @@ from v5.sizing.slippage import (
 )
 
 
-# M10 B11: real module-level `get_sizing_model` (replaces the
-# globals()["get_" + "sizing_model"] obfuscation at v5/simulator.py:41).
-# Delegates to sizing_legacy until B1 migrates simulator.py to
-# SizingIntent.FIXED_FRACTION (Cluster B1/B2 prereq).
+# M10 B11: real module-level `get_sizing_model` (replaces a dynamic
+# globals resolver obfuscation deleted from `v5/simulator.py:41`).
+# After B1/B2 the only "sizing model" is the free function
+# `compute_fixed_fraction_notional` below — this resolver returns a
+# thin adapter that exposes a legacy `.compute_size()` method bound
+# to the new helper. M7 conviction tests that monkeypatched
+# `sim.get_sizing_model` continue to work.
+class _FixedFractionSizingAdapter:
+    """Adapter exposing the pre-M8 `compute_size()` shape over
+    `compute_fixed_fraction_notional`. Keeps legacy tests alive
+    after `v5/sizing_legacy.py` was deleted in M10 B2."""
+
+    def compute_size(
+        self, strategy_equity, rolling_adv, edge,
+        adv_cap_pct=0.05, edge_minimum=0.10,
+        spot_max_equity_pct=1.0, leverage=1.0,
+    ):
+        return compute_fixed_fraction_notional(
+            equity=strategy_equity, adv=rolling_adv, edge=edge,
+            leverage=leverage, adv_cap_pct=adv_cap_pct,
+            edge_minimum=edge_minimum,
+            spot_max_equity_pct=spot_max_equity_pct,
+        )
+
+
+_SIZING_MODELS: dict = {"kelly": _FixedFractionSizingAdapter()}
+
+
 def get_sizing_model(name: str = "kelly"):
     """Resolve a sizing-model implementation by name.
 
-    Delegates to the legacy Kelly implementation for now; Phase-4
-    Cluster-B1 migrates simulator.py:1562 to SizingIntent.FIXED_FRACTION
-    which removes the need for this resolver entirely.
+    Returns a `_FixedFractionSizingAdapter` for back-compat `.compute_size()`
+    callers. New code should call `compute_fixed_fraction_notional`
+    directly.
     """
-    from v5.sizing_legacy import _legacy_get_sizing_model
-    return _legacy_get_sizing_model(name)
+    if name not in _SIZING_MODELS:
+        raise KeyError(f"Unknown sizing model {name!r}")
+    return _SIZING_MODELS[name]
+
+
+def compute_fixed_fraction_notional(
+    *,
+    equity: float,
+    adv: float,
+    edge: float,
+    leverage: float,
+    adv_cap_pct: float = 0.05,
+    edge_minimum: float = 0.10,
+    spot_max_equity_pct: float = 1.0,
+) -> float:
+    """M10 B1 — FIXED_FRACTION notional computation.
+
+    Mathematically equivalent to ``_LegacyKellySizing.compute_size()``:
+      * edge < edge_minimum → 0.0 (the strategy isn't confident enough)
+      * else → ``min(adv × adv_cap_pct, equity × spot_max_equity_pct)``
+        when leverage ≤ 1.0; otherwise just the ADV cap.
+    Always non-negative.
+
+    Quant-expert review (2026-04-20, Q3 resolution): the clamp pipeline
+    is self-sufficient — this helper makes that self-sufficiency
+    explicit + testable via `test_m10_sizing_fixed_fraction_
+    equivalence.py` + enables `v5/sizing_legacy.py` to be deleted (B2).
+    """
+    if edge < edge_minimum:
+        return 0.0
+    pos_usd = adv * adv_cap_pct
+    if leverage <= 1.0:
+        pos_usd = min(pos_usd, equity * spot_max_equity_pct)
+    return max(pos_usd, 0.0)
 
 
 __all__ = [
@@ -55,4 +111,5 @@ __all__ = [
     "compute_slippage_bps",
     "get_slippage_model",
     "get_sizing_model",
+    "compute_fixed_fraction_notional",
 ]
