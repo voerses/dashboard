@@ -18,6 +18,19 @@
 
 cd /workspace/crypto_backtest
 
+# M10 AC #12 — test-mode fast path. Writes a minimal state_v5.json
+# stub and exits without launching the real runner. Enables the
+# pytest parallel-ops smoke test to verify dashboard wiring without
+# a 30-60 min wall-clock runner session.
+if [ "${V5_PAPER_TEST_MODE:-0}" = "1" ]; then
+    mkdir -p /srv/data 2>/dev/null || true
+    cat > /srv/data/state_v5.json 2>/dev/null <<'EOF'
+{"schema_version": 3, "tick_counter": 0, "portfolio_equity": 100000.0, "active_positions": [], "open_orders": [], "checksum": "_test_mode", "_test_mode": true}
+EOF
+    echo "[v5] Test-mode: wrote stub /srv/data/state_v5.json and exiting."
+    exit 0
+fi
+
 if [ "${V5_PAPER_ENABLED:-0}" != "1" ]; then
   echo "V5 paper disabled (set V5_PAPER_ENABLED=1 to enable)"
   exit 0

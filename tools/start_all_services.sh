@@ -16,6 +16,18 @@
 
 cd /workspace/crypto_backtest
 
+# M10 AC #12 — test-mode fast path. Writes a minimal state.json
+# stub and exits without launching the real runner. Enables the
+# pytest parallel-ops smoke test.
+if [ "${V4_PAPER_TEST_MODE:-0}" = "1" ]; then
+    mkdir -p /srv/data 2>/dev/null || true
+    cat > /srv/data/state.json 2>/dev/null <<'EOF'
+{"schema_version": 1, "tick_counter": 0, "portfolio_equity": 100000.0, "open_positions": [], "armed_tokens": {}, "_test_mode": true}
+EOF
+    echo "[v4] Test-mode: wrote stub /srv/data/state.json and exiting."
+    exit 0
+fi
+
 echo "=== Starting all services ==="
 echo "$(date -u): Starting..."
 
