@@ -239,6 +239,10 @@ class PortfolioConfig:
     # at simulator release_atomic callsite. Kept as dataclass field
     # with default True for config-file back-compat; runtime unconditional.
     use_m8_clamps: bool = True
+    # M10 AC #19: DataEngine is the default backtest data source. M7
+    # deferred the flip; M10 closes it. `use_data_engine=False` triggers
+    # DeprecatedPathError on engine consumption (see v5.simulator).
+    use_data_engine: bool = True
     # Maximum rows to keep in hist_cache per token (0 = unlimited for backtest)
     cache_max_rows: int = 0
     # Delayed/armed entry: signal fires on bar B, actual entry on bar B + entry_delay_bars.
@@ -284,6 +288,19 @@ class PortfolioConfig:
         if self.signal_mode not in ("full", "incremental"):
             raise ValueError(
                 f"signal_mode must be 'full' or 'incremental', got {self.signal_mode!r}"
+            )
+        # M10 AC #19: legacy `use_data_engine=False` path is deprecated.
+        # Raise DeprecatedPathError at config construction so callers
+        # discover the issue at setup time, not deep inside simulate_portfolio.
+        if self.use_data_engine is False:
+            from v5.simulator import DeprecatedPathError
+            raise DeprecatedPathError(
+                "PortfolioConfig(use_data_engine=False) is the legacy "
+                "M7 pre-flip path and is no longer supported. M10 makes "
+                "DataEngine the default; see knowledge/MIGRATION.md for "
+                "migration steps. If you need the legacy path for a "
+                "debug fork, restore it from v5/ git history prior to "
+                "M10 commit."
             )
         # M9 AC #3(g): sum(min_slot_guarantee) must not exceed max_portfolio_positions.
         # Prevents deterministic over-reservation that would starve all strategies.

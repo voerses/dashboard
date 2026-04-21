@@ -1192,27 +1192,10 @@ if __name__ == "__main__" and False:
     pass
 
 
-# ============================================================
-# M7 AC-P1 — run_paper_multi flag branches (2 sites)
-# ============================================================
-#
-# Per user directive 2026-04-19: branches gated until end-of-all-Ms; wiring
-# only, no prod behavior change. Matches design §4 Site 8+9.
-
-def _m7_shared_datafeed_setup(use_data_engine: bool, configs):
-    """run_paper_multi.py:381-401 — shared PriceMonitor fan-out → shared
-    DataEngine fan-out when flag=ON."""
-    if use_data_engine:
-        from v5.data.engine import DataEngine
-        return ("shared_data_engine", DataEngine())
-    return ("shared_price_monitor_fanout", configs)
-
-
-def _m7_candle_flush_trigger(use_data_engine: bool, engines):
-    """run_paper_multi.py:360-363 — sub-hourly candle flush dispatch."""
-    if use_data_engine:
-        return ("data_engine_drain", engines)
-    return ("candle_aggregator_flush", engines)
+# M10 AC #19: M7 flag-branch stubs DELETED. The DataEngine path is the
+# only supported data source after M10 (PortfolioConfig.use_data_engine
+# default = True; =False raises DeprecatedPathError at config
+# construction). See v5/simulator.py::DeprecatedPathError.
 
 
 # ============================================================

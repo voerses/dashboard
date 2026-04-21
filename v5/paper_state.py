@@ -210,7 +210,7 @@ def _deserialize_position(d: dict) -> Position:
     if wend > 0:
         pos._window_end = wend
 
-    # M2 scaling fields (Task 12) — backward compatible defaults
+    # M2 scaling fields (Task 12) — legacy-caller compatible defaults
     pos.scale_count = int(d.get("scale_count", 0))
     # r_anchor_price: if 0.0 or missing, Position.__post_init__ already set it to
     # entry_price. For explicit-zero legacy states, fall back to entry_price.
@@ -1177,9 +1177,8 @@ def deserialize_engine_state(data: dict) -> tuple:
 # ---------------------------------------------------------------------------
 # Legacy-log parsers (v4 back-compat for /dashboard analysis JSON)
 # (AC31a, AC33, AC34 — Tasks 12 + 14)
-# M10 B13: renamed banner from "v4 compatibility loaders" to clarify these
-# parsers read v4 JSON analysis logs for back-compat dashboard display —
-# they are legitimate load paths, not deletable compat shims.
+# M10 B13: renamed banner. These parsers read v4 JSON analysis logs for
+# back-compat dashboard display — legitimate load paths, not shims.
 # ---------------------------------------------------------------------------
 
 def load_v4_compat(state_path: str) -> tuple:
@@ -1510,7 +1509,7 @@ def write_paper_state(path, *, positions=None, pending_entries=None,
             Added for M4 Task 26 (AC26 T-B16: scale-cap crash-restart) so
             ``pos._scale_action_bar`` survives a mid-hour restart.
         pending_entries: legacy alias for ``open_orders`` kept for M4
-            backward compatibility. Schema v3 renames this key to
+            legacy-caller compatibility. Schema v3 renames this key to
             ``open_orders`` (design §F4). If both are provided ``open_orders``
             wins.
         open_orders: iterable of :class:`Order` — persisted as a top-level

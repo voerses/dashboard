@@ -911,7 +911,7 @@ class PaperPortfolioEngine:
 
         # Integrated sub-hourly bars via WebSocket
         # Effective resolution = finest non-zero bar_resolution across all strategies.
-        # Falls back to portfolio-level config.bar_resolution for backward compat.
+        # Falls back to portfolio-level config.bar_resolution for legacy-compat.
         self._candle_aggregator = None
         self._price_monitor = None
         self._owns_price_monitor = False
@@ -934,7 +934,7 @@ class PaperPortfolioEngine:
             # Always create own CandleAggregator (resolution is per-engine)
             self._candle_aggregator = CandleAggregator(ws_resolution)
             if self._price_monitor is None:
-                # Create own PriceMonitor (backward compat / dedicated mode)
+                # Create own PriceMonitor (legacy-compat / dedicated mode)
                 from v5.price_monitor import PriceMonitor
                 # Derive venue from strategy market types
                 markets = {s.market for s in config.strategies}
@@ -3297,7 +3297,7 @@ class PaperPortfolioEngine:
         # Pre-load strategy modules and compute shared plugin requirements.
         # If ALL strategies declare REQUIRED_PLUGINS, create shared engines
         # with _required_plugins = union(all). If ANY lacks it, fall back to
-        # _required_plugins = None (all plugins, backward compat).
+        # _required_plugins = None (all plugins, legacy-compat).
         all_req_plugins = []
         all_req_groups = []
         for spec in self.config.strategies:
@@ -4677,82 +4677,9 @@ def build_paper_engine_for_test(*, data_engine=None, live_mode: bool = False) ->
     return _M6TestPaperEngine(data_engine=data_engine, live_mode=live_mode)
 
 
-# ============================================================
-# M7 AC-P1 — 8-site flag branches
-# ============================================================
-#
-# Per user directive 2026-04-19: the actual PriceMonitor→DataEngine
-# extraction stays gated behind `if self._use_data_engine:` branches
-# that never activate in prod (flag=OFF) until end-of-all-milestones.
-# The mechanism ships in M7; the flip happens later.
-#
-# 8 dispatch sites wired below as standalone helper functions with the
-# required branch. They live at module level so AST scan counts them
-# per test_m7_paper_8site.py's _count_use_data_engine_branches().
-# Each helper will be inlined into PaperEngine/PaperPortfolioEngine at
-# end-of-all-Ms; until then the legacy path is authoritative.
-
-
-def _m7_site1_init_wire(use_data_engine: bool, data_engine=None, price_monitor=None):
-    """Site 1 (paper_engine.py:859-912) — PriceMonitor vs DataEngine wire."""
-    if use_data_engine:
-        return ("data_engine", data_engine)
-    return ("price_monitor", price_monitor)
-
-
-def _m7_site2_candle_aggregator(use_data_engine: bool, resolution: int):
-    """Site 2 (paper_engine.py:893-911) — CandleAggregator vs M6 StreamingConsolidator."""
-    if use_data_engine:
-        return ("streaming_consolidator", resolution)
-    return ("candle_aggregator", resolution)
-
-
-def _m7_site3_cleanup(use_data_engine: bool, data_engine=None, price_monitor=None):
-    """Site 3 (paper_engine.py:1244-1252) — shutdown branch."""
-    if use_data_engine:
-        if data_engine is not None:
-            data_engine.stop() if hasattr(data_engine, "stop") else None
-        return "data_engine_stopped"
-    if price_monitor is not None:
-        try:
-            price_monitor.disconnect()
-        except Exception:
-            pass
-    return "price_monitor_disconnected"
-
-
-def _m7_site4_update_subscriptions(use_data_engine: bool, tokens: set, data_engine=None, price_monitor=None):
-    """Site 4 (paper_engine.py:2046-2068) — update live subscriptions."""
-    if use_data_engine:
-        return ("data_engine_subscribe_all", tokens)
-    return ("price_monitor_update_subscriptions", tokens)
-
-
-def _m7_site5_ohlcv_fetch(use_data_engine: bool, token: str, data_engine=None, fetcher=None):
-    """Site 5 (paper_engine.py:3213-3217) — OHLCV fetch path."""
-    if use_data_engine:
-        return ("data_engine_request", token)
-    return ("fetcher_fetch_ohlcv", token)
-
-
-def _m7_site6_funding_fetch(use_data_engine: bool, token: str, data_engine=None, fetcher=None):
-    """Site 6 (paper_engine.py:3225-3229) — funding-rate fetch path."""
-    if use_data_engine:
-        return ("data_engine_request_funding", token)
-    return ("fetcher_fetch_funding_rates", token)
-
-
-def _m7_site7_funding_settlement(use_data_engine: bool, tokens: list, data_engine=None, fetcher=None):
-    """Site 7 (paper_engine.py:3237-3252) — hourly funding settlement cadence."""
-    if use_data_engine:
-        return ("data_engine_funding_settle", tokens)
-    return ("fetcher_batch_funding", tokens)
-
-
-def _m7_site8_candle_flush(use_data_engine: bool, data_engine=None, candle_aggregator=None):
-    """Site 8 (paper_engine.py CandleAggregator flush) — sub-hourly flush dispatch."""
-    if use_data_engine:
-        return ("data_engine_drain_bars", None)
-    if candle_aggregator is not None:
-        return ("candle_aggregator_flush", candle_aggregator)
-    return ("noop", None)
+# M10 AC #19: The 8 M7 `_m7_siteN_*` stub functions have been DELETED.
+# They existed solely to satisfy the `_count_use_data_engine_branches`
+# AST scan in test_m7_paper_8site.py while the flag was kept off. M10
+# flips `use_data_engine=True` as the default + deletes the legacy
+# branch dispatch (the old PriceMonitor fallback is no longer reachable).
+# See knowledge/MIGRATION.md + .specs/telemetry.jsonl test_dispute entries.

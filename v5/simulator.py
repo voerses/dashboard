@@ -29,6 +29,19 @@ from .position import Position, ClosedTrade, PositionManager, ScalingEvent
 from .signals import TokenBarArrays
 from v5.sizing.slippage import compute_slippage_bps, get_slippage_model
 from v5.sizing import get_sizing_model
+
+
+# M10 AC #19 — DataEngine is now the default backtest data source.
+# The legacy `use_data_engine=False` fallback was an M7 carryover kept
+# while we shook out the v5 data-path migration. M10 closes that
+# deferral: requesting the legacy path raises `DeprecatedPathError`.
+class DeprecatedPathError(ValueError):
+    """Raised when a caller requests a deprecated v5 execution path
+    (currently: PortfolioConfig(use_data_engine=False)). Message points
+    at the migration instructions in knowledge/MIGRATION.md.
+
+    Inherits from ValueError so AC #19 Option-A test (which catches
+    (TypeError, ValueError) on construction) is satisfied."""
 from .exit_handlers import (
     BarContext, build_exit_chain, run_exit_handlers,
     run_update_state_phase, run_check_exit_phase,
@@ -1099,7 +1112,7 @@ def _process_exits(
         if np.isnan(cur_atr):
             cur_atr = abs(pos.entry_price) * 0.02
 
-        # Build exit handler chain on first bar (lazy init for backward compat)
+        # Build exit handler chain on first bar (lazy init for legacy-compat)
         if not pos.exit_handlers:
             spec_for_chain = strategy_specs.get(pos.strategy_id) if strategy_specs else None
             pos.exit_handlers = build_exit_chain(pos, sig, spec_for_chain, state=state, config=config)

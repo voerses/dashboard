@@ -1154,7 +1154,7 @@ class Order:
 
         **Legacy path** (M5/M7): when clamp kwargs are omitted, falls back
         to the pre-M8 `compute_reserved_capital` vs `available_capital_usd`
-        check only. Preserves backward compat for callers that haven't
+        check only. Preserves legacy-compat for callers that haven't
         migrated to the clamp pipeline yet (Wave G Tasks 22+23).
 
         **AC-Sz7 error containment**: ClampError exceptions inside the

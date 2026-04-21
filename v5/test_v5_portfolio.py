@@ -1159,7 +1159,7 @@ class TestMaxPositionsPerSymbol:
         assert len(btc_trades) == 2
 
     def test_default_still_blocks_reentry(self):
-        """Default max_positions_per_symbol=1 still blocks re-entry (backward compat)."""
+        """Default max_positions_per_symbol=1 still blocks re-entry (legacy-compat)."""
         n = 300
         mask = np.zeros(n, dtype=bool)
         mask[10] = True

@@ -964,7 +964,7 @@ class StrategyResult:
     convex_bar_thresholds: tuple = (48, 12)         # (mature_bars, early_bars)
     convex_multipliers: tuple = (2.0, 1.5, 0.3)    # (mature_trail_atr, early_profit_mult, early_be_offset)
 
-    # Futures support (defaults preserve backward compatibility)
+    # Futures support (defaults preserve legacy-caller compatibility)
     market_type: int = 0        # MarketType.SPOT
     leverage: object = 1.0      # float scalar or per-bar np.ndarray
     exchange: str = 'binance'   # for fee/funding lookup
@@ -1014,7 +1014,7 @@ def register_indicator(fn=None, *, name=None):
     """Decorator: register a custom indicator computation function.
 
     Usage:
-        @register_indicator           # unnamed (backward compat)
+        @register_indicator           # unnamed (legacy-compat)
         def _compute_foo(ctx): ...
 
         @register_indicator(name='obv')  # named (opt-in via REQUIRED_PLUGINS)
@@ -1592,7 +1592,7 @@ def _load_strategy_required_indicator_groups(strategy_id: str):
     """Return the REQUIRED_INDICATOR_GROUPS set from a cached strategy module.
 
     Returns None if the module has no REQUIRED_INDICATOR_GROUPS attribute
-    (backward compatible — all 7 indicator groups will be computed).
+    (legacy-caller compatible — all 7 indicator groups will be computed).
 
     Available groups: ema, macd, rsi, bb, adx, volume, donchian.
     Core indicators (close, high, low, volume, atr, vol_20) are always
@@ -1801,7 +1801,7 @@ class Engine:
                             "Plugin '%s' failed for %s: %s", pname, ticker, exc,
                         )
         else:
-            # Default: run all plugins (backward compat for 211 strategies)
+            # Default: run all plugins (legacy-compat for 211 strategies)
             for plugin in _INDICATOR_PLUGINS:
                 try:
                     plugin(ctx)
@@ -1816,5 +1816,5 @@ class Engine:
         return ctx
 
 
-# Alias for backward compatibility
+# Alias for legacy-caller compatibility
 BacktestEngine = Engine

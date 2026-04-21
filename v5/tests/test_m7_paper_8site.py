@@ -1,14 +1,16 @@
 """M7 — 8-site PaperEngine dispatch: flag=OFF byte-identity + flag=ON wiring (AC-P1).
 
-Covers:
-  - AC-P1 — each of the 8 legacy PaperEngine dispatch sites + 2
-    run_paper_multi.py sites gains an `if self._use_data_engine:` branch.
-  - AC-P1 — flag=OFF remains byte-identical to pre-M7 behavior (legacy
-    PriceMonitor path unchanged).
-  - AC-P1 — flag=ON routes through DataEngine / BinanceWSClient /
-    BinanceRESTClient.
+OBSOLETE AS OF M10 (2026-04-21):
+  M10 AC #19 flipped `PortfolioConfig.use_data_engine` default to True
+  and deleted all 10 `use_data_engine`-gated branches (8 in paper_engine
+  + 2 in run_paper_multi). The DataEngine path is now the only
+  supported data source. `_count_use_data_engine_branches` correctly
+  returns 0 after M10 cleanup.
 
-All tests MUST FAIL today — the 8-site migration has not landed.
+The branch-count assertions below are MODULE-LEVEL SKIPPED per
+test-dispute protocol. The original M7 AC-P1 intent (ship the
+mechanism) was satisfied; M10 AC #19 supersedes it (flip + delete).
+See .specs/telemetry.jsonl for the dispute entry.
 """
 from __future__ import annotations
 
@@ -17,6 +19,11 @@ import sys
 from pathlib import Path
 
 import pytest
+
+pytestmark = pytest.mark.skip(reason=(
+    "M10 AC #19: use_data_engine branches deleted; M7 AC-P1 is obsolete "
+    "(mechanism fulfilled by default-True + deprecation on False)."
+))
 
 _project_root = Path(__file__).resolve().parent.parent.parent
 if str(_project_root) not in sys.path:

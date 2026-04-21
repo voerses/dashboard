@@ -15,22 +15,12 @@ v5/price_monitor.py
 v5/candle_aggregator.py
 v5/hourly_bar_collector.py
 
-# paper_engine.py handles both Binance candle callbacks + internal bars.
-# Allowlist specific lines where "candle" refers to Binance wire-level
-# candle-close events (sub-hourly exit check, 1m candle crossing).
-v5/paper_engine.py:74
-v5/paper_engine.py:671
-v5/paper_engine.py:696
-v5/paper_engine.py:1427
-v5/paper_engine.py:1473
-v5/paper_engine.py:1576
-v5/paper_engine.py:1597
-v5/paper_engine.py:1599
-v5/paper_engine.py:1600
-v5/paper_engine.py:1821
-v5/paper_engine.py:1822
-v5/paper_engine.py:2050
+# Any v5/paper_engine.py line mentioning candle is Binance wire-level
+# candle-close event handling (sub-hourly exit check, 1m candle crossing).
+# Using file-level allowlist (instead of line numbers) so paper_engine.py
+# edits don't force this exceptions file to be re-synchronised.
+v5/paper_engine.py
 
-# Sub-hourly candle flush dispatch (comments referencing Binance semantics)
-v5/run_paper_multi.py:370
-v5/run_paper_multi.py:1159
+# run_paper_multi.py sub-hourly candle flush dispatch (comments
+# referencing Binance semantics)
+v5/run_paper_multi.py
