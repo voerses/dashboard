@@ -547,6 +547,9 @@ class ClosedTrade:
     # taker on perp orders — market/stop/triggered-entry crosses).
     fill_type: str = "taker"          # {"maker", "taker"} — ENTRY
     exit_fill_type: str = "taker"     # {"maker", "taker"} — EXIT
+    # M10 AC #16 / AC #18 — funding math requires notional = quantity *
+    # entry_price. `quantity` is copied from Position.quantity at close.
+    quantity: float = 0.0
 
     # M10 B3: back-compat read-only @property replaces the deleted `leg`
     # field. Constructor callers migrated to
@@ -642,6 +645,7 @@ class PositionManager:
             exit_price=exit_price,
             direction=pos.direction,
             margin_usd=pos.margin_usd,
+            quantity=float(pos.quantity),
             pnl=pnl,
             funding_cost=funding_cost,
             entry_fee=entry_fee,

@@ -547,6 +547,9 @@ def _close_position(
         exit_price=exit_price,
         direction=pos.direction,
         margin_usd=pos.margin_usd,
+        # M10 AC #16: copy quantity so ClosedTrade exposes the FIX-
+        # correct notional = |qty × entry_price| for funding math.
+        quantity=float(pos.quantity),
         pnl=net_pnl,
         funding_cost=pos.cumulative_funding,
         entry_fee=entry_fee,
@@ -1207,6 +1210,18 @@ def _process_exits(
             funding_cost = notional * funding_val * d_sign
             state.total_funding += funding_cost
             pos.cumulative_funding += funding_cost
+            # M10 AC #16 / AC #18 — funding accrual JSONL sink.
+            # Emit ONE entry per non-zero funding snap (the fixture
+            # leaves funding_1h=0 between snap bars, so this naturally
+            # aligns with the 3 per 24h snaps at 00/08/16 UTC).
+            if funding_val != 0.0:
+                _emit_funding_accrual(
+                    state=state, config=config, pos=pos,
+                    global_bar=global_bar, sig=sig, local_bar=local_bar,
+                    funding_val=float(funding_val),
+                    notional=float(notional),
+                    payment_usd=float(funding_cost),
+                )
 
         # Step 3: Liquidation check
         if pos.is_perp and (pos.leverage > 1.0 or pos.quantity < 0.0):
@@ -2190,6 +2205,24 @@ def _stage2_process_new_signals(
                 state.diagnostics.entries_opened[strategy_id] = 0
             state.diagnostics.entries_opened[strategy_id] += 1
 
+            # M10 AC #16: if the entry bar has a non-zero funding rate,
+            # accrue + emit immediately (the _process_exits funding
+            # block only sees positions that were open AT THE START of
+            # the bar — entries opened here miss the bar-open snap).
+            if is_perp_this_bar and sig.funding_1h is not None:
+                _entry_fund = float(sig.funding_1h[local_bar])
+                if _entry_fund != 0.0:
+                    _n = abs(pos.quantity * float(entry_price))
+                    _d = 1.0 if pos.quantity > 0.0 else -1.0
+                    _pay = _n * _entry_fund * _d
+                    state.total_funding += _pay
+                    pos.cumulative_funding += _pay
+                    _emit_funding_accrual(
+                        state=state, config=config, pos=pos,
+                        global_bar=global_bar, sig=sig, local_bar=local_bar,
+                        funding_val=_entry_fund, notional=_n, payment_usd=_pay,
+                    )
+
 
 def _process_margin_calls(
     state: SimulationState,
@@ -2773,6 +2806,54 @@ def paper_replay_to_token_bar_arrays(*, strategy, ctx) -> dict:
         if getattr(ctx.data, "_arrays", None) else 0
     )
     return _build_token_bar_arrays_from_generate(strategy, n_bars, ctx, guarded=False)
+
+
+def _emit_funding_accrual(
+    *, state, config, pos, global_bar, sig, local_bar,
+    funding_val: float, notional: float, payment_usd: float,
+) -> None:
+    """M10 AC #16 / AC #18 — emit one JSONL row to `funding_accruals.jsonl`
+    per non-zero funding snap. Captures the FIX-correct fields so the
+    cross-path parity test (D-1) can byte-diff against paper_engine
+    emissions.
+
+    NOTE: funding cadence differs between backtest (per-bar with
+    non-zero rate) and paper (lump-sum at 00/08/16 UTC snap boundaries).
+    D-1's byte-identity test runs both paths over a TestClock fixture
+    where the bar-close and snap timestamps coincide — that's when the
+    archives must match.
+    """
+    import json as _json
+    import os as _os
+    import pathlib as _pathlib
+    # Honor V5_LOG_DIR for test isolation; default to v5/logs.
+    log_dir = _os.environ.get("V5_LOG_DIR", "") or str(
+        _pathlib.Path(__file__).resolve().parent / "logs"
+    )
+    p = _pathlib.Path(log_dir) / "funding_accruals.jsonl"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    # Derive ts_ns from sig.timestamps if available.
+    ts_ns: int | None = None
+    try:
+        if getattr(sig, "timestamps", None) is not None:
+            ts_ns = int(sig.timestamps[local_bar])
+    except Exception:
+        ts_ns = None
+    if ts_ns is None:
+        ts_ns = int(global_bar * 3600 * 1_000_000_000)
+    entry = {
+        "ts_ns": ts_ns,
+        "bar_idx": int(global_bar),
+        "token": pos.token,
+        "strategy_id": pos.strategy_id,
+        "position_id": pos.position_id,
+        "direction": int(pos.direction),
+        "rate": funding_val,
+        "notional_usd": notional,
+        "payment_usd": payment_usd,
+    }
+    with p.open("a", encoding="utf-8") as fh:
+        fh.write(_json.dumps(entry, separators=(",", ":"), sort_keys=True) + "\n")
 
 
 def _wrap_ctx_if_raw_bundle(ctx):

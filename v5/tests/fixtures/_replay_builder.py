@@ -112,7 +112,11 @@ class ReplayFixtureBuilder:
         # For fixtures with forced_trades, size max_hold so each position
         # closes before the next entry. Keeps the sim loop deterministic
         # about open/close cycles (C1 PnL-path + C2 day-rollover tests).
-        if self.scenario.forced_trades > 0:
+        # Exception: when funding_snaps is supplied (C3 / D1), keep the
+        # position open across all snap bars by extending max_hold to n.
+        if self.scenario.funding_snaps and self.scenario.forced_trades > 0:
+            max_hold = max(n - 1, 2)
+        elif self.scenario.forced_trades > 0:
             step = max(n // (self.scenario.forced_trades * 2), 1)
             max_hold = max(step, 2)
         else:
