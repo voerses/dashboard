@@ -1184,7 +1184,19 @@ def load_oos_window(
         path = cache_dir / f"{tok}_1h.parquet"
         if not path.exists():
             continue
-        df = pd.read_parquet(path)
+        # M10 AC #26: explicit ParquetFile+close avoids the anonymous
+        # BufferedReader FD leak that pandas.read_parquet leaves for
+        # the GC. Materializes full frame in one shot, then closes.
+        import pyarrow.parquet as _pq
+        _pf = _pq.ParquetFile(str(path))
+        try:
+            _tbl = _pf.read()
+        finally:
+            try:
+                _pf.close()
+            except Exception:
+                pass
+        df = _tbl.to_pandas()
         if not isinstance(df.index, pd.DatetimeIndex):
             df.index = pd.to_datetime(df.index)
         if df.index.tz is not None:
