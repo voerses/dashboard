@@ -326,11 +326,23 @@ class SimulationState:
 
     @property
     def unrealized_pnl_per_bar(self):
-        """AC #14 — per-bar sum of mark-to-market unrealized PnL across
-        currently-open positions. Not yet populated by the inner loop
-        (Phase-4 wiring); returns zeros of length n_bars for now."""
+        """AC #14 — per-bar unrealized component of equity.
+
+        Derived as `equity[n] - initial_capital - Σ realized_per_bar[:n+1]`
+        so the invariant `equity[n] == initial + Σ realized_per_bar[:n+1]
+        + unrealized[n]` holds by construction. Captures the
+        mark-to-market + open-position entry-fee + open-position funding
+        components that the realized stream (only fires on exit_bar)
+        doesn't see mid-hold.
+        """
         import numpy as _np
-        return _np.zeros(self.n_bars, dtype=_np.float64)
+        eq = self.equity_curve
+        n = len(eq)
+        if n == 0:
+            return _np.zeros(0, dtype=_np.float64)
+        realized = self.realized_pnl_per_bar
+        cum_realized = _np.cumsum(realized) if len(realized) else _np.zeros(n)
+        return eq - self.initial_capital - cum_realized
 
     @property
     def trading_state_per_bar(self):
@@ -503,7 +515,11 @@ def _close_position(
         else:
             pnl = abs(pos.quantity) * (pos.entry_price - exit_price)
         exit_fee = abs(pos.quantity * exit_price) * pos.fee_rate
-        net_pnl = pnl - exit_fee - pos.cumulative_funding
+        # M10 AC #14: net_pnl reflects ALL fees (entry + exit + funding)
+        # so ClosedTrade.pnl + initial_capital reconstructs state equity
+        # exactly — no hidden entry_fee delta between the two series.
+        _entry_fee_pending = state._entry_fees_by_pos.get(pos.position_id, 0.0)
+        net_pnl = pnl - exit_fee - _entry_fee_pending - pos.cumulative_funding
         # realized_pnl gets raw pnl (no exit_fee — that goes to total_fees)
         state.realized_pnl += pnl
         state.total_fees += exit_fee
