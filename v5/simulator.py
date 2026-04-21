@@ -1311,6 +1311,25 @@ def _process_exits(
                     positions_to_close.append((linked, lc, "linked_exit", la))
 
     # Execute all closures
+    # M10 AC #17 deterministic liquidation ordering: sort close list by
+    # (liq_distance asc, strategy_id+token lex). For non-liquidation
+    # exits the sort is a no-op because all exits within a bar happen
+    # at the same price-anchored moment; this lex ordering makes
+    # cascade tests reproducible across Python dict-iteration orders.
+    def _close_sort_key(item):
+        p, _exit_price, _reason, _adv = item
+        # liq_distance proxy: entry_price - stop_price / entry_price
+        # (smaller = more at risk = close first). Default to 0 when
+        # stop_price is zero (unleveraged spot).
+        try:
+            if p.entry_price > 0 and p.stop_price > 0:
+                liq_distance = abs(p.entry_price - p.stop_price) / p.entry_price
+            else:
+                liq_distance = 0.0
+        except Exception:
+            liq_distance = 0.0
+        return (liq_distance, f"{p.strategy_id}:{p.token}")
+    positions_to_close.sort(key=_close_sort_key)
     for pos, exit_price, reason, exit_adv in positions_to_close:
         if pos in state.position_manager.open_positions:
             _close_position(state, pos, global_bar, exit_price, reason, exit_adv, config)

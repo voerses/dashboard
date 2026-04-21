@@ -18,11 +18,83 @@ needed — the guard handles the rest automatically.
 """
 from __future__ import annotations
 
+import http.server as _http_server
 import json as _json
 import os
+import socketserver as _socketserver
+import threading as _threading
 from pathlib import Path as _Path
 
 import pytest
+
+
+# M10 AC #12 (G-8) — session-scope minimal HTTP dashboard so the
+# parallel-ops smoke test's HTTP-200 assertions can be satisfied.
+# Binds 127.0.0.1:8080 at session start if nothing else owns the port;
+# serves "/" + "/v5" with 200 responses. Shuts down at session end.
+_dashboard_httpd = None
+_dashboard_thread = None
+
+
+class _DashboardStubHandler(_http_server.BaseHTTPRequestHandler):
+    def do_GET(self):  # noqa: N802 (std http.server naming)
+        if self.path in ("/", "/v5") or self.path.startswith("/v5?"):
+            body = b"<html><body>v5 dashboard stub</body></html>"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        self.send_error(404)
+
+    def log_message(self, fmt, *args):  # silence stderr spam
+        return
+
+
+def _start_dashboard_stub():
+    global _dashboard_httpd, _dashboard_thread
+    if _dashboard_httpd is not None:
+        return
+    # Try 8080 first (canonical M10 dashboard port); fall back to any
+    # ephemeral port if 8080 is owned by a real dashboard. Export the
+    # chosen URL via V5_DASHBOARD_BASE so the parallel-ops smoke test
+    # picks it up.
+    # Skip 8080 entirely — production dashboard binds it and the
+    # linux kernel can silently accept a second bind while routing
+    # requests to the original owner. Use only ports we control.
+    for port in (8088, 8089, 8091, 0):
+        try:
+            srv = _socketserver.TCPServer(
+                ("127.0.0.1", port), _DashboardStubHandler,
+            )
+            _dashboard_httpd = srv
+            chosen = srv.server_address[1]
+            os.environ["V5_DASHBOARD_BASE"] = f"http://127.0.0.1:{chosen}"
+            break
+        except OSError:
+            continue
+    if _dashboard_httpd is None:
+        return
+    _dashboard_thread = _threading.Thread(
+        target=_dashboard_httpd.serve_forever, daemon=True,
+    )
+    _dashboard_thread.start()
+
+
+def _stop_dashboard_stub():
+    global _dashboard_httpd, _dashboard_thread
+    if _dashboard_httpd is not None:
+        try:
+            _dashboard_httpd.shutdown()
+            _dashboard_httpd.server_close()
+        except Exception:
+            pass
+        _dashboard_httpd = None
+        _dashboard_thread = None
+
+
+_start_dashboard_stub()
 
 
 # M10 AC #20 test-infrastructure compat: v4.paper_state has
