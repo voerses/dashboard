@@ -3081,16 +3081,68 @@ def simulate_portfolio(
     # _process_orders / _record_equity_snapshot uniformly.
     if strategies is not None:
         from v5.strategy_api import VectorizedStrategy
-        # If `ctx` is a raw {token: DataFrame} bundle (M10 AC #10 test
-        # fixture shape), wrap it in a minimal StrategyContext stub.
-        ctx = _wrap_ctx_if_raw_bundle(ctx)
+        # M10 AC #10: if `ctx` is a raw {token: DataFrame} bundle from
+        # load_oos_window(...) AND strategies have `.spec.strategy_id`
+        # that resolves to a legacy-function strategy, bypass the
+        # Strategy.generate() path entirely and route through
+        # precompute_strategy_signals (the proven M8 backtest path).
+        # This populates full 40-field TokenBarArrays via the Engine
+        # indicator precomputation that S524M + s513 + s523c rely on.
+        raw_bundle = isinstance(ctx, dict) and bool(ctx) and all(
+            hasattr(v, "columns") and hasattr(v, "index")
+            for v in ctx.values()
+        )
         bridge_signals = {}
-        n_bars = getattr(ctx, "_lifecycle_config", {}).get("bars") or 0
-        for sid, strat in strategies.items():
-            if isinstance(strat, VectorizedStrategy):
-                bridge_signals[sid] = strat.to_token_bar_arrays(ctx)
-            else:
-                bridge_signals[sid] = _engine_precompute_fallback(strat, n_bars, ctx)
+        if raw_bundle and strategies:
+            # Route through precompute_strategy_signals — production
+            # backtest path used by M8 AC-S10 parity fixture.
+            from v5.signals import precompute_strategy_signals as _pcs
+            tokens = list(ctx.keys())
+            # Extract start/end dates from first DataFrame's index.
+            sample_df = next(iter(ctx.values()))
+            try:
+                import pandas as _pd
+                start_ts = _pd.Timestamp(sample_df.index.min())
+                end_ts = _pd.Timestamp(sample_df.index.max())
+            except Exception:
+                start_ts = None
+                end_ts = None
+            _precompute_config = config if config is not None else None
+            for sid, strat in strategies.items():
+                spec = (getattr(strat, "spec", None) or
+                        getattr(strat, "strategy_spec", None) or
+                        StrategySpec(strategy_id=sid, market="perp"))
+                try:
+                    bridge_signals[sid] = _pcs(
+                        strategy_spec=spec,
+                        tokens=tokens,
+                        config=_precompute_config,
+                        months=12,
+                        end_date=end_ts,
+                        start_date=start_ts,
+                    )
+                except Exception:
+                    # Fall back to the Strategy.generate() path if
+                    # precompute fails (legacy strategy loader may fail
+                    # for Strategy-instance-only strategies).
+                    ctx_stub = _wrap_ctx_if_raw_bundle(ctx)
+                    n_bars = getattr(ctx_stub, "_lifecycle_config", {}).get("bars") or 0
+                    if isinstance(strat, VectorizedStrategy):
+                        bridge_signals[sid] = strat.to_token_bar_arrays(ctx_stub)
+                    else:
+                        bridge_signals[sid] = _engine_precompute_fallback(
+                            strat, n_bars, ctx_stub,
+                        )
+        else:
+            # If `ctx` is a raw {token: DataFrame} bundle (M10 AC #10 test
+            # fixture shape), wrap it in a minimal StrategyContext stub.
+            ctx = _wrap_ctx_if_raw_bundle(ctx)
+            n_bars = getattr(ctx, "_lifecycle_config", {}).get("bars") or 0
+            for sid, strat in strategies.items():
+                if isinstance(strat, VectorizedStrategy):
+                    bridge_signals[sid] = strat.to_token_bar_arrays(ctx)
+                else:
+                    bridge_signals[sid] = _engine_precompute_fallback(strat, n_bars, ctx)
         all_signals = bridge_signals
         # Synthesize strategy_specs from the bridge-path strategies:
         # each Strategy instance exposes `.spec` (StrategySpec). If the
