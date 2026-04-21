@@ -47,7 +47,7 @@ class TestAC8SlotsApplied:
         from v5.position import Position
         pos = Position(
             position_id="BTC:s30:5:primary",
-            token="BTC", strategy_id="s30", leg="primary",
+            token="BTC", strategy_id="s30", leg_ref_id="leg_primary",
             entry_bar=0, entry_price=100.0, direction=1,
             quantity=1.0, margin_usd=100.0, leverage=1.0,
             is_perp=True, fee_rate=0.0005,
@@ -68,7 +68,7 @@ class TestAC8SlotsApplied:
         from v5.position import ClosedTrade
         ct = ClosedTrade(
             position_id="BTC:s30:5:primary", token="BTC", strategy_id="s30",
-            leg="primary", entry_bar=0, exit_bar=10, entry_price=100.0,
+            leg_ref_id="leg_primary", entry_bar=0, exit_bar=10, entry_price=100.0,
             exit_price=110.0, direction=1, margin_usd=100.0, pnl=10.0,
             funding_cost=0.0, entry_fee=0.5, exit_fee=0.5, hold_bars=10,
             exit_reason="target",
@@ -124,7 +124,7 @@ class TestAC15aEntrySlotsPersist:
         from v5.position import Position
         return Position(
             position_id="BTC:s30:5:primary",
-            token="BTC", strategy_id="s30", leg="primary",
+            token="BTC", strategy_id="s30", leg_ref_id="leg_primary",
             entry_bar=0, entry_price=100.0, direction=1,
             quantity=1.0, margin_usd=100.0, leverage=1.0,
             is_perp=True, fee_rate=0.0005,
@@ -184,7 +184,7 @@ class TestAC15cSlotsDefaultFactoryCompat:
         from v5.position import Position
         return Position(
             position_id="BTC:s30:5:primary",
-            token="BTC", strategy_id="s30", leg="primary",
+            token="BTC", strategy_id="s30", leg_ref_id="leg_primary",
             entry_bar=0, entry_price=100.0, direction=1,
             quantity=1.0, margin_usd=100.0, leverage=1.0,
             is_perp=True, fee_rate=0.0005,
@@ -198,7 +198,7 @@ class TestAC15cSlotsDefaultFactoryCompat:
         from v5.position import ClosedTrade
         return ClosedTrade(
             position_id="BTC:s30:5:primary", token="BTC", strategy_id="s30",
-            leg="primary", entry_bar=0, exit_bar=10, entry_price=100.0,
+            leg_ref_id="leg_primary", entry_bar=0, exit_bar=10, entry_price=100.0,
             exit_price=110.0, direction=1, margin_usd=100.0, pnl=10.0,
             funding_cost=0.0, entry_fee=0.5, exit_fee=0.5, hold_bars=10,
             exit_reason="target",

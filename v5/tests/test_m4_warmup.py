@@ -113,7 +113,7 @@ class TestAC30Stage1DuringWarmup:
 
         pos = Position(
             position_id="BTC:s1:5:primary", token="BTC", strategy_id="s1",
-            leg="primary", entry_bar=5, entry_price=100.0, direction=1,
+            leg_ref_id="leg_primary", entry_bar=5, entry_price=100.0, direction=1,
             quantity=10.0, margin_usd=1_000.0, leverage=1.0, is_perp=True,
             fee_rate=0.0005, stop_mult=1.0, trail_mult=3.0, target_mult=5.0,
             no_stop_bars=0, min_hold=0, max_hold=720,

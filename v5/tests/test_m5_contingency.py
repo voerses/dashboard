@@ -43,7 +43,6 @@ def _mk_leg(ref: str, margin_usd: float) -> object:
     return Leg(
         leg_ref_id=ref,
         symbol="BTCUSDT",
-        market="perp",
         venue="binance",
         direction=1,
         target_qty=1.0,

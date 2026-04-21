@@ -30,7 +30,6 @@ def _mk_stop_leg(ref: str, direction: int, stop: float) -> object:
     return Leg(
         leg_ref_id=ref,
         symbol="BTCUSDT",
-        market="perp",
         venue="binance",
         direction=direction,
         target_qty=1.0,
@@ -50,7 +49,6 @@ def _mk_tp_leg(ref: str, direction: int, take: float) -> object:
     return Leg(
         leg_ref_id=ref,
         symbol="BTCUSDT",
-        market="perp",
         venue="binance",
         direction=direction,
         target_qty=1.0,
@@ -147,8 +145,7 @@ class TestF10LegFIXFieldAdditions:
         """F10: Leg constructed without expires_at → defaults to None."""
         from v5.orders import Leg, LegStatus
         leg = Leg(
-            leg_ref_id="L1", symbol="BTCUSDT", market="perp",
-            venue="binance", direction=1, target_qty=1.0, cum_qty=0.0,
+            leg_ref_id="L1", symbol="BTCUSDT", venue="binance", direction=1, target_qty=1.0, cum_qty=0.0,
             size_share=1.0, order_type="market", status=LegStatus.ARMED,
             trigger_price=None, limit_price=None, currency="USDT",
         )
@@ -158,8 +155,7 @@ class TestF10LegFIXFieldAdditions:
         """F10: Leg constructed without settlement_type → defaults to 'spot'."""
         from v5.orders import Leg, LegStatus
         leg = Leg(
-            leg_ref_id="L1", symbol="BTCUSDT", market="spot",
-            venue="binance", direction=1, target_qty=1.0, cum_qty=0.0,
+            leg_ref_id="L1", symbol="BTCUSDT", venue="binance", direction=1, target_qty=1.0, cum_qty=0.0,
             size_share=1.0, order_type="market", status=LegStatus.ARMED,
             trigger_price=None, limit_price=None, currency="USDT",
         )
@@ -170,8 +166,7 @@ class TestF10LegFIXFieldAdditions:
         from v5.orders import Leg, LegStatus
         dt = _dt("2026-04-01T12:00:00")
         leg = Leg(
-            leg_ref_id="L1", symbol="BTCUSDT", market="perp",
-            venue="binance", direction=1, target_qty=1.0, cum_qty=0.0,
+            leg_ref_id="L1", symbol="BTCUSDT", venue="binance", direction=1, target_qty=1.0, cum_qty=0.0,
             size_share=1.0, order_type="market", status=LegStatus.ARMED,
             trigger_price=None, limit_price=None, currency="USDT",
             expires_at=dt,
@@ -182,8 +177,7 @@ class TestF10LegFIXFieldAdditions:
         """F10: Leg.settlement_type accepts 'perp' explicitly."""
         from v5.orders import Leg, LegStatus
         leg = Leg(
-            leg_ref_id="L1", symbol="BTCUSDT", market="perp",
-            venue="binance", direction=1, target_qty=1.0, cum_qty=0.0,
+            leg_ref_id="L1", symbol="BTCUSDT", venue="binance", direction=1, target_qty=1.0, cum_qty=0.0,
             size_share=1.0, order_type="market", status=LegStatus.ARMED,
             trigger_price=None, limit_price=None, currency="USDT",
             settlement_type="perp",

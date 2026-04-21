@@ -56,7 +56,7 @@ def _make_trade(
         position_id=f"{token}:s56:{entry_bar}:primary",
         token=token,
         strategy_id="s56",
-        leg="primary",
+        leg_ref_id="leg_primary",
         entry_bar=entry_bar,
         exit_bar=exit_bar,
         entry_price=100.0,

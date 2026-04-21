@@ -41,7 +41,7 @@ FIXTURE_PATH = (
 def _make_position_with_scaling() -> Position:
     pos = Position(
         position_id="BTC:s30:5:primary",
-        token="BTC", strategy_id="s30", leg="primary",
+        token="BTC", strategy_id="s30", leg_ref_id="leg_primary",
         entry_bar=5, entry_price=100.0, direction=1,
         quantity=7.0, margin_usd=700.0, leverage=1.0, is_perp=True,
         fee_rate=0.0005, stop_mult=2.0, trail_mult=3.0, target_mult=5.0,

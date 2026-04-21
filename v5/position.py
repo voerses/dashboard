@@ -65,7 +65,9 @@ class Position:
     position_id: str = ""        # "BTC:s30:5000:primary"
     token: str = ""
     strategy_id: str = ""
-    leg: str = "primary"         # "primary" or "secondary"
+    # M10 B3 (AC #13): Position.leg field DELETED. The FIX-aligned
+    # `leg_ref_id` (LegRefID 654) is sole source. Legacy readers
+    # (`pos.leg == "secondary"`) use the back-compat @property below.
     entry_bar: int = 0           # global bar index
     entry_price: float = 0.0
     direction: int = 1           # +1 or -1
@@ -142,6 +144,15 @@ class Position:
         # AC8: freeze breakeven anchor at the original entry price.
         if self._breakeven_anchor_entry_price == 0.0:
             self._breakeven_anchor_entry_price = self.entry_price
+
+    # M10 B3: back-compat read-only @property replaces the deleted `leg`
+    # field. Readers see `pos.leg == "secondary"` continue to work;
+    # constructor callers migrated to `leg_ref_id="leg_primary"|"leg_secondary"`.
+    @property
+    def leg(self) -> str:
+        if self.leg_ref_id == "leg_secondary":
+            return "secondary"
+        return "primary"
 
     # ------------------------------------------------------------------
     # M2: Position.increase (AC1, AC2, AC3, AC21, Q2)
@@ -451,7 +462,6 @@ class Position:
             position_id=new_position_id,
             token=self.token,
             strategy_id=self.strategy_id,
-            leg=self.leg,
             entry_bar=self.entry_bar,
             exit_bar=bar_idx,
             entry_price=self.entry_price,
@@ -493,7 +503,6 @@ class ClosedTrade:
     position_id: str
     token: str
     strategy_id: str
-    leg: str
     entry_bar: int
     exit_bar: int
     entry_price: float
@@ -538,6 +547,15 @@ class ClosedTrade:
     # taker on perp orders — market/stop/triggered-entry crosses).
     fill_type: str = "taker"          # {"maker", "taker"} — ENTRY
     exit_fill_type: str = "taker"     # {"maker", "taker"} — EXIT
+
+    # M10 B3: back-compat read-only @property replaces the deleted `leg`
+    # field. Constructor callers migrated to
+    # `leg_ref_id="leg_primary"|"leg_secondary"`.
+    @property
+    def leg(self) -> str:
+        if self.leg_ref_id == "leg_secondary":
+            return "secondary"
+        return "primary"
 
 
 class PositionManager:
@@ -617,7 +635,7 @@ class PositionManager:
             position_id=pos.position_id,
             token=pos.token,
             strategy_id=pos.strategy_id,
-            leg=pos.leg,
+            leg_ref_id=pos.leg_ref_id,
             entry_bar=pos.entry_bar,
             exit_bar=exit_bar,
             entry_price=pos.entry_price,

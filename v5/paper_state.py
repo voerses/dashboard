@@ -165,11 +165,18 @@ def _deserialize_position(d: dict) -> Position:
     if d.get("max_trail_mult_arr") is not None:
         max_trail_mult_arr = np.array(d["max_trail_mult_arr"], dtype=np.float64)
 
+    # M10 B3: legacy "leg" field in serialized payloads maps to leg_ref_id.
+    legacy_leg = d.get("leg", "primary")
+    legacy_leg_ref_id = d.get("leg_ref_id")
+    if legacy_leg_ref_id is None:
+        legacy_leg_ref_id = (
+            "leg_secondary" if legacy_leg == "secondary" else "leg_primary"
+        )
     pos = Position(
         position_id=d.get("position_id", ""),
         token=d.get("token", ""),
         strategy_id=d.get("strategy_id", ""),
-        leg=d.get("leg", "primary"),
+        leg_ref_id=legacy_leg_ref_id,
         entry_bar=d.get("entry_bar", 0),
         entry_price=d.get("entry_price", 0.0),
         direction=d.get("direction", 1),
@@ -229,7 +236,11 @@ def _deserialize_position(d: dict) -> Position:
     # M5 F9 — restore identity back-links (schema v3). Defaults to None for
     # v2 payloads that never carried these fields.
     pos.order_id = d.get("order_id", None)
-    pos.leg_ref_id = d.get("leg_ref_id", None)
+    # M10 B3: leg_ref_id already set at construction (above); avoid stomping
+    # on the leg→leg_ref_id back-compat migration by only restoring when
+    # the payload explicitly carries leg_ref_id.
+    if "leg_ref_id" in d and d["leg_ref_id"] is not None:
+        pos.leg_ref_id = d["leg_ref_id"]
     return pos
 
 
@@ -1262,11 +1273,17 @@ def load_trade_log(path: str) -> list[ClosedTrade]:
         if hold_bars is None:
             hold_bars = rec.get("hold_hours", 0)
 
+        # M10 B3: legacy "leg" field maps to leg_ref_id on ClosedTrade.
+        _legacy_leg = rec.get("leg", "")
+        _leg_ref_id = (
+            rec.get("leg_ref_id")
+            or ("leg_secondary" if _legacy_leg == "secondary" else "leg_primary")
+        )
         trade = ClosedTrade(
             position_id=pid,  # AC34: retain original legacy position_id verbatim
             token=rec.get("token", ""),
             strategy_id=rec.get("strategy_id", ""),
-            leg=rec.get("leg", ""),
+            leg_ref_id=_leg_ref_id,
             entry_bar=int(rec.get("entry_bar", 0)),
             exit_bar=int(rec.get("exit_bar", 0)),
             entry_price=float(rec.get("entry_price", 0.0)),

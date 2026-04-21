@@ -72,8 +72,8 @@ class TestTM503UnwindOnReject:
             Order, OrderStatus, LegStatus, LegFillPolicy,
             TriggerType, ContingencyType,
         )
-        leg_a = _mk_leg("A", market="spot", direction=1)
-        leg_b = _mk_leg("B", market="perp", direction=-1)
+        leg_a = _mk_leg("A", direction=1)
+        leg_b = _mk_leg("B", direction=-1)
         order = Order.arm(
             strategy_id="s1", token="BTC", direction=1,
             trigger=TriggerType.BAR_CLOSE, trigger_price=0.0,
@@ -112,8 +112,8 @@ class TestTM503UnwindOnReject:
         from v5.orders import (
             Order, LegFillPolicy, TriggerType, ContingencyType,
         )
-        leg_a = _mk_leg("A", market="spot", direction=1)
-        leg_b = _mk_leg("B", market="perp", direction=-1)
+        leg_a = _mk_leg("A", direction=1)
+        leg_b = _mk_leg("B", direction=-1)
         order = Order.arm(
             strategy_id="s1", token="BTC", direction=1,
             trigger=TriggerType.BAR_CLOSE, trigger_price=0.0,
@@ -142,8 +142,8 @@ class TestTM504BestEffort:
             Order, OrderStatus, LegStatus, LegFillPolicy,
             TriggerType, ContingencyType,
         )
-        leg_a = _mk_leg("A", market="spot", direction=1)
-        leg_b = _mk_leg("B", market="perp", direction=-1)
+        leg_a = _mk_leg("A", direction=1)
+        leg_b = _mk_leg("B", direction=-1)
         order = Order.arm(
             strategy_id="s1", token="BTC", direction=1,
             trigger=TriggerType.BAR_CLOSE, trigger_price=0.0,
@@ -176,9 +176,9 @@ class TestTM505OtoBracket:
         from v5.orders import (
             Order, LegStatus, LegFillPolicy, TriggerType, ContingencyType,
         )
-        entry = _mk_leg("E", market="perp", direction=1)
-        sl = _mk_leg("SL", market="perp", direction=-1)
-        tp = _mk_leg("TP", market="perp", direction=-1)
+        entry = _mk_leg("E", direction=1)
+        sl = _mk_leg("SL", direction=-1)
+        tp = _mk_leg("TP", direction=-1)
         order = Order.arm(
             strategy_id="s1", token="BTC", direction=1,
             trigger=TriggerType.BAR_CLOSE, trigger_price=0.0,
@@ -200,9 +200,9 @@ class TestTM505OtoBracket:
         from v5.orders import (
             Order, LegFillPolicy, TriggerType, ContingencyType,
         )
-        entry = _mk_leg("E", market="perp", direction=1)
-        sl = _mk_leg("SL", market="perp", direction=-1)
-        tp = _mk_leg("TP", market="perp", direction=-1)
+        entry = _mk_leg("E", direction=1)
+        sl = _mk_leg("SL", direction=-1)
+        tp = _mk_leg("TP", direction=-1)
         order = Order.arm(
             strategy_id="s1", token="BTC", direction=1,
             trigger=TriggerType.BAR_CLOSE, trigger_price=0.0,
@@ -229,8 +229,8 @@ class TestTM522PreFillAtomic:
             Order, OrderStatus, LegStatus, LegFillPolicy,
             TriggerType, ContingencyType,
         )
-        leg_a = _mk_leg("A", market="spot", direction=1, margin_usd=100.0)
-        leg_b = _mk_leg("B", market="perp", direction=-1, margin_usd=100.0)
+        leg_a = _mk_leg("A", direction=1, margin_usd=100.0)
+        leg_b = _mk_leg("B", direction=-1, margin_usd=100.0)
         # R13/R14: per-leg margin is read from leg.sizing_ctx["margin_usd"].
         assert leg_a.sizing_ctx["margin_usd"] == 100.0
         assert leg_b.sizing_ctx["margin_usd"] == 100.0
@@ -262,8 +262,8 @@ class TestTM522PreFillAtomic:
             Order, OrderStatus, LegStatus, LegFillPolicy,
             TriggerType, ContingencyType,
         )
-        leg_a = _mk_leg("A", market="spot", direction=1, margin_usd=100.0)
-        leg_b = _mk_leg("B", market="perp", direction=-1, margin_usd=100.0)
+        leg_a = _mk_leg("A", direction=1, margin_usd=100.0)
+        leg_b = _mk_leg("B", direction=-1, margin_usd=100.0)
         order = Order.arm(
             strategy_id="s1", token="BTC", direction=1,
             trigger=TriggerType.BAR_CLOSE, trigger_price=0.0,

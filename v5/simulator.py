@@ -413,7 +413,7 @@ def _close_position(
         scaling_events=list(pos.scaling_events),
         token=pos.token,
         strategy_id=pos.strategy_id,
-        leg=pos.leg,
+        leg_ref_id=pos.leg_ref_id,
         entry_bar=pos.entry_bar,
         exit_bar=exit_bar,
         entry_price=pos.entry_price,
@@ -541,7 +541,7 @@ def book_reduce(
                 # Core trade fields (from ReduceResult, source-of-truth)
                 token=pos.token,
                 strategy_id=pos.strategy_id,
-                leg=pos.leg,
+                leg_ref_id=pos.leg_ref_id,
                 entry_bar=pos.entry_bar,
                 exit_bar=bar_idx,
                 entry_price=pos.entry_price,
@@ -589,7 +589,7 @@ def book_reduce(
             scaling_events=list(pos.scaling_events),
             token=pos.token,
             strategy_id=pos.strategy_id,
-            leg=pos.leg,
+            leg_ref_id=pos.leg_ref_id,
             entry_bar=pos.entry_bar,
             exit_bar=bar_idx,
             entry_price=pos.entry_price,
@@ -1773,7 +1773,7 @@ def _stage2_process_new_signals(
                 position_id=f"{pos_id_base}:primary",
                 token=token,
                 strategy_id=strategy_id,
-                leg="primary",
+                leg_ref_id="leg_primary",
                 entry_bar=global_bar,
                 entry_price=p_entry_price,
                 direction=direction,
@@ -1852,7 +1852,7 @@ def _stage2_process_new_signals(
                 position_id=f"{pos_id_base}:secondary",
                 token=token,
                 strategy_id=strategy_id,
-                leg="secondary",
+                leg_ref_id="leg_secondary",
                 entry_bar=global_bar,
                 entry_price=s_entry_price,
                 direction=sec_dir,
@@ -2023,7 +2023,7 @@ def _stage2_process_new_signals(
                 position_id=f"{token}:{strategy_id}:{global_bar}:primary",
                 token=token,
                 strategy_id=strategy_id,
-                leg="primary",
+                leg_ref_id="leg_primary",
                 entry_bar=global_bar,
                 entry_price=entry_price,
                 direction=direction,
@@ -3203,13 +3203,12 @@ def trigger_combined_entry(
             ),
             token=token,
             strategy_id=strategy_id,
-            leg="primary",
+            leg_ref_id="leg_primary",
             direction=1,
             entry_price=entry_price,
             quantity=quantity,
             linked_position_id=linked_id,
             order_id=None,
-            leg_ref_id=None,
         )
         secondary = Position(
             position_id=_combined_position_id(
@@ -3218,13 +3217,12 @@ def trigger_combined_entry(
             ),
             token=token,
             strategy_id=strategy_id,
-            leg="secondary",
+            leg_ref_id="leg_secondary",
             direction=-1,
             entry_price=entry_price,
             quantity=quantity,
             linked_position_id=linked_id,
             order_id=None,
-            leg_ref_id=None,
         )
         return [primary, secondary]
 
@@ -3232,7 +3230,6 @@ def trigger_combined_entry(
     leg_primary = Leg(
         leg_ref_id="leg_primary",
         symbol=token,
-        market="spot",
         venue="backtest",
         direction=1,
         target_qty=float(quantity),
@@ -3240,7 +3237,6 @@ def trigger_combined_entry(
     leg_secondary = Leg(
         leg_ref_id="leg_secondary",
         symbol=token,
-        market="spot",
         venue="backtest",
         direction=-1,
         target_qty=float(quantity),
@@ -3261,7 +3257,7 @@ def trigger_combined_entry(
     positions = order.materialize_positions(state)
     # Stamp per-leg bookkeeping for parity with the M2 path.
     for p, lg in zip(positions, order.legs):
-        p.leg = "primary" if lg.leg_ref_id == "leg_primary" else "secondary"
+        p.leg_ref_id="leg_primary" if lg.leg_ref_id == "leg_primary" else "secondary"
         p.entry_price = float(entry_price)
         p.quantity = float(quantity) * (1 if lg.direction == 1 else -1)
     return CombinedEntryResult(order=order, positions=positions)

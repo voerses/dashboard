@@ -31,7 +31,7 @@ def _make_closed_trade(i: int):
     from v5.position import ClosedTrade
     return ClosedTrade(
         position_id=f"BTC:s30:{i}:primary",
-        token="BTC", strategy_id="s30", leg="primary",
+        token="BTC", strategy_id="s30", leg_ref_id="leg_primary",
         entry_bar=i, exit_bar=i + 10, entry_price=100.0 + i,
         exit_price=105.0 + i, direction=1, margin_usd=100.0, pnl=5.0,
         funding_cost=0.0, entry_fee=0.5, exit_fee=0.5, hold_bars=10,

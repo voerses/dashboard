@@ -531,7 +531,7 @@ def _connect_shared_monitors(
                     all_tokens.add(pos.token)
             # Include tokens with armed entry levels (snapshot under lock)
             with engine._armed_tokens_lock:
-                armed_snap = dict(engine._armed_tokens)
+                armed_snap = engine._snapshot_armed_view()
             for (sid, token) in armed_snap:
                 all_tokens.add(token)
         if all_tokens:
@@ -558,7 +558,7 @@ def _update_shared_subscriptions(
                     all_tokens.add(pos.token)
             # Include tokens with armed entry levels (snapshot under lock)
             with engine._armed_tokens_lock:
-                armed_snap = dict(engine._armed_tokens)
+                armed_snap = engine._snapshot_armed_view()
             for (sid, token) in armed_snap:
                 all_tokens.add(token)
         # Lazy connect: if monitor was never started (no positions at boot),

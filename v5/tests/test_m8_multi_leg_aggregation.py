@@ -69,8 +69,7 @@ class TestOcoMaxAggregation:
 
         def mk(ref, margin):
             return Leg(
-                leg_ref_id=ref, symbol="BTCUSDT", market="perp",
-                venue="binance", direction=1, target_qty=1.0, cum_qty=0.0,
+                leg_ref_id=ref, symbol="BTCUSDT", venue="binance", direction=1, target_qty=1.0, cum_qty=0.0,
                 size_share=0.5, order_type="limit", status=LegStatus.ARMED,
                 trigger_price=None, limit_price=50_000.0, currency="USDT",
                 sizing_ctx={"margin_usd": margin},
@@ -106,8 +105,7 @@ class TestOtoSumAggregation:
 
         def mk(ref, margin):
             return Leg(
-                leg_ref_id=ref, symbol="BTCUSDT", market="perp",
-                venue="binance", direction=1, target_qty=1.0, cum_qty=0.0,
+                leg_ref_id=ref, symbol="BTCUSDT", venue="binance", direction=1, target_qty=1.0, cum_qty=0.0,
                 size_share=1/3, order_type="limit", status=LegStatus.ARMED,
                 trigger_price=None, limit_price=50_000.0, currency="USDT",
                 sizing_ctx={"margin_usd": margin},

@@ -990,10 +990,8 @@ class PaperPortfolioEngine:
         self._armed_tokens_lock = threading.RLock()
         self._last_armed_skip_reasons: dict[tuple[str, str], str] = {}
         self._last_expired_orders: list[dict] = []
-        self._armed_log_lock = threading.Lock()
-        self._armed_log_path = os.path.join(config.state_dir, "armed_log.jsonl")
-        # M5 AC11 — OrdersLog wires the new audit log (orders_log.jsonl) with
-        # dual-write back-compat to armed_log.jsonl for legacy events.
+        # M10 B5: dual-write to the legacy sink path DELETED (AC #13).
+        # OrdersLog writing to `orders_log.jsonl` is the sole event sink.
         # Created lazily on first write so tests constructing a stubbed
         # PaperEngine without a writable state_dir do not crash at import.
         self._orders_log: "OrdersLog | None" = None
@@ -1838,7 +1836,7 @@ class PaperPortfolioEngine:
                 position_id=position_id,
                 token=token,
                 strategy_id=sid,
-                leg="primary",
+                leg_ref_id="leg_primary",
                 entry_bar=tick,
                 entry_price=entry_price,
                 direction=direction,
@@ -2111,71 +2109,45 @@ class PaperPortfolioEngine:
     def _log_armed_event(self, event: dict) -> None:
         """Append one event via :class:`v5.orders_log.OrdersLog` (AC11).
 
-        The OrdersLog writer handles the dual-write policy (F11): legacy
-        events (``armed``/``filled``/``expired``/``skipped``/etc.) mirror
-        to BOTH ``orders_log.jsonl`` (new, preferred) AND
-        ``armed_log.jsonl`` (back-compat, dropped in M10). New M5 events
-        (``leg_filled``/``leg_rejected``/etc.) go to ``orders_log.jsonl``
-        only — pre-M5 readers cannot interpret them.
-
-        Non-fatal — observability should never crash the engine; the
-        OrdersLog class swallows OSError internally.
+        M10 B5 (AC #13): dual-write to the legacy sink DELETED. The
+        OrdersLog writer is the ONLY event sink after M10; there is no
+        back-compat mirror. Non-fatal — observability should never
+        crash the engine; the OrdersLog class swallows OSError
+        internally.
         """
         # Lazily construct on first write so tests that stub the engine
         # without a writable state_dir don't fault at __init__.
-        with self._armed_log_lock:
-            if self._orders_log is None:
-                try:
-                    from v5.orders_log import OrdersLog
-                    self._orders_log = OrdersLog(root=self.config.state_dir)
-                except Exception:
-                    # Fallback to legacy direct-write if OrdersLog cannot init.
-                    try:
-                        with open(self._armed_log_path, "a") as f:
-                            f.write(json.dumps(event, default=str) + "\n")
-                    except OSError:
-                        pass
-                    return
+        if self._orders_log is None:
             try:
-                self._orders_log.append(event)
+                from v5.orders_log import OrdersLog
+                self._orders_log = OrdersLog(root=self.config.state_dir)
             except Exception:
-                # Defensive: never crash the engine on audit-log failure.
-                pass
-
-    def _rotate_armed_log(self) -> None:
-        """Rotate armed_log.jsonl if > 200KB. Call from tick thread only.
-
-        Size check and rename are both inside the lock to prevent TOCTOU race
-        with _log_armed_event() appending concurrently from the WS thread.
-        """
+                return
         try:
-            with self._armed_log_lock:
-                if os.path.getsize(self._armed_log_path) > 200_000:
-                    rotated = self._armed_log_path + "." + time.strftime("%Y%m%d_%H%M%S")
-                    os.rename(self._armed_log_path, rotated)
-        except OSError:
+            self._orders_log.append(event)
+        except Exception:
+            # Defensive: never crash the engine on audit-log failure.
             pass
 
+    def _rotate_armed_log(self) -> None:
+        """M10 B5: no-op. Log rotation is the OrdersLog writer's concern
+        (uses LogRotator per AC #22). Kept as a no-op method to avoid
+        breaking legacy callers that may still invoke it."""
+        return
+
     # ------------------------------------------------------------------
-    # M4 Task 16b (flip) — Order is the primary store; _armed_tokens
-    # is a read-only back-compat view.
+    # M10 B6 (AC #13): `_armed_tokens` back-compat @property DELETED.
+    # Consumers migrated to `_pending_entries` direct access + the
+    # static helper `_snapshot_armed_view()` below for callers that
+    # need a legacy cand-dict payload (dashboard / subscription update).
     # ------------------------------------------------------------------
 
-    @property
-    def _armed_tokens(self) -> dict[tuple[str, str], dict]:
-        """Back-compat read-only view over ``_pending_entries``.
-
-        Returns a fresh dict rebuilt from each Order's
-        ``strategy_params`` (which carries the legacy cand-dict payload
-        written by :meth:`_cache_armed_levels`), merged with a few core
-        Order fields (``level``, ``direction``, ``window_end``,
-        ``limit_placed_at``, ``tick_counter``). Mutating the returned dict
-        does NOT affect the underlying store — all write paths must use
-        ``_pending_entries`` directly under ``_armed_tokens_lock``.
-
-        Consumers: dashboard generator, ``_update_ws_subscriptions``,
-        ``run_paper_multi._update_shared_subscriptions``, and the legacy
-        ``_serialize_armed_tokens`` schema writer.
+    def _snapshot_armed_view(self) -> dict[tuple[str, str], dict]:
+        """Explicit method that builds a read-only cand-dict view over
+        ``_pending_entries``. Replaces the legacy ``_armed_tokens``
+        @property. Consumers call this method when they need the
+        legacy payload shape; everyone else reads ``_pending_entries``
+        directly under the lock.
         """
         with self._armed_tokens_lock:
             snapshot = list(self._pending_entries.items())

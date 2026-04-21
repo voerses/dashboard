@@ -29,10 +29,11 @@ def _dt(s: str) -> datetime:
 
 def _mk_leg(ref: str, market: str) -> object:
     from v5.orders import Leg, LegStatus
+    # M10 B7: Leg.market field DELETED; settlement_type is sole field.
+    # `market` param here maps onto settlement_type (Literal{"spot","perp","futures"}).
     return Leg(
         leg_ref_id=ref,
         symbol="BTCUSDT",
-        market=market,
         venue="binance",
         direction=1,
         target_qty=1.0,
@@ -42,6 +43,7 @@ def _mk_leg(ref: str, market: str) -> object:
         status=LegStatus.ARMED,
         trigger_price=None, limit_price=None,
         currency="USDT",
+        settlement_type=market,
     )
 
 

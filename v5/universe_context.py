@@ -662,7 +662,7 @@ class OrderFactoryView:
         sl_margin = abs(float(entry_price or 0.0) - float(sl_price or 0.0)) * float(size) if sl_price is not None else 0.0
         tp_margin = abs(float(tp_price or 0.0) - float(entry_price or 0.0)) * float(size) if tp_price is not None else 0.0
         entry_leg = Leg(
-            leg_ref_id="entry", symbol=entry_spec["symbol"], market=market,
+            leg_ref_id="entry", symbol=entry_spec["symbol"], settlement_type=market,
             venue="BINANCE", direction=dir_int, target_qty=size,
             order_type=order_type.lower() if order_type != "MARKET" else "market",
             trigger_price=entry_price,
@@ -670,14 +670,14 @@ class OrderFactoryView:
             sizing_ctx={"margin_usd": entry_notional, "market": market},
         )
         sl_leg = Leg(
-            leg_ref_id="sl", symbol=entry_spec["symbol"], market=market,
+            leg_ref_id="sl", symbol=entry_spec["symbol"], settlement_type=market,
             venue="BINANCE", direction=-dir_int, target_qty=size,
             order_type="stop", trigger_price=sl_price,
             status=LegStatus.ARMED,
             sizing_ctx={"margin_usd": sl_margin, "market": market},
         )
         tp_leg = Leg(
-            leg_ref_id="tp", symbol=entry_spec["symbol"], market=market,
+            leg_ref_id="tp", symbol=entry_spec["symbol"], settlement_type=market,
             venue="BINANCE", direction=-dir_int, target_qty=size,
             order_type="limit", limit_price=tp_price, trigger_price=tp_price,
             status=LegStatus.ARMED,

@@ -63,8 +63,8 @@ class TestTM506DustCascadeIdempotency:
             Order, LegFillPolicy, TriggerType, ContingencyType,
         )
         from v5.dust_handler import DustHandler
-        leg_a = _mk_leg("A", market="spot", dust_usd=1.0)
-        leg_b = _mk_leg("B", market="perp", dust_usd=1.0)
+        leg_a = _mk_leg("A", dust_usd=1.0)
+        leg_b = _mk_leg("B", dust_usd=1.0)
         order = Order.arm(
             strategy_id="s1", token="BTC", direction=1,
             trigger=TriggerType.BAR_CLOSE, trigger_price=0.0,
@@ -109,8 +109,8 @@ class TestTM506DustCascadeIdempotency:
             Order, LegFillPolicy, TriggerType, ContingencyType,
         )
         from v5.dust_handler import DustHandler  # noqa: F401 — expected ImportError
-        leg_a = _mk_leg("A", market="spot", dust_usd=1.0)
-        leg_b = _mk_leg("B", market="perp", dust_usd=1.0)
+        leg_a = _mk_leg("A", dust_usd=1.0)
+        leg_b = _mk_leg("B", dust_usd=1.0)
         order = Order.arm(
             strategy_id="s1", token="BTC", direction=1,
             trigger=TriggerType.BAR_CLOSE, trigger_price=0.0,
@@ -139,9 +139,9 @@ class TestTM507ArmedSiblingCascade:
             TriggerType, ContingencyType,
         )
         from v5.dust_handler import DustHandler
-        leg_a = _mk_leg("A", market="perp", dust_usd=1.0,
+        leg_a = _mk_leg("A", dust_usd=1.0,
                         status=LegStatus.WORKING)
-        leg_b = _mk_leg("B", market="perp", dust_usd=1.0,
+        leg_b = _mk_leg("B", dust_usd=1.0,
                         status=LegStatus.ARMED)
         order = Order.arm(
             strategy_id="s1", token="BTC", direction=1,
@@ -177,8 +177,8 @@ class TestTM508PerLegDustThresholds:
             Order, LegFillPolicy, TriggerType, ContingencyType,
         )
         from v5.dust_handler import DustHandler
-        leg_a = _mk_leg("A", market="spot", dust_usd=1.0)
-        leg_b = _mk_leg("B", market="perp", dust_usd=10.0)
+        leg_a = _mk_leg("A", dust_usd=1.0)
+        leg_b = _mk_leg("B", dust_usd=10.0)
         # Leg A's dust threshold is 1.0 — evaluate promotion relative to it.
         order = Order.arm(
             strategy_id="s1", token="BTC", direction=1,
@@ -209,7 +209,6 @@ class TestTM508PerLegDustThresholds:
         leg_b = Leg(
             leg_ref_id="B",
             symbol="BTCUSDT",
-            market="perp",
             venue="binance",
             direction=1, target_qty=1.0, cum_qty=1.0,
             size_share=0.5,

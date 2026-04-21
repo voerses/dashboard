@@ -394,7 +394,6 @@ class Leg:
 
     leg_ref_id: str                                                    # FIX LegRefID(654)
     symbol: str                                                        # FIX LegSymbol(600)
-    market: Literal["spot", "perp"]
     venue: str
     direction: Literal[-1, 1]                                          # FIX LegSide(624)
     target_qty: float                                                  # FIX LegQty
@@ -1643,7 +1642,6 @@ def _leg_to_json(leg: "Leg") -> dict:
     return {
         "leg_ref_id": leg.leg_ref_id,
         "symbol": leg.symbol,
-        "market": leg.market,
         "venue": leg.venue,
         "direction": int(leg.direction),
         "target_qty": float(leg.target_qty),
@@ -1680,7 +1678,6 @@ def _leg_from_json(blob: dict) -> "Leg":
     return Leg(
         leg_ref_id=blob["leg_ref_id"],
         symbol=blob["symbol"],
-        market=blob["market"],
         venue=blob["venue"],
         direction=int(blob["direction"]),
         target_qty=float(blob["target_qty"]),

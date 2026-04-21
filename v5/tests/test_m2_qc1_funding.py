@@ -36,7 +36,7 @@ def _make_pos(
     signed_qty = direction * abs(quantity)
     return Position(
         position_id="BTC:s30:5:primary", token="BTC", strategy_id="s30",
-        leg="primary", entry_bar=5, entry_price=entry_price,
+        leg_ref_id="leg_primary", entry_bar=5, entry_price=entry_price,
         direction=direction, quantity=signed_qty, margin_usd=margin_usd,
         leverage=1.0, is_perp=True, fee_rate=0.0005,
         stop_mult=2.0, trail_mult=3.0, target_mult=5.0,

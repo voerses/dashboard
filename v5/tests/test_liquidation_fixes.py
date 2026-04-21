@@ -74,7 +74,7 @@ def _make_perp_position(
         position_id=pid,
         token=token,
         strategy_id=strategy_id,
-        leg="primary",
+        leg_ref_id="leg_primary",
         entry_bar=entry_bar,
         entry_price=entry_price,
         direction=direction,

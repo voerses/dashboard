@@ -70,7 +70,7 @@ def _make_test_position(
         position_id=pid,
         token=token,
         strategy_id=strategy_id,
-        leg="primary",
+        leg_ref_id="leg_primary",
         entry_bar=entry_bar,
         entry_price=entry_price,
         direction=direction,
@@ -277,7 +277,7 @@ class TestTradesAppend:
         trades = [
             ClosedTrade(
                 position_id="BTC:s30:10:primary", token="BTC", strategy_id="s30",
-                leg="primary", entry_bar=10, exit_bar=37, entry_price=65_000.0,
+                leg_ref_id="leg_primary", entry_bar=10, exit_bar=37, entry_price=65_000.0,
                 exit_price=68_000.0, direction=1, margin_usd=10_000.0,
                 pnl=432.10, funding_cost=-23.45, entry_fee=5.0, exit_fee=5.10,
                 hold_bars=27, exit_reason="target", is_perp=True,
@@ -300,14 +300,14 @@ class TestTradesAppend:
         """Appending does not overwrite existing lines."""
         trade1 = ClosedTrade(
             position_id="BTC:s30:10:primary", token="BTC", strategy_id="s30",
-            leg="primary", entry_bar=10, exit_bar=37, entry_price=65_000.0,
+            leg_ref_id="leg_primary", entry_bar=10, exit_bar=37, entry_price=65_000.0,
             exit_price=68_000.0, direction=1, margin_usd=10_000.0,
             pnl=432.10, funding_cost=-23.45, entry_fee=5.0, exit_fee=5.10,
             hold_bars=27, exit_reason="target", is_perp=True,
         )
         trade2 = ClosedTrade(
             position_id="ETH:s30:15:primary", token="ETH", strategy_id="s30",
-            leg="primary", entry_bar=15, exit_bar=40, entry_price=3_500.0,
+            leg_ref_id="leg_primary", entry_bar=15, exit_bar=40, entry_price=3_500.0,
             exit_price=3_600.0, direction=1, margin_usd=5_000.0,
             pnl=142.85, funding_cost=-5.0, entry_fee=2.5, exit_fee=2.6,
             hold_bars=25, exit_reason="regime", is_perp=False,
@@ -646,7 +646,7 @@ class TestLinkedExitReasonInTradesJSONL:
             position_id="BTC:s56:10:secondary",
             token="BTC",
             strategy_id="s56",
-            leg="secondary",
+            leg_ref_id="leg_secondary",
             entry_bar=10,
             exit_bar=25,
             entry_price=68_000.0,

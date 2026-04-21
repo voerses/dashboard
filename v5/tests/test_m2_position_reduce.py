@@ -44,7 +44,7 @@ def _make_long_position(
         position_id="BTC:s30:5:primary",
         token="BTC",
         strategy_id="s30",
-        leg="primary",
+        leg_ref_id="leg_primary",
         entry_bar=entry_bar,
         entry_price=entry_price,
         direction=direction,

@@ -102,7 +102,7 @@ class TestAC29ClosedTradeIdentityFields:
     def _minimal_trade(self, **overrides) -> ClosedTrade:
         base = dict(
             position_id="BTC:s30:5:primary", token="BTC", strategy_id="s30",
-            leg="primary", entry_bar=5, exit_bar=20, entry_price=100.0,
+            leg_ref_id="leg_primary", entry_bar=5, exit_bar=20, entry_price=100.0,
             exit_price=110.0, direction=1, margin_usd=1_000.0,
             pnl=50.0, funding_cost=0.0, entry_fee=5.0, exit_fee=5.0,
             hold_bars=15, exit_reason="target", is_perp=True,
@@ -180,7 +180,7 @@ class TestAC30FieldSemantics:
         exec_type='reduce' — they are orthogonal dimensions."""
         t = ClosedTrade(
             position_id="BTC:s30:5:primary:scale_1",
-            token="BTC", strategy_id="s30", leg="primary",
+            token="BTC", strategy_id="s30", leg_ref_id="leg_primary",
             entry_bar=5, exit_bar=10, entry_price=100.0, exit_price=110.0,
             direction=1, margin_usd=500.0, pnl=25.0, funding_cost=0.0,
             entry_fee=2.5, exit_fee=2.75, hold_bars=5,
@@ -195,7 +195,7 @@ class TestAC30FieldSemantics:
         """Terminal trade can have any exit_reason (stop, target, etc.)."""
         t = ClosedTrade(
             position_id="BTC:s30:5:primary",
-            token="BTC", strategy_id="s30", leg="primary",
+            token="BTC", strategy_id="s30", leg_ref_id="leg_primary",
             entry_bar=5, exit_bar=20, entry_price=100.0, exit_price=90.0,
             direction=1, margin_usd=1_000.0, pnl=-105.0, funding_cost=0.0,
             entry_fee=5.0, exit_fee=4.5, hold_bars=15,
@@ -224,7 +224,7 @@ class TestHasScalingTrigger:
         )
         t = ClosedTrade(
             position_id="BTC:s30:5:primary:scale_1",
-            token="BTC", strategy_id="s30", leg="primary",
+            token="BTC", strategy_id="s30", leg_ref_id="leg_primary",
             entry_bar=5, exit_bar=10, entry_price=100.0, exit_price=110.0,
             direction=1, margin_usd=500.0, pnl=25.0, funding_cost=0.0,
             entry_fee=2.5, exit_fee=2.75, hold_bars=5,

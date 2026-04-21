@@ -43,7 +43,7 @@ def _make_position(
         position_id=f"{token}:s30:5:primary",
         token=token,
         strategy_id="s30",
-        leg="primary",
+        leg_ref_id="leg_primary",
         entry_bar=5,
         entry_price=entry_price,
         direction=direction,

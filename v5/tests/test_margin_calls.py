@@ -300,11 +300,11 @@ class TestMarginCallLinkedPositions:
 
         primary = _make_perp_position(
             token="BTC", margin_usd=50_000.0, cumulative_funding=500.0,
-            leg="primary", linked_position_id="BTC:s30:0:secondary",
+            leg_ref_id="leg_primary", linked_position_id="BTC:s30:0:secondary",
         )
         secondary = _make_perp_position(
             token="BTC", margin_usd=50_000.0, cumulative_funding=100.0,
-            direction=-1, leg="secondary", linked_position_id="BTC:s30:0:primary",
+            direction=-1, leg_ref_id="leg_secondary", linked_position_id="BTC:s30:0:primary",
         )
         state.position_manager.open_position(primary)
         state.position_manager.open_position(secondary)

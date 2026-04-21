@@ -122,13 +122,13 @@ class TestGenericMultiLegPostFillValidation:
         )
 
         entry_leg = Leg(
-            leg_ref_id="entry", symbol="BTC", market="perp", venue="BINANCE",
+            leg_ref_id="entry", symbol="BTC", venue="BINANCE",
             direction=1, target_qty=1.0, size_share=1.0, order_type="market",
             trigger_price=None,  # MARKET
             status=LegStatus.ARMED,
         )
         sl_leg = Leg(
-            leg_ref_id="sl", symbol="BTC", market="perp", venue="BINANCE",
+            leg_ref_id="sl", symbol="BTC", venue="BINANCE",
             direction=-1, target_qty=1.0, size_share=1.0, order_type="stop",
             trigger_price=49_500.0,
             status=LegStatus.ARMED,

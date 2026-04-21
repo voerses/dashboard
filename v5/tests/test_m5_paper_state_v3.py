@@ -30,10 +30,11 @@ def _dt(s: str) -> datetime:
 
 def _mk_leg(ref: str, status_name: str, market: str = "perp") -> object:
     from v5.orders import Leg, LegStatus
+    # M10 B7: market=market maps onto settlement_type (field renamed).
     return Leg(
         leg_ref_id=ref,
         symbol="BTCUSDT",
-        market=market,
+        settlement_type=market,
         venue="binance",
         direction=1,
         target_qty=1.0,
