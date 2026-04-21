@@ -2972,22 +2972,26 @@ def run_backtest(
 
 
 def _build_multi_token_ctx_from_bundle(bundle: dict, config) -> object:
-    """M10 AC #10 — build a v5 StrategyContext facade covering ALL
+    """M10 AC #10 — build a v5 UniverseContext facade covering ALL
     tokens in a `{token: DataFrame}` bundle so native Strategy Protocol
     instances (S524M, s513, s523c) can be driven per-bar via
     `strategy.generate(ctx, bar_idx)`.
 
-    Internally:
-      * Creates a v5.engine.Engine(market='perp') with shared context cache.
-      * Calls `engine._build_context(token, df)` per token → full ind_1h
-        / rolling_adv / regime / liquidity_mask / idx_1h.
-      * Returns a SimpleNamespace facade exposing `.data._arrays[token]`
-        (for the inner-loop bridge builder) PLUS `.token_contexts[token]`
-        (the real per-token StrategyContext) and a `seek_bar()` method
-        that mutates a shared `.current_bar` attr.
+    Produces:
+      * `ctx.data._arrays[token]` — per-token dict of {close, high, low,
+        volume, rolling_adv, atr, funding_1h, day_boundary, return_7d,
+        return_30d, funding_rate_1h} — indicator columns match the
+        subset S524M reads via `ctx.data.indicators(token, "1h")`.
+      * `ctx.data.indicators(symbol, "1h")` method returning the per-bar
+        dict at `ctx.data._bar_idx + offset`.
+      * `ctx.tokens` iterable — list of tokens with data.
+      * `ctx.token_contexts[token]` — real per-token StrategyContext via
+        Engine._build_context (for strategies that still use the
+        ind_1h/regime_1h per-token API).
+      * `ctx.seek_bar(bar_idx)` — advances bar cursor on both the
+        UniverseContext _bar_idx AND each per-token StrategyContext.
 
-    When Engine.build_context fails for a token, that token is skipped
-    (silent — consistent with v4 behavior for missing/short series).
+    When Engine.build_context fails for a token, that token is skipped.
     """
     import numpy as _np
     from types import SimpleNamespace
@@ -3022,15 +3026,43 @@ def _build_multi_token_ctx_from_bundle(bundle: dict, config) -> object:
             tctx = None
         if tctx is not None:
             per_token_ctx[tok] = tctx
-            # Populate data._arrays[token] from the built context so
-            # _build_token_bar_arrays_from_generate (bridge builder)
-            # has the OHLCV/ATR/rolling_adv/funding_1h it expects.
             try:
                 ind = tctx.ind_1h
                 close = _np.asarray(ind["close"], dtype=_np.float64)
+                n_local = len(close)
+                timestamps = _np.asarray(tctx.idx_1h, dtype=_np.int64) \
+                    if hasattr(tctx, "idx_1h") and tctx.idx_1h is not None \
+                    else _np.arange(n_local, dtype=_np.int64)
+                # M10 AC #10: compute the subset of indicators S524M reads
+                # via ctx.data.indicators(token, "1h"):
+                #   day_boundary — True at UTC-midnight bars
+                #   return_7d / return_30d — 24*N-bar percent change
+                #   funding_rate_1h — from funding_rate column
+                _DAY_NS = 86_400 * 1_000_000_000
+                if timestamps.dtype.kind == "i" and timestamps[0] > 10**17:
+                    # nanoseconds-since-epoch; midnight bar where
+                    # ts % day == 0.
+                    day_boundary = (timestamps % _DAY_NS) == 0
+                else:
+                    # Fall back to 24-bar period marker.
+                    day_boundary = _np.zeros(n_local, dtype=bool)
+                    day_boundary[::24] = True
+                # return_Nd = close[i] / close[i-24*N] - 1
+                return_7d = _np.full(n_local, _np.nan, dtype=_np.float64)
+                return_30d = _np.full(n_local, _np.nan, dtype=_np.float64)
+                if n_local > 7 * 24:
+                    return_7d[7 * 24:] = close[7 * 24:] / close[:-7 * 24] - 1.0
+                if n_local > 30 * 24:
+                    return_30d[30 * 24:] = close[30 * 24:] / close[:-30 * 24] - 1.0
+                funding_1h = _np.asarray(
+                    getattr(tctx, "funding_1h", None)
+                    if getattr(tctx, "funding_1h", None) is not None
+                    else (df["funding_rate"].to_numpy(dtype=_np.float64)
+                          if "funding_rate" in df.columns else _np.zeros(n_local)),
+                    dtype=_np.float64,
+                )[:n_local]
                 arrays[tok] = {
-                    "timestamps": _np.asarray(tctx.idx_1h, dtype=_np.int64)
-                    if hasattr(tctx, "idx_1h") else _np.arange(len(close), dtype=_np.int64),
+                    "timestamps": timestamps,
                     "close": close,
                     "high": _np.asarray(ind.get("high", close), dtype=_np.float64),
                     "low": _np.asarray(ind.get("low", close), dtype=_np.float64),
@@ -3038,25 +3070,53 @@ def _build_multi_token_ctx_from_bundle(bundle: dict, config) -> object:
                     "rolling_adv": _np.asarray(
                         getattr(tctx, "rolling_adv", None)
                         if getattr(tctx, "rolling_adv", None) is not None
-                        else _np.full(len(close), 1e6),
+                        else _np.full(n_local, 1e6),
                         dtype=_np.float64,
                     ),
-                    "funding_1h": _np.asarray(
-                        getattr(tctx, "funding_1h", None)
-                        if getattr(tctx, "funding_1h", None) is not None
-                        else _np.zeros(len(close)),
-                        dtype=_np.float64,
-                    ),
+                    "funding_1h": funding_1h,
+                    "funding_rate_1h": funding_1h,
+                    "day_boundary": day_boundary.astype(_np.int8),
+                    "return_7d": return_7d,
+                    "return_30d": return_30d,
                 }
-                n_bars_max = max(n_bars_max, len(close))
+                n_bars_max = max(n_bars_max, n_local)
             except Exception:
                 pass
-    data = SimpleNamespace(
-        _arrays=arrays,
-        _tokens_seed=tuple(arrays.keys()),
-    )
+
+    class _IndicatorsMixin:
+        """DataView-compatible facade that serves per-bar `indicators()`
+        calls from the populated `_arrays` dict."""
+        def __init__(self, arrays):
+            self._arrays = arrays
+            self._bar_idx = 0
+
+        def indicators(self, symbol: str, resolution: str = "1h",
+                       offset: int = 0) -> dict:
+            if offset > 0:
+                raise ValueError("offset > 0 forbids look-ahead")
+            if symbol not in self._arrays:
+                return {}
+            idx = self._bar_idx + offset
+            if idx < 0:
+                return {}
+            out: dict = {}
+            for col, arr in self._arrays[symbol].items():
+                if idx < len(arr):
+                    v = arr[idx]
+                    try:
+                        out[col] = float(v)
+                    except (TypeError, ValueError):
+                        out[col] = v
+            out["_resolution"] = resolution
+            return out
+
+    data = _IndicatorsMixin(arrays)
+    # Keep the _tokens_seed attr for bridge-path consumers that check it.
+    data._tokens_seed = tuple(arrays.keys())
+
     stub = SimpleNamespace(
         data=data,
+        tokens=list(arrays.keys()),
         token_contexts=per_token_ctx,
         _lifecycle_config={"bars": n_bars_max},
         market_indices={},
@@ -3064,6 +3124,7 @@ def _build_multi_token_ctx_from_bundle(bundle: dict, config) -> object:
 
     def _seek_bar(bar_idx):
         stub._current_bar = int(bar_idx)
+        data._bar_idx = int(bar_idx)
     stub.seek_bar = _seek_bar
     stub._current_bar = 0
     return stub

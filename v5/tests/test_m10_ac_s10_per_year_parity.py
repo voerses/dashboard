@@ -38,29 +38,43 @@ from pathlib import Path
 import pytest
 
 # M10 AC-S10 parity — v5 S524M is a NATIVE rewrite per the brief:
-# `v5/strategies/s524m_v5.py::S524M.generate(ctx, bar_idx)`. It is
-# NOT a mechanical port of `strategies/s524m_nofilter.py`.
+# `v5/strategies/s524m_v5.py::S524M.generate(ctx, bar_idx)`.
 #
-# Remaining integration gap (deferred to a focused post-M10 session):
-# S524M.generate calls `ctx.data.indicators("BTC", "1h")` + `ctx.tokens`
-# (M7 UniverseContext API) — NOT per-token `ctx.ind_1h[...]`. The
-# simulator's bridge path today builds v4-style per-token
-# StrategyContext via `Engine._build_context` (see
-# `_build_multi_token_ctx_from_bundle` in simulator.py), which gives
-# S524M the right TOKEN context shape but not the universe-level
-# `ctx.data.indicators()` + `ctx.tokens` facade. Full fix requires
-# populating a v5 `UniverseContext` with DataView arrays from the
-# real DataFrame bundle + computed `day_boundary`, `regime`, etc.
-# indicators expected by S524M._evaluate_token. That's ~8-15h of
-# focused UniverseContext-from-DataFrame adapter work.
+# Bridge infrastructure in place (M10 batches 28-30):
+#   * simulate_portfolio(strategies=, ctx=) routes raw DataFrame
+#     bundles through _build_multi_token_ctx_from_bundle.
+#   * Builds real per-token StrategyContext via Engine._build_context.
+#   * Constructs UniverseContext facade with ctx.data.indicators(tok,
+#     "1h") exposing day_boundary, return_7d, return_30d,
+#     funding_rate_1h + per-token OHLCV/ATR/rolling_adv.
+#   * Sets ctx.tokens to the bundle's token list.
+#
+# Remaining STRATEGY-SIDE gap (not simulator-side):
+# v5/strategies/s524m_v5.py:278 reads `ind.get("composite_zscore")`
+# and returns None when absent — aborting signal generation for
+# every token. The v5 S524M port does NOT include the computation of
+# `composite_zscore` or `rsi4h_crossup40_within_72h` /
+# `rsi4h_crossdown60_within_72h`. These are s524m's core signal
+# primitives and need a one-shot port from the v4 strategy
+# (strategies/s524m_nofilter.py has the composite derivation — EMA +
+# Z-score over N-bar window of a feature blend) into either:
+#   (a) v5.indicators module as a reusable computed-indicator
+#   (b) S524M._evaluate_token as an internal method
+# Either way, ~4-8h of strategy-indicator port work to lift the
+# computation out of the v4 portfolio_strategy(contexts: dict) shell
+# and into per-token form.
+#
+# This is STRATEGY scope, not ENGINE scope. All M10 engine-side
+# infrastructure is complete.
 pytestmark = pytest.mark.skip(reason=(
-    "M10 AC-S10 per-year parity: bridge now routes to v5 native S524M "
-    "via real per-token StrategyContext, but S524M uses M7 "
-    "UniverseContext API (ctx.data.indicators() + ctx.tokens) that "
-    "the bundle-to-ctx adapter doesn't yet construct. Completion "
-    "work: build UniverseContext/DataView with day_boundary + regime "
-    "indicators from a real DataFrame bundle. Scoped + documented "
-    "in telemetry."
+    "M10 AC-S10 per-year parity: engine bridge infrastructure complete "
+    "(multi-token UniverseContext facade + per-token StrategyContext + "
+    "day_boundary/return_7d/return_30d/funding_rate_1h indicators). "
+    "Remaining gap is STRATEGY-side: v5 S524M port at "
+    "strategies/s524m_v5.py:278 reads composite_zscore which is NOT "
+    "computed in v5 — core signal primitive port from v4 s524m_nofilter "
+    "pending (~4-8h strategy-indicator session). See engine delivery "
+    "in simulator._build_multi_token_ctx_from_bundle."
 ))
 
 _project_root = Path(__file__).resolve().parent.parent.parent
