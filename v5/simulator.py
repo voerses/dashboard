@@ -279,6 +279,16 @@ class SimulationState:
         return per
 
     @property
+    def realized_pnl_per_bar(self):
+        """AC #14 alias — per-bar realized PnL delta."""
+        return self.realized_pnl_today_usd_per_bar
+
+    @property
+    def cumulative_realized_pnl_today_usd(self):
+        """AC #14 alias — rolling cumulative realized PnL per bar."""
+        return self.cum_pnl_usd
+
+    @property
     def trading_state(self):
         """AC #10 / #17 — TradingState object exposed for risk-gated
         halt logic. Lazily constructs one if absent so positive-assertion
@@ -2897,6 +2907,17 @@ def simulate_portfolio(
             for sid, spec in list(strategy_specs.items()):
                 if spec is None:
                     strategy_specs[sid] = StrategySpec(strategy_id=sid, market="perp")
+    # M10 C0 compat: accept flat `{token: TokenBarArrays}` shape used by
+    # ReplayFixtureBuilder + scenario tests. Auto-wrap to the nested
+    # shape build_unified_index + _process_* expect.
+    if all_signals is not None:
+        _sample = next(iter(all_signals.values()), None) if all_signals else None
+        if _sample is not None and isinstance(_sample, TokenBarArrays):
+            # Flat shape detected — wrap under a single synthetic strategy.
+            all_signals = {"_flat": dict(all_signals)}
+            if strategy_specs is None or "_flat" not in (strategy_specs or {}):
+                strategy_specs = dict(strategy_specs or {})
+                strategy_specs["_flat"] = StrategySpec(strategy_id="_flat", market="perp")
     unified_ts, bar_maps = build_unified_index(all_signals)
     n_bars = len(unified_ts)
 
