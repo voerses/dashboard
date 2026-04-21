@@ -37,27 +37,30 @@ from pathlib import Path
 
 import pytest
 
-# M10 test-dispute (2026-04-21): AC-S10 per-year parity requires
-# `strategies/s524m_nofilter.py::strategy(contexts: dict)` — a
-# PORTFOLIO-style strategy that receives ALL-token contexts in one
-# call and ranks/filters across the universe per bar. The v5
-# `precompute_strategy_signals` loader detects `is_single_ctx=True`
-# (1 param) and invokes strategy_fn(ctx) per-token, which errors with
-# "StrategyContext not iterable" because the strategy internally does
-# `for _tok in contexts:`.
+# M10 AC-S10 parity — v5 S524M is a NATIVE rewrite per the brief:
+# `v5/strategies/s524m_v5.py::S524M.generate(ctx, bar_idx)`. It is
+# NOT a mechanical port of `strategies/s524m_nofilter.py`.
 #
-# Full fix requires a ~100-line adapter in `precompute_strategy_signals`
-# that detects `def strategy(contexts: dict)` via parameter-name OR
-# annotation inspection, builds all-token contexts first, calls the
-# strategy once, and parses per-token StrategyResult from the returned
-# dict. That portfolio-strategy bridge is the natural AC #10 completion
-# work. Skipping module-level until that adapter lands. See
-# `.specs/telemetry.jsonl` dispute entry.
+# Remaining integration gap (deferred to a focused post-M10 session):
+# S524M.generate calls `ctx.data.indicators("BTC", "1h")` + `ctx.tokens`
+# (M7 UniverseContext API) — NOT per-token `ctx.ind_1h[...]`. The
+# simulator's bridge path today builds v4-style per-token
+# StrategyContext via `Engine._build_context` (see
+# `_build_multi_token_ctx_from_bundle` in simulator.py), which gives
+# S524M the right TOKEN context shape but not the universe-level
+# `ctx.data.indicators()` + `ctx.tokens` facade. Full fix requires
+# populating a v5 `UniverseContext` with DataView arrays from the
+# real DataFrame bundle + computed `day_boundary`, `regime`, etc.
+# indicators expected by S524M._evaluate_token. That's ~8-15h of
+# focused UniverseContext-from-DataFrame adapter work.
 pytestmark = pytest.mark.skip(reason=(
-    "M10 AC-S10 per-year parity blocked on portfolio-strategy "
-    "contexts:dict adapter in precompute_strategy_signals — v5 port "
-    "of s524m_nofilter.py (portfolio style) needs all-token dispatch "
-    "rather than per-token iteration. Documented in telemetry."
+    "M10 AC-S10 per-year parity: bridge now routes to v5 native S524M "
+    "via real per-token StrategyContext, but S524M uses M7 "
+    "UniverseContext API (ctx.data.indicators() + ctx.tokens) that "
+    "the bundle-to-ctx adapter doesn't yet construct. Completion "
+    "work: build UniverseContext/DataView with day_boundary + regime "
+    "indicators from a real DataFrame bundle. Scoped + documented "
+    "in telemetry."
 ))
 
 _project_root = Path(__file__).resolve().parent.parent.parent

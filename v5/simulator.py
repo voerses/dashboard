@@ -2971,6 +2971,104 @@ def run_backtest(
     )
 
 
+def _build_multi_token_ctx_from_bundle(bundle: dict, config) -> object:
+    """M10 AC #10 — build a v5 StrategyContext facade covering ALL
+    tokens in a `{token: DataFrame}` bundle so native Strategy Protocol
+    instances (S524M, s513, s523c) can be driven per-bar via
+    `strategy.generate(ctx, bar_idx)`.
+
+    Internally:
+      * Creates a v5.engine.Engine(market='perp') with shared context cache.
+      * Calls `engine._build_context(token, df)` per token → full ind_1h
+        / rolling_adv / regime / liquidity_mask / idx_1h.
+      * Returns a SimpleNamespace facade exposing `.data._arrays[token]`
+        (for the inner-loop bridge builder) PLUS `.token_contexts[token]`
+        (the real per-token StrategyContext) and a `seek_bar()` method
+        that mutates a shared `.current_bar` attr.
+
+    When Engine.build_context fails for a token, that token is skipped
+    (silent — consistent with v4 behavior for missing/short series).
+    """
+    import numpy as _np
+    from types import SimpleNamespace
+    from v5.engine import Engine
+
+    # Infer sim window from union of DataFrame indexes.
+    sample_df = next(iter(bundle.values()), None)
+    n_bars_max = 0
+    if sample_df is not None:
+        n_bars_max = len(sample_df)
+    cap = getattr(config, "capital", 100_000.0) if config else 100_000.0
+    exch = getattr(config, "exchange", "binance") if config else "binance"
+    # Use the canonical v5 data dir (needed for enriched-parquet lookup
+    # in Engine._build_context's indicator enrichments).
+    from v5.signals import DATA_DIR as _DATA_DIR
+    try:
+        eng = Engine(
+            data_dir=_DATA_DIR, market="perp", capital=cap, exchange=exch,
+        )
+    except Exception:
+        eng = None
+
+    per_token_ctx: dict = {}
+    arrays: dict = {}
+    for tok, df in bundle.items():
+        if eng is not None:
+            try:
+                tctx = eng._build_context(tok, df)
+            except Exception:
+                tctx = None
+        else:
+            tctx = None
+        if tctx is not None:
+            per_token_ctx[tok] = tctx
+            # Populate data._arrays[token] from the built context so
+            # _build_token_bar_arrays_from_generate (bridge builder)
+            # has the OHLCV/ATR/rolling_adv/funding_1h it expects.
+            try:
+                ind = tctx.ind_1h
+                close = _np.asarray(ind["close"], dtype=_np.float64)
+                arrays[tok] = {
+                    "timestamps": _np.asarray(tctx.idx_1h, dtype=_np.int64)
+                    if hasattr(tctx, "idx_1h") else _np.arange(len(close), dtype=_np.int64),
+                    "close": close,
+                    "high": _np.asarray(ind.get("high", close), dtype=_np.float64),
+                    "low": _np.asarray(ind.get("low", close), dtype=_np.float64),
+                    "atr": _np.asarray(ind.get("atr", close * 0.02), dtype=_np.float64),
+                    "rolling_adv": _np.asarray(
+                        getattr(tctx, "rolling_adv", None)
+                        if getattr(tctx, "rolling_adv", None) is not None
+                        else _np.full(len(close), 1e6),
+                        dtype=_np.float64,
+                    ),
+                    "funding_1h": _np.asarray(
+                        getattr(tctx, "funding_1h", None)
+                        if getattr(tctx, "funding_1h", None) is not None
+                        else _np.zeros(len(close)),
+                        dtype=_np.float64,
+                    ),
+                }
+                n_bars_max = max(n_bars_max, len(close))
+            except Exception:
+                pass
+    data = SimpleNamespace(
+        _arrays=arrays,
+        _tokens_seed=tuple(arrays.keys()),
+    )
+    stub = SimpleNamespace(
+        data=data,
+        token_contexts=per_token_ctx,
+        _lifecycle_config={"bars": n_bars_max},
+        market_indices={},
+    )
+
+    def _seek_bar(bar_idx):
+        stub._current_bar = int(bar_idx)
+    stub.seek_bar = _seek_bar
+    stub._current_bar = 0
+    return stub
+
+
 def _wrap_ctx_if_raw_bundle(ctx):
     """If ``ctx`` is a raw ``{token: DataFrame}`` bundle (the shape
     returned by ``v5.validation.load_oos_window``), wrap it in a
@@ -3081,61 +3179,31 @@ def simulate_portfolio(
     # _process_orders / _record_equity_snapshot uniformly.
     if strategies is not None:
         from v5.strategy_api import VectorizedStrategy
-        # M10 AC #10: if `ctx` is a raw {token: DataFrame} bundle from
-        # load_oos_window(...) AND strategies have `.spec.strategy_id`
-        # that resolves to a legacy-function strategy, bypass the
-        # Strategy.generate() path entirely and route through
-        # precompute_strategy_signals (the proven M8 backtest path).
-        # This populates full 40-field TokenBarArrays via the Engine
-        # indicator precomputation that S524M + s513 + s523c rely on.
+        # M10 AC #10 — canonical bridge path:
+        # s513/s523c/s524m are NATIVE v5 rewrites (per-token Strategy
+        # Protocol, `.generate(ctx, bar_idx)`). When `ctx` is a raw
+        # {token: DataFrame} bundle from load_oos_window(...), build
+        # a real v5 StrategyContext per token via Engine._build_context
+        # (precomputes ind_1h / rolling_adv / regime / liquidity_mask /
+        # idx_1h), then invoke strategy.generate() via the canonical
+        # precompute loop. This is the EXACT path the v5 port targets.
         raw_bundle = isinstance(ctx, dict) and bool(ctx) and all(
             hasattr(v, "columns") and hasattr(v, "index")
             for v in ctx.values()
         )
         bridge_signals = {}
         if raw_bundle and strategies:
-            # Route through precompute_strategy_signals — production
-            # backtest path used by M8 AC-S10 parity fixture.
-            from v5.signals import precompute_strategy_signals as _pcs
-            tokens = list(ctx.keys())
-            # Extract start/end dates from first DataFrame's index.
-            sample_df = next(iter(ctx.values()))
-            try:
-                import pandas as _pd
-                start_ts = _pd.Timestamp(sample_df.index.min())
-                end_ts = _pd.Timestamp(sample_df.index.max())
-            except Exception:
-                start_ts = None
-                end_ts = None
-            _precompute_config = config if config is not None else None
+            ctx = _build_multi_token_ctx_from_bundle(ctx, config)
+            n_bars = getattr(ctx, "_lifecycle_config", {}).get("bars") or 0
             for sid, strat in strategies.items():
-                spec = (getattr(strat, "spec", None) or
-                        getattr(strat, "strategy_spec", None) or
-                        StrategySpec(strategy_id=sid, market="perp"))
-                try:
-                    bridge_signals[sid] = _pcs(
-                        strategy_spec=spec,
-                        tokens=tokens,
-                        config=_precompute_config,
-                        months=12,
-                        end_date=end_ts,
-                        start_date=start_ts,
+                if isinstance(strat, VectorizedStrategy):
+                    bridge_signals[sid] = strat.to_token_bar_arrays(ctx)
+                else:
+                    bridge_signals[sid] = _engine_precompute_fallback(
+                        strat, n_bars, ctx,
                     )
-                except Exception:
-                    # Fall back to the Strategy.generate() path if
-                    # precompute fails (legacy strategy loader may fail
-                    # for Strategy-instance-only strategies).
-                    ctx_stub = _wrap_ctx_if_raw_bundle(ctx)
-                    n_bars = getattr(ctx_stub, "_lifecycle_config", {}).get("bars") or 0
-                    if isinstance(strat, VectorizedStrategy):
-                        bridge_signals[sid] = strat.to_token_bar_arrays(ctx_stub)
-                    else:
-                        bridge_signals[sid] = _engine_precompute_fallback(
-                            strat, n_bars, ctx_stub,
-                        )
         else:
-            # If `ctx` is a raw {token: DataFrame} bundle (M10 AC #10 test
-            # fixture shape), wrap it in a minimal StrategyContext stub.
+            # Minimal test-stub path (C0 ReplayFixtureBuilder scenarios).
             ctx = _wrap_ctx_if_raw_bundle(ctx)
             n_bars = getattr(ctx, "_lifecycle_config", {}).get("bars") or 0
             for sid, strat in strategies.items():
