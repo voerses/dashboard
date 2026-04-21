@@ -179,9 +179,12 @@ class ReplayFixtureBuilder:
         return ctx
 
     def drive_into_state(self, state_path):
-        """Rollback-drill helper (E1): write a few synthetic paper-state
-        records to ``state_path``. Minimal implementation — emits a
-        schema-v3 JSON stub with 5 active_positions + empty open_orders.
+        """Rollback-drill helper (E1): write synthetic paper-state records
+        to ``state_path`` and return a trade_log list of synthetic trades.
+
+        The state file is written in v5 schema v3 (with `active_positions`,
+        `open_orders`, checksum) so the E1 test can read it back and
+        assert continuity.
         """
         import hashlib
         import json
@@ -219,3 +222,18 @@ class ReplayFixtureBuilder:
             "checksum": checksum,
         }
         p.write_text(json.dumps(payload, indent=2))
+        # Return a trade_log — synthetic per-token mini-trades equal in
+        # count to forced_trades * tokens. Keeps E1 contract simple
+        # (len(trade_log) >= 1) while remaining deterministic.
+        trade_log = [
+            {
+                "position_id": f"{tok}:_replay:{i}:primary",
+                "token": tok,
+                "entry_bar": i * 10,
+                "exit_bar": (i + 1) * 10,
+                "pnl": 100.0 * (i + 1),
+            }
+            for i, tok in enumerate(self.tokens)
+            for _ in range(max(1, self.scenario.forced_trades))
+        ]
+        return trade_log

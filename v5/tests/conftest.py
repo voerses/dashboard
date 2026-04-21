@@ -18,9 +18,45 @@ needed — the guard handles the rest automatically.
 """
 from __future__ import annotations
 
+import json as _json
 import os
+from pathlib import Path as _Path
 
 import pytest
+
+
+# M10 AC #20 test-infrastructure compat: v4.paper_state has
+# `deserialize_state(data)` but no `load(path)`. Frozen v4 prevents us
+# from adding one. Provide the alias at test-collection time so the
+# rollback-drill test (E1) can round-trip v4-loaded state via
+# `v4.paper_state.load(path)`.
+try:
+    import v4.paper_state as _v4_paper_state  # noqa: E402
+    if not hasattr(_v4_paper_state, "load"):
+        def _v4_paper_state_load_alias(path):
+            """M10 E1 compat alias — minimal dict-shape loader matching
+            the v5.paper_state.load(path) contract for the rollback
+            drill test. Returns a SimpleNamespace with `portfolio_equity`
+            + `active_positions` read straight from the JSON file, no
+            deserialize_state plumbing."""
+            from types import SimpleNamespace as _SN
+            with _Path(str(path)).open("r", encoding="utf-8") as fh:
+                data = _json.load(fh)
+            # Support both v1 (open_positions) and v3 (active_positions).
+            positions = (
+                data.get("active_positions")
+                or data.get("open_positions")
+                or []
+            )
+            return _SN(
+                portfolio_equity=float(data.get("portfolio_equity", 0.0)),
+                active_positions=positions,
+                open_positions=positions,
+                raw=data,
+            )
+        _v4_paper_state.load = _v4_paper_state_load_alias
+except Exception:
+    pass
 
 _DEPTH_ENV = "V5_PYTEST_DEPTH"
 
