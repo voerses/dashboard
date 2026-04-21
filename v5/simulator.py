@@ -2580,9 +2580,13 @@ def simulate_portfolio(
     Returns:
         SimulationState with completed trades and equity snapshots
     """
-    # M9 bridge path: build arrays from Strategy Protocol instances.
-    # Structural-only at M9 (C-7); full AC-S10 metric reproduction is
-    # Wave C work (wiring the arrays into the vectorized inner loop).
+    # M10 Cluster A (AC-S10 capstone): bridge path now feeds the
+    # vectorized inner loop. Build TokenBarArrays via VectorizedStrategy
+    # fast path (falling back to _engine_precompute_fallback), then
+    # route the produced `bridge_signals` dict into `all_signals` +
+    # synthesize strategy_specs from the Strategy instances, so the
+    # legacy inner-loop branch below handles _process_exits /
+    # _process_orders / _record_equity_snapshot uniformly.
     if strategies is not None:
         from v5.strategy_api import VectorizedStrategy
         bridge_signals = {}
@@ -2592,63 +2596,23 @@ def simulate_portfolio(
                 bridge_signals[sid] = strat.to_token_bar_arrays(ctx)
             else:
                 bridge_signals[sid] = _engine_precompute_fallback(strat, n_bars, ctx)
-
-        # Populate market_snapshot + probe capital_allocation_policy + risk
-        # components per-bar with IDENTICAL clock_now_ns (AC #13 + AC #24
-        # sampling-cadence coordination test).
-        if config is not None:
-            try:
-                snapshot = {
-                    k: float(v[-1]) if hasattr(v, "__getitem__") else float(v)
-                    for k, v in ctx.market_indices.items()
-                    if v is not None
-                }
-                from v5.sizing.allocation import AllocationState
-                from v5.arbitration import (
-                    SimulationState as _ArbSimState,
-                    EntryCandidate as _ArbCand,
-                )
-                fake_alloc_state = AllocationState(
-                    available_margin=config.capital,
-                    per_strategy_equity={},
-                    rolling_pnl_24h={},
-                    current_positions_notional={},
-                    market_snapshot=snapshot,
-                )
-                fake_sim_state = _ArbSimState(
-                    equity=config.capital, peak_equity=config.capital
-                )
-                fake_cand = _ArbCand(strategy_id="_probe", token="BTC")
-                policy = getattr(config, "capital_allocation_policy", None)
-                risk_components = getattr(config, "risk_components", None) or []
-                # Emit one probe per bar with aligned clock_now_ns so bar_close-
-                # sampled policies + components see identical timestamps.
-                for bar_idx in range(n_bars):
-                    clock_ns = int(bar_idx) * 3_600_000_000_000  # 1 hour in ns
-                    if policy is not None:
-                        try:
-                            policy.available_capital(
-                                strategy_id="_bridge_probe",
-                                state=fake_alloc_state,
-                                clock_now_ns=clock_ns,
-                            )
-                        except Exception:
-                            pass
-                    for rc in risk_components:
-                        if getattr(rc, "sampling_cadence", "release") != "bar_close":
-                            continue
-                        try:
-                            rc.check(fake_cand, fake_sim_state, clock_now_ns=clock_ns)
-                        except Exception:
-                            pass
-            except Exception:
-                pass
-
-        # Return structural SimulationState. Full AC-S10 vectorized
-        # inner-loop integration is Wave C.
-        state = SimulationState(initial_capital=(config.capital if config else 0.0))
-        state._bridge_signals = bridge_signals  # attach for post-hoc inspection
-        return state
+        all_signals = bridge_signals
+        # Synthesize strategy_specs from the bridge-path strategies:
+        # each Strategy instance exposes `.spec` (StrategySpec). If the
+        # caller passed `strategy_specs=` explicitly alongside
+        # `strategies=`, prefer that (gives the caller control over
+        # sizing overrides etc.).
+        if strategy_specs is None:
+            strategy_specs = {
+                sid: getattr(strat, "spec", None) or getattr(strat, "strategy_spec", None)
+                for sid, strat in strategies.items()
+            }
+            # Fall back to a minimal-default StrategySpec for any
+            # strategy that doesn't expose `.spec` — keeps the bridge
+            # path robust for test fixtures.
+            for sid, spec in list(strategy_specs.items()):
+                if spec is None:
+                    strategy_specs[sid] = StrategySpec(strategy_id=sid, market="perp")
     unified_ts, bar_maps = build_unified_index(all_signals)
     n_bars = len(unified_ts)
 

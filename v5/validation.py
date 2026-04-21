@@ -1132,20 +1132,34 @@ WINDOW_DATES: dict[str, tuple[str, str]] = {
 def load_oos_window(
     tokens: list | None = None,
     window: str = "Q-DEC4-2025",
+    *,
+    start_date: str | None = None,
+    end_date: str | None = None,
 ) -> dict:
-    """M8 Task 26 — load real 206-token OHLCV + funding from parquet cache.
+    """M8 Task 26 / M10 AC #10 — load real 206-token OHLCV + funding.
 
     Reads `data/perp/1h_cache/{token}_1h.parquet` (verified present
     2026-04-20: 236 tokens cached, 206 active perp universe). When
     `tokens=None` returns the full universe.
 
+    M10 extension (AC #10 per-year parity): accept explicit
+    `start_date=` / `end_date=` (ISO date strings) for arbitrary
+    windows — overrides `window=`. Callers use this for the 5 per-year
+    AC-S10 runs (2022-01-01 → 2022-12-31, etc.).
+
     Returns dict[token, pd.DataFrame] with DatetimeIndex (tz-naive) and
     OHLCV + funding_1h columns.
     """
     import pandas as pd
-    start_s, end_s = WINDOW_DATES.get(window, WINDOW_DATES["Q-DEC4-2025"])
-    start_ts = pd.Timestamp(start_s)
-    end_ts = pd.Timestamp(end_s) + pd.Timedelta(hours=23, minutes=59)
+    if start_date is not None or end_date is not None:
+        if start_date is None or end_date is None:
+            raise ValueError("start_date + end_date must both be supplied")
+        start_ts = pd.Timestamp(start_date)
+        end_ts = pd.Timestamp(end_date) + pd.Timedelta(hours=23, minutes=59)
+    else:
+        start_s, end_s = WINDOW_DATES.get(window, WINDOW_DATES["Q-DEC4-2025"])
+        start_ts = pd.Timestamp(start_s)
+        end_ts = pd.Timestamp(end_s) + pd.Timedelta(hours=23, minutes=59)
 
     cache_dir = Path(__file__).resolve().parent.parent / "data" / "perp" / "1h_cache"
     if not cache_dir.exists():
