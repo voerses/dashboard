@@ -1602,3 +1602,101 @@ def read_paper_state(path) -> _PaperState:
         raw=raw,
         positions=positions,
     )
+
+
+# =============================================================================
+# M10 E5 — Strict v3 state-corruption guard (AC #24)
+# =============================================================================
+
+
+class StateSchemaMismatchError(Exception):
+    """Raised by ``load()`` when schema_version != 3. Message points at
+    the ``.v1.bak`` restore procedure so the operator knows how to recover."""
+
+
+class StateCorruptionError(Exception):
+    """Raised by ``load()`` when the in-file checksum does not match the
+    SHA-256 of (active_positions + open_orders)."""
+
+
+def _compute_v3_checksum(active_positions: list, open_orders: list) -> str:
+    """SHA-256 over the canonical JSON encoding of (positions, orders).
+
+    Canonical form: sort_keys=True, separators=(',', ':') so any
+    whitespace/ordering difference does NOT alter the checksum. Operator
+    can recompute manually via the same formula.
+    """
+    import hashlib as _hashlib
+    blob = json.dumps(
+        {"active_positions": active_positions, "open_orders": open_orders},
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return _hashlib.sha256(blob).hexdigest()
+
+
+def load(path) -> dict:
+    """Strict v3-only state loader with schema + checksum + uniqueness validation.
+
+    Per M10 AC #24:
+      1. ``schema_version == 3`` else raise ``StateSchemaMismatchError``
+         (mention ``.v1.bak`` restore in the message).
+      2. Top-level ``checksum`` matches ``sha256(active_positions, open_orders)``
+         else raise ``StateCorruptionError``.
+      3. No duplicate ``active_position.position_id`` else raise ValueError.
+      4. No duplicate ``open_order.order_id`` else raise ValueError.
+
+    Returns the full JSON dict on success.
+    """
+    import pathlib as _pathlib
+    p = _pathlib.Path(str(path))
+    with p.open("r", encoding="utf-8") as fh:
+        raw = json.load(fh)
+
+    # (1) Schema version gate.
+    sv = int(raw.get("schema_version", 0))
+    if sv != 3:
+        raise StateSchemaMismatchError(
+            f"Paper state at {p} has schema_version={sv}; expected 3. "
+            f"To recover, restore the previous good state from "
+            f"{p.name}.v1.bak (see knowledge/ROLLBACK.md Step 2)."
+        )
+
+    # (2) Checksum gate.
+    recorded = raw.get("checksum")
+    if recorded is None:
+        raise StateCorruptionError(
+            f"Paper state at {p} is missing required 'checksum' field."
+        )
+    positions = list(raw.get("active_positions") or [])
+    orders = list(raw.get("open_orders") or [])
+    computed = _compute_v3_checksum(positions, orders)
+    if recorded != computed:
+        raise StateCorruptionError(
+            f"Paper state at {p} checksum mismatch: recorded={recorded!r} "
+            f"computed={computed!r}. State has been tampered with or a "
+            f"write failed mid-flight. Restore from {p.name}.v1.bak "
+            f"(see knowledge/ROLLBACK.md)."
+        )
+
+    # (3) Duplicate position_id guard.
+    position_ids = [p_.get("position_id") for p_ in positions]
+    if len(position_ids) != len(set(position_ids)):
+        seen = set()
+        dups = [pid for pid in position_ids if pid in seen or seen.add(pid)]
+        raise ValueError(
+            f"Paper state at {p} contains duplicate position_id values: "
+            f"{sorted(set(dups))!r}. active_positions[].position_id must be unique."
+        )
+
+    # (4) Duplicate order_id guard.
+    order_ids = [o.get("order_id") for o in orders]
+    if len(order_ids) != len(set(order_ids)):
+        seen = set()
+        dups = [oid for oid in order_ids if oid in seen or seen.add(oid)]
+        raise ValueError(
+            f"Paper state at {p} contains duplicate order_id values: "
+            f"{sorted(set(dups))!r}. open_orders[].order_id must be unique."
+        )
+
+    return raw

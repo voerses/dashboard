@@ -847,6 +847,43 @@ def _update_trail_sub_hourly(pos, cur_atr: float, bars_held: int) -> None:
         pos.stop_price = min(pos.stop_price, trail)
 
 
+def fetch_with_backoff(*, fetcher, max_attempts: int = 4, **fetch_kwargs):
+    """M10 E6 / AC #25a — canonical 429 retry with [30, 60, 120] backoff.
+
+    Calls ``fetcher.fetch_ohlcv(**fetch_kwargs)``. On any exception whose
+    ``status_code`` attribute equals 429 (or whose name is ``_RateLimited``
+    for test-harness compat), sleeps ``BACKOFF[attempt]`` seconds and
+    retries. Re-raises after ``max_attempts`` exhausted.
+
+    The live-Binance rate-limit smoke (``tools/ws_ratelimit_parallel_
+    smoke.sh``, AC #25b) exercises the wall-clock behavior; this helper
+    is the deterministic unit-testable seam.
+    """
+    backoff = PaperPortfolioEngine.BACKOFF
+    last_exc: Exception | None = None
+    for attempt in range(max_attempts):
+        try:
+            return fetcher.fetch_ohlcv(**fetch_kwargs)
+        except Exception as e:  # noqa: BLE001 — catch-and-classify below
+            status_code = getattr(e, "status_code", None)
+            # Accept 429-marker attribute OR the test-harness _RateLimited
+            # class name for parity with AC #25a test-mock shape.
+            is_rate_limited = (
+                status_code == 429
+                or type(e).__name__ == "_RateLimited"
+            )
+            if not is_rate_limited:
+                raise
+            last_exc = e
+            # Sleep BEFORE the next attempt. Final failure does NOT sleep.
+            if attempt < max_attempts - 1:
+                sleep_idx = min(attempt, len(backoff) - 1)
+                time.sleep(backoff[sleep_idx])
+    # Exhausted — re-raise the last 429.
+    assert last_exc is not None
+    raise last_exc
+
+
 class PaperPortfolioEngine:
     """Live paper trading engine using v4 simulation logic.
 
