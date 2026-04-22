@@ -92,6 +92,14 @@ freqtrade.log
 .strategy-gate
 
 # ======================
+# Runtime artifacts (regenerated per run; should never be tracked)
+# ======================
+data/maintenance.jsonl
+data/manifests/perp.jsonl
+data/manifests/spot.jsonl
+v5/logs/*.jsonl
+
+# ======================
 # Paper trading runtime
 # ======================
 paper_trading/logs/
