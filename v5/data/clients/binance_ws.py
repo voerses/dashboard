@@ -23,7 +23,15 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable, Dict, FrozenSet, Iterator, List, Optional
 
-from v5.data.streams import DataKind, DataStream, TransportMode, Venue
+from v5.data.streams import (
+    BarData,
+    DataStream,
+    FundingRateData,
+    MarkPriceData,
+    TradeData,
+    TransportMode,
+    Venue,
+)
 from v5.data.types import Trade
 
 _log = logging.getLogger(__name__)
@@ -56,14 +64,14 @@ class BinanceWSClient:
     # ------------------------------------------------------------
 
     def supports(self, stream: DataStream, mode: TransportMode) -> bool:
-        # Binance WS supports BAR / TRADE / FUNDING_RATE / MARK_PRICE streams
-        # via PUSH only. Other modes delegate to BinanceRESTClient.
+        # Binance WS supports BarData / TradeData / FundingRateData /
+        # MarkPriceData streams via PUSH only. Other modes delegate to
+        # BinanceRESTClient.
         if mode != TransportMode.PUSH:
             return False
-        return stream.data_kind in {
-            DataKind.BAR, DataKind.TRADE,
-            DataKind.FUNDING_RATE, DataKind.MARK_PRICE,
-        }
+        return stream.data_class in (
+            BarData, TradeData, FundingRateData, MarkPriceData,
+        )
 
     def connect(self) -> None:
         pass
@@ -146,7 +154,7 @@ class BinanceWSClient:
 
     def _find_trade_stream(self, symbol: str) -> Optional[DataStream]:
         for s in self._subscribed:
-            if s.data_kind == DataKind.TRADE and s.instrument.symbol == symbol:
+            if s.data_class is TradeData and s.instrument.symbol == symbol:
                 return s
         return None
 

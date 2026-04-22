@@ -16,16 +16,16 @@ if str(_project_root) not in sys.path:
 
 def _bar(minutes=1):
     from v5.bar_spec import BarSpec
-    from v5.data.streams import DataKind, DataStream, InstrumentId, Venue
+    from v5.data.streams import BarData, DataStream, InstrumentId, Venue
     inst = InstrumentId(symbol="BTCUSDT", venue=Venue.BINANCE, asset_class="perp")
-    return DataStream(instrument=inst, data_kind=DataKind.BAR,
+    return DataStream(instrument=inst, data_class=BarData,
                       bar_spec=BarSpec.from_minutes(minutes))
 
 
 def _trade():
-    from v5.data.streams import DataKind, DataStream, InstrumentId, Venue
+    from v5.data.streams import DataStream, InstrumentId, TradeData, Venue
     inst = InstrumentId(symbol="BTCUSDT", venue=Venue.BINANCE, asset_class="perp")
-    return DataStream(instrument=inst, data_kind=DataKind.TRADE, bar_spec=None)
+    return DataStream(instrument=inst, data_class=TradeData, bar_spec=None)
 
 
 class TestBinanceWSMultiplexing:

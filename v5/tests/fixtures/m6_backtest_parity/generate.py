@@ -22,14 +22,14 @@ from v5.bar_spec import BarSpec
 from v5.data.clients.parquet_replay import ParquetReplayClient
 from v5.data.engine import DataEngine
 from v5.data.registry import DataClientRegistry
-from v5.data.streams import Venue
+from v5.data.streams import BarData, Venue
 
 
 def main() -> int:
     here = Path(__file__).parent
     reg = DataClientRegistry()
     replay = ParquetReplayClient(fixture_root=here / "parquet")
-    reg.register(Venue.BINANCE, lambda _c: replay)
+    reg.register(Venue.BINANCE, BarData, lambda _c: replay)
 
     engine = DataEngine(registry=reg)
     engine.use_data_engine_flag = True

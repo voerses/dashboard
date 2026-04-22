@@ -20,9 +20,9 @@ def _noop(_ev): return None
 
 def _bar_stream(minutes=60, price_type="LAST"):
     from v5.bar_spec import BarSpec
-    from v5.data.streams import DataKind, DataStream, InstrumentId, Venue
+    from v5.data.streams import BarData, DataStream, InstrumentId, Venue
     inst = InstrumentId(symbol="BTCUSDT", venue=Venue.BINANCE, asset_class="perp")
-    return DataStream(instrument=inst, data_kind=DataKind.BAR,
+    return DataStream(instrument=inst, data_class=BarData,
                       bar_spec=BarSpec.from_minutes(minutes), price_type=price_type)
 
 
@@ -35,7 +35,7 @@ class _FakeClient:
     def supports(self, stream, mode):
         if mode not in self.supported_modes: return False
         if self._specs is None: return True
-        key = (stream.data_kind, stream.bar_spec.resolution_minutes if stream.bar_spec else None)
+        key = (stream.data_class, stream.bar_spec.resolution_minutes if stream.bar_spec else None)
         return key in self._specs
 
     def connect(self): pass
@@ -53,12 +53,12 @@ class TestSubscriptionUnion:
     def test_multiple_strategies_deduped(self):
         from v5.bar_spec import BarSpec
         from v5.data.engine import DataEngine
-        from v5.data.streams import DataKind, DataStream, InstrumentId, Subscription, Venue
+        from v5.data.streams import BarData, DataStream, InstrumentId, Subscription, Venue
 
         btc = InstrumentId(symbol="BTCUSDT", venue=Venue.BINANCE, asset_class="perp")
         eth = InstrumentId(symbol="ETHUSDT", venue=Venue.BINANCE, asset_class="perp")
         def _s(i, m):
-            return DataStream(instrument=i, data_kind=DataKind.BAR,
+            return DataStream(instrument=i, data_class=BarData,
                               bar_spec=BarSpec.from_minutes(m))
         subs = [
             Subscription(stream=_s(btc, 60), handler=_noop),
@@ -93,10 +93,10 @@ class TestRegistryCascade:
     def test_registered_factory_unblocks_subscribe(self):
         from v5.data.engine import DataEngine
         from v5.data.registry import DataClientRegistry
-        from v5.data.streams import Subscription, TransportMode, Venue
+        from v5.data.streams import BarData, Subscription, TransportMode, Venue
         reg = DataClientRegistry()
         ws = _FakeClient(Venue.BINANCE, frozenset({TransportMode.PUSH}), label="ws")
-        reg.register(Venue.BINANCE, lambda _c: ws)
+        reg.register(Venue.BINANCE, BarData, lambda _c: ws)
         engine = DataEngine(registry=reg)
         engine.subscribe(Subscription(stream=_bar_stream(60), handler=_noop))
         assert len(ws.subscribed) == 1
@@ -108,11 +108,11 @@ class TestAggregationFallback:
     def test_5m_via_1m_client_uses_aggregator(self):
         from v5.data.engine import DataEngine
         from v5.data.registry import DataClientRegistry
-        from v5.data.streams import DataKind, Subscription, TransportMode, Venue
+        from v5.data.streams import BarData, Subscription, TransportMode, Venue
         reg = DataClientRegistry()
         c1m = _FakeClient(Venue.BINANCE, frozenset({TransportMode.PUSH}),
-                          specs=[(DataKind.BAR, 1)], label="ws_1m")
-        reg.register(Venue.BINANCE, lambda _c: c1m)
+                          specs=[(BarData, 1)], label="ws_1m")
+        reg.register(Venue.BINANCE, BarData, lambda _c: c1m)
         engine = DataEngine(registry=reg)
         engine.subscribe(Subscription(stream=_bar_stream(5), handler=_noop))
         assert any(s.bar_spec.resolution_minutes == 1 for s in c1m.subscribed
@@ -122,11 +122,11 @@ class TestAggregationFallback:
     def test_raises_when_no_aggregatable_source(self):
         from v5.data.engine import DataEngine
         from v5.data.registry import DataClientRegistry
-        from v5.data.streams import DataKind, Subscription, TransportMode, Venue
+        from v5.data.streams import BarData, Subscription, TransportMode, Venue
         reg = DataClientRegistry()
         only15 = _FakeClient(Venue.BINANCE, frozenset({TransportMode.PUSH}),
-                             specs=[(DataKind.BAR, 15)])
-        reg.register(Venue.BINANCE, lambda _c: only15)
+                             specs=[(BarData, 15)])
+        reg.register(Venue.BINANCE, BarData, lambda _c: only15)
         engine = DataEngine(registry=reg)
         with pytest.raises(RuntimeError):
             engine.subscribe(Subscription(stream=_bar_stream(5), handler=_noop))
@@ -139,12 +139,12 @@ class TestTransportModeDispatch:
         from v5.data.bus import MessageBus
         from v5.data.engine import DataEngine
         from v5.data.registry import DataClientRegistry
-        from v5.data.streams import Subscription, TransportMode, Venue
+        from v5.data.streams import BarData, Subscription, TransportMode, Venue
         reg = DataClientRegistry()
         ws = _FakeClient(Venue.BINANCE, frozenset({TransportMode.PUSH}), label="ws")
         rest = _FakeClient(Venue.BINANCE, frozenset({TransportMode.PULL_ONCE}), label="rest")
-        reg.register(Venue.BINANCE, lambda _c: ws)
-        reg.register(Venue.BINANCE, lambda _c: rest)
+        reg.register(Venue.BINANCE, BarData, lambda _c: ws)
+        reg.register(Venue.BINANCE, BarData, lambda _c: rest)
         engine = DataEngine(registry=reg, bus=MessageBus())
         stream = _bar_stream(60)
         degraded: list = []
@@ -163,26 +163,26 @@ class TestEngineC3PriceTypeValidation:
         from v5.data.engine import DataEngine
         from v5.data.exceptions import PriceTypeNotSupported
         from v5.data.registry import DataClientRegistry
-        from v5.data.streams import Subscription, TransportMode, Venue
+        from v5.data.streams import BarData, Subscription, TransportMode, Venue
         reg = DataClientRegistry()
         ws = _FakeClient(Venue.BINANCE, frozenset({TransportMode.PUSH}))
-        reg.register(Venue.BINANCE, lambda _c: ws)
+        reg.register(Venue.BINANCE, BarData, lambda _c: ws)
         engine = DataEngine(registry=reg)
         with pytest.raises(PriceTypeNotSupported):
             engine.subscribe(Subscription(stream=_bar_stream(60, price_type="MID"),
                                           handler=_noop))
 
 
-class TestDataKindRouting:
-    """T-D14 / AC-D14 — BAR routes through cache; non-BAR bypasses cache."""
+class TestDataClassRouting:
+    """T-D14 / AC-D14 — BarData routes through cache; non-BarData bypasses cache."""
 
     def test_bar_stream_creates_cache_entry(self):
         from v5.data.engine import DataEngine
         from v5.data.registry import DataClientRegistry
-        from v5.data.streams import Subscription, TransportMode, Venue
+        from v5.data.streams import BarData, Subscription, TransportMode, Venue
         reg = DataClientRegistry()
         ws = _FakeClient(Venue.BINANCE, frozenset({TransportMode.PUSH}))
-        reg.register(Venue.BINANCE, lambda _c: ws)
+        reg.register(Venue.BINANCE, BarData, lambda _c: ws)
         engine = DataEngine(registry=reg)
         stream = _bar_stream(60)
         engine.subscribe(Subscription(stream=stream, handler=_noop))
@@ -191,13 +191,17 @@ class TestDataKindRouting:
     def test_trade_stream_bypasses_cache(self):
         from v5.data.engine import DataEngine
         from v5.data.registry import DataClientRegistry
-        from v5.data.streams import (DataKind, DataStream, InstrumentId,
-                                     Subscription, TransportMode, Venue)
+        from v5.data.streams import (BarData, DataStream, InstrumentId,
+                                     Subscription, TradeData, TransportMode, Venue)
         reg = DataClientRegistry()
         ws = _FakeClient(Venue.BINANCE, frozenset({TransportMode.PUSH}))
-        reg.register(Venue.BINANCE, lambda _c: ws)
+        # The engine looks up by venue only for back-compat; register the WS
+        # client for both BarData and TradeData so the routing test has a
+        # client for the trade subscription.
+        reg.register(Venue.BINANCE, BarData, lambda _c: ws)
+        reg.register(Venue.BINANCE, TradeData, lambda _c: ws)
         engine = DataEngine(registry=reg)
         inst = InstrumentId(symbol="BTCUSDT", venue=Venue.BINANCE, asset_class="perp")
-        trade = DataStream(instrument=inst, data_kind=DataKind.TRADE, bar_spec=None)
+        trade = DataStream(instrument=inst, data_class=TradeData, bar_spec=None)
         engine.subscribe(Subscription(stream=trade, handler=_noop))
         assert not engine.cache_has_entry_for(trade, role="signal")

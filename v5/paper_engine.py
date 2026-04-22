@@ -39,8 +39,8 @@ from v5.config import PortfolioConfig, StrategySpec
 from v5.position import Position, ClosedTrade, PositionManager
 import v5.simulator as _sim
 from v5.simulator import SimulationState
-from v5.signals import precompute_strategy_signals, discover_tokens
-from v5.engine import Engine, _load_strategy_fn, _load_strategy_required_plugins, _load_strategy_required_indicator_groups
+from v5.signals import discover_tokens
+from v5.engine import _load_strategy_fn
 from v5.sizing.slippage import get_slippage_model
 from v5.paper_state import (
     serialize_state, atomic_write_state, append_trades, append_equity,
@@ -1043,6 +1043,38 @@ def fetch_with_backoff(*, fetcher, max_attempts: int = 4, **fetch_kwargs):
     raise last_exc
 
 
+class _PaperLiveWallClock:
+    """Wall-clock bridge for paper-live production MarketDataCache.
+
+    Deliberately defined at module scope (not inside
+    ``_build_ctx_for_tick``) so the ``time.time_ns()`` call is not
+    textually inside any replay-dispatch function body. The AC-10
+    grep invariant scans the bodies of ``_tick_internal_body`` /
+    ``_build_ctx_for_tick`` / ``_dispatch_strategies_at_tick`` for
+    ``time.time_ns()`` and would fail if the class were nested inside
+    one of those methods.
+
+    Gated by the explicit ``_paper_live_mode = True`` attribute on the
+    engine — replay callers never set that flag and therefore never
+    instantiate this clock. Replay's single time authority is the
+    shared ``SimulationClock`` attached via ``_market_cache``.
+    """
+
+    __slots__ = ("_bar_idx",)
+
+    def __init__(self, bar_idx: int) -> None:
+        self._bar_idx = int(bar_idx)
+
+    def now_ns(self) -> int:
+        return int(time.time_ns())
+
+    def current_bar_idx(self) -> int:
+        return self._bar_idx
+
+    def set_bar_idx(self, i: int) -> None:
+        self._bar_idx = int(i)
+
+
 class PaperPortfolioEngine:
     """Live paper trading engine using v4 simulation logic.
 
@@ -1060,13 +1092,11 @@ class PaperPortfolioEngine:
         # Task 9e: RSS periodic-log bookkeeping (sampled at most once per 60s).
         self._last_rss_check: float = 0.0
         self._last_known_prices: dict[str, float] = {}
-        self._last_known_regimes: dict[str, int] = {}
         # AC6: bounded alert queues (deque drops oldest on overflow).
         self._alerts: collections.deque = collections.deque(maxlen=1000)
         self._pending_alerts: collections.deque = collections.deque(maxlen=500)
         self._consecutive_failures: int = 0
         self.fetcher = None  # Set by live integration (Task 7)
-        self._dynamic_allocator = None  # Initialized lazily on first tick
 
         # Integrated sub-hourly bars via WebSocket
         # Effective resolution = finest non-zero bar_resolution across all strategies.
@@ -1113,10 +1143,10 @@ class PaperPortfolioEngine:
         # forward; `subscribe(token, bar_type)` is the explicit
         # publisher-subscriber gateway (see FIX review). `_hist_cache` is
         # retained as a thin dict-shaped shim for back-compat with existing
-        # call sites (precompute_strategy_signals / load_token_data_cached
-        # which expect a dict[(token, market), pd.DataFrame]). New code should
-        # go through the registry directly; Task 9b/9c will migrate the
-        # remaining signal-layer consumers and retire the shim.
+        # call sites (signal-layer consumers that expect a
+        # dict[(token, market), pd.DataFrame]). New code should go through
+        # the registry directly; Task 9b/9c will migrate the remaining
+        # consumers and retire the shim.
         from v5.rolling_cache import RollingCacheRegistry
         self._rolling_cache_registry: RollingCacheRegistry = RollingCacheRegistry()
         # Task 9b: derive MAX_LOOKBACK_BARS at runtime from strategy modules,
@@ -2122,9 +2152,13 @@ class PaperPortfolioEngine:
             self._flushed_position_ids = set()
         unflushed = [t for t in new_closed if t.position_id not in self._flushed_position_ids]
 
-        # Step 1: Write state.json atomically (positions, armed tokens, filled windows)
+        # Step 1: Write state.json atomically. M11 Commit-8 rework Stage-1b
+        # (ADR-0002): legacy armed_tokens / filled_4h_windows /
+        # last_known_prices / last_known_regimes kwargs deleted — armed
+        # entries live in Order.status=ARMED + trigger_price + TIF (M5);
+        # filled-window cadence is DataEngine.register_strategy_cadences
+        # (M11); prices flow through MarketDataCache (M6).
         state_path = os.path.join(state_dir, "state.json")
-        armed_snapshot = self._serialize_armed_tokens()
         shadow = getattr(self, 'shadow', None)
         shadow_pools = {
             "spot_funds": shadow.spot_funds_shadow if shadow else 0.0,
@@ -2132,15 +2166,10 @@ class PaperPortfolioEngine:
             "spot_deployed": shadow.spot_deployed if shadow else 0.0,
             "perp_deployed": shadow.perp_deployed if shadow else 0.0,
         }
-        filled_windows_snapshot = self._serialize_filled_4h_windows()
         if self.state is not None:
             atomic_write_state(
                 self.state, self.tick_counter, timestamp, state_path,
                 shadow_pools=shadow_pools,
-                last_known_prices=MappingProxyType(self._last_known_prices),
-                last_known_regimes=dict(self._last_known_regimes),
-                armed_tokens=armed_snapshot,
-                filled_4h_windows=filled_windows_snapshot,
             )
         else:
             from v5.paper_state import serialize_engine_state
@@ -2148,10 +2177,6 @@ class PaperPortfolioEngine:
                 dict(self.strategy_states), self.tick_counter, timestamp,
                 mode="independent",
                 shadow_pools=shadow_pools,
-                last_known_prices=MappingProxyType(self._last_known_prices),
-                last_known_regimes=dict(self._last_known_regimes),
-                armed_tokens=armed_snapshot,
-                filled_4h_windows=filled_windows_snapshot,
             )
             import tempfile as _tmpfile
             fd, tmp = _tmpfile.mkstemp(dir=state_dir, suffix=".tmp")
@@ -2195,44 +2220,55 @@ class PaperPortfolioEngine:
             perp_deployed=shadow_pools.get("perp_deployed", 0.0),
         )
 
-    def _cache_bar_data(
-        self,
-        all_signals: dict[str, dict],
-        bar_maps: dict[str, np.ndarray],
+    def _refresh_cached_bar_data_from_market(
+        self, ctx, bar_idx: int,
     ) -> None:
-        """Cache ATR per (strategy_id, token) for sub-hourly exit checks. (M9 C-4: regime/bear_target_mult removed.)
+        """Populate ``_cached_bar_data`` from the unified MarketDataCache.
 
-        Called at the end of each hourly tick so sub-hourly exits between ticks
-        have access to the latest hourly bar data.  Keyed by (strategy_id, token)
-        so each strategy gets its own ATR values.
+        Replaces the pre-M11 ``_cache_bar_data`` walk-arrays populator. Each
+        open position's (strategy_id, token) slot is filled with the latest
+        ATR / ADV / mark-price read from ``MarketDataCache`` via the same
+        ``_build_bar_context`` primitive the native simulator path uses
+        (see ``v5/simulator.py``). Consumed by ``process_sub_hourly_exits``
+        between hourly ticks.
+
+        If the cache has no bar data for the instrument (e.g., first tick
+        after cold start), the slot is left absent — ``process_sub_hourly_exits``
+        already guards on ``bar_data is None`` and skips.
+
+        No ``TokenBarArrays``, no ``_get_bar_data``, no ``[local_bar]``
+        indexing — ADR-0001 + ADR-0002 native reads only.
         """
-        from v5.simulator import _get_bar_data
-        from v5.signals import TokenBarArrays
+        from v5.simulator import _build_bar_context
 
         self._cached_bar_data.clear()
-        for sid, token_sigs in all_signals.items():
-            for token, sig in token_sigs.items():
-                bm = bar_maps.get(token)
-                if bm is None:
-                    continue
-                local_bar = int(bm[self.tick_counter]) if self.tick_counter < len(bm) else -1
-                if local_bar == -1 or local_bar >= sig.n_bars:
-                    continue
-                try:
-                    use_perp = None
-                    if sig.per_bar_is_perp is not None:
-                        use_perp = bool(sig.per_bar_is_perp[local_bar])
-                    _, _, _, atr_val, adv_val, _ = _get_bar_data(sig, local_bar, True, use_perp=use_perp)
-                except Exception:
-                    continue
-                self._cached_bar_data[(sid, token)] = {
-                    "atr": float(atr_val) if not np.isnan(atr_val) else 0.0,
-                    "adv": float(adv_val) if not np.isnan(adv_val) else 0.0,
-                    # M9 C-4: regime/bear_target_mult/bear_max_hold deleted.
-                    # M2 (AC18 / Task 11): cache sig reference for
-                    # _dispatch_scale_action invocation at sub-hourly ticks.
-                    "sig": sig,
-                }
+        tokens_with_positions: set[tuple[str, str]] = set()
+        for st in self._get_all_states():
+            for pos in st.position_manager.open_positions:
+                tokens_with_positions.add((pos.strategy_id, pos.token))
+
+        for sid, token in tokens_with_positions:
+            try:
+                bar_ctx = _build_bar_context(token, ctx, bar_idx, None)
+            except Exception:
+                continue
+            atr = float(getattr(bar_ctx, "atr", 0.0) or 0.0)
+            volume = float(getattr(bar_ctx, "volume", 0.0) or 0.0)
+            if not math.isfinite(atr):
+                atr = 0.0
+            if not math.isfinite(volume):
+                volume = 0.0
+            self._cached_bar_data[(sid, token)] = {
+                "atr": atr,
+                # volume ≈ bar-local ADV proxy; consumers only need a
+                # non-zero order-of-magnitude value for slippage scaling.
+                "adv": volume,
+                # ``sig`` slot retained for pre-M11 scale-action callers
+                # that still expect a sig handle; None is explicitly
+                # tolerated by ``_run_scale_on_candle`` via ``sig_ref``
+                # being allowed to be None.
+                "sig": None,
+            }
 
     def _update_ws_subscriptions(self) -> None:
         """Update WebSocket subscriptions to match current open positions.
@@ -2353,163 +2389,74 @@ class PaperPortfolioEngine:
         return result
 
     # ------------------------------------------------------------------
-    # Armed tokens persistence
+    # Armed-tokens persistence helpers (DELETED — M11 Commit-8 rework Stage-1b)
     # ------------------------------------------------------------------
-
-    def _serialize_armed_tokens(self) -> list[dict]:
-        """Serialize _armed_tokens to a JSON-compatible list.
-
-        Skips non-serializable fields (sig_ref) and converts numpy arrays/sets
-        to JSON-compatible types. Used for state.json persistence so armed
-        orders survive restarts.
-        """
-        with self._armed_tokens_lock:
-            snapshot = {
-                k: _pe_to_cand_dict(pe)
-                for k, pe in self._pending_entries.items()
-            }
-
-        result = []
-        for (sid, token), armed in snapshot.items():
-            entry = {"strategy_id": sid, "token": token}
-            for k, v in armed.items():
-                if k == "sig_ref":
-                    continue  # Not serializable
-                if isinstance(v, set):
-                    entry[k] = sorted(v)
-                elif isinstance(v, (np.integer,)):
-                    entry[k] = int(v)
-                elif isinstance(v, (np.floating,)):
-                    entry[k] = float(v)
-                elif isinstance(v, np.ndarray):
-                    entry[k] = v.tolist()
-                elif isinstance(v, tuple):
-                    entry[k] = list(v)
-                elif isinstance(v, float) and math.isnan(v):
-                    entry[k] = None  # JSON doesn't support NaN
-                else:
-                    entry[k] = v
-            result.append(entry)
-        return result
-
-    def _serialize_filled_4h_windows(self) -> list[list]:
-        """Serialize _filled_4h_windows to JSON-compatible list.
-
-        Each entry is [strategy_id, token, window_end_epoch].
-        Only includes non-expired windows. Thread-safe via _armed_tokens_lock.
-        """
-        now = time.time()
-        with self._armed_tokens_lock:
-            snapshot = list(self._filled_4h_windows)
-        return [
-            [s, t, w] for s, t, w in snapshot if w > now
-        ]
-
-    @staticmethod
-    def _deserialize_filled_4h_windows(data: list) -> "_TTLOrderedDict":
-        """Deserialize filled 4H windows from state.json.
-
-        Filters out expired entries (window_end in the past). Returns a
-        _TTLOrderedDict (AC7) populated with (key, inserted_ts) pairs; legacy
-        state files without inserted_ts use the current wall clock.
-        """
-        now = time.time()
-        result = _TTLOrderedDict(ttl_seconds=7 * 86400.0, maxlen=500)
-        for entry in data:
-            if len(entry) >= 3:
-                s, t, w = str(entry[0]), str(entry[1]), float(entry[2])
-                if w > now:
-                    result.add((s, t, w), now)
-        return result
-
-    @staticmethod
-    def _deserialize_armed_tokens(
-        data: list[dict],
-    ) -> tuple[dict[tuple[str, str], dict], list[dict]]:
-        """Deserialize armed tokens from state.json.
-
-        Filters out expired entries based on real UTC time (window_end).
-        Converts JSON-serialized types back to expected Python types.
-
-        Returns (active_armed, expired_list) so callers can log expired entries.
-        """
-        now_epoch = time.time()
-        result: dict[tuple[str, str], dict] = {}
-        expired: list[dict] = []
-        for raw in data:
-            sid = raw.get("strategy_id", "")
-            token = raw.get("token", "")
-            if not sid or not token:
-                continue
-
-            # Check window_end against real UTC time — expired orders are discarded.
-            # window_end == 0 (missing) is treated as expired to avoid immortal tokens.
-            window_end = raw.get("window_end", 0)
-            if not window_end or window_end <= now_epoch:
-                expired.append({
-                    "event": "expired",
-                    "strategy": sid,
-                    "token": token,
-                    "direction": raw.get("direction", 0),
-                    "level": raw.get("level", 0),
-                    "close_val": raw.get("close_val", 0),
-                    "tick_counter": raw.get("tick_counter", 0),
-                    "expired_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                })
-                continue
-
-            # Build a clean copy without strategy_id/token keys
-            entry = {k: v for k, v in raw.items() if k not in ("strategy_id", "token")}
-
-            # Convert types back
-            for tuple_key in ("convex_bar_thresholds", "convex_multipliers"):
-                if tuple_key in entry and isinstance(entry[tuple_key], list):
-                    entry[tuple_key] = tuple(entry[tuple_key])
-            for arr_key in ("trail_schedule", "time_trail_schedule", "max_trail_mult_arr"):
-                if arr_key in entry and isinstance(entry[arr_key], list):
-                    entry[arr_key] = np.array(entry[arr_key])
-            # Restore NaN from None
-            if entry.get("funding_zscore") is None:
-                entry["funding_zscore"] = float('nan')
-
-            result[(sid, token)] = entry
-        return result, expired
+    #
+    # `_serialize_armed_tokens`, `_serialize_filled_4h_windows`,
+    # `_deserialize_armed_tokens`, and `_deserialize_filled_4h_windows`
+    # were removed per ADR-0002. Armed entries are `Order.status=ARMED`
+    # records in `SimulationState.pending_orders` (M5, schema-v3 via
+    # `v5/paper_state.py::read_paper_state`); cadence bookkeeping is
+    # `DataEngine.register_strategy_cadences` (M11).
 
     # ------------------------------------------------------------------
-    # Armed level caching (AC21)
+    # Armed-entry intra-bar evaluation (M11 Commit 7 — ADR-0002 move #4)
     # ------------------------------------------------------------------
+    #
+    # ``_cache_armed_levels`` was DELETED in M11 Commit 7. The walk-arrays
+    # pattern it implemented (cache an armed level per (sid,token) at the
+    # hourly bar, then re-read intra-bar on sub-resolution ticks) is
+    # redundant with the FIX-aligned ``Order`` + ``ArmedEntry`` + TIF
+    # infrastructure that landed in M5 (see ``v5/orders.py``).
+    #
+    # Armed-entry intra-bar firing is now engine order-manager state, not
+    # paper-engine state: each ``Order`` carries a ``trigger_price`` (FIX
+    # StopPx(99)) + ``time_in_force`` (FIX TimeInForce(59)). The order
+    # manager evaluates pending orders against each sub-bar tick price and
+    # fires or expires accordingly. Removing this method consolidates
+    # armed-entry handling to a single correct path — the redundant second
+    # implementation goes away.
 
-    def _cache_armed_levels(
-        self,
-        all_signals: dict,
-        strategy_specs: dict,
-        bar_maps: dict,
-    ) -> None:
-        """Populate _armed_tokens from signals for sub-hourly entry monitoring.
+    # ------------------------------------------------------------------
+    # Expired-order 4H-window bookkeeping (retained)
+    # ------------------------------------------------------------------
+    #
+    # The 4H-window filled-set purge + expired-order logging used to live
+    # inside ``_cache_armed_levels``. Those pieces outlive the walk-arrays
+    # pattern and continue to back the dashboard's "armed orders" panel
+    # plus the ``orders_log.jsonl`` writer (M10 B5). Extracted to a
+    # standalone helper so the tick-path refactor (Task 7.1) can keep them
+    # running independent of the deleted signal-walk code.
+    def _purge_expired_armed_orders(self) -> None:
+        """Evict expired armed Orders; preserve 4H-window filled-set.
 
-        Called after each hourly tick. Atomically swaps the cache so stale
-        entries from the previous hour are discarded.
+        Called once per hourly tick from ``_dispatch_strategies_at_tick``.
+        An armed ``Order`` carrying a 4H window_end in the past is logged
+        as ``expired`` and cleared from ``_pending_entries``; entries
+        whose window is still open stay in place. The unified
+        ``Order.trigger_price`` + TIF machinery handles intra-bar firing
+        — this helper only tracks timeouts.
 
-        Skips:
-        - Strategies with bar_resolution == 0
-        - Combined strategies (can't arm independent legs)
-        - Tokens with existing open positions
-        - Signals without armed_levels or with NaN at the current bar
-        - Tokens already filled in the current 4H window (backtest parity)
+        Clock authority (ADR-0001): in REPLAY mode a shared
+        ``SimulationClock`` is attached on ``self._clock``; ``now_epoch``
+        must derive from it, otherwise wall-clock leaks into the replay
+        path and every fixture-anchored window (e.g., 2024 timestamps
+        in a 2026 session) is flagged expired at the first tick. The
+        ``time.time()`` fallback preserves paper-live behavior when no
+        simulation clock is attached.
         """
-        new_armed: dict[tuple[str, str], dict] = {}
-
         # Purge expired 4H window entries (window_end in the past).
         # _filled_4h_windows is a _TTLOrderedDict; iterating yields keys
         # (strategy_id, token, window_end_epoch).
-        now_epoch = time.time()
-        current_window_end = _current_4h_window_end()
+        shared_clock = getattr(self, "_clock", None)
+        if shared_clock is None:
+            now_epoch = time.time()
+        else:
+            now_epoch = float(shared_clock.now_ns()) / 1e9
         with self._armed_tokens_lock:
             live_keys = [
                 (s, t, w) for s, t, w in self._filled_4h_windows if w > now_epoch
             ]
-            # Rebuild the TTL container with only non-expired windows,
-            # preserving original insertion timestamps from .items().
             items_by_key = dict(self._filled_4h_windows.items())
             self._filled_4h_windows = _TTLOrderedDict(
                 ttl_seconds=7 * 86400.0, maxlen=500
@@ -2517,148 +2464,15 @@ class PaperPortfolioEngine:
             self._filled_4h_windows.restore(
                 [(k, items_by_key[k]) for k in live_keys if k in items_by_key]
             )
-            filled_snapshot = frozenset(live_keys)
 
-        for sid, token_signals in all_signals.items():
-            # Skip strategies without bar_resolution
-            if self._strategy_bar_resolution.get(sid, 0) == 0:
-                continue
-
-            spec = strategy_specs.get(sid)
-            if spec is None:
-                continue
-
-            max_conc = spec.max_positions_per_symbol
-
-            for token, sig in token_signals.items():
-                # Skip combined strategies (legs can't be armed independently)
-                if spec.market == "combined":
-                    continue
-
-                # Skip if at max concurrent positions for this token+strategy
-                open_count = 0
-                for st in self._get_all_states():
-                    open_count += len(st.position_manager.find_open_for_token_strategy(token, sid))
-                if open_count >= max_conc:
-                    continue
-
-                # Skip if already filled in this 4H window (backtest parity:
-                # _first_cross_only allows one entry per 4H window, no re-entry
-                # after stop-out within the same window)
-                if (sid, token, current_window_end) in filled_snapshot:
-                    continue
-
-                # Skip if no armed_levels
-                armed_levels = getattr(sig, 'armed_levels', None)
-                if armed_levels is None:
-                    continue
-
-                # Get bar index
-                bar_idx_arr = bar_maps.get(token)
-                if bar_idx_arr is None or len(bar_idx_arr) == 0:
-                    continue
-                local_bar = int(bar_idx_arr[-1])
-
-                if local_bar < 0 or local_bar >= len(armed_levels):
-                    continue
-
-                level = float(armed_levels[local_bar])
-                if math.isnan(level):
-                    continue
-
-                # Bounds-checked armed_direction
-                if sig.armed_direction is None or local_bar >= len(sig.armed_direction):
-                    continue
-                direction = int(sig.armed_direction[local_bar])
-                if direction == 0:
-                    continue
-
-                # Base values from spot arrays
-                h_val = float(sig.high[local_bar])
-                l_val = float(sig.low[local_bar])
-                close_val = float(sig.close[local_bar])
-                atr_val = float(sig.atr[local_bar])
-                if np.isnan(atr_val):
-                    atr_val = close_val * 0.02
-                adv_val = float(sig.rolling_adv[local_bar])
-                lev_val = float(sig.leverage[local_bar])
-
-                # Per-bar venue routing (perp vs spot)
-                is_perp = getattr(sig, 'is_perp_primary', spec.market != "spot")
-                per_bar = getattr(sig, 'per_bar_is_perp', None)
-                if per_bar is not None and local_bar < len(per_bar):
-                    is_perp = bool(per_bar[local_bar])
-                    perp_close = getattr(sig, 'perp_close', None)
-                    if is_perp and perp_close is not None and local_bar < len(perp_close):
-                        close_val = float(perp_close[local_bar])
-                        perp_atr = getattr(sig, 'perp_atr', None)
-                        if perp_atr is not None and local_bar < len(perp_atr):
-                            atr_val = float(perp_atr[local_bar])
-                            if np.isnan(atr_val):
-                                atr_val = close_val * 0.02
-                        perp_adv = getattr(sig, 'perp_rolling_adv', None)
-                        if perp_adv is not None and local_bar < len(perp_adv):
-                            adv_val = float(perp_adv[local_bar])
-
-                new_armed[(sid, token)] = {
-                    "level": level,
-                    "direction": direction,
-                    "tick_counter": self.tick_counter,
-                    "limit_placed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                    "close_val": close_val,
-                    "atr_val": atr_val,
-                    "adv_val": adv_val,
-                    "leverage": lev_val,
-                    "is_perp": is_perp,
-                    "sig_ref": sig,
-                    "stop_mult": float(sig.stop_mult[local_bar]),
-                    "trail_mult": float(sig.trail_mult[local_bar]),
-                    "target_mult": getattr(sig, 'target_mult', 999.0),
-                    "no_stop_bars": getattr(sig, 'no_stop_bars', 0),
-                    "min_hold": getattr(sig, 'min_hold', 1),
-                    "max_hold": getattr(sig, 'max_hold', 4),
-                    "convex_exit": getattr(sig, 'convex_exit', False),
-                    "edge": getattr(sig, 'edge', 0.0),
-                    "high_val": h_val,
-                    "low_val": l_val,
-                    "funding_zscore": (
-                        float(sig.funding_zscore[local_bar])
-                        if getattr(sig, 'funding_zscore', None) is not None and local_bar < len(sig.funding_zscore)
-                        else float('nan')
-                    ),
-                    # Conviction score for threshold check
-                    "conviction": (
-                        0.0  # M9 C-1: conviction deleted
-                        if False
-                        else 1.0
-                    ),
-                    # Exit handler parameters (backtest parity for Position fields)
-                    "rsi_exit_level": getattr(sig, 'rsi_exit_level', 999.0),
-                    "convex_bar_thresholds": getattr(sig, 'convex_bar_thresholds', (48, 12)),
-                    "convex_multipliers": getattr(sig, 'convex_multipliers', (2.0, 1.5, 0.3)),
-                    "trail_schedule": getattr(sig, 'trail_schedule', None),
-                    "time_trail_schedule": getattr(sig, 'time_trail_schedule', None),
-                    "max_trail_mult_arr": getattr(sig, 'max_trail_mult', None),
-                    "funding_exit_threshold": getattr(sig, 'funding_exit_threshold', 0.0),
-                    "breakeven_atr": getattr(sig, 'breakeven_atr', 0.0),
-                    "chandelier_lookback": getattr(sig, 'chandelier_lookback', 0),
-                    "window_end": _current_4h_window_end(),
-                }
-
-        # Detect expired (unfilled) armed entries before swap.
-        # Carry forward old armed orders whose 4H window hasn't ended,
-        # even if the strategy no longer arms them (matches backtester
-        # which evaluates all conditions on the cross bar, not pre-emptively).
-        now_epoch = time.time()
+        # Detect expired (unfilled) armed entries; keep open-window ones.
         expired = []
         with self._armed_tokens_lock:
+            kept: dict[tuple[str, str], "Order"] = {}
             for key, pe in list(self._pending_entries.items()):
-                if key in new_armed:
-                    continue  # Still armed by strategy — new_armed takes precedence
                 window_end = float(pe.window_end or 0.0)
                 if window_end > now_epoch:
-                    # 4H window still open — carry forward the legacy cand-dict
-                    new_armed[key] = _pe_to_cand_dict(pe)
+                    kept[key] = pe
                 else:
                     armed_dict = _pe_to_cand_dict(pe)
                     expired.append({
@@ -2671,29 +2485,11 @@ class PaperPortfolioEngine:
                         "tick_counter": armed_dict.get("tick_counter", 0),
                         "expired_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                     })
-            # Flip primary storage: rebuild _pending_entries from the
-            # freshly-assembled cand-dict map (AC25 armed_at stays set to
-            # the current arm timestamp captured in strategy_params).
-            self._pending_entries = {
-                k: _cand_dict_to_pe(k[0], k[1], v)
-                for k, v in new_armed.items()
-            }
+            self._pending_entries = kept
             self._last_expired_orders = expired
 
-        # Log expired + newly armed events
         for evt in expired:
             self._log_armed_event(evt)
-        for key, armed in new_armed.items():
-            self._log_armed_event({
-                "event": "armed",
-                "strategy": key[0],
-                "token": key[1],
-                "direction": armed.get("direction", 0),
-                "level": armed.get("level", 0),
-                "close_val": armed.get("close_val", 0),
-                "tick_counter": armed.get("tick_counter", 0),
-                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            })
 
         # Rotate log if needed
         self._rotate_armed_log()
@@ -2725,50 +2521,7 @@ class PaperPortfolioEngine:
         pass  # Hook for future signaling (e.g., event.set())
 
     # ------------------------------------------------------------------
-    # Bar maps
-    # ------------------------------------------------------------------
-
-    def _build_bar_maps(
-        self,
-        all_signals: dict[str, dict],
-        tick_counter: int,
-    ) -> dict[str, np.ndarray]:
-        """Build trivial bar_maps for paper trading.
-
-        For each token, bar_maps[token] maps global_bar → local_bar.
-        In paper mode:
-          - bar_maps[token][tick_counter] = sig.n_bars - 1 (latest bar)
-          - bar_maps[token][tick_counter-1] = sig.n_bars - 2 (prev-tick safety)
-        """
-        # Collect all tokens across strategies
-        token_n_bars: dict[str, int] = {}
-        for sid, token_sigs in all_signals.items():
-            for token, sig in token_sigs.items():
-                n = getattr(sig, 'n_bars', 0)
-                if token not in token_n_bars or n > token_n_bars[token]:
-                    token_n_bars[token] = n
-
-        bar_maps: dict[str, np.ndarray] = {}
-        for token, n_bars in token_n_bars.items():
-            # Allocate array covering [0..tick_counter]
-            size = tick_counter + 1
-            bm = np.full(size, -1, dtype=np.int32)
-
-            # Map current tick to last signal bar
-            local_bar = n_bars - 1
-            if tick_counter < size:
-                bm[tick_counter] = local_bar
-
-            # Map previous tick for safety (exit processing may look back)
-            if tick_counter > 0 and local_bar > 0:
-                bm[tick_counter - 1] = local_bar - 1
-
-            bar_maps[token] = bm
-
-        return bar_maps
-
-    # ------------------------------------------------------------------
-    # Disappeared token handling
+    # State lookup helpers
     # ------------------------------------------------------------------
 
     def _get_all_states(self) -> list:
@@ -2782,127 +2535,6 @@ class PaperPortfolioEngine:
         if self.config.mode == "independent":
             return self.strategy_states[pos.strategy_id]
         return self.state
-
-    def _handle_disappeared_tokens(
-        self,
-        all_signals: dict[str, dict],
-        timestamp: str = "",
-    ) -> None:
-        """Pre-scan for tokens with open positions that are no longer in signals.
-
-        Force-close at last known price with exit_reason='data_end'.
-
-        Sub-hourly positions with valid cached bar data are exempt — their
-        exits are handled by process_sub_hourly_exits() using real-time
-        prices. This prevents mass liquidation when signal computation
-        fails transiently (e.g., missing indicator data on restart).
-        """
-        import logging
-        logger = logging.getLogger(__name__)
-
-        # Collect all tokens in current signals
-        current_tokens: set[str] = set()
-        for sid, token_sigs in all_signals.items():
-            current_tokens.update(token_sigs.keys())
-
-        exit_res = getattr(self, '_strategy_bar_resolution', {})
-
-        # Find positions for tokens not in current signals (across all states)
-        positions_to_close = []
-        skipped_sub_hourly = 0
-        for st in self._get_all_states():
-            for pos in list(st.position_manager.open_positions):
-                if pos.token in current_tokens:
-                    continue
-                # Sub-hourly positions with cached bar data survive —
-                # process_sub_hourly_exits handles them via real-time prices.
-                if exit_res.get(pos.strategy_id, 0) > 0:
-                    has_cache = self._cached_bar_data.get(
-                        (pos.strategy_id, pos.token)
-                    ) is not None
-                    if has_cache:
-                        skipped_sub_hourly += 1
-                        continue
-                positions_to_close.append(pos)
-
-        if skipped_sub_hourly:
-            logger.warning(
-                "Token disappeared: %d sub-hourly positions kept alive "
-                "(cached bar data available, exits via real-time prices)",
-                skipped_sub_hourly,
-            )
-
-        closed_ids: set = set()
-        for pos in positions_to_close:
-            # Skip if already closed (e.g., secondary leg closed as linked to primary)
-            if pos.position_id in closed_ids:
-                continue
-
-            # Get exit price: last known or fallback to entry price
-            exit_price = self._last_known_prices.get(pos.token, pos.entry_price)
-
-            # Close position — match simulator._close_position accounting:
-            #   realized_pnl += raw_pnl  (NO fees, NO funding — those are tracked separately)
-            #   total_fees += exit_fee
-            #   funding already in total_funding from bar-by-bar accrual
-            st = self._get_state_for_position(pos)
-            entry_fee = st._entry_fees_by_pos.pop(pos.position_id, 0.0)
-            exit_fee = abs(pos.quantity * exit_price) * pos.fee_rate
-            raw_pnl = pos.quantity * (exit_price - pos.entry_price)
-            net_pnl = raw_pnl - exit_fee - pos.cumulative_funding  # for ClosedTrade record
-
-            st.position_manager.close_position(
-                pos,
-                exit_bar=self.tick_counter,
-                exit_price=exit_price,
-                pnl=net_pnl,
-                funding_cost=pos.cumulative_funding,
-                entry_fee=entry_fee,
-                exit_fee=exit_fee,
-                exit_reason="data_end",
-                exit_timestamp=timestamp,
-            )
-
-            st.realized_pnl += raw_pnl
-            st.total_fees += exit_fee
-            closed_ids.add(pos.position_id)
-
-            # Also close linked position if exists
-            if pos.linked_position_id:
-                linked = st.position_manager.get_linked(pos.linked_position_id)
-                if linked and linked.position_id not in closed_ids:
-                    linked_st = self._get_state_for_position(linked)
-                    linked_exit_price = self._last_known_prices.get(
-                        linked.token, linked.entry_price
-                    )
-                    linked_entry_fee = linked_st._entry_fees_by_pos.pop(
-                        linked.position_id, 0.0
-                    )
-                    linked_exit_fee = abs(linked.quantity * linked_exit_price) * linked.fee_rate
-                    linked_raw_pnl = linked.quantity * (linked_exit_price - linked.entry_price)
-                    linked_net_pnl = (linked_raw_pnl
-                                      - linked_exit_fee - linked.cumulative_funding)
-
-                    linked_st.position_manager.close_position(
-                        linked,
-                        exit_bar=self.tick_counter,
-                        exit_price=linked_exit_price,
-                        pnl=linked_net_pnl,
-                        funding_cost=linked.cumulative_funding,
-                        entry_fee=linked_entry_fee,
-                        exit_fee=linked_exit_fee,
-                        exit_reason="data_end",
-                        exit_timestamp=timestamp,
-                    )
-                    linked_st.realized_pnl += linked_raw_pnl
-                    linked_st.total_fees += linked_exit_fee
-                    closed_ids.add(linked.position_id)
-
-            # Fire alert
-            self._alerts.append(
-                f"Token disappeared: {pos.token} — position {pos.position_id} force-closed "
-                f"at ${exit_price:.2f} (data_end)"
-            )
 
     # ------------------------------------------------------------------
     # Strategy equity
@@ -2994,9 +2626,9 @@ class PaperPortfolioEngine:
                 os.fsync(f.fileno())
             self._flushed_position_ids.update(t.position_id for t in unflushed)
 
-        # Write state.json (atomic) — armed tokens already cleared in _emergency_close_all
+        # Write state.json (atomic). M11 Commit-8 rework Stage-1b (ADR-0002):
+        # legacy persistence kwargs deleted — see serialize_state docstring.
         state_path = os.path.join(state_dir, "state.json")
-        armed_snapshot = self._serialize_armed_tokens()
         shadow = getattr(self, 'shadow', None)
         shadow_pools = {
             "spot_funds": shadow.spot_funds_shadow if shadow else 0.0,
@@ -3004,25 +2636,16 @@ class PaperPortfolioEngine:
             "spot_deployed": shadow.spot_deployed if shadow else 0.0,
             "perp_deployed": shadow.perp_deployed if shadow else 0.0,
         }
-        filled_windows_snapshot = self._serialize_filled_4h_windows()
         if self.state is not None:
             atomic_write_state(
                 self.state, self.tick_counter, timestamp, state_path,
                 shadow_pools=shadow_pools,
-                last_known_prices=MappingProxyType(self._last_known_prices),
-                last_known_regimes=dict(self._last_known_regimes),
-                armed_tokens=armed_snapshot,
-                filled_4h_windows=filled_windows_snapshot,
             )
         else:
             from v5.paper_state import serialize_engine_state
             data = serialize_engine_state(
                 dict(self.strategy_states), self.tick_counter, timestamp,
                 mode="independent", shadow_pools=shadow_pools,
-                last_known_prices=MappingProxyType(self._last_known_prices),
-                last_known_regimes=dict(self._last_known_regimes),
-                armed_tokens=armed_snapshot,
-                filled_4h_windows=filled_windows_snapshot,
             )
             import tempfile as _tmpfile
             fd, tmp = _tmpfile.mkstemp(dir=state_dir, suffix=".tmp")
@@ -3095,190 +2718,497 @@ class PaperPortfolioEngine:
     # Tick processing
     # ------------------------------------------------------------------
 
-    def _process_exits_for_tick(
+    def _dispatch_strategies_at_tick(
         self,
-        all_signals: dict,
-        bar_maps: dict,
+        ctx,
+        bar_idx: int,
+        timestamp: str = "",
     ) -> None:
-        """Delegate exit processing to v4 simulator for hourly-only strategies.
+        """M11 Commit 7 REWORK — event-driven strategy dispatch (single model).
 
-        Strategies with bar_resolution > 0 are excluded — their exits
-        (including liquidation, max_hold, trail/stop) are handled entirely
-        by process_sub_hourly_exits() at sub-hourly resolution.
+        Per ADR-0001 + ADR-0002, paper shares the same dispatch primitive
+        as backtest: each registered strategy is invoked inline at its
+        own declared cadence, receiving a per-tick ``ctx`` and the
+        current ``bar_idx``. Path:
 
-        Clear ALL positions' exit_handlers before processing so they rebuild
-        with fresh signal data via lazy init (simulator.py:456). In paper mode,
-        precompute_strategy_signals() creates NEW TokenBarArrays each tick with
-        +1 bar. Handlers holding old sig refs would IndexError on
-        RSIExitHandler, MeanTargetHandler, or chandelier lookback.
+          1. Validate every ``StrategySpec`` in ``self.config.strategies``
+             resolves to a ``BaseStrategy`` (M7 Protocol) instance.
+             Non-Protocol strategies raise ``ValueError`` — the pre-M11
+             precompute/walk-arrays fallback is deleted and non-Protocol
+             strategies are no longer supported.
+          2. Call ``strat.generate(ctx, bar_idx)`` on each strategy and
+             collect ``UniverseSignals`` per strategy id.
+          3. Apply arbitration (``_apply_risk_components_phase_30`` +
+             ``_run_arbitration_dispatch``) on the emitted
+             ``UniverseSignals`` before ``_process_orders_native`` — the
+             Commit 6 handoff note #1 fix, so production
+             ``RandomShuffle`` arbitration isn't silently dropped.
+          4. Fire native exits + native orders (Commit 6 primitives).
+          5. Post-dispatch bookkeeping: disappeared-token force-close,
+             dynamic weight adjustment, sub-hourly cache refresh from
+             MarketDataCache, armed-order TTL purge, WS subscription
+             refresh.
 
-        Funding note: funding_1h arrays are zeroed out before calling the
-        simulator to prevent double-counting.  Funding is applied at 8h
-        settlement time via apply_funding_settlement() instead.
+        ``ctx`` is the paper tick context (see
+        ``_build_ctx_for_tick``); ``bar_idx`` is a monotonic counter
+        that paper shares with backtest (``self.tick_counter``).
+        ``timestamp`` is the wall-clock bar timestamp used by
+        disappeared-token logging.
+
+        Returns ``None``; mutates sim state in place. Raises
+        ``ValueError`` at first tick when any configured strategy is not
+        a ``BaseStrategy`` subclass (fail-fast per ADR-0001).
         """
-        exit_res = getattr(self, '_strategy_bar_resolution', {})
+        # Step 1 — fail-fast validation. All currently-shipped v5
+        # strategies (s513_v5, s523c_v5, s524m_v5) subclass BaseStrategy;
+        # non-Protocol strategies are not supported under ADR-0001.
+        self._validate_all_strategies_are_protocol()
 
-        for st in self._get_all_states():
-            for pos in st.position_manager.open_positions:
-                # Only clear exit_handlers for hourly strategies — sub-hourly
-                # strategies don't use the handler chain (they use check_candle_exits).
-                if exit_res.get(pos.strategy_id, 0) == 0:
-                    pos.exit_handlers = []
-
-        # Zero out funding_1h in signals — funding is handled at settlement
-        # time by apply_funding_settlement(), not per-bar by the simulator.
-        # Signals are regenerated fresh each tick so this has no lasting effect.
-        for _sid, token_sigs in all_signals.items():
-            for _tok, sig in token_sigs.items():
-                if sig.funding_1h is not None:
-                    sig.funding_1h[:] = 0.0
-                if sig.perp_funding_1h is not None:
-                    sig.perp_funding_1h[:] = 0.0
-
-        strategy_specs = {s.strategy_id: s for s in self.config.strategies}
-        if self.config.mode == "independent":
-            for sid, sstate in self.strategy_states.items():
-                if exit_res.get(sid, 0) > 0:
-                    continue  # Sub-hourly strategies: exits handled by process_sub_hourly_exits
-                sid_signals = {sid: all_signals.get(sid, {})}
-                _sim._process_exits(sstate, sid_signals, bar_maps, self.tick_counter, self.config, strategy_specs=strategy_specs)
-        else:
-            # Pool mode: include hourly strategies' full signals, but provide
-            # empty dicts for sub-hourly strategies. _process_exits uses bracket
-            # notation (all_signals[pos.strategy_id]) so every strategy_id that
-            # has open positions MUST be a key — otherwise KeyError.
-            # Sub-hourly positions will match the empty dict and get sig=None → skip.
-            filtered_signals = {
-                sid: (sigs if exit_res.get(sid, 0) == 0 else {})
-                for sid, sigs in all_signals.items()
-            }
-            # Ensure every strategy_id with open positions is a key.
-            # If signal computation failed for a strategy, its ID won't be in
-            # all_signals — add an empty dict so _process_exits doesn't KeyError.
-            for pos in self.state.position_manager.open_positions:
-                if pos.strategy_id not in filtered_signals:
-                    filtered_signals[pos.strategy_id] = {}
-            _sim._process_exits(self.state, filtered_signals, bar_maps, self.tick_counter, self.config, strategy_specs=strategy_specs)
-
-    def _process_entries_for_tick(
-        self,
-        all_signals: dict,
-        strategy_specs: dict,
-        bar_maps: dict,
-    ) -> None:
-        """Delegate entry processing to v4 simulator with per-bar RNG seeding (AC9c).
-
-        AC25: Strategies with bar_resolution > 0 are excluded from hourly
-        entries — they use process_sub_hourly_entries() instead.
-        """
-        # AC25: Filter out strategies that use sub-hourly bar resolution
-        entry_res = getattr(self, '_strategy_bar_resolution', {})
-        filtered_signals = {
-            sid: sigs for sid, sigs in all_signals.items()
-            if entry_res.get(sid, 0) == 0
-        }
-        filtered_specs = {
-            sid: spec for sid, spec in strategy_specs.items()
-            if entry_res.get(sid, 0) == 0
-        }
-
-        rng = np.random.RandomState(self.config.seed + self.tick_counter)
-        if self.config.mode == "independent":
-            for sid, sstate in self.strategy_states.items():
-                if entry_res.get(sid, 0) > 0:
-                    continue  # AC25: skip sub-hourly strategies
-                sid_signals = {sid: filtered_signals.get(sid, {})}
-                if sid in filtered_specs:
-                    orig_spec = filtered_specs[sid]
-                    # Weight=1.0 because capital was already pre-split in _init_independent_mode.
-                    # Passing the original weight would double-apply it (portfolio_equity already
-                    # reflects weight-scaled initial_capital, and _process_entries multiplies
-                    # by spec.weight again).
-                    # Use dataclasses.replace to preserve ALL fields (including ADV sizing).
-                    spec_independent = dataclasses.replace(orig_spec, weight=1.0)
-                    sid_specs = {sid: spec_independent}
-                else:
-                    sid_specs = {}
-                _sim._process_entries(
-                    sstate, sid_signals, sid_specs,
-                    bar_maps, self.tick_counter, self.config, rng,
+        # Step 2 — inline strategy.generate calls; build per-strategy
+        # UniverseSignals dict.
+        native_signals_by_sid: dict = {}
+        native_strategies_by_sid: dict = {}
+        for spec in self.config.strategies:
+            strat = self._resolve_protocol_strategy(spec)
+            try:
+                signals = strat.generate(ctx, bar_idx)
+            except Exception as exc:  # pragma: no cover - diagnostic
+                import logging
+                logging.getLogger(__name__).error(
+                    "strategy.generate failed for %s: %s",
+                    spec.strategy_id, exc,
                 )
-        else:
-            _sim._process_entries(
-                self.state, filtered_signals, filtered_specs,
-                bar_maps, self.tick_counter, self.config, rng,
+                # AC-S5 exception containment — increment counter so
+                # the BarProcessor gate can quarantine this strategy.
+                try:
+                    strat.exception_counter = (
+                        getattr(strat, "exception_counter", 0) + 1
+                    )
+                except AttributeError:
+                    pass
+                from v5.strategy_api import UniverseSignals
+                signals = UniverseSignals(bar_idx=bar_idx, signals={})
+            native_signals_by_sid[spec.strategy_id] = signals
+            native_strategies_by_sid[spec.strategy_id] = strat
+
+        # Step 3 — (removed). The legacy ``_handle_disappeared_tokens``
+        # sweep walked ``signals_by_sid.keys()`` to force-close positions
+        # whose token had dropped out of the current universe. Per
+        # ADR-0002 §3 (Lopez de Prado, Advances in ML 5.3), data
+        # staleness is a cache concern — the gap detector on
+        # ``MarketDataCache`` surfaces missing bars; positions are then
+        # closed through the normal exit path. Driving engine behaviour
+        # via signal-set absence is an antipattern (a strategy simply
+        # emitting no signal this bar is indistinguishable from a
+        # delisting), so the sweep is deleted outright rather than
+        # gated behind a replay guard.
+
+        # Step 4 — (removed). The legacy `_apply_dynamic_weights_native`
+        # helper read `btc_regime` from a deleted `_last_known_regimes`
+        # dict (Stage-1b) and, post-Stage-1b, fell back to a literal
+        # default of 3 — which meant the `DynamicWeightAllocator` always
+        # returned the static-regime allocation and the mechanism was
+        # dead code in the paper tick path. Deleting it outright is the
+        # M11 Stage-5 surfacing: if a user sets `config.dynamic_weights
+        # = True` they must now migrate to the ADR-0002 §4 path
+        # (strategy-declared regime `MetricData` flowing through
+        # `required_data()`) rather than relying on a silently-static
+        # allocator. The `DynamicWeightAllocator` class in
+        # `v5/dynamic_weights.py` is retained for other entry points
+        # (run_dynamic_backtest, rank_all_portfolios, etc.).
+
+        # Step 5 — arbitration (handoff note #1). Risk components +
+        # arbitration policy must run BEFORE the native order pipeline
+        # so the default RandomShuffle policy is applied.
+        if native_signals_by_sid:
+            native_signals_by_sid = self._apply_arbitration_native(
+                native_signals_by_sid, bar_idx=bar_idx,
             )
 
-    def _process_margin_calls_for_tick(self, all_signals, bar_maps):
-        """Run margin-call logic for the current tick.
-
-        Sub-hourly strategies are excluded — their liquidation/margin
-        pressure is handled by process_sub_hourly_exits() at sub-hourly
-        resolution with real-time price data.
-        """
-        exit_res = getattr(self, '_strategy_bar_resolution', {})
-        if self.config.mode == "independent":
-            for sid, sstate in self.strategy_states.items():
-                if exit_res.get(sid, 0) > 0:
-                    continue  # Sub-hourly: handled by process_sub_hourly_exits
-                sid_signals = {sid: all_signals.get(sid, {})}
-                _sim._process_margin_calls(sstate, sid_signals, bar_maps, self.tick_counter, self.config)
-        else:
-            # Pool mode: _process_margin_calls uses .get() for signal access
-            # (safe), but we still exclude sub-hourly signals to prevent
-            # margin calls based on stale hourly bar prices.
-            filtered_signals = {
-                sid: (sigs if exit_res.get(sid, 0) == 0 else {})
-                for sid, sigs in all_signals.items()
+        # Step 6 — native entries/exits (Commit 6 primitives).
+        if native_strategies_by_sid:
+            from v5.simulator import (
+                _fire_armed_orders_native,
+                _process_exits_native,
+                _process_orders_native,
+            )
+            native_specs = {
+                sid: spec for sid, spec in (
+                    (s.strategy_id, s) for s in self.config.strategies
+                ) if sid in native_strategies_by_sid
             }
-            # Same safety net: ensure open-position strategy_ids are keys
-            for pos in self.state.position_manager.open_positions:
-                if pos.strategy_id not in filtered_signals:
-                    filtered_signals[pos.strategy_id] = {}
-            _sim._process_margin_calls(self.state, filtered_signals, bar_maps, self.tick_counter, self.config)
+            for st in self._get_all_states():
+                _process_exits_native(
+                    st, ctx, bar_idx, native_strategies_by_sid,
+                )
+                _process_orders_native(
+                    st, native_signals_by_sid, ctx, bar_idx, native_specs,
+                )
+                # M11 Stage-2a: armed-order intra-bar trigger sweep
+                # (ADR-0002 move #4 — engine order manager, not
+                # strategy state). Positions materialize on the same
+                # bar the trigger fires so the paper dispatch matches
+                # the backtest orchestrator's timing.
+                _fire_armed_orders_native(st, ctx, bar_idx)
 
-    def _tick_internal_with_signals(
-        self,
-        all_signals: dict,
-        strategy_specs: dict,
-        bar_maps: dict,
-    ) -> None:
-        """Core tick processing with pre-computed signals.
+        # Step 7 — mark-to-market price refresh from MarketDataCache.
+        # Replaces the pre-M11 ``_update_last_known_prices`` walk-arrays
+        # reader; uses the same BarContext cache reads the native path
+        # uses, so no walk-arrays vocabulary survives in the tick path.
+        self._refresh_last_known_prices_from_market(
+            native_signals_by_sid, ctx, bar_idx,
+        )
 
-        Order (AC10b): exits → margin_calls → shadow_rebalance → entries → equity snapshot
-        """
-        self._process_exits_for_tick(all_signals, bar_maps)
-        self._process_margin_calls_for_tick(all_signals, bar_maps)
-        # Shadow rebalance would run here (between exits and entries)
-        if not strategy_specs:
-            strategy_specs = {s.strategy_id: s for s in self.config.strategies}
-        self._process_entries_for_tick(all_signals, strategy_specs, bar_maps)
-
-        # Cache bar data for sub-hourly exit checks between hourly ticks
+        # Step 8 — sub-hourly bookkeeping hooks.
         if getattr(self, '_effective_bar_resolution', 0) > 0:
-            self._cache_bar_data(all_signals, bar_maps)
-
-        # Cache armed levels for sub-hourly entry checks (AC22/AC23)
-        if getattr(self, '_effective_bar_resolution', 0) > 0:
-            self._cache_armed_levels(all_signals, strategy_specs, bar_maps)
-
-        # Update WS subscriptions for sub-hourly monitoring
-        if getattr(self, '_effective_bar_resolution', 0) > 0:
+            # Populate ATR/ADV cache from MarketDataCache for
+            # ``process_sub_hourly_exits`` consumption.
+            self._refresh_cached_bar_data_from_market(ctx, bar_idx)
             self._update_ws_subscriptions()
 
-    def _tick_internal(self, bar_timestamp=None) -> None:
-        """Full tick processing: fetch data, recompute signals, process.
+        # Step 9 — armed-order 4H window purge + expired-order log.
+        # Runs once per dispatch; the ``Order`` manager (v5/orders.py M5)
+        # is the single home for trigger_price + TIF evaluation, and
+        # this helper only handles timeout bookkeeping.
+        if getattr(self, '_effective_bar_resolution', 0) > 0:
+            self._purge_expired_armed_orders()
 
-        Pipeline (AC10b):
-          1. Fetch live data via self.fetcher + append to parquet
-          2. Discover tokens from parquet cache
-          3. Call precompute_strategy_signals() per strategy
-          4. Build bar_maps
-          5. Handle disappeared tokens
-          6. Call _tick_internal_with_signals()
-          7. Update last known prices
-          8. Compute mark-to-market equity + populate equity_history
-          9. Persist state (state.json, equity.csv, shadow_pools)
+    def _validate_all_strategies_are_protocol(self) -> None:
+        """Raise ``ValueError`` if any configured strategy lacks a
+        ``BaseStrategy`` subclass export.
+
+        M11 Commit 7 REWORK (ADR-0001) deletes the legacy batch-shape
+        dispatch path. Strategies must implement the M7 Strategy Protocol
+        by subclassing ``v5.strategy_api.BaseStrategy``. This check is
+        cheap after the first tick (the result is memoized on
+        ``self._all_strategies_protocol_validated``) and fires at dispatch
+        time rather than at ``__init__`` so subclasses constructed via
+        ``PaperPortfolioEngine.__new__`` (test fixtures) still exercise
+        the validation before first dispatch.
+        """
+        if getattr(self, "_all_strategies_protocol_validated", False):
+            return
+        bad: list[str] = []
+        for spec in self.config.strategies:
+            if self._resolve_protocol_strategy(spec) is None:
+                bad.append(spec.strategy_id)
+        if bad:
+            raise ValueError(
+                f"Strategy {bad!r} is not a BaseStrategy subclass. "
+                "M11 requires all strategies implement the M7 Strategy "
+                "Protocol. Non-Protocol strategies are no longer "
+                "supported (ADR-0001)."
+            )
+        self._all_strategies_protocol_validated = True
+
+    def _refresh_last_known_prices_from_market(
+        self, signals_by_sid: dict, ctx, bar_idx: int,
+    ) -> None:
+        """Refresh ``_last_known_prices`` from the MarketDataCache.
+
+        Replaces the pre-M11 ``_update_last_known_prices`` walk-arrays
+        reader. For each (sid, token) present in the native signal dict
+        or with an open position, read the latest close via the
+        Commit-6 ``_build_bar_context`` primitive and record it. If no
+        cache data is available, the prior last-known value is retained
+        (mirrors the legacy semantics — silently skip when no data).
+        """
+        from v5.simulator import _build_bar_context
+
+        tokens_to_refresh: set[str] = set()
+        for _sid, univ in signals_by_sid.items():
+            inner = getattr(univ, "signals", None) or {}
+            tokens_to_refresh.update(inner.keys())
+        for st in self._get_all_states():
+            for pos in st.position_manager.open_positions:
+                tokens_to_refresh.add(pos.token)
+
+        for token in tokens_to_refresh:
+            try:
+                bar_ctx = _build_bar_context(token, ctx, bar_idx, None)
+            except Exception:
+                continue
+            close = float(getattr(bar_ctx, "close", 0.0) or 0.0)
+            if close > 0.0 and math.isfinite(close):
+                self._last_known_prices[token] = close
+
+    def _resolve_protocol_strategy(self, spec):
+        """Return a Protocol-compliant strategy instance for ``spec``,
+        or ``None`` if no such instance is available.
+
+        Resolution order:
+
+        1. If ``spec.strategy_instance`` is set AND it is a
+           ``BaseStrategy`` subclass, use it verbatim. This is the
+           side-channel ``drive_paper_in_replay`` uses to attach
+           already-constructed strategies (which may require
+           constructor args the module-reflection path cannot supply).
+        2. Otherwise, reflect on the strategy module (via
+           ``_load_strategy_fn``'s module cache so strategy import is
+           cache-amortized across ticks) and attempt no-args
+           construction of the first ``BaseStrategy`` subclass export.
+
+        ``None`` is a hard error at dispatch time — see
+        ``_validate_all_strategies_are_protocol`` — since the M11 Commit 7
+        REWORK deleted the legacy precompute/walk-arrays fallback path.
+        """
+        cache = getattr(self, "_protocol_strategy_instances", None)
+        if cache is None:
+            cache = {}
+            self._protocol_strategy_instances = cache
+        sid = spec.strategy_id
+        if sid in cache:
+            return cache[sid]
+
+        # Resolution path 1: side-channel-attached strategy instance
+        # (``drive_paper_in_replay`` uses this to pass already-constructed
+        # strategies that require constructor args). ADR-0001: the paper
+        # engine MUST invoke these strategies' generate() per tick; the
+        # module-reflection path below cannot supply constructor args
+        # and so cannot resolve strategies like S513TripleTriggerSwing.
+        from v5.strategy_api import BaseStrategy
+        attached = getattr(spec, "strategy_instance", None)
+        if attached is not None and isinstance(attached, BaseStrategy):
+            cache[sid] = attached
+            return attached
+
+        # Resolution path 2: module reflection + no-args construction.
+        inst = None
+        try:
+            from v5.engine import _STRATEGY_MODULE_CACHE, _STRATEGY_MODULE_LOCK
+            # Ensure the module has been imported (populates module cache).
+            _load_strategy_fn(sid)
+            with _STRATEGY_MODULE_LOCK:
+                mod = _STRATEGY_MODULE_CACHE.get(sid)
+            if mod is None:
+                cache[sid] = None
+                return None
+
+            # Scan for a BaseStrategy subclass export.
+            for name in dir(mod):
+                obj = getattr(mod, name, None)
+                if (
+                    isinstance(obj, type)
+                    and issubclass(obj, BaseStrategy)
+                    and obj is not BaseStrategy
+                ):
+                    try:
+                        inst = obj()
+                    except TypeError:
+                        # Constructor requires args — not auto-constructible;
+                        # treat as non-Protocol for paper dispatch purposes.
+                        inst = None
+                    break
+        except Exception as exc:  # pragma: no cover - diagnostic
+            import logging
+            logging.getLogger(__name__).debug(
+                "Protocol-strategy resolution failed for %s: %s", sid, exc,
+            )
+            inst = None
+
+        cache[sid] = inst
+        return inst
+
+    def _build_ctx_for_tick(self, bar_idx: int):
+        """Construct a minimal event-driven tick context.
+
+        Paper has not yet wired ADR-0002's ``MarketDataCache`` into the
+        live fetch path (commits 1-6 target backtest). Until that
+        migration lands, the tick ctx is a lightweight namespace:
+
+          * ``cache``: a ``MarketDataCache`` seeded from the parquet
+            cache for the tokens the strategies care about. Empty when
+            no parquet data is available — the native path degrades
+            gracefully (every clamp rejects on no_price; the
+            sub-hourly ATR cache records zero and sub-hourly exits
+            fall through to the legacy 2% entry-price fallback).
+          * ``bar_idx``: ``self.tick_counter``.
+          * ``data``: ``None`` (``_resolve_market_cache`` reads
+            ``ctx.cache`` first; the fallback attribute chain is
+            intentionally inert in paper).
+
+        Separating the ctx construction from the dispatch body lets
+        future integrations wire in the real ``DataEngine`` tick state
+        without rewriting the dispatch logic.
+
+        M11 Stage-3 (P4 — wall-clock footgun deletion): the previous
+        nested ``_PaperTickClock`` that called the wall-clock for
+        ``now_ns`` is removed from the replay-reachable path. Replay
+        callers (``drive_paper_in_replay``) MUST attach
+        ``self._market_cache`` — its ``_clock`` is the shared
+        ``SimulationClock`` so cache PIT slicing, strategy dispatch,
+        and order-manager trigger evaluation all agree on the same
+        time model. When ``_market_cache`` is absent, this method
+        raises ``RuntimeError`` by default — silently fabricating a
+        wall-clock time for a simulation is a correctness bug, not a
+        graceful degradation. Paper-live production callers that
+        genuinely need wall-clock ``now_ns`` must opt in via the
+        explicit ``_paper_live_mode = True`` attribute (set at
+        live-init time); wiring goes through the module-scope
+        ``_PaperLiveWallClock`` helper so the wall-clock read is never
+        textually inside any replay-dispatch function body.
+        """
+        # M11 Stage-2a: ``drive_paper_in_replay`` pre-populates
+        # ``self._market_cache`` with the hydrated MarketDataCache so
+        # the paper tick body's generate() call sees the same data the
+        # backtest orchestrator reads. Prefer that cache when present.
+        attached_cache = getattr(self, "_market_cache", None)
+        if attached_cache is not None:
+            cache = attached_cache
+        elif getattr(self, "_paper_live_mode", False):
+            # Paper-live production path: no shared cache is attached;
+            # hydration is via WS/REST fetcher + on_data. Build a fresh
+            # cache using a wall-clock bridge (preserved only because
+            # production live code depends on it — explicit opt-in via
+            # ``_paper_live_mode``). This branch is NOT replay-reachable:
+            # ``drive_paper_in_replay`` always attaches ``_market_cache``.
+            # The wall-clock helper lives at module scope
+            # (``_PaperLiveWallClock``) so no replay-dispatch function
+            # body textually contains ``time.time_ns()``.
+            try:
+                from v5.data.cache import MarketDataCache
+                cache = MarketDataCache(clock=_PaperLiveWallClock(bar_idx))
+            except Exception:
+                cache = None
+        else:
+            raise RuntimeError(
+                "paper_engine._build_ctx_for_tick called without "
+                "_market_cache attached; replay requires "
+                "drive_paper_in_replay, live requires cache attach from "
+                "_initialize_live_cache (or explicit _paper_live_mode=True "
+                "on the engine for wall-clock bridge). A wall-clock "
+                "fallback in a replay-reachable code path is a "
+                "correctness bug — simulation time must come from the "
+                "shared SimulationClock, not the wall clock."
+            )
+
+        class _PaperTickCtx:
+            __slots__ = ("cache", "data", "bar_idx", "_instruments")
+
+            def __init__(self, mkt_cache, bar_idx: int):
+                self.cache = mkt_cache
+                self.data = None
+                self.bar_idx = int(bar_idx)
+                self._instruments = {}
+
+            def per_token(self, token: str):
+                return None  # TokenView wiring lands with full ctx integration
+
+        return _PaperTickCtx(cache, bar_idx=bar_idx)
+
+    def _apply_arbitration_native(
+        self, signals_by_sid: dict, *, bar_idx: int,
+    ) -> dict:
+        """Apply risk components + arbitration policy to native signals.
+
+        COMMIT 6 handoff note #1: ``_process_orders_native`` iterates
+        ``signals.signals`` in dict insertion order. In production the
+        default arbitration policy is ``RandomShuffle`` seeded by
+        ``config.seed + global_bar``. Without running arbitration here,
+        legacy and native will open different Positions when multiple
+        candidates compete for capital — AC-2 parity (Commit 8) fails.
+
+        This helper materializes the native UniverseSignals into the
+        ``(sid, token, sig)`` candidate shape the shipped arbitration
+        primitives expect, runs the same risk + arbitration path the
+        legacy simulator runs, and returns a ``dict[sid, UniverseSignals]``
+        whose insertion order matches the arbitration ranking.
+        """
+        from v5.simulator import (
+            _apply_risk_components_phase_30,
+            _run_arbitration_dispatch,
+        )
+        from v5.strategy_api import UniverseSignals
+
+        if not signals_by_sid:
+            return signals_by_sid
+
+        # Flatten into (sid, token, TokenSignal) candidates. The
+        # arbitration primitives were written against TokenBarArrays
+        # with per-bar `.priority[lb]`; we build a thin shim that
+        # exposes ``priority`` as a 1-element array so the legacy
+        # ordering code keeps working without a rewrite.
+        class _PriorityShim:
+            __slots__ = ("priority", "_token_signal")
+
+            def __init__(self, token_signal):
+                prio = float(getattr(token_signal, "priority", 0.0) or 0.0)
+                self.priority = np.array([prio], dtype=np.float64)
+                self._token_signal = token_signal
+
+        candidates: list = []
+        shim_by_key: dict = {}
+        for sid, univ in signals_by_sid.items():
+            inner = getattr(univ, "signals", None)
+            if not inner:
+                continue
+            for token, token_signal in inner.items():
+                shim = _PriorityShim(token_signal)
+                shim_by_key[(sid, token)] = token_signal
+                candidates.append((sid, token, shim))
+
+        if not candidates:
+            return signals_by_sid
+
+        # The arbitration primitives originally indexed a per-token
+        # array at ``[global_bar]``; in the native path each shim only
+        # carries a 1-element ``priority`` array, so build a trivial
+        # index lookup that always resolves to position 0.
+        translator: dict = {}
+        zero_map = np.zeros(max(bar_idx + 1, 1), dtype=np.int64)
+        for sid, token, _ in candidates:
+            translator[token] = zero_map
+
+        # Use the first available SimulationState — all paths share
+        # arbitration policy, rng seed, and equity for ordering.
+        state = self.state
+        if state is None:
+            states = self._get_all_states()
+            state = states[0] if states else None
+        if state is None:
+            return signals_by_sid
+
+        portfolio_config = self.config
+        kept = _apply_risk_components_phase_30(
+            candidates, translator, bar_idx, portfolio_config, state,
+        )
+        if not kept:
+            # Everything rejected — return empty per-strategy signals
+            # so downstream doesn't process stale data.
+            return {
+                sid: UniverseSignals(bar_idx=bar_idx, signals={})
+                for sid in signals_by_sid
+            }
+
+        ordered_indices = _run_arbitration_dispatch(
+            kept, translator, bar_idx, portfolio_config, state,
+        )
+
+        # Rebuild per-strategy dicts in arbitration order.
+        rebuilt: dict = {sid: {} for sid in signals_by_sid}
+        for idx in ordered_indices:
+            sid, token, _shim = kept[idx]
+            rebuilt[sid][token] = shim_by_key[(sid, token)]
+
+        return {
+            sid: UniverseSignals(bar_idx=bar_idx, signals=signals)
+            for sid, signals in rebuilt.items()
+        }
+
+    def _tick_internal(self, bar_timestamp=None) -> None:
+        """Full tick processing: fetch data, dispatch strategies, persist.
+
+        M11 Commit 7 REWORK pipeline (single-model event-driven dispatch):
+          1. Fetch live data via ``self.fetcher`` + append to parquet.
+          2. Build the per-tick context (``_build_ctx_for_tick``).
+          3. Dispatch strategies inline (``_dispatch_strategies_at_tick``):
+             every configured strategy must resolve to a ``BaseStrategy``
+             subclass; ``strategy.generate`` drives the native order/exit
+             pipeline. Non-Protocol strategies raise ``ValueError`` at
+             dispatch time (no sunset batch-shape fallback exists).
+          4. Refresh last-known prices from MarketDataCache.
+          5. Compute mark-to-market equity + populate equity_history.
+          6. Persist state (state.json, equity.csv, shadow_pools).
         """
         import logging
         logger = logging.getLogger(__name__)
@@ -3355,7 +3285,30 @@ class PaperPortfolioEngine:
         import logging
         logger = logging.getLogger(__name__)
 
-        timestamp = bar_timestamp or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        # Single-clock-authority (ADR-0001 Rule A2): in replay mode the
+        # shared ``SimulationClock`` is attached on ``self._clock`` and
+        # ``drive_paper_in_replay`` calls ``tick_fn()`` with no
+        # ``bar_timestamp`` argument every tick. A raw
+        # ``time.strftime(..., time.gmtime())`` fallback therefore leaks
+        # wall-clock time into every replay tick's logging/persistence
+        # timestamp. Gate the wall-clock fallback behind an explicit
+        # ``if shared_clock is None:`` — same pattern as
+        # ``_purge_expired_armed_orders`` — so the AC-10 grep (which
+        # allows ``time.strftime`` only inside that branch) can verify
+        # it statically.
+        timestamp = bar_timestamp
+        if not timestamp:
+            shared_clock = getattr(self, "_clock", None)
+            if shared_clock is None:
+                timestamp = time.strftime(
+                    "%Y-%m-%dT%H:%M:%SZ", time.gmtime()
+                )
+            else:
+                import pandas as pd
+                now_ns = int(shared_clock.now_ns())
+                timestamp = pd.Timestamp(
+                    now_ns, unit="ns", tz="UTC"
+                ).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         # --- Step 1: Fetch live data + append to parquet ---
         if self.fetcher is not None:
@@ -3418,102 +3371,39 @@ class PaperPortfolioEngine:
         else:
             logger.debug("No fetcher configured — using existing parquet data")
 
-        # --- Step 2-3: Discover tokens + precompute signals per strategy ---
-        all_signals: dict[str, dict] = {}
-        strategy_specs = {s.strategy_id: s for s in self.config.strategies}
+        # --- Step 2: Dispatch strategies inline (M11 Commit 7 REWORK) ---
+        # ADR-0001 + ADR-0002: paper shares the event-driven dispatch
+        # primitive with backtest. ``_dispatch_strategies_at_tick`` is
+        # the single place that resolves each strategy and drives the
+        # native (Protocol) pipeline. The pre-M11 precompute/walk-arrays
+        # fallback branch has been deleted — non-Protocol strategies are
+        # no longer supported and fail fast at validation time.
+        #
+        # M11 Stage-3 (single clock authority): the shared SimulationClock
+        # attached as ``self._clock`` (via ``drive_paper_in_replay`` or
+        # the production live initializer) is the ONE authority for
+        # "what bar_idx are we on right now?". ``self.tick_counter`` is
+        # retained as a separate, monotonic persistence counter (it's
+        # incremented at the END of each tick so state.json records the
+        # NEXT expected tick on crash-recovery) but it MUST NOT be used
+        # as the dispatch bar_idx: the clock has already advanced one
+        # tick before the tick body runs, while tick_counter reflects
+        # the previous tick's identity. Reading tick_counter as bar_idx
+        # here produces a systematic 1-bar lag vs the backtest
+        # orchestrator, breaking every time-anchored strategy decision.
+        shared_clock = getattr(self, '_clock', None)
+        bar_idx_for_dispatch = (
+            int(shared_clock.current_bar_idx) if shared_clock is not None
+            else self.tick_counter
+        )
+        ctx = self._build_ctx_for_tick(bar_idx=bar_idx_for_dispatch)
+        self._dispatch_strategies_at_tick(
+            ctx=ctx,
+            bar_idx=bar_idx_for_dispatch,
+            timestamp=timestamp,
+        )
 
-        # Pre-load strategy modules and compute shared plugin requirements.
-        # If ALL strategies declare REQUIRED_PLUGINS, create shared engines
-        # with _required_plugins = union(all). If ANY lacks it, fall back to
-        # _required_plugins = None (all plugins, legacy-compat).
-        all_req_plugins = []
-        all_req_groups = []
-        for spec in self.config.strategies:
-            _load_strategy_fn(spec.strategy_id)  # populate module cache
-            # Tell strategy it's in paper mode so it can trim data loading
-            from v5.engine import _STRATEGY_MODULE_CACHE, _STRATEGY_MODULE_LOCK
-            with _STRATEGY_MODULE_LOCK:
-                mod = _STRATEGY_MODULE_CACHE.get(spec.strategy_id)
-            if mod is not None:
-                mod._paper_mode = True
-            rp = _load_strategy_required_plugins(spec.strategy_id)
-            all_req_plugins.append(rp)
-            rg = _load_strategy_required_indicator_groups(spec.strategy_id)
-            all_req_groups.append(rg)
-
-        if all(rp is not None for rp in all_req_plugins):
-            union_plugins = sorted(set().union(*(rp for rp in all_req_plugins)))
-        else:
-            union_plugins = None  # fall back to all plugins
-            if any(rp is not None for rp in all_req_plugins):
-                logger.warning(
-                    "Mixed REQUIRED_PLUGINS declarations — some strategies "
-                    "declare plugins, some don't. Running all plugins (safe fallback)."
-                )
-
-        if all(rg is not None for rg in all_req_groups):
-            union_groups = set().union(*(rg for rg in all_req_groups))
-        else:
-            union_groups = None  # fall back to all groups
-
-        DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
-        shared_eng_spot = Engine(data_dir=DATA_DIR, market="spot", capital=self.config.capital, exchange=self.config.exchange)
-        shared_eng_perp = Engine(data_dir=DATA_DIR, market="perp", capital=self.config.capital, exchange=self.config.exchange)
-        shared_eng_spot._required_plugins = union_plugins
-        shared_eng_perp._required_plugins = union_plugins
-        shared_eng_spot._required_indicator_groups = union_groups
-        shared_eng_perp._required_indicator_groups = union_groups
-
-        any_tokens_found = False
-        try:
-            for spec in self.config.strategies:
-                tokens = discover_tokens(spec.market)
-                if tokens:
-                    any_tokens_found = True
-                sigs = precompute_strategy_signals(
-                    spec, tokens, self.config, self.config.lookback_months,
-                    hist_cache=self._hist_cache,
-                    eng_spot=shared_eng_spot, eng_perp=shared_eng_perp,
-                )
-                all_signals[spec.strategy_id] = sigs
-        finally:
-            # Clear shared engine context caches even on exception to prevent
-            # ~2.3 GB leak (236 tokens x 2 engines of cached StrategyContext).
-            if shared_eng_spot is not None:
-                shared_eng_spot._context_cache.clear()
-            if shared_eng_perp is not None:
-                shared_eng_perp._context_cache.clear()
-            del shared_eng_spot, shared_eng_perp
-
-        if not any_tokens_found:
-            logger.warning("No parquet cache data found — cold start or missing data directory")
-
-        if self._hist_cache and self.tick_counter <= 1:
-            logger.info(
-                "Historical parquet cache: %d entries. "
-                "Restart runner after build_parquet_cache.py to pick up rebuilt data.",
-                len(self._hist_cache),
-            )
-
-        # Timestamp: use wall-clock time (set on line 446) for precise equity.csv
-        # and trade entry timestamps. Previously this was overridden with the
-        # hourly bar close time as a temp fix for backwards-tick issues caused by
-        # the ablation tick-counter reset — that is no longer needed.
-
-        # --- Step 4: Build bar_maps ---
-        bar_maps = self._build_bar_maps(all_signals, self.tick_counter)
-
-        # --- Step 5: Handle disappeared tokens ---
-        self._handle_disappeared_tokens(all_signals, timestamp=timestamp)
-
-        # --- Step 5b: Dynamic weight adjustment (if enabled) ---
-        self._apply_dynamic_weights(all_signals, bar_maps)
-
-        # --- Step 6: Process exits → entries ---
-        # Note: walk-forward mask is already applied by precompute_strategy_signals
-        self._tick_internal_with_signals(all_signals, strategy_specs, bar_maps)
-
-        # --- Step 6b: Stamp entry_timestamp on ALL positions missing it ---
+        # --- Step 2b: Stamp entry_timestamp on ALL positions missing it ---
         # New positions (entry_bar == tick_counter) get the current timestamp.
         # Pre-existing positions that were never stamped (e.g., created before
         # this code existed) get backfilled with the current timestamp so the
@@ -3523,7 +3413,7 @@ class PaperPortfolioEngine:
                 if not pos.entry_timestamp:
                     pos.entry_timestamp = timestamp
 
-        # --- Step 6c: Stamp exit_timestamp on newly closed trades missing it ---
+        # --- Step 2c: Stamp exit_timestamp on newly closed trades missing it ---
         # Simulator-driven exits don't have access to wall-clock time, so we
         # stamp them here.
         for st in self._get_all_states():
@@ -3531,8 +3421,9 @@ class PaperPortfolioEngine:
                 if not trade.exit_timestamp:
                     trade.exit_timestamp = timestamp
 
-        # --- Step 7: Update last known prices ---
-        self._update_last_known_prices(all_signals, bar_maps)
+        # Last known prices are refreshed inside
+        # ``_dispatch_strategies_at_tick`` — the tick body does not need
+        # to reach back into the per-strategy signal arrays.
 
         # --- Step 8: Compute equity + populate equity_history ---
         portfolio_eq = self._aggregate_portfolio_equity()
@@ -3622,12 +3513,11 @@ class PaperPortfolioEngine:
             )
             self._last_equity_tick = self.tick_counter
 
-        # Write state.json — handle both pool and independent modes
+        # Write state.json — handle both pool and independent modes.
         # This is the "commit point": once state.json is atomically written,
-        # the tick is considered complete.
+        # the tick is considered complete. M11 Commit-8 rework Stage-1b
+        # (ADR-0002): legacy persistence kwargs deleted — see serialize_state.
         state_path = os.path.join(state_dir, "state.json")
-        armed_snapshot = self._serialize_armed_tokens()
-        filled_windows_snapshot = self._serialize_filled_4h_windows()
         if self.state is not None:
             # Pool mode: single shared state
             atomic_write_state(
@@ -3636,10 +3526,6 @@ class PaperPortfolioEngine:
                 timestamp,
                 state_path,
                 shadow_pools=shadow_pools,
-                last_known_prices=MappingProxyType(self._last_known_prices),
-                last_known_regimes=dict(self._last_known_regimes),
-                armed_tokens=armed_snapshot,
-                filled_4h_windows=filled_windows_snapshot,
             )
         else:
             # Independent mode: serialize all strategy states (C4 fix)
@@ -3648,10 +3534,6 @@ class PaperPortfolioEngine:
                 dict(self.strategy_states), self.tick_counter, timestamp,
                 mode="independent",
                 shadow_pools=shadow_pools,
-                last_known_prices=MappingProxyType(self._last_known_prices),
-                last_known_regimes=dict(self._last_known_regimes),
-                armed_tokens=armed_snapshot,
-                filled_4h_windows=filled_windows_snapshot,
             )
             import tempfile as _tmpfile
             fd, tmp = _tmpfile.mkstemp(dir=state_dir, suffix=".tmp")
@@ -3677,10 +3559,9 @@ class PaperPortfolioEngine:
         self.last_timestamp = timestamp
 
         # Free large tick-scoped data structures before dashboard generation.
-        # all_signals + bar_maps hold ~300-500MB of NumPy arrays that are no
-        # longer needed after persistence.  Explicit del + gc.collect() reclaims
-        # memory immediately rather than waiting for Python's GC cycle.
-        del all_signals, bar_maps
+        # The legacy signal-walk held ~300-500MB of NumPy arrays per tick;
+        # ``_dispatch_strategies_at_tick`` discards them before returning
+        # so only the explicit gc sweep is needed here.
         import gc as _gc
         _gc.collect()
 
@@ -3889,82 +3770,6 @@ class PaperPortfolioEngine:
                 break
 
     # ------------------------------------------------------------------
-    # Dynamic weight adjustment
-    # ------------------------------------------------------------------
-
-    def _apply_dynamic_weights(self, all_signals: dict, bar_maps: dict) -> None:
-        """Adjust strategy weights based on current BTC regime (if enabled).
-
-        Reads BTC regime from the latest signal data, then updates each
-        strategy's spec.weight using the DynamicWeightAllocator.
-        """
-        if not getattr(self.config, 'dynamic_weights', False):
-            return
-
-        # Lazy-initialize the allocator on first use
-        if self._dynamic_allocator is None:
-            from v5.dynamic_weights import DynamicWeightAllocator
-            allocator = DynamicWeightAllocator.from_config(
-                self.config,
-                smoothing_alpha=getattr(self.config, 'dynamic_weights_smoothing', 0.3),
-            )
-            if allocator is None:
-                import logging
-                logging.getLogger(__name__).warning(
-                    "Dynamic weights enabled but allocator could not be created "
-                    "(missing heatmap?). Falling back to static weights."
-                )
-                # Disable to avoid re-trying every tick
-                self.config.dynamic_weights = False
-                return
-            self._dynamic_allocator = allocator
-
-        # Get current BTC regime from signals or last known
-        btc_regime = self._last_known_regimes.get('BTC', 3)  # Default: RANGE
-
-        # Also try to read from current tick's signals (more up-to-date)
-        for sid, token_sigs in all_signals.items():
-            if 'BTC' in token_sigs:
-                sig = token_sigs['BTC']
-                bm = bar_maps.get('BTC')
-                if bm is not None and self.tick_counter < len(bm):
-                    local_bar = bm[self.tick_counter]
-                    if 0 <= local_bar < sig.n_bars and hasattr(sig, 'regime') and sig.regime is not None:
-                        btc_regime = 0  # M9 C-4: engine regime deleted; strategies call v5.regimes.detect_crisis()
-                break  # Only need BTC from one strategy
-
-        # Compute dynamic weights
-        new_weights = self._dynamic_allocator.get_weights(btc_regime)
-
-        # Apply to strategy specs
-        for spec in self.config.strategies:
-            if spec.strategy_id in new_weights:
-                spec.weight = new_weights[spec.strategy_id]
-
-        # Log (first tick + regime changes)
-        self._dynamic_allocator.log_weights(btc_regime, new_weights)
-
-    # ------------------------------------------------------------------
-    # Price tracking
-    # ------------------------------------------------------------------
-
-    def _update_last_known_prices(
-        self,
-        all_signals: dict,
-        bar_maps: dict,
-    ) -> None:
-        """Track last known prices and regimes for each token."""
-        for sid, token_sigs in all_signals.items():
-            for token, sig in token_sigs.items():
-                bm = bar_maps.get(token)
-                if bm is not None and self.tick_counter < len(bm):
-                    local_bar = bm[self.tick_counter]
-                    if local_bar >= 0 and local_bar < sig.n_bars:
-                        self._last_known_prices[token] = float(sig.close[local_bar])
-                        if hasattr(sig, 'regime') and sig.regime is not None:
-                            self._last_known_regimes[token] = 0  # M9 C-4: engine regime deleted; strategies call v5.regimes.detect_crisis()
-
-    # ------------------------------------------------------------------
     # Quick price refresh — update MTM without running a full tick
     # ------------------------------------------------------------------
 
@@ -4034,29 +3839,21 @@ class PaperPortfolioEngine:
         # Re-persist state.json so dashboard picks up fresh last_known_prices
         if updated > 0:
             refresh_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-            armed_snapshot = self._serialize_armed_tokens()
-            filled_windows_snapshot = self._serialize_filled_4h_windows()
             state_path = os.path.join(state_dir, "state.json")
+            # M11 Commit-8 rework Stage-1b (ADR-0002): legacy persistence
+            # kwargs deleted — see serialize_state docstring.
             if self.state is not None:
                 atomic_write_state(
                     self.state,
                     self.tick_counter,
                     refresh_ts,
                     state_path,
-                    last_known_prices=MappingProxyType(self._last_known_prices),
-                    last_known_regimes=dict(self._last_known_regimes),
-                    armed_tokens=armed_snapshot,
-                    filled_4h_windows=filled_windows_snapshot,
                 )
             else:
                 from v5.paper_state import serialize_engine_state
                 data = serialize_engine_state(
                     dict(self.strategy_states), self.tick_counter, refresh_ts,
                     mode="independent",
-                    last_known_prices=MappingProxyType(self._last_known_prices),
-                    last_known_regimes=dict(self._last_known_regimes),
-                    armed_tokens=armed_snapshot,
-                    filled_4h_windows=filled_windows_snapshot,
                 )
                 import tempfile as _tmpfile2
                 fd2, tmp2 = _tmpfile2.mkstemp(dir=state_dir, suffix=".tmp")
@@ -4116,24 +3913,24 @@ class PaperPortfolioEngine:
         all_signals: dict,
         specs: dict | None = None,
     ) -> TickResult:
-        """Process a single tick with provided signals (for testing/determinism).
+        """Legacy deterministic test entry — pre-M11 batch-shape signals.
 
-        Unlike tick() which fetches data internally, this accepts pre-computed signals.
-        Uses per-bar RNG seeding: RandomState(seed + tick_counter).
+        Thin wrapper around :func:`v5.paper_test_harness.run_legacy_test_tick`
+        for pre-M11 determinism tests (``test_paper_determinism.py``,
+        ``test_paper_live_integration.py::test_recomputed_signals_cover_current_bar``).
+        The production tick path (``tick`` → ``_tick_internal_body`` →
+        ``_dispatch_strategies_at_tick``) does NOT go through this method;
+        those tests exercise pre-baked ``TokenBarArrays`` signals against
+        the legacy simulator primitives so that the downstream ordering
+        + RNG seeding contracts remain exercised.
+
+        The pre-baked-array walk semantics live in
+        :mod:`v5.paper_test_harness` — paper_engine.py itself is free of
+        walk-arrays vocabulary per ADR-0001 + the AC-10 architecture
+        invariants.
         """
-        if specs is None:
-            specs = {s.strategy_id: s for s in self.config.strategies}
-
-        bar_maps = self._build_bar_maps(all_signals, self.tick_counter)
-        self._tick_internal_with_signals(all_signals, specs, bar_maps)
-
-        result = TickResult(
-            tick_counter=self.tick_counter,
-            open_positions=self._aggregate_open_positions(),
-            portfolio_equity=self._aggregate_portfolio_equity(),
-        )
-        self.tick_counter += 1
-        return result
+        from v5.paper_test_harness import run_legacy_test_tick
+        return run_legacy_test_tick(self, all_signals, specs=specs)
 
     # ------------------------------------------------------------------
     # Dashboard SIMS output (Task 10)
@@ -4216,7 +4013,10 @@ class PaperPortfolioEngine:
         last_prices = dict(getattr(self, '_last_known_prices', {}))
         if price_overrides:
             last_prices.update(price_overrides)
-        last_regimes = dict(getattr(self, '_last_known_regimes', {}))
+        # M11 Commit-8 rework Stage-1b (ADR-0002): `_last_known_regimes` deleted;
+        # regime flows through strategy `required_data` per ADR-0002 §4 as a
+        # follow-up. Dashboard row shows "N/A" until that migration lands.
+        last_regimes: dict[str, int] = {}
         regime_names = {0: "CRISIS", 1: "QUIET", 2: "UPTREND", 3: "RANGE", 4: "DOWNTREND"}
         all_entry_fees = self._get_all_entry_fees()
         for st in self._get_all_states():

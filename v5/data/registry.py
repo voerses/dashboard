@@ -1,7 +1,9 @@
-"""M6 — DataClientRegistry (AC-D17).
+"""M6/M11 — DataClientRegistry (AC-D17).
 
-Venue-keyed client factory + lookup. Adding a new venue is a registry entry,
-not an engine edit.
+M11 (ADR-0002 move #1): the registry key is now ``(Venue, type[Data])`` —
+clients register per (venue, Data subclass) pair, and ``get_clients`` filters
+by both. A single client may register for multiple data-class pairs (e.g.,
+``BinanceWSClient`` serves ``BarData``, ``TradeData``, ``MarkPriceData``).
 
 Priority ordering per brief line 355:
     PUSH > PULL_ONCE > PULL_SCHEDULED > REPLAY
@@ -12,9 +14,9 @@ offers.
 """
 from __future__ import annotations
 
-from typing import Callable, Dict, FrozenSet, List, Optional
+from typing import Callable, Dict, FrozenSet, List, Optional, Tuple
 
-from v5.data.streams import InstrumentId, TransportMode, Venue
+from v5.data.streams import Data, InstrumentId, TransportMode, Venue
 
 # Lower index = higher priority
 _MODE_PRIORITY: Dict[TransportMode, int] = {
@@ -38,44 +40,77 @@ def _client_priority(client) -> int:
 
 
 class DataClientRegistry:
-    """Venue-keyed client factory. DataEngine consults this on subscribe().
+    """Registry keyed by ``(Venue, type[Data])``.
 
-    `register(venue, factory)` preserves insertion order within a priority
-    tier (deterministic across runs). `get_clients(instrument)` filters by
-    instrument.venue and sorts by transport priority.
+    M11: ``register(venue, data_class, factory)`` binds a factory to a
+    ``(venue, Data subclass)`` pair. ``get_clients(instrument, data_class)``
+    filters by both. A single factory may be called once per pair, producing
+    the same underlying client instance — the registry dedupes on factory
+    identity so shared clients serve multiple data classes.
+
+    Priority ordering within a ``(venue, data_class)`` bucket preserves
+    insertion order for the same transport tier; tiers are sorted PUSH >
+    PULL_ONCE > PULL_SCHEDULED > REPLAY.
     """
 
     def __init__(self):
-        # Per-venue factory list, insertion order preserved
-        self._factories: Dict[Venue, List[Callable[..., object]]] = {}
-        # Lazy-instantiated client singletons, keyed by (venue, factory_id)
-        self._clients: Dict[Venue, List[object]] = {}
+        # Primary store keyed by (venue, data_class): list of clients
+        self._clients_by_key: Dict[Tuple[Venue, type], List[object]] = {}
+        # Back-compat observability: all registered venues.
+        self._venues_seen: set = set()
 
     def register(
         self,
         venue: Venue,
+        data_class: type,
         factory: Callable[..., object],
     ) -> None:
-        """Register a DataClient factory for `venue`.
+        """Register a DataClient factory for ``(venue, data_class)``.
 
         Contract: factory is called eagerly with a single positional argument
-        (`config` — passed as None by this registry; Wave F wires the real
-        PaperConfig/BacktestConfig). Factory must accept the argument but
-        may ignore it. Clients persist; `get_clients()` returns stable
-        instances sorted by transport priority.
+        (``config`` — passed as ``None`` by this registry; real engine
+        wiring passes a concrete PaperConfig/BacktestConfig). If a factory
+        returns a client that is already present in the target bucket (by
+        object identity), the duplicate registration is a no-op so the
+        caller may safely re-register the same client under multiple
+        ``(venue, data_class)`` pairs.
         """
-        if venue not in self._factories:
-            self._factories[venue] = []
-            self._clients[venue] = []
-        self._factories[venue].append(factory)
-        # Eagerly instantiate so the client is stable across lookups.
+        if not isinstance(data_class, type) or not issubclass(data_class, Data):
+            raise TypeError(
+                f"data_class must be a subclass of Data, got {data_class!r}"
+            )
         client = factory(None)
-        self._clients[venue].append(client)
+        key = (venue, data_class)
+        bucket = self._clients_by_key.setdefault(key, [])
+        if client not in bucket:
+            bucket.append(client)
+        self._venues_seen.add(venue)
 
-    def get_clients(self, instrument: InstrumentId) -> List[object]:
-        """Return clients for instrument.venue, sorted PUSH > PULL_ONCE >
-        PULL_SCHEDULED > REPLAY. Empty list if venue unregistered."""
-        clients = list(self._clients.get(instrument.venue, []))
+    def get_clients(
+        self,
+        instrument: InstrumentId,
+        data_class: Optional[type] = None,
+    ) -> List[object]:
+        """Return clients matching ``(instrument.venue, data_class)``, sorted
+        PUSH > PULL_ONCE > PULL_SCHEDULED > REPLAY.
+
+        If ``data_class`` is None, returns the UNION of all clients
+        registered under ``instrument.venue`` across any ``Data`` subclass —
+        preserved for back-compat with M6 engine code paths that did not
+        yet type their subscription lookups by ``Data`` subclass.
+        """
+        if data_class is not None:
+            key = (instrument.venue, data_class)
+            clients = list(self._clients_by_key.get(key, []))
+        else:
+            seen: List[object] = []
+            for (venue, _dc), bucket in self._clients_by_key.items():
+                if venue != instrument.venue:
+                    continue
+                for c in bucket:
+                    if c not in seen:
+                        seen.append(c)
+            clients = seen
         # Stable sort — preserves insertion order WITHIN the same priority tier
         clients.sort(key=_client_priority)
         return clients
@@ -83,5 +118,6 @@ class DataClientRegistry:
     def registered_venues(self) -> FrozenSet[Venue]:
         """Expose the active venue set for observability."""
         return frozenset(
-            v for v, clients in self._clients.items() if clients
+            venue for (venue, _dc), bucket in self._clients_by_key.items()
+            if bucket
         )

@@ -24,8 +24,18 @@ def restore_state(engine: PaperPortfolioEngine, config) -> None:
     """Restore engine state from state.json if it exists.
 
     Restores: tick_counter, SimulationState fields, last_timestamp,
-    shadow pools, last_known_prices.
+    shadow pools.
     Also triggers catch-up if last_timestamp indicates missed bars.
+
+    M11 Commit-8 rework Stage-1b (ADR-0002): legacy load-side reconstruction
+    of ``last_known_prices`` / ``armed_tokens`` / ``filled_4h_windows`` /
+    ``last_known_regimes`` REMOVED. Their responsibilities moved to the
+    unified architecture — prices flow through ``MarketDataCache``; armed
+    entries are ``Order.status=ARMED`` records (M5); cadence bookkeeping is
+    ``DataEngine.register_strategy_cadences`` (M11); regime flows through
+    strategy ``required_data`` (ADR-0002 §4, pending strategy-side port).
+    Per user directive, v5 does NOT read legacy state.json files — clean
+    deletion, no backward-compat shim.
     """
     state_dir = config.state_dir
     state_path = os.path.join(state_dir, "state.json")
@@ -63,16 +73,17 @@ def restore_state(engine: PaperPortfolioEngine, config) -> None:
 
         # R4-I2 + R5-C1 fix: force-close orphaned strategy positions,
         # persist trade records, and redistribute equity to active strategies.
+        # M11 Commit-8 rework Stage-1b: `last_known_prices` persistence
+        # deleted; orphan close-out falls back to each position's entry_price.
         from v5.paper_state import _closed_trade_to_dict
-        last_prices = data.get("last_known_prices", {})
         orphan_equity_total = 0.0
         for orphan in restored_sids - config_sids:
             orphan_state = strategy_states[orphan]
             n_orphan_pos = orphan_state.position_manager.total_open()
             if n_orphan_pos > 0:
-                # Close all positions at last known prices
+                # Close all positions at entry prices (fallback; see docstring)
                 for pos in list(orphan_state.position_manager.open_positions):
-                    exit_price = last_prices.get(pos.token, pos.entry_price)
+                    exit_price = pos.entry_price
                     entry_fee = orphan_state._entry_fees_by_pos.pop(pos.position_id, 0.0)
                     exit_fee = abs(pos.quantity * exit_price) * pos.fee_rate
                     raw_pnl = pos.quantity * (exit_price - pos.entry_price)
@@ -135,7 +146,8 @@ def restore_state(engine: PaperPortfolioEngine, config) -> None:
         engine.strategy_states = strategy_states
 
         # R6-I1 fix: persist updated state.json after orphan close + redistribution
-        # so repeated crash-restart cycles don't re-close orphans and duplicate trades
+        # so repeated crash-restart cycles don't re-close orphans and duplicate trades.
+        # M11 Commit-8 rework Stage-1b: legacy persistence kwargs removed.
         if restored_sids - config_sids:
             from v5.paper_state import serialize_engine_state
             state_path_out = os.path.join(state_dir, "state.json")
@@ -143,9 +155,6 @@ def restore_state(engine: PaperPortfolioEngine, config) -> None:
                 dict(strategy_states), tick_counter, last_timestamp,
                 mode="independent",
                 shadow_pools=data.get("shadow_pools"),
-                last_known_prices=data.get("last_known_prices"),
-                armed_tokens=data.get("armed_tokens"),
-                filled_4h_windows=data.get("filled_4h_windows"),
             )
             import tempfile as _tmpfile
             fd, tmp = _tmpfile.mkstemp(dir=state_dir, suffix=".tmp")
@@ -163,115 +172,13 @@ def restore_state(engine: PaperPortfolioEngine, config) -> None:
         engine.state = state
         engine.last_timestamp = data.get("last_timestamp", None)
 
-    engine._last_known_prices = data.get("last_known_prices", {})
-    engine._last_known_regimes = data.get("last_known_regimes", {})
-
-    # Restore armed tokens (persisted across restarts)
-    # Expired entries are filtered by real UTC time in _deserialize_armed_tokens
-    armed_data = data.get("armed_tokens", [])
-    if armed_data:
-        from v5.paper_engine import (
-            PaperPortfolioEngine,
-            _cand_dict_to_pe,
-        )
-        restored, expired_on_restore = PaperPortfolioEngine._deserialize_armed_tokens(armed_data)
-        if restored:
-            # T16b flip: _pending_entries is the primary store. Wrap every
-            # legacy cand-dict into an Order via the shared adapter
-            # so the back-compat _armed_tokens property sees it.
-            with engine._armed_tokens_lock:
-                engine._pending_entries = {
-                    key: _cand_dict_to_pe(key[0], key[1], cand)
-                    for key, cand in restored.items()
-                }
-        # Log expired entries to armed_log.jsonl so dashboard shows them
-        if expired_on_restore:
-            armed_log_path = os.path.join(state_dir, "armed_log.jsonl")
-            try:
-                with open(armed_log_path, "a") as f:
-                    for evt in expired_on_restore:
-                        f.write(json.dumps(evt) + "\n")
-                    f.flush()
-                    os.fsync(f.fileno())
-            except OSError:
-                pass
-        logger.info(
-            "Restored %d armed orders (%d expired during downtime, logged)",
-            len(restored), len(expired_on_restore),
-        )
-
-    # Restore filled 4H windows (prevent re-entry after stop-out within same window)
-    filled_windows_data = data.get("filled_4h_windows", [])
-    if filled_windows_data:
-        from v5.paper_engine import PaperPortfolioEngine
-        engine._filled_4h_windows = PaperPortfolioEngine._deserialize_filled_4h_windows(
-            filled_windows_data
-        )
-        logger.info("Restored %d filled 4H windows", len(engine._filled_4h_windows))
-
-    # B-fix: Reconstruct filled_4h_windows from trades.jsonl to catch fills
-    # that happened after state.json was last written (crash recovery).
-    # Only scans recent trades with fill_source="sub_hourly" in the current
-    # or future 4H windows. Prefers stored window_end, falls back to
-    # reconstruction from entry_timestamp.
-    # Note: skip trades with tick > tick_counter — those will be truncated
-    # by recovery truncation below, and recovering their windows would
-    # create phantom entries that block legitimate re-entries.
-    trades_path_b = os.path.join(state_dir, "trades.jsonl")
-    if os.path.exists(trades_path_b):
-        import time as _time
-        import calendar
-        now_epoch = _time.time()
-        recovered = 0
-        with open(trades_path_b) as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    t = json.loads(line)
-                except (json.JSONDecodeError, KeyError):
-                    continue
-                if t.get("fill_source") != "sub_hourly":
-                    continue
-                # Skip trades beyond restored tick — they'll be truncated
-                trade_tick = t.get("tick", 0)
-                if trade_tick > tick_counter:
-                    continue
-                sid = t.get("strategy_id", "")
-                token = t.get("token", "")
-                if not sid or not token:
-                    continue
-                # Prefer stored window_end (exact), fall back to reconstruction
-                window_end = t.get("window_end", 0.0)
-                if not window_end:
-                    entry_ts = t.get("entry_timestamp", "")
-                    if not entry_ts:
-                        continue
-                    try:
-                        et = _time.strptime(entry_ts, "%Y-%m-%dT%H:%M:%SZ")
-                        next_4h = (et.tm_hour // 4 + 1) * 4
-                        if next_4h >= 24:
-                            import datetime
-                            d = datetime.date(et.tm_year, et.tm_mon, et.tm_mday) + datetime.timedelta(days=1)
-                            window_end = float(calendar.timegm(d.timetuple()))
-                        else:
-                            window_end = float(calendar.timegm(
-                                (et.tm_year, et.tm_mon, et.tm_mday, next_4h, 0, 0, 0, 0, 0)
-                            ))
-                    except (ValueError, TypeError):
-                        continue
-                window_end = float(window_end)
-                if window_end > now_epoch:
-                    key = (sid, token, window_end)
-                    if key not in engine._filled_4h_windows:
-                        engine._filled_4h_windows.add(key)
-                        recovered += 1
-        if recovered:
-            logger.info(
-                "Recovered %d filled 4H windows from trades.jsonl "
-                "(crash recovery — not in state.json)", recovered,
-            )
+    # M11 Commit-8 rework Stage-1b (ADR-0002): load-side reconstruction of
+    # `_last_known_prices` / `_last_known_regimes` / `armed_tokens` /
+    # `filled_4h_windows` DELETED. The in-memory dicts that still exist on
+    # the engine (e.g. `_last_known_prices`) are re-populated organically
+    # by the per-tick MarketDataCache read in `_refresh_last_known_prices_from_market`.
+    # Armed entries live in `Order.status=ARMED` records (M5) — the M5 schema-v3
+    # open_orders list in state.json is already read by `read_paper_state`.
 
     # Restore shadow pools if present
     shadow_pools = data.get("shadow_pools", {})

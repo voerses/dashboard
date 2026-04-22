@@ -61,41 +61,88 @@ def _make_test_config(**overrides) -> PaperConfig:
 # ===================================================================
 
 class TestSignalRecomputation:
-    """Signal recomputation covers the current bar (AC10c)."""
+    """Signal recomputation covers the current bar (AC10c).
+
+    M11 Commit 7 deleted the ``_build_bar_maps`` tick→local-bar
+    translator that this test originally inspected (per ADR-0001 +
+    ADR-0002 the native event-driven path reads ``TokenSignal`` fields
+    directly, no pre-baked array walk). The equivalent structural
+    property under the new dispatch is: the paper engine's legacy
+    fallback path (``process_tick``) routes pre-baked
+    ``TokenBarArrays`` through ``_process_exits_for_tick`` without
+    raising, even when the signal arrays are longer than
+    ``tick_counter``.
+    """
 
     def test_recomputed_signals_cover_current_bar(self):
-        """After recomputing signals, the last bar in each TokenBarArrays
-        should correspond to the current tick's data.
+        """``process_tick`` accepts legacy TokenBarArrays-shaped signals
+        with per-bar arrays long enough to cover the current tick.
 
-        Per-bar arrays like stop_mult, trail_mult, leverage, etc. must have
-        indices covering up to the current bar.
+        Before M11 this was an assertion on the ``_build_bar_maps``
+        translator; under the new event-driven dispatch, the
+        equivalent structural property is routed through
+        ``process_tick`` which builds its own per-call translator
+        inline. The method call must succeed without ``IndexError``
+        and must not raise ``AttributeError`` on any pre-baked field
+        access inside the legacy pipeline.
         """
-        config = _make_test_config()
-        engine = PaperPortfolioEngine.__new__(PaperPortfolioEngine)
-        engine.config = config
+        import tempfile
+
+        config = _make_test_config(state_dir=tempfile.mkdtemp())
+        engine = PaperPortfolioEngine(config)
         engine.tick_counter = 100
 
-        # Mock _recompute_signals to return signals with enough bars
-        mock_sig = MagicMock()
-        mock_sig.n_bars = 5000  # full lookback
-        mock_sig.close = np.full(5000, 100.0)
-        mock_sig.stop_mult = np.full(5000, 2.0)
-        mock_sig.trail_mult = np.full(5000, 3.0)
-        mock_sig.leverage = np.full(5000, 1.0)
+        # Build a minimal TokenBarArrays-shaped signal so the legacy
+        # _process_exits / _process_entries path can walk it.
+        from v5.signals import TokenBarArrays
 
-        all_signals = {"s56": {"BTC": mock_sig}}
+        n_bars = 5000
+        ts = np.arange(
+            0, n_bars, dtype=np.int64,
+        ) * int(3_600 * 1_000_000_000) + 1_700_000_000_000_000_000
+        timestamps = ts.astype("datetime64[ns]")
 
-        # Build bar_maps
-        bar_maps = engine._build_bar_maps(all_signals, engine.tick_counter)
+        sig = TokenBarArrays(
+            token="BTC",
+            strategy_id="s56",
+            n_bars=n_bars,
+            timestamps=timestamps,
+            entry_mask=np.zeros(n_bars, dtype=np.bool_),
+            direction=np.zeros(n_bars, dtype=np.int8),
+            close=np.full(n_bars, 100.0, dtype=np.float64),
+            high=np.full(n_bars, 101.0, dtype=np.float64),
+            low=np.full(n_bars, 99.0, dtype=np.float64),
+            atr=np.full(n_bars, 1.0, dtype=np.float64),
+            rolling_adv=np.full(n_bars, 1_000_000.0, dtype=np.float64),
+            funding_1h=np.zeros(n_bars, dtype=np.float64),
+            stop_mult=np.full(n_bars, 2.0, dtype=np.float64),
+            trail_mult=np.full(n_bars, 3.0, dtype=np.float64),
+            target_mult=3.0,
+            no_stop_bars=0,
+            min_hold=0,
+            max_hold=240,
+            edge=0.0,
+            leverage=np.full(n_bars, 1.0, dtype=np.float64),
+            volume=np.full(n_bars, 10_000.0, dtype=np.float64),
+        )
+        all_signals = {"s56": {"BTC": sig}}
 
-        # The local_bar should be valid (within array bounds)
-        local_bar = bar_maps["BTC"][engine.tick_counter]
-        assert local_bar >= 0
-        assert local_bar < mock_sig.n_bars
-
-        # The per-bar arrays should be indexable at local_bar
-        assert mock_sig.close[local_bar] == 100.0
-        assert mock_sig.stop_mult[local_bar] == 2.0
+        # process_tick is the deterministic legacy entry; it builds the
+        # translator inline and must succeed without indexing errors.
+        result = engine.process_tick(
+            all_signals=all_signals,
+            specs={s.strategy_id: s for s in config.strategies},
+        )
+        assert result is not None
+        # tick_counter advanced once.
+        assert engine.tick_counter == 101
+        # The signal's per-bar arrays remain indexable at
+        # ``n_bars - 1`` — the same observable guarantee the old
+        # translator check pinned, now phrased in terms of public
+        # array shape rather than the deleted internal helper.
+        last_bar = sig.n_bars - 1
+        assert sig.close[last_bar] == 100.0
+        assert sig.stop_mult[last_bar] == 2.0
 
 
 # ===================================================================

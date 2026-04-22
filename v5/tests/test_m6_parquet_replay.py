@@ -20,9 +20,9 @@ FIXTURE = _project_root / "v5" / "tests" / "fixtures" / "m6_parquet_replay"
 
 def _stream():
     from v5.bar_spec import BarSpec
-    from v5.data.streams import DataKind, DataStream, InstrumentId, Venue
+    from v5.data.streams import BarData, DataStream, InstrumentId, Venue
     inst = InstrumentId(symbol="BTCUSDT", venue=Venue.BINANCE, asset_class="perp")
-    return DataStream(instrument=inst, data_kind=DataKind.BAR,
+    return DataStream(instrument=inst, data_class=BarData,
                       bar_spec=BarSpec.from_minutes(60))
 
 

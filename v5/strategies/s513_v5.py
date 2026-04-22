@@ -16,9 +16,18 @@ Reference port only — AC-S10 parity is NOT required for s513.
 """
 from __future__ import annotations
 
-from typing import List
+from typing import List, Optional
 
-from v5.strategy_api import BaseStrategy, SizingIntent, SizingRequest, TokenSignal, UniverseSignals
+from v5.bar_spec import BarSpec
+from v5.data.streams import BarData, DataStream, InstrumentId, Venue
+from v5.strategy_api import (
+    BaseStrategy,
+    SizingIntent,
+    SizingRequest,
+    Subscription,
+    TokenSignal,
+    UniverseSignals,
+)
 
 
 # M9 C-4: import regime constants from canonical module
@@ -48,29 +57,85 @@ class S513TripleTriggerSwing(BaseStrategy):
     MAX_HOLD = 720
     EDGE = 0.40
 
-    def __init__(self, tokens: List[str] | None = None):
+    def __init__(
+        self,
+        tokens: Optional[List[str]] = None,
+        instruments: Optional[List[InstrumentId]] = None,
+    ):
+        # ``tokens`` — strategy-universe tokens (strings like "BTC");
+        # ``instruments`` — optional InstrumentId objects that allow
+        # ``required_data()`` to return populated subs directly. Both
+        # default to None so the zero-arg frozen-test invocation keeps
+        # working; when only ``tokens`` is provided, ``required_data()``
+        # synthesizes ``InstrumentId``s on the PERP venue. When both
+        # are empty, the orchestrator's default-synthesizer supplies
+        # 1h BarData subs from the simulation's instrument universe.
         self.tokens: List[str] = list(tokens) if tokens else []
+        self._instruments: List[InstrumentId] = (
+            list(instruments) if instruments else []
+        )
         # Per-strategy state (NOT module-level — satisfies strategy_loader
         # AST scan + keeps WF folds isolated)
         self._warmup_done: set[str] = set()
+        self._subscriptions_cache: Optional[List[Subscription]] = None
 
     def required_data(self) -> list:
-        """Declare 1h BAR subscriptions per token.
+        """Declare 1h ``BarData`` subscriptions per bound instrument.
 
-        Returns an empty list when tokens are not yet bound. DataEngine
-        builds the real `Subscription` list once the runner injects the
-        bound token universe via the test harness or live bootstrap.
+        ADR-0002 move #1: the strategy declares its data dependencies
+        and the engine delivers them through registered clients. s513
+        needs a single 1h ``BarData`` stream per instrument — all other
+        indicators (MACD, RSI, ADX, EMA, Bollinger, Donchian, regime)
+        derive from the 1h close series.
+
+        Resolution order:
+          1. Explicit ``instruments`` kwarg — subs are built directly.
+          2. ``tokens`` kwarg — strings are wrapped in ``InstrumentId``
+             on the ``Venue.BINANCE`` PERP venue, matching the rest of
+             the v5 engine's default universe.
+          3. Neither — return ``[]``; the orchestrator's default
+             subscribe-with-default path synthesizes 1h BarData subs
+             from the simulation's declared instrument universe.
         """
-        # Reference port: empty list is acceptable since this strategy does
-        # not drive any test that exercises real subscriptions. The v5 paper
-        # engine populates subscriptions from its own universe config.
-        return []
+        if self._subscriptions_cache is not None:
+            return list(self._subscriptions_cache)
+
+        insts: List[InstrumentId] = list(self._instruments)
+        if not insts and self.tokens:
+            for tok in self.tokens:
+                symbol = tok if tok.endswith("USDT") else f"{tok}USDT"
+                insts.append(
+                    InstrumentId(
+                        symbol=symbol,
+                        venue=Venue.BINANCE,
+                        asset_class="perp",
+                    )
+                )
+        if not insts:
+            return []
+
+        bs_1h = BarSpec.from_minutes(60)
+        subs: List[Subscription] = []
+        for inst in insts:
+            subs.append(
+                Subscription(
+                    stream=DataStream(
+                        instrument=inst,
+                        data_class=BarData,
+                        bar_spec=bs_1h,
+                    ),
+                    handler=lambda _e: None,
+                )
+            )
+        self._subscriptions_cache = subs
+        return list(subs)
 
     def on_start(self, portfolio_config) -> None:
         self._warmup_done.clear()
 
     def on_reset(self) -> None:
         self._warmup_done.clear()
+        self._subscriptions_cache = None
 
     def generate(self, ctx, bar_idx: int) -> UniverseSignals:
         """Per-bar triple-trigger evaluation for each token in the universe."""

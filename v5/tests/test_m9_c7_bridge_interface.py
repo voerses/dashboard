@@ -1,12 +1,15 @@
 """M9 C-7 — AC-S10 simulator <-> Strategy Protocol bridge.
 
-Covers ACs #7 (bridge + opt-in vectorized + engine fallback + parity test)
-and #21 (fallback state-mutation guard) and #23 (paper-vs-vectorized parity).
-
-All tests MUST FAIL today — VectorizedStrategy Protocol,
-_engine_precompute_fallback(), StrategyStateMutationError, and
-simulate_portfolio(strategies=..., config=...) signature extension do not
-exist yet.
+**M11 Commit 8 migration note (2026-04-22):** the bridge infrastructure
+this file tested (`_engine_precompute_fallback`, `VectorizedStrategy`
+upfront dispatch, ``simulate_portfolio(strategies=, ctx=)`` signature,
+``paper_replay_to_token_bar_arrays``) is DELETED per ADR-0001 +
+ADR-0002. Event-driven dispatch is now the single simulation loop; the
+top-level orchestrator is :func:`v5.run_backtest.run_backtest`. Tests in
+this module exercise the deleted bridge API surface directly and are
+retired — the architectural invariant is now enforced structurally by
+:mod:`v5.tests.test_m11_architecture_invariants` + behaviorally by
+:mod:`v5.tests.test_m11_run_backtest_orchestrator`.
 """
 from __future__ import annotations
 
@@ -15,6 +18,15 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+
+_M11_BRIDGE_DELETED = pytest.mark.skip(reason=(
+    "M11 Commit 8 deleted the bridge infrastructure this class tested "
+    "(_engine_precompute_fallback / paper_replay_to_token_bar_arrays / "
+    "simulate_portfolio(strategies=, ctx=)). Coverage migrated to "
+    "v5.tests.test_m11_architecture_invariants (structural) + "
+    "v5.tests.test_m11_run_backtest_orchestrator (behavioral) + "
+    "v5.tests.test_m11_signal_native_processing (parity)."
+))
 
 _project_root = Path(__file__).resolve().parent.parent.parent
 if str(_project_root) not in sys.path:
@@ -36,6 +48,10 @@ class TestVectorizedStrategyProtocol:
             Strategy in VectorizedStrategy.__mro__
         ), "VectorizedStrategy must be a sub-Protocol of Strategy"
 
+    @pytest.mark.skip(reason=(
+        "M11 RF-2: to_token_bar_arrays methods deleted from S524M/S523C; "
+        "VectorizedStrategy Protocol has no concrete impls"
+    ))
     def test_s524m_is_instance_of_vectorized_strategy(self):
         """s524m implements to_token_bar_arrays — opt-in fast path."""
         from v5.strategies.s524m_v5 import S524M
@@ -55,6 +71,7 @@ class TestVectorizedStrategyProtocol:
         )
 
 
+@_M11_BRIDGE_DELETED
 class TestEnginePrecomputeFallback:
     """AC #7 — engine fallback produces dict[str, TokenBarArrays] for non-vectorized."""
 
@@ -79,6 +96,7 @@ class TestEnginePrecomputeFallback:
             assert len(tba.direction) == 100
 
 
+@_M11_BRIDGE_DELETED
 class TestS524MBitIdentityParity:
     """AC #7 — to_token_bar_arrays() output byte-identical to fallback output."""
 
@@ -119,6 +137,7 @@ class TestS524MBitIdentityParity:
             )
 
 
+@_M11_BRIDGE_DELETED
 class TestFallbackStateMutationGuard:
     """AC #21 — fallback dispatches via __setattr__-guarded proxy."""
 
@@ -147,6 +166,7 @@ class TestFallbackStateMutationGuard:
             )
 
 
+@_M11_BRIDGE_DELETED
 class TestSimulatePortfolioSignatureExtension:
     """AC #7 — simulate_portfolio accepts strategies + config kwargs and returns SimulationState."""
 
@@ -168,6 +188,7 @@ class TestSimulatePortfolioSignatureExtension:
         assert isinstance(state, SimulationState)
 
 
+@_M11_BRIDGE_DELETED
 class TestPaperVsVectorizedParity:
     """AC #23 — paper tick-dispatch and vectorized fast-path produce identical signals."""
 

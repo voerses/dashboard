@@ -1,12 +1,11 @@
-"""M6 — DataClientRegistry priority cascade + venue isolation (T-D17 / AC-D17).
+"""M6/M11 — DataClientRegistry priority cascade + venue isolation (T-D17 / AC-D17).
 
 Covers:
   - AC-D17 T-D17: DataClientRegistry sorts clients by PUSH > PULL_ONCE > REPLAY
-    within a venue. register(venue, factory) preserves insertion order;
-    get_clients(instrument) returns venue-filtered, priority-sorted clients.
-    registered_venues() exposes active set. Different venues are isolated.
-
-All tests MUST FAIL today — v5.data.registry does not exist.
+    within a venue. M11: ``register(venue, data_class, factory)`` is keyed by
+    ``(Venue, type[Data])``; ``get_clients(instrument)`` returns
+    venue-filtered, priority-sorted clients. registered_venues() exposes the
+    active venue set; different venues are isolated.
 """
 from __future__ import annotations
 
@@ -61,7 +60,7 @@ class TestRegistryPriorityCascade:
 
     def test_priority_push_before_pull_once_before_replay(self):
         from v5.data.registry import DataClientRegistry
-        from v5.data.streams import TransportMode, Venue
+        from v5.data.streams import BarData, TransportMode, Venue
 
         reg = DataClientRegistry()
         replay = _FakeClient(Venue.BINANCE, frozenset({TransportMode.REPLAY}), "replay")
@@ -69,9 +68,9 @@ class TestRegistryPriorityCascade:
         ws = _FakeClient(Venue.BINANCE, frozenset({TransportMode.PUSH}), "ws")
 
         # Register in deliberately-reversed priority order; registry must sort.
-        reg.register(Venue.BINANCE, lambda _cfg: replay)
-        reg.register(Venue.BINANCE, lambda _cfg: rest)
-        reg.register(Venue.BINANCE, lambda _cfg: ws)
+        reg.register(Venue.BINANCE, BarData, lambda _cfg: replay)
+        reg.register(Venue.BINANCE, BarData, lambda _cfg: rest)
+        reg.register(Venue.BINANCE, BarData, lambda _cfg: ws)
 
         clients = reg.get_clients(_make_instrument())
         labels = [c.label for c in clients]
@@ -84,7 +83,7 @@ class TestRegistryPriorityCascade:
         swaps PULL_SCHEDULED above PULL_ONCE would ship green.
         """
         from v5.data.registry import DataClientRegistry
-        from v5.data.streams import TransportMode, Venue
+        from v5.data.streams import BarData, TransportMode, Venue
 
         reg = DataClientRegistry()
         ws = _FakeClient(Venue.BINANCE, frozenset({TransportMode.PUSH}), "ws")
@@ -95,10 +94,10 @@ class TestRegistryPriorityCascade:
         replay = _FakeClient(Venue.BINANCE, frozenset({TransportMode.REPLAY}), "replay")
 
         # Register in reversed priority to force the sort to do real work
-        reg.register(Venue.BINANCE, lambda _c: replay)
-        reg.register(Venue.BINANCE, lambda _c: pull_sched)
-        reg.register(Venue.BINANCE, lambda _c: pull_once)
-        reg.register(Venue.BINANCE, lambda _c: ws)
+        reg.register(Venue.BINANCE, BarData, lambda _c: replay)
+        reg.register(Venue.BINANCE, BarData, lambda _c: pull_sched)
+        reg.register(Venue.BINANCE, BarData, lambda _c: pull_once)
+        reg.register(Venue.BINANCE, BarData, lambda _c: ws)
 
         clients = reg.get_clients(_make_instrument())
         labels = [c.label for c in clients]
@@ -108,11 +107,11 @@ class TestRegistryPriorityCascade:
 
     def test_registered_venues_exposes_active_set(self):
         from v5.data.registry import DataClientRegistry
-        from v5.data.streams import TransportMode, Venue
+        from v5.data.streams import BarData, TransportMode, Venue
 
         reg = DataClientRegistry()
         binance = _FakeClient(Venue.BINANCE, frozenset({TransportMode.PUSH}))
-        reg.register(Venue.BINANCE, lambda _c: binance)
+        reg.register(Venue.BINANCE, BarData, lambda _c: binance)
 
         venues = reg.registered_venues()
         assert venues == frozenset({Venue.BINANCE})
@@ -120,13 +119,13 @@ class TestRegistryPriorityCascade:
     def test_venue_isolation(self):
         """A client registered for OKX is invisible to Binance lookups."""
         from v5.data.registry import DataClientRegistry
-        from v5.data.streams import TransportMode, Venue
+        from v5.data.streams import BarData, TransportMode, Venue
 
         reg = DataClientRegistry()
         binance = _FakeClient(Venue.BINANCE, frozenset({TransportMode.PUSH}), "bin")
         okx = _FakeClient(Venue.OKX, frozenset({TransportMode.PUSH}), "okx")
-        reg.register(Venue.BINANCE, lambda _c: binance)
-        reg.register(Venue.OKX, lambda _c: okx)
+        reg.register(Venue.BINANCE, BarData, lambda _c: binance)
+        reg.register(Venue.OKX, BarData, lambda _c: okx)
 
         clients = reg.get_clients(_make_instrument(venue=Venue.BINANCE))
         assert [c.label for c in clients] == ["bin"]
@@ -135,13 +134,13 @@ class TestRegistryPriorityCascade:
     def test_two_clients_same_tier_insertion_order_preserved(self):
         """Within a tier, insertion order is preserved (deterministic)."""
         from v5.data.registry import DataClientRegistry
-        from v5.data.streams import TransportMode, Venue
+        from v5.data.streams import BarData, TransportMode, Venue
 
         reg = DataClientRegistry()
         rest_a = _FakeClient(Venue.BINANCE, frozenset({TransportMode.PULL_ONCE}), "rest_a")
         rest_b = _FakeClient(Venue.BINANCE, frozenset({TransportMode.PULL_ONCE}), "rest_b")
-        reg.register(Venue.BINANCE, lambda _c: rest_a)
-        reg.register(Venue.BINANCE, lambda _c: rest_b)
+        reg.register(Venue.BINANCE, BarData, lambda _c: rest_a)
+        reg.register(Venue.BINANCE, BarData, lambda _c: rest_b)
 
         clients = reg.get_clients(_make_instrument())
         assert [c.label for c in clients] == ["rest_a", "rest_b"]

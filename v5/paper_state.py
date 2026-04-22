@@ -747,9 +747,6 @@ def serialize_state(
     tick_counter=None,
     last_timestamp: Optional[str] = None,
     shadow_pools: Optional[dict] = None,
-    last_known_prices: Optional[dict] = None,
-    armed_tokens: Optional[list] = None,
-    filled_4h_windows: Optional[list] = None,
     timestamp: Optional[str] = None,
 ):
     """Serialize SimulationState to a JSON-compatible dict.
@@ -763,6 +760,16 @@ def serialize_state(
     or is not a SimulationState) and `state_dir` is a string path, this
     delegates to the engine-level save with sidecar .npz. Returns `None` in
     that mode (side-effectful disk write, not a dict).
+
+    M11 Commit-8 rework Stage-1b (ADR-0002): the legacy
+    ``last_known_prices`` / ``armed_tokens`` / ``filled_4h_windows`` kwargs
+    were DELETED. Their responsibilities now live in the unified architecture:
+    ``_last_known_prices`` reads flow through ``MarketDataCache.bars(...)``;
+    armed entries are ``Order.status=ARMED`` records with ``trigger_price`` +
+    ``TimeInForce`` in ``SimulationState.pending_orders`` (M5); cadence
+    bookkeeping is ``DataEngine.register_strategy_cadences`` +
+    ``strategies_due_at`` (M11). No audit-trail shim — per user directive
+    v5 does not read legacy state.json files.
     """
     # M3 Task 11a overload detection — first arg is a PaperPortfolioEngine
     # (exposes `_rolling_cache_registry` or lacks `position_manager`) and
@@ -790,16 +797,6 @@ def serialize_state(
 
     if shadow_pools is not None:
         data["shadow_pools"] = {k: float(v) for k, v in shadow_pools.items()}
-
-    if last_known_prices is not None:
-        data["last_known_prices"] = {k: float(v) for k, v in last_known_prices.items()}
-
-
-    if armed_tokens is not None:
-        data["armed_tokens"] = armed_tokens
-
-    if filled_4h_windows is not None:
-        data["filled_4h_windows"] = filled_4h_windows
 
     return data
 
@@ -845,7 +842,6 @@ def deserialize_state(data=None, return_shadow: bool = False, *,
 
     state._entry_fees_by_pos = dict(data.get("entry_fees_by_pos", {}))
     state.last_known_atrs = dict(data.get("last_known_atrs", {}))
-    state.last_known_prices = data.get("last_known_prices", {})
 
     tick_counter = data["tick_counter"]
 
@@ -871,15 +867,17 @@ def atomic_write_state(
     last_timestamp: str,
     target_path: str,
     shadow_pools: Optional[dict] = None,
-    last_known_prices: Optional[dict] = None,
-    armed_tokens: Optional[list] = None,
-    filled_4h_windows: Optional[list] = None,
 ) -> None:
     """Write state to target_path atomically (write to temp, fsync, rename).
 
     If rename fails, the original file is preserved.
+
+    M11 Commit-8 rework Stage-1b (ADR-0002): legacy persistence kwargs
+    (``last_known_prices``, ``armed_tokens``, ``filled_4h_windows``,
+    ``last_known_regimes``) were DELETED. See :func:`serialize_state` for
+    the architectural rationale.
     """
-    data = serialize_state(state, tick_counter, last_timestamp, shadow_pools, last_known_prices, armed_tokens=armed_tokens, filled_4h_windows=filled_4h_windows)
+    data = serialize_state(state, tick_counter, last_timestamp, shadow_pools)
     # default=str as a safety net — _json_safe() handles most known cases but a
     # stray numpy/set value slipping through would otherwise crash the save.
     json_str = json.dumps(data, indent=2, default=str)
@@ -1105,14 +1103,16 @@ def serialize_engine_state(
     last_timestamp: str,
     mode: str = "independent",
     shadow_pools: Optional[dict] = None,
-    last_known_prices: Optional[dict] = None,
-    armed_tokens: Optional[list] = None,
-    filled_4h_windows: Optional[list] = None,
 ) -> dict:
     """Serialize multiple strategy states for independent mode.
 
     tick_counter is stored at the top level (not per-strategy).
     Each strategy state is serialized without tick_counter.
+
+    M11 Commit-8 rework Stage-1b (ADR-0002): legacy persistence kwargs
+    (``last_known_prices``, ``armed_tokens``, ``filled_4h_windows``,
+    ``last_known_regimes``) were DELETED. See :func:`serialize_state` for
+    the architectural rationale.
     """
     data = {
         "version": STATE_VERSION,
@@ -1137,16 +1137,6 @@ def serialize_engine_state(
 
     if shadow_pools is not None:
         data["shadow_pools"] = {k: float(v) for k, v in shadow_pools.items()}
-
-    if last_known_prices is not None:
-        data["last_known_prices"] = {k: float(v) for k, v in last_known_prices.items()}
-
-
-    if armed_tokens is not None:
-        data["armed_tokens"] = armed_tokens
-
-    if filled_4h_windows is not None:
-        data["filled_4h_windows"] = filled_4h_windows
 
     return data
 

@@ -61,11 +61,11 @@ class TestVenueCapabilities:
 
     def test_venue_capabilities_fields(self):
         from v5.data.instruments import VenueCapabilities
-        from v5.data.streams import DataKind, Venue
+        from v5.data.streams import BarData, TradeData, Venue
         caps = VenueCapabilities(
             venue=Venue.BINANCE,
             supported_asset_classes=frozenset({"spot", "perp"}),
-            supported_data_kinds=frozenset({DataKind.BAR, DataKind.TRADE}),
+            supported_data_classes=frozenset({BarData, TradeData}),
             min_bar_resolution_minutes=1,
             has_funding=True, has_mark_price=True, has_trade_tape=True,
             rest_weight_budget_per_min=1200,

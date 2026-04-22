@@ -29,15 +29,26 @@ DEFERRED_EVENT_TYPE_NAMES = (
 )
 
 
-class TestDeferredTypesNotInDataKind:
-    """T-D12 — deferred types are not enumerated as DataKind values."""
+class TestDeferredTypesNotInDataClassHierarchy:
+    """T-D12 / M11 — deferred types are not exported as Data subclasses.
+
+    Pre-M11 the ``DataKind`` enum enumerated supported data payload types.
+    Post-M11 each supported payload is a ``Data`` subclass exported from
+    ``v5.data.streams``. Deferred types (BookSnapshot, Liquidation,
+    OpenInterest, Ticker, IndexPrice) MUST NOT appear as exported
+    classes until their milestone ships.
+
+    Note: ``OrderBookData`` IS exported (payload shape approved per
+    ADR-0002 §3). ``BookSnapshot`` is still deferred as a distinct
+    wire-format layer.
+    """
 
     @pytest.mark.parametrize("name", DEFERRED_EVENT_TYPE_NAMES)
-    def test_deferred_kind_not_in_enum(self, name):
-        """Deferred types MUST NOT appear as DataKind members in M6."""
-        from v5.data.streams import DataKind
-        assert name.upper() not in DataKind.__members__, (
-            f"{name} must not be a DataKind member in M6 (deferred per AC-D7)"
+    def test_deferred_class_not_exported(self, name):
+        """Deferred types MUST NOT be exported from v5.data.streams."""
+        import v5.data.streams as streams_mod
+        assert not hasattr(streams_mod, name), (
+            f"{name} must not be exported from v5.data.streams (deferred per AC-D7)"
         )
 
 

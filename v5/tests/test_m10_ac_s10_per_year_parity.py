@@ -67,14 +67,13 @@ import pytest
 # This is STRATEGY scope, not ENGINE scope. All M10 engine-side
 # infrastructure is complete.
 pytestmark = pytest.mark.skip(reason=(
-    "M10 AC-S10 per-year parity: engine bridge infrastructure complete "
-    "(multi-token UniverseContext facade + per-token StrategyContext + "
-    "day_boundary/return_7d/return_30d/funding_rate_1h indicators). "
-    "Remaining gap is STRATEGY-side: v5 S524M port at "
-    "strategies/s524m_v5.py:278 reads composite_zscore which is NOT "
-    "computed in v5 — core signal primitive port from v4 s524m_nofilter "
-    "pending (~4-8h strategy-indicator session). See engine delivery "
-    "in simulator._build_multi_token_ctx_from_bundle."
+    "M11 Commit 8 flipped the dispatch infrastructure to "
+    "v5.run_backtest.run_backtest() — the helper below now calls the "
+    "new event-driven orchestrator. The remaining block is still "
+    "STRATEGY-side: v5 S524M reads composite_zscore which is NOT "
+    "computed in v5 (strategies/s524m_v5.py:278). Per-year parity "
+    "unblocks once that indicator is ported from v4 s524m_nofilter "
+    "(~4-8h strategy-indicator session, out of M11 engine scope)."
 ))
 
 _project_root = Path(__file__).resolve().parent.parent.parent
@@ -145,17 +144,17 @@ def _run_v5_s524m_for_year(year_key: str) -> dict:
 
     Phase 4 implements all three.
     """
+    import pandas as _pd
+
     from v5.config import PortfolioConfig
-    from v5.simulator import simulate_portfolio
+    from v5.data.metrics import BUILT_IN_MANIFEST
+    from v5.data.streams import InstrumentId, Venue
+    from v5.run_backtest import run_backtest
     from v5.strategies.s524m_v5 import S524M
-    from v5.validation import load_oos_window
 
     start, end = _year_window(year_key)
-    data_bundle = load_oos_window(
-        tokens=None,          # None → load full v5 perp universe
-        start_date=start,
-        end_date=end,
-    )
+    start_ns = _pd.Timestamp(f"{start}T00:00:00Z").value
+    end_ns = _pd.Timestamp(f"{end}T23:59:59Z").value
     config = PortfolioConfig(
         strategies=[],
         capital=100_000.0,
@@ -163,9 +162,15 @@ def _run_v5_s524m_for_year(year_key: str) -> dict:
         adv_cap_pct=0.005,
         seed=42,
     )
-    state = simulate_portfolio(
-        strategies={"s524m": S524M()},
-        ctx=data_bundle,
+    # Instruments resolved against the live parquet universe — M11
+    # orchestrator subscribes via strategy.required_data().
+    instruments = [InstrumentId(symbol="BTCUSDT", venue=Venue.BINANCE, asset_class="perp")]
+    state = run_backtest(
+        strategies=[S524M()],
+        instruments=instruments,
+        start_ns=start_ns,
+        end_ns=end_ns,
+        manifest=BUILT_IN_MANIFEST,
         config=config,
     )
     # The v5 metrics surface on state.metrics once the bridge inner

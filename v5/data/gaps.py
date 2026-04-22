@@ -1,6 +1,7 @@
 """M6 — Gap detection with 3-mode GapPolicy (AC-D5).
 
-Upstream of MultiInstrumentCache: guarantees monotonicity before cache write.
+Upstream of MarketDataCache (M11; ex-MultiInstrumentCache): guarantees
+monotonicity before cache write.
 
 FIX mapping note (AC-D16 honesty): GapPolicy → approximate. FIX MDUpdateType(265)
 has no direct gap-handling analog; Bar.ts_event → TransactTime(60) remains the

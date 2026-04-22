@@ -1,10 +1,8 @@
-"""M7 — VenueCapabilities.supported_transport_modes additive field (AC-D15).
+"""M7/M11 — VenueCapabilities.supported_transport_modes additive field (AC-D15).
 
 Reviewer H5 fix: AC-D15 needs its own dedicated M7 test file (Tasks.md Task 16
 previously pointed at M6-frozen test_m6_instruments.py). This file covers the
-additive field + strategy-facing symmetry with supported_data_kinds.
-
-All tests MUST FAIL today — the field does not exist on VenueCapabilities.
+additive field + strategy-facing symmetry with supported_data_classes (M11).
 """
 from __future__ import annotations
 
@@ -49,7 +47,7 @@ class TestSupportedTransportModesField:
 
 class TestStrategyFacingSymmetry:
     """AC-D15 — strategy API gets venue.supports(TransportMode.PUSH) symmetry
-    with existing venue.supports(DataKind.TRADE)."""
+    with existing venue.supports(TradeData)."""
 
     def test_venue_supports_push_returns_true_for_binance(self):
         from v5.data.instruments import InstrumentRegistry
@@ -72,14 +70,14 @@ class TestAdditiveFieldDoesNotBreakM6Tests:
 
     def test_venue_capabilities_constructor_accepts_new_field(self):
         """New field defaults to empty frozenset() OR required with explicit arg.
-        Either way, M6-style constructor calls must continue to work."""
+        Either way, M6/M11-style constructor calls must continue to work."""
         from v5.data.instruments import VenueCapabilities
-        from v5.data.streams import DataKind, TransportMode, Venue
+        from v5.data.streams import BarData, TradeData, TransportMode, Venue
 
         caps = VenueCapabilities(
             venue=Venue.BINANCE,
             supported_asset_classes=frozenset({"spot", "perp"}),
-            supported_data_kinds=frozenset({DataKind.BAR, DataKind.TRADE}),
+            supported_data_classes=frozenset({BarData, TradeData}),
             min_bar_resolution_minutes=1,
             has_funding=True,
             has_mark_price=True,

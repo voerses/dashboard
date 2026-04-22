@@ -94,7 +94,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def run_backtest(
+def run_portfolio_backtest(
     strategy_ids: list[str],
     months: int,
     capital: float,
@@ -105,7 +105,13 @@ def run_backtest(
     start_date: pd.Timestamp | None = None,
     per_strategy_max_positions: int | None = None,
 ) -> tuple:
-    """Run a single backtest with given parameters.
+    """Run a single portfolio backtest with given parameters.
+
+    M11 Commit 8 rename: ``run_backtest`` → ``run_portfolio_backtest``.
+    This is the legacy CLI-driven entry that precomputes signals +
+    drives ``simulate_portfolio`` with pre-baked ``TokenBarArrays``.
+    The new top-level event-driven orchestrator lives at
+    :func:`v5.run_backtest.run_backtest`.
 
     Args:
         market: Market type — "spot", "perp", or "combined". Required.
@@ -127,7 +133,7 @@ def run_backtest(
         elif 'max_positions' in pconf:
             max_pos = pconf['max_positions']
         else:
-            max_pos = config.max_portfolio_positions // n_strats if n_strats > 1 else config.max_portfolio_positions
+            max_pos = config.max_portfolio_positions // n_strats if n_strats > 1 else config.max_portfolio_positions  # noqa: E501
         spec = StrategySpec(
             strategy_id=sid,
             weight=1.0 / n_strats,
@@ -205,7 +211,7 @@ def run_oos_monthly(
         print(f"\n  OOS Month {i+1}/{oos_months}: capital=${running_capital:,.0f}, "
               f"end_date={end_date.strftime('%Y-%m-%d')}{label_suffix}")
 
-        metrics, extra_info, trades, signals, eq_daily = run_backtest(
+        metrics, extra_info, trades, signals, eq_daily = run_portfolio_backtest(
             strategy_ids=strategy_ids,
             months=1,
             capital=running_capital,
@@ -373,11 +379,11 @@ def main():
         data_start = pd.Timestamp(args.start_date)
         print(f"  Data Start: {data_start.strftime('%Y-%m-%d %H:%M')} (pinned via --start-date)")
 
-    # Run simulation(s) via run_backtest()
+    # Run simulation(s) via run_portfolio_backtest()
     all_results = []
     shared_signals = None
     for capital in capital_levels:
-        metrics, extra_info, trades, shared_signals, eq_daily = run_backtest(
+        metrics, extra_info, trades, shared_signals, eq_daily = run_portfolio_backtest(
             strategy_ids=strategy_ids,
             months=args.months,
             capital=capital,

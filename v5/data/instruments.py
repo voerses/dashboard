@@ -10,7 +10,15 @@ from dataclasses import dataclass, field
 from typing import Dict, FrozenSet, List, Literal, Optional, Tuple
 
 from v5.data.exceptions import SymbolNotFound
-from v5.data.streams import DataKind, InstrumentId, Venue
+from v5.data.streams import (
+    BarData,
+    Data,
+    FundingRateData,
+    InstrumentId,
+    MarkPriceData,
+    TradeData,
+    Venue,
+)
 
 
 def _tm_import():
@@ -65,7 +73,9 @@ class VenueCapabilities:
 
     venue: Venue
     supported_asset_classes: FrozenSet[Literal["spot", "perp", "future", "option"]]
-    supported_data_kinds: FrozenSet[DataKind]
+    # M11 (ADR-0002 move #1): venue declares supported Data subclasses, not
+    # DataKind enum values. A frozenset of ``type[Data]``.
+    supported_data_classes: FrozenSet
     min_bar_resolution_minutes: int
     has_funding: bool
     has_mark_price: bool
@@ -73,22 +83,23 @@ class VenueCapabilities:
     rest_weight_budget_per_min: int
     supported_price_types: FrozenSet[Literal["LAST", "MID", "MARK", "INDEX"]]
     # M7 AC-D15: which transport modes the venue supports. Additive field;
-    # strategies check symmetric to supports(DataKind.TRADE) via supports(mode).
-    # Default frozenset() keeps M6 callers working; Binance at connect()
+    # strategies check symmetric to supports(TradeData) via supports(mode).
+    # Default frozenset() keeps callers working; Binance at connect()
     # declares {PUSH, PULL_ONCE, PULL_SCHEDULED}.
     supported_transport_modes: FrozenSet = field(default_factory=frozenset)
 
     def supports(self, capability) -> bool:
-        """Unified capability query — works for DataKind OR TransportMode.
+        """Unified capability query — works for ``type[Data]`` subclass or
+        ``TransportMode``.
 
         Returns True iff the capability is declared in the corresponding
-        supported_* set.
+        ``supported_*`` set.
         """
-        from v5.data.streams import DataKind as _DK, TransportMode as _TM
-        if isinstance(capability, _DK):
-            return capability in self.supported_data_kinds
+        from v5.data.streams import TransportMode as _TM
         if isinstance(capability, _TM):
             return capability in self.supported_transport_modes
+        if isinstance(capability, type) and issubclass(capability, Data):
+            return capability in self.supported_data_classes
         return False
 
 
@@ -138,10 +149,9 @@ class InstrumentRegistry:
         caps = VenueCapabilities(
             venue=Venue.BINANCE,
             supported_asset_classes=frozenset({"spot", "perp"}),
-            supported_data_kinds=frozenset({
-                DataKind.BAR, DataKind.TRADE,
-                DataKind.FUNDING_RATE, DataKind.MARK_PRICE,
-                DataKind.INSTRUMENT_INFO,
+            supported_data_classes=frozenset({
+                BarData, TradeData,
+                FundingRateData, MarkPriceData,
             }),
             min_bar_resolution_minutes=1,
             has_funding=True,

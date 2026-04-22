@@ -259,15 +259,5 @@ class S523CGrowth(BaseStrategy):
             "composite_cache_size": len(self._composite_cache),
         }
 
-    def to_token_bar_arrays(self, ctx) -> dict:
-        """M9 C-7 VectorizedStrategy opt-in: delegate to engine shared
-        builder. Output matches `_engine_precompute_fallback` by
-        construction (AC #7 parity invariant)."""
-        from v5.strategy_api import _build_token_bar_arrays_from_generate
-        n_bars = getattr(ctx, "_lifecycle_config", {}).get("bars") or 0
-        return _build_token_bar_arrays_from_generate(
-            self, n_bars, ctx, guarded=False
-        )
-
 # M9 C-7: short name alias
 S523C = S523CGrowth

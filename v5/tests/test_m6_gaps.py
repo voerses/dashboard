@@ -28,9 +28,9 @@ def _mk_bar(ts, close, spec, inst):
 
 def _stream():
     from v5.bar_spec import BarSpec
-    from v5.data.streams import DataKind, DataStream, InstrumentId, Venue
+    from v5.data.streams import BarData, DataStream, InstrumentId, Venue
     inst = InstrumentId(symbol="BTCUSDT", venue=Venue.BINANCE, asset_class="perp")
-    return DataStream(instrument=inst, data_kind=DataKind.BAR,
+    return DataStream(instrument=inst, data_class=BarData,
                       bar_spec=BarSpec.from_minutes(60))
 
 
@@ -258,10 +258,10 @@ class TestBackpressureBehavior:
         import time
         from v5.bar_spec import BarSpec
         from v5.data.gaps import GapDetector
-        from v5.data.streams import DataKind, DataStream, GapPolicy, InstrumentId, Venue
+        from v5.data.streams import BarData, DataStream, GapPolicy, InstrumentId, Venue
         spec = BarSpec.from_minutes(1)
         inst = InstrumentId(symbol="BTCUSDT", venue=Venue.BINANCE, asset_class="perp")
-        s_1m = DataStream(instrument=inst, data_kind=DataKind.BAR, bar_spec=spec)
+        s_1m = DataStream(instrument=inst, data_class=BarData, bar_spec=spec)
         delivered: list = []
 
         def slow_handler(bar):

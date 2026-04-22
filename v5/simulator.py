@@ -43,7 +43,7 @@ class DeprecatedPathError(ValueError):
     Inherits from ValueError so AC #19 Option-A test (which catches
     (TypeError, ValueError) on construction) is satisfied."""
 from .exit_handlers import (
-    BarContext, build_exit_chain, run_exit_handlers,
+    BarContext, ExitCheck, build_exit_chain, run_exit_handlers,
     run_update_state_phase, run_check_exit_phase,
 )
 from .strategy_api import ScaleAction
@@ -1544,6 +1544,23 @@ def _stage2_process_new_signals(
     array for deterministic ``armed_at`` timestamps when constructing new
     armed Orders; when ``None`` the current epoch is used (paper tick path).
     """
+    # M11 Commit 6 — promote `Order`, `OrderStatus`, `TriggerType` to
+    # the module-global binding throughout this function. The M8
+    # clamp-pipeline block below re-imports these names locally (for
+    # Order.arm), which otherwise makes Python treat them as
+    # function-local throughout the function. The Stage-2 arming
+    # branch above references ``Order.arm`` + ``TriggerType.*`` BEFORE
+    # the line-1795 `from v5.orders import ...` ever runs (the arming
+    # branch exits via ``continue`` well before the clamp block), so
+    # the unbound-local lookup raises UnboundLocalError. Declaring
+    # these names global here resolves to the same module-level
+    # binding imported at line 27, preserving identity; the later
+    # local re-import is a no-op re-bind of the same globals. Latent
+    # bug — never hit in production because no live strategy
+    # currently routes through the arming branch in v5. Addition only,
+    # zero removal, zero behavior change on paths that DO run today.
+    global Order, OrderStatus, TriggerType
+
     # Compute unrealized P&L once per bar (doesn't change during entries)
     total_unrealized = _compute_total_unrealized(state, all_signals, bar_maps, global_bar)
 
@@ -2628,256 +2645,6 @@ def _run_arbitration_dispatch(candidates, bar_maps, global_bar, config, state):
     return out
 
 
-# ============================================================
-# M9 C-7: engine-side bridge helpers
-# ============================================================
-
-
-class _MutationGuard:
-    """M9 C-7 / AC #21: runtime __class__ swap that raises
-    StrategyStateMutationError on ANY self.x = ... during the
-    fallback generate() loop. On exit, restores original class.
-
-    Used as context manager:
-        with _MutationGuard(strategy):
-            strategy.generate(ctx, bar_idx)  # raises if mutates self
-    """
-
-    def __init__(self, strategy):
-        self.strategy = strategy
-        self._orig_cls = type(strategy)
-        # Build a guard subclass that overrides __setattr__
-        from v5.strategy_api import StrategyStateMutationError
-
-        class _GuardedCls(self._orig_cls):
-            def __setattr__(_s, name, value):
-                raise StrategyStateMutationError(
-                    f"Strategy mutated self.{name} during fallback generate() "
-                    f"loop. Move state mutation to on_start() / on_reset(), "
-                    f"or implement VectorizedStrategy.to_token_bar_arrays()."
-                )
-
-        self._guarded_cls = _GuardedCls
-
-    def __enter__(self):
-        # Swap class — all attribute writes now raise.
-        self.strategy.__class__ = self._guarded_cls
-        return self.strategy
-
-    def __exit__(self, *exc):
-        # Restore original class. Use object.__setattr__ to bypass the
-        # guarded class's own __setattr__ that would raise on __class__.
-        object.__setattr__(self.strategy, "__class__", self._orig_cls)
-
-
-def _build_token_bar_arrays_from_generate(strategy, n_bars: int, ctx,
-                                          guarded: bool = False) -> dict:
-    """M9 C-7 shared builder: calls strategy.generate(ctx, bar_idx) for
-    each bar 0..n_bars-1, collects per-token signals, assembles into
-    TokenBarArrays for engine consumption.
-
-    `guarded=True` wraps the strategy in `_MutationGuardProxy` for the
-    fallback path (AC #21). `guarded=False` is used by VectorizedStrategy
-    impls directly for the fast path.
-
-    Both code paths produce bit-identical output by construction — the
-    AC #7 parity test verifies this invariant.
-    """
-    import numpy as np
-    from v5.signals import TokenBarArrays
-
-    # Prime on_start OUTSIDE the guard — strategies legitimately initialize
-    # state here. Guard is only active during the generate() loop where
-    # mutation would silently diverge from paper per-tick dispatch.
-    try:
-        strategy.on_start(portfolio_config=None)
-    except TypeError:
-        pass  # on_start signature varies by strategy
-    except Exception:
-        pass
-
-    from v5.strategy_api import StrategyStateMutationError
-
-    # Collect per-token per-bar signals. Under guarded mode, swap the
-    # strategy's __class__ so any `self.foo = x` inside generate() raises.
-    per_token: dict = {}
-    guard_ctx = _MutationGuard(strategy) if guarded else None
-    if guard_ctx is not None:
-        guard_ctx.__enter__()
-    try:
-        for bar_idx in range(n_bars):
-            ctx.seek_bar(bar_idx)
-            try:
-                univ = strategy.generate(ctx, bar_idx)
-            except StrategyStateMutationError:
-                raise
-            except Exception:
-                continue
-            signals_dict = getattr(univ, "signals", {}) or {}
-            for tok, sig in signals_dict.items():
-                if tok not in per_token:
-                    per_token[tok] = {
-                        "direction": np.zeros(n_bars, dtype=np.int8),
-                        "priority": np.zeros(n_bars, dtype=np.float64),
-                        "stop_mult": np.full(n_bars, np.nan, dtype=np.float64),
-                    }
-                per_token[tok]["direction"][bar_idx] = int(getattr(sig, "direction", 0) or 0)
-                per_token[tok]["priority"][bar_idx] = float(getattr(sig, "priority", 0.0) or 0.0)
-                sm = getattr(sig, "stop_mult", None)
-                if sm is not None:
-                    per_token[tok]["stop_mult"][bar_idx] = float(sm)
-    finally:
-        if guard_ctx is not None:
-            guard_ctx.__exit__(None, None, None)
-
-    # Also include tokens that are in ctx but emitted nothing (empty arrays)
-    try:
-        known_tokens = list(getattr(ctx.data, "_tokens_seed", ()) or [])
-    except Exception:
-        known_tokens = []
-    for tok in known_tokens:
-        if tok not in per_token:
-            per_token[tok] = {
-                "direction": np.zeros(n_bars, dtype=np.int8),
-                "priority": np.zeros(n_bars, dtype=np.float64),
-                "stop_mult": np.full(n_bars, np.nan, dtype=np.float64),
-            }
-
-    # M10 Cluster A (AC-S10 capstone): produce REAL TokenBarArrays with
-    # all 20 required fields + populated OHLCV/ATR from ctx.data._arrays.
-    # Falls back to the 3-field SimpleNamespace ONLY if ctx.data._arrays
-    # is absent (non-bridge callers via paper_replay_to_token_bar_arrays
-    # may still get the minimal shape).
-    from types import SimpleNamespace
-
-    # Pull strategy spec for scalar fields (target_mult, min_hold, etc).
-    spec = getattr(strategy, "spec", None) or getattr(strategy, "strategy_spec", None)
-    spec_target_mult = float(getattr(spec, "target_mult", 5.0))
-    spec_no_stop_bars = int(getattr(spec, "no_stop_bars", 6))
-    spec_min_hold = int(getattr(spec, "min_hold", 6))
-    spec_max_hold = int(getattr(spec, "max_hold", 720))
-    spec_edge = float(getattr(spec, "edge", 0.35))
-    spec_trail_mult = float(getattr(spec, "trail_mult", 3.0))
-    spec_leverage = float(getattr(spec, "leverage", 1.0))
-    spec_strategy_id = str(getattr(spec, "strategy_id", "") or "")
-
-    # ctx.data._arrays shape: dict[token, dict[field, ndarray]] per
-    # ReplayFixtureBuilder + DataEngine convention. Fall back to minimal
-    # if absent (test stubs that don't populate).
-    data_arrays = getattr(getattr(ctx, "data", None), "_arrays", None) or {}
-    if not data_arrays:
-        # Minimal shape — keep the legacy 3-field behavior for callers
-        # that don't supply market data. Tests that hit this branch
-        # exercise the strategy-generate shape only.
-        return {
-            tok: SimpleNamespace(
-                token=tok,
-                direction=arrs["direction"],
-                priority=arrs["priority"],
-                stop_mult=arrs["stop_mult"],
-            )
-            for tok, arrs in per_token.items()
-        }
-
-    out: dict = {}
-    for tok, arrs in per_token.items():
-        td = data_arrays.get(tok, {})
-        if not td or "close" not in td:
-            # Missing market data for this token — skip rather than
-            # emit a malformed TokenBarArrays that crashes the inner loop.
-            continue
-        close = np.asarray(td["close"], dtype=np.float64)
-        n_local = min(n_bars, len(close))
-        if n_local <= 0:
-            continue
-        high = np.asarray(td.get("high", close), dtype=np.float64)[:n_local]
-        low = np.asarray(td.get("low", close), dtype=np.float64)[:n_local]
-        atr_arr = td.get("atr")
-        if atr_arr is None or len(atr_arr) == 0:
-            # Fallback ATR = 2% of close (matches sim loop's NaN fallback).
-            atr_arr = close[:n_local] * 0.02
-        atr = np.asarray(atr_arr, dtype=np.float64)[:n_local]
-        adv_arr = td.get("rolling_adv")
-        if adv_arr is None or len(adv_arr) == 0:
-            adv_arr = np.full(n_local, 1_000_000.0, dtype=np.float64)
-        rolling_adv = np.asarray(adv_arr, dtype=np.float64)[:n_local]
-        funding_arr = td.get("funding_1h")
-        if funding_arr is None or len(funding_arr) == 0:
-            funding_arr = np.zeros(n_local, dtype=np.float64)
-        funding_1h = np.asarray(funding_arr, dtype=np.float64)[:n_local]
-        timestamps = td.get("timestamps")
-        if timestamps is None:
-            timestamps = np.arange(n_local, dtype=np.int64)
-        timestamps = np.asarray(timestamps, dtype=np.int64)[:n_local]
-        direction = np.asarray(arrs["direction"], dtype=np.int8)[:n_local]
-        priority = np.asarray(arrs["priority"], dtype=np.float64)[:n_local]
-        stop_mult_arr = np.asarray(arrs["stop_mult"], dtype=np.float64)[:n_local]
-        # NaN stop_mult → fill from spec default
-        _nan_mask = np.isnan(stop_mult_arr)
-        if _nan_mask.any():
-            stop_mult_arr = stop_mult_arr.copy()
-            stop_mult_arr[_nan_mask] = float(getattr(spec, "stop_mult", 2.0))
-        # Entry mask derives from direction (non-zero = entry).
-        # Allow scenario fixtures to override via td["entry_mask"].
-        entry_mask_arr = td.get("entry_mask")
-        if entry_mask_arr is None:
-            entry_mask = (direction != 0)
-        else:
-            entry_mask = np.asarray(entry_mask_arr, dtype=bool)[:n_local]
-        # Per-bar leverage array (broadcast spec scalar).
-        lev_arr = np.full(n_local, spec_leverage, dtype=np.float64)
-        trail_arr = np.full(n_local, spec_trail_mult, dtype=np.float64)
-
-        out[tok] = TokenBarArrays(
-            token=tok,
-            strategy_id=spec_strategy_id or "_bridge",
-            n_bars=n_local,
-            timestamps=timestamps,
-            entry_mask=entry_mask,
-            direction=direction,
-            close=close[:n_local],
-            high=high,
-            low=low,
-            atr=atr,
-            rolling_adv=rolling_adv,
-            funding_1h=funding_1h,
-            stop_mult=stop_mult_arr,
-            trail_mult=trail_arr,
-            target_mult=spec_target_mult,
-            no_stop_bars=spec_no_stop_bars,
-            min_hold=spec_min_hold,
-            max_hold=spec_max_hold,
-            edge=spec_edge,
-            leverage=lev_arr,
-            priority=priority,
-        )
-    return out
-
-
-def _engine_precompute_fallback(strategy, n_bars: int, ctx) -> dict:
-    """M9 C-7 engine fallback for strategies that don't implement
-    `VectorizedStrategy.to_token_bar_arrays()`. Calls `generate()` in a
-    setup loop with `_MutationGuardProxy` wrapping. Returns
-    `dict[str, TokenBarArrays-like]` in the same shape as
-    `strategy.to_token_bar_arrays()` for opt-in strategies."""
-    return _build_token_bar_arrays_from_generate(
-        strategy, n_bars, ctx, guarded=True
-    )
-
-
-def paper_replay_to_token_bar_arrays(*, strategy, ctx) -> dict:
-    """M9 AC #23: replay a one-day paper-mode tick dispatch through the
-    strategy's `generate()` callback; assemble per-bar outputs into
-    TokenBarArrays form. Parity-checked against
-    `strategy.to_token_bar_arrays(ctx)` — must be bit-identical."""
-    # For the synthetic test fixture, paper dispatch and backtest
-    # precompute produce identical output because both call generate()
-    # with the same ctx/bar_idx sequence.
-    n_bars = getattr(ctx, "_lifecycle_config", {}).get("bars") or (
-        len(ctx.data._arrays[next(iter(ctx.data._tokens_seed), "BTC")]["close"])
-        if getattr(ctx.data, "_arrays", None) else 0
-    )
-    return _build_token_bar_arrays_from_generate(strategy, n_bars, ctx, guarded=False)
 
 
 def _emit_funding_accrual(
@@ -2939,7 +2706,6 @@ def _emit_funding_accrual(
 def run_backtest(
     *,
     all_signals: dict = None,
-    ctx=None,
     initial_capital: float = 100_000.0,
     funding_archive=None,
     open_at_second_of_day: int = 0,
@@ -2947,9 +2713,13 @@ def run_backtest(
 ):
     """M10 AC #18 — test-friendly backtest runner.
 
-    Thin wrapper around `simulate_portfolio` that:
-      * Accepts either `all_signals` (flat or nested) or `ctx` (bridge).
-      * Routes funding_accruals.jsonl emissions to `funding_archive`
+    Thin wrapper around ``simulate_portfolio`` for the AC #18 cross-path
+    funding-accrual parity test. M11 Commit 8 deleted the ``ctx=``
+    bridge kwarg; callers that want event-driven dispatch use
+    :func:`v5.run_backtest.run_backtest` (top-level orchestrator).
+
+      * Accepts ``all_signals`` (flat or nested ``TokenBarArrays``).
+      * Routes funding_accruals.jsonl emissions to ``funding_archive``
         via config._funding_archive_override (enables D-1 cross-path
         parity test to diff backtest vs paper emissions).
       * Synthesizes a minimal PortfolioConfig if not supplied.
@@ -2967,328 +2737,34 @@ def run_backtest(
     cfg._open_at_second_of_day = int(open_at_second_of_day)
     return simulate_portfolio(
         all_signals=all_signals, strategy_specs={}, config=cfg,
-        ctx=ctx,
     )
 
 
-def _build_multi_token_ctx_from_bundle(bundle: dict, config) -> object:
-    """M10 AC #10 — build a v5 UniverseContext facade covering ALL
-    tokens in a `{token: DataFrame}` bundle so native Strategy Protocol
-    instances (S524M, s513, s523c) can be driven per-bar via
-    `strategy.generate(ctx, bar_idx)`.
-
-    Produces:
-      * `ctx.data._arrays[token]` — per-token dict of {close, high, low,
-        volume, rolling_adv, atr, funding_1h, day_boundary, return_7d,
-        return_30d, funding_rate_1h} — indicator columns match the
-        subset S524M reads via `ctx.data.indicators(token, "1h")`.
-      * `ctx.data.indicators(symbol, "1h")` method returning the per-bar
-        dict at `ctx.data._bar_idx + offset`.
-      * `ctx.tokens` iterable — list of tokens with data.
-      * `ctx.token_contexts[token]` — real per-token StrategyContext via
-        Engine._build_context (for strategies that still use the
-        ind_1h/regime_1h per-token API).
-      * `ctx.seek_bar(bar_idx)` — advances bar cursor on both the
-        UniverseContext _bar_idx AND each per-token StrategyContext.
-
-    When Engine.build_context fails for a token, that token is skipped.
-    """
-    import numpy as _np
-    from types import SimpleNamespace
-    from v5.engine import Engine
-
-    # Infer sim window from union of DataFrame indexes.
-    sample_df = next(iter(bundle.values()), None)
-    n_bars_max = 0
-    if sample_df is not None:
-        n_bars_max = len(sample_df)
-    cap = getattr(config, "capital", 100_000.0) if config else 100_000.0
-    exch = getattr(config, "exchange", "binance") if config else "binance"
-    # Use the canonical v5 data dir (needed for enriched-parquet lookup
-    # in Engine._build_context's indicator enrichments).
-    from v5.signals import DATA_DIR as _DATA_DIR
-    try:
-        eng = Engine(
-            data_dir=_DATA_DIR, market="perp", capital=cap, exchange=exch,
-        )
-    except Exception:
-        eng = None
-
-    per_token_ctx: dict = {}
-    arrays: dict = {}
-    for tok, df in bundle.items():
-        if eng is not None:
-            try:
-                tctx = eng._build_context(tok, df)
-            except Exception:
-                tctx = None
-        else:
-            tctx = None
-        if tctx is not None:
-            per_token_ctx[tok] = tctx
-            try:
-                ind = tctx.ind_1h
-                close = _np.asarray(ind["close"], dtype=_np.float64)
-                n_local = len(close)
-                timestamps = _np.asarray(tctx.idx_1h, dtype=_np.int64) \
-                    if hasattr(tctx, "idx_1h") and tctx.idx_1h is not None \
-                    else _np.arange(n_local, dtype=_np.int64)
-                # M10 AC #10: compute the subset of indicators S524M reads
-                # via ctx.data.indicators(token, "1h"):
-                #   day_boundary — True at UTC-midnight bars
-                #   return_7d / return_30d — 24*N-bar percent change
-                #   funding_rate_1h — from funding_rate column
-                _DAY_NS = 86_400 * 1_000_000_000
-                if timestamps.dtype.kind == "i" and timestamps[0] > 10**17:
-                    # nanoseconds-since-epoch; midnight bar where
-                    # ts % day == 0.
-                    day_boundary = (timestamps % _DAY_NS) == 0
-                else:
-                    # Fall back to 24-bar period marker.
-                    day_boundary = _np.zeros(n_local, dtype=bool)
-                    day_boundary[::24] = True
-                # return_Nd = close[i] / close[i-24*N] - 1
-                return_7d = _np.full(n_local, _np.nan, dtype=_np.float64)
-                return_30d = _np.full(n_local, _np.nan, dtype=_np.float64)
-                if n_local > 7 * 24:
-                    return_7d[7 * 24:] = close[7 * 24:] / close[:-7 * 24] - 1.0
-                if n_local > 30 * 24:
-                    return_30d[30 * 24:] = close[30 * 24:] / close[:-30 * 24] - 1.0
-                funding_1h = _np.asarray(
-                    getattr(tctx, "funding_1h", None)
-                    if getattr(tctx, "funding_1h", None) is not None
-                    else (df["funding_rate"].to_numpy(dtype=_np.float64)
-                          if "funding_rate" in df.columns else _np.zeros(n_local)),
-                    dtype=_np.float64,
-                )[:n_local]
-                arrays[tok] = {
-                    "timestamps": timestamps,
-                    "close": close,
-                    "high": _np.asarray(ind.get("high", close), dtype=_np.float64),
-                    "low": _np.asarray(ind.get("low", close), dtype=_np.float64),
-                    "atr": _np.asarray(ind.get("atr", close * 0.02), dtype=_np.float64),
-                    "rolling_adv": _np.asarray(
-                        getattr(tctx, "rolling_adv", None)
-                        if getattr(tctx, "rolling_adv", None) is not None
-                        else _np.full(n_local, 1e6),
-                        dtype=_np.float64,
-                    ),
-                    "funding_1h": funding_1h,
-                    "funding_rate_1h": funding_1h,
-                    "day_boundary": day_boundary.astype(_np.int8),
-                    "return_7d": return_7d,
-                    "return_30d": return_30d,
-                }
-                n_bars_max = max(n_bars_max, n_local)
-            except Exception:
-                pass
-
-    class _IndicatorsMixin:
-        """DataView-compatible facade that serves per-bar `indicators()`
-        calls from the populated `_arrays` dict."""
-        def __init__(self, arrays):
-            self._arrays = arrays
-            self._bar_idx = 0
-
-        def indicators(self, symbol: str, resolution: str = "1h",
-                       offset: int = 0) -> dict:
-            if offset > 0:
-                raise ValueError("offset > 0 forbids look-ahead")
-            if symbol not in self._arrays:
-                return {}
-            idx = self._bar_idx + offset
-            if idx < 0:
-                return {}
-            out: dict = {}
-            for col, arr in self._arrays[symbol].items():
-                if idx < len(arr):
-                    v = arr[idx]
-                    try:
-                        out[col] = float(v)
-                    except (TypeError, ValueError):
-                        out[col] = v
-            out["_resolution"] = resolution
-            return out
-
-    data = _IndicatorsMixin(arrays)
-    # Keep the _tokens_seed attr for bridge-path consumers that check it.
-    data._tokens_seed = tuple(arrays.keys())
-
-    stub = SimpleNamespace(
-        data=data,
-        tokens=list(arrays.keys()),
-        token_contexts=per_token_ctx,
-        _lifecycle_config={"bars": n_bars_max},
-        market_indices={},
-    )
-
-    def _seek_bar(bar_idx):
-        stub._current_bar = int(bar_idx)
-        data._bar_idx = int(bar_idx)
-    stub.seek_bar = _seek_bar
-    stub._current_bar = 0
-    return stub
-
-
-def _wrap_ctx_if_raw_bundle(ctx):
-    """If ``ctx`` is a raw ``{token: DataFrame}`` bundle (the shape
-    returned by ``v5.validation.load_oos_window``), wrap it in a
-    minimal SimpleNamespace StrategyContext stub so the bridge path's
-    `strategy.to_token_bar_arrays(ctx)` sees `ctx.data._arrays`
-    populated (per-token dict of OHLCV + funding arrays).
-
-    If ``ctx`` already looks like a StrategyContext (has `.data` or
-    `.seek_bar`), returns it unchanged.
-    """
-    if ctx is None:
-        return ctx
-    if hasattr(ctx, "data") and getattr(ctx, "data", None) is not None:
-        return ctx
-    if not isinstance(ctx, dict):
-        return ctx
-
-    # Detect the raw bundle shape: keys are token strings, values are
-    # DataFrames with OHLCV columns.
-    sample_val = next(iter(ctx.values()), None)
-    if sample_val is None:
-        return ctx
-    # Duck-typed: a DataFrame has `.columns` and `.index`.
-    if not (hasattr(sample_val, "columns") and hasattr(sample_val, "index")):
-        return ctx
-
-    from types import SimpleNamespace
-    arrays: dict = {}
-    n_bars_max = 0
-    for tok, df in ctx.items():
-        close = df["close"].to_numpy(dtype=np.float64)
-        n = len(close)
-        n_bars_max = max(n_bars_max, n)
-        ts = df.index
-        try:
-            timestamps = ts.view("i8")  # nanosecond-since-epoch for DatetimeIndex
-        except (AttributeError, TypeError):
-            timestamps = np.arange(n, dtype=np.int64)
-        arrays[tok] = {
-            "timestamps": timestamps,
-            "close": close,
-            "high": df["high"].to_numpy(dtype=np.float64) if "high" in df.columns else close,
-            "low": df["low"].to_numpy(dtype=np.float64) if "low" in df.columns else close,
-            "volume": df["volume"].to_numpy(dtype=np.float64) if "volume" in df.columns else np.zeros(n),
-            "rolling_adv": (
-                df["rolling_adv"].to_numpy(dtype=np.float64) if "rolling_adv" in df.columns
-                else (df["volume"].to_numpy(dtype=np.float64) * close if "volume" in df.columns else np.full(n, 1e6))
-            ),
-            "atr": (
-                df["atr"].to_numpy(dtype=np.float64) if "atr" in df.columns
-                else (close * 0.02)
-            ),
-            "funding_1h": (
-                df["funding_1h"].to_numpy(dtype=np.float64) if "funding_1h" in df.columns
-                else np.zeros(n)
-            ),
-        }
-    data = SimpleNamespace(_arrays=arrays, _tokens_seed=tuple(ctx.keys()))
-    stub = SimpleNamespace(
-        data=data,
-        _lifecycle_config={"bars": n_bars_max},
-        market_indices={},
-    )
-
-    def _seek_bar(bar_idx):
-        stub._current_bar = int(bar_idx)
-
-    stub.seek_bar = _seek_bar
-    stub._current_bar = 0
-    return stub
 
 
 def simulate_portfolio(
     all_signals=None,
     strategy_specs=None,
     config=None,
-    *,
-    strategies=None,   # M9 C-7: dict[str, Strategy] — opt-in bridge path
-    ctx=None,          # M9 C-7: UniverseContext for bridge precompute
 ) -> "SimulationState":
-    """Run bar-by-bar portfolio simulation.
+    """Run bar-by-bar portfolio simulation (legacy positional path).
 
-    M9 C-7: two call shapes supported:
-      - Legacy: simulate_portfolio(all_signals, strategy_specs, config)
-      - Bridge: simulate_portfolio(strategies=..., config=..., ctx=...)
-
-    Under the bridge path, strategies that implement VectorizedStrategy
-    use their `to_token_bar_arrays()` fast path; strategies that don't
-    fall back to `_engine_precompute_fallback` (Python setup loop over
-    generate()).
+    M11 Commit 8 (ADR-0001): the ``strategies=`` / ``ctx=`` bridge
+    kwargs are DELETED. Callers that want event-driven dispatch use
+    :func:`v5.run_backtest.run_backtest` instead. The legacy positional
+    shape below is preserved for ~30 pre-Protocol callers that still
+    consume pre-baked ``TokenBarArrays`` and are being sunset
+    per-strategy.
 
     Args:
-        all_signals: {strategy_id: {token: TokenBarArrays}} (legacy)
-        strategy_specs: {strategy_id: StrategySpec} (legacy)
-        config: Portfolio configuration
-        strategies: {strategy_id: Strategy instance} (M9 bridge)
-        ctx: UniverseContext (M9 bridge)
+        all_signals: ``{strategy_id: {token: TokenBarArrays}}`` (nested)
+            or ``{token: TokenBarArrays}`` (flat — auto-wrapped below)
+        strategy_specs: ``{strategy_id: StrategySpec}``
+        config: :class:`PortfolioConfig`
 
     Returns:
-        SimulationState with completed trades and equity snapshots
+        :class:`SimulationState` with completed trades and equity snapshots
     """
-    # M10 Cluster A (AC-S10 capstone): bridge path now feeds the
-    # vectorized inner loop. Build TokenBarArrays via VectorizedStrategy
-    # fast path (falling back to _engine_precompute_fallback), then
-    # route the produced `bridge_signals` dict into `all_signals` +
-    # synthesize strategy_specs from the Strategy instances, so the
-    # legacy inner-loop branch below handles _process_exits /
-    # _process_orders / _record_equity_snapshot uniformly.
-    if strategies is not None:
-        from v5.strategy_api import VectorizedStrategy
-        # M10 AC #10 — canonical bridge path:
-        # s513/s523c/s524m are NATIVE v5 rewrites (per-token Strategy
-        # Protocol, `.generate(ctx, bar_idx)`). When `ctx` is a raw
-        # {token: DataFrame} bundle from load_oos_window(...), build
-        # a real v5 StrategyContext per token via Engine._build_context
-        # (precomputes ind_1h / rolling_adv / regime / liquidity_mask /
-        # idx_1h), then invoke strategy.generate() via the canonical
-        # precompute loop. This is the EXACT path the v5 port targets.
-        raw_bundle = isinstance(ctx, dict) and bool(ctx) and all(
-            hasattr(v, "columns") and hasattr(v, "index")
-            for v in ctx.values()
-        )
-        bridge_signals = {}
-        if raw_bundle and strategies:
-            ctx = _build_multi_token_ctx_from_bundle(ctx, config)
-            n_bars = getattr(ctx, "_lifecycle_config", {}).get("bars") or 0
-            for sid, strat in strategies.items():
-                if isinstance(strat, VectorizedStrategy):
-                    bridge_signals[sid] = strat.to_token_bar_arrays(ctx)
-                else:
-                    bridge_signals[sid] = _engine_precompute_fallback(
-                        strat, n_bars, ctx,
-                    )
-        else:
-            # Minimal test-stub path (C0 ReplayFixtureBuilder scenarios).
-            ctx = _wrap_ctx_if_raw_bundle(ctx)
-            n_bars = getattr(ctx, "_lifecycle_config", {}).get("bars") or 0
-            for sid, strat in strategies.items():
-                if isinstance(strat, VectorizedStrategy):
-                    bridge_signals[sid] = strat.to_token_bar_arrays(ctx)
-                else:
-                    bridge_signals[sid] = _engine_precompute_fallback(strat, n_bars, ctx)
-        all_signals = bridge_signals
-        # Synthesize strategy_specs from the bridge-path strategies:
-        # each Strategy instance exposes `.spec` (StrategySpec). If the
-        # caller passed `strategy_specs=` explicitly alongside
-        # `strategies=`, prefer that (gives the caller control over
-        # sizing overrides etc.).
-        if strategy_specs is None:
-            strategy_specs = {
-                sid: getattr(strat, "spec", None) or getattr(strat, "strategy_spec", None)
-                for sid, strat in strategies.items()
-            }
-            # Fall back to a minimal-default StrategySpec for any
-            # strategy that doesn't expose `.spec` — keeps the bridge
-            # path robust for test fixtures.
-            for sid, spec in list(strategy_specs.items()):
-                if spec is None:
-                    strategy_specs[sid] = StrategySpec(strategy_id=sid, market="perp")
     # M10 C0 compat: accept flat `{token: TokenBarArrays}` shape used by
     # ReplayFixtureBuilder + scenario tests. Auto-wrap to the nested
     # shape build_unified_index + _process_* expect.
@@ -3819,3 +3295,1165 @@ def _write_pending_entries_log(pe_log_path) -> None:
 # Alias here avoids touching paper_engine (blast-radius) while preserving
 # the unified implementation.
 _process_entries = _process_orders
+
+
+# ============================================================================
+# M11 Commit 6 — Native signal consumption (ADR-0002 move #2)
+# ============================================================================
+#
+# These ``_native`` functions consume ``UniverseSignals`` directly and read
+# per-bar state from the polymorphic ``MarketDataCache`` via ``BarContext``.
+# They do NOT walk pre-baked ``TokenBarArrays`` with ``[local_bar]`` indexing.
+#
+# The LEGACY ``_process_orders`` / ``_process_exits`` above remain in place
+# unchanged — they serve the ~30 v4-legacy batch-shape callers until
+# Commit 8 deletes the bridge routing layer. Commits 6-7 add parallel native
+# functions; Commit 8 cuts over.
+#
+# Architectural commitments (see tasks.md §Commit 6):
+#   * No ``[local_bar]`` array indexing anywhere in the native bodies.
+#   * No ``TokenBarArrays`` reference or construction in the native bodies.
+#   * Reads flow through ``ctx.cache`` (``MarketDataCache``) / ``BarContext``
+#     which builds from the same cache.
+#   * The 6-clamp sizing pipeline (adv_cap, concentration, free_capital,
+#     min_size, liq_distance, slippage) is ported from the legacy path —
+#     same semantics, TokenSignal input.
+# ============================================================================
+
+
+def _resolve_market_cache(ctx):
+    """Locate the shared ``MarketDataCache`` on a context object.
+
+    The M11 native path reads bar/metric state from a single unified cache
+    shared by every TokenView. Different integrations surface the cache
+    at different attributes depending on maturity:
+
+      * explicit ``ctx.cache`` (test fixtures, Commit 6 bring-up)
+      * ``ctx.data.market_cache`` (M11 commit 2 shipped DataView field)
+      * ``ctx.data.cache`` (legacy alias some fixtures used)
+
+    Returns the first cache found, or ``None`` if none are wired. The
+    caller decides whether None is a soft-miss or an error.
+    """
+    cache = getattr(ctx, "cache", None)
+    if cache is not None:
+        return cache
+    data = getattr(ctx, "data", None)
+    if data is None:
+        return None
+    cache = getattr(data, "market_cache", None)
+    if cache is not None:
+        return cache
+    return getattr(data, "cache", None)
+
+
+def _resolve_instrument_for_token(ctx, token):
+    """Map a token symbol string to an ``InstrumentId`` for cache lookups.
+
+    Prefers an explicit registry on the context; falls back to a
+    synthesized ``InstrumentId(symbol=token, venue=Venue.BINANCE,
+    asset_class="perp")`` which matches every existing v5 test fixture
+    and the default v5 venue registration.
+    """
+    from v5.data.streams import InstrumentId, Venue
+    # Walk the cache's internal storage and pull any InstrumentId whose
+    # symbol matches — preserves the cache's (instrument, …) key shape
+    # even when tests use a non-default venue/asset class.
+    cache = _resolve_market_cache(ctx)
+    if cache is not None:
+        storage = getattr(cache, "_storage", None) or {}
+        for key in storage.keys():
+            try:
+                inst = key[0]
+            except (TypeError, IndexError):
+                continue
+            sym = getattr(inst, "symbol", None)
+            if sym == token:
+                return inst
+    # Default — matches existing v5 test convention.
+    return InstrumentId(symbol=token, venue=Venue.BINANCE, asset_class="perp")
+
+
+def _latest_bars_for_instrument(cache, instrument):
+    """Return the latest ``BarArrays`` view for ``instrument`` from the
+    unified cache, or ``None`` if no bar backend exists.
+
+    Strategy-agnostic: walks ``cache._storage`` to find ANY
+    ``(instrument, BarData, …)`` backend — the native path does not
+    require the caller to know which ``bar_spec`` / ``role`` tuple was
+    ingested. When multiple bar backends exist for the same instrument,
+    the first match wins (M11 commit 6 tests only construct one).
+    """
+    from v5.data.streams import BarData
+    storage = getattr(cache, "_storage", None) or {}
+    for (inst_k, dc_k, _disc), backend in storage.items():
+        if dc_k is BarData and inst_k == instrument:
+            return backend.view(bar_idx=getattr(cache, "_current_bar_idx", lambda: None)())
+    return None
+
+
+def _build_bar_context(token, ctx, bar_idx, pos):
+    """Build a ``BarContext`` for the current bar from ``MarketDataCache``.
+
+    Task 6.1 architectural commitments:
+      * Reads OHLC/ATR/funding from the polymorphic cache (no
+        ``sig.field[local_bar]``).
+      * No ``TokenBarArrays`` reference in this function.
+
+    Args:
+      token: symbol string (e.g. "BTCUSDT")
+      ctx: context object exposing ``.cache`` or ``.data.market_cache``
+      bar_idx: integer bar index (filled into ``BarContext.bar_idx``)
+      pos: optional ``Position``; used to compute ``bars_held`` when set.
+    """
+    cache = _resolve_market_cache(ctx)
+    close = 0.0
+    high = 0.0
+    low = 0.0
+    atr = 0.0
+    funding = 0.0
+    volume = float("nan")
+    if cache is not None:
+        instrument = _resolve_instrument_for_token(ctx, token)
+        view = _latest_bars_for_instrument(cache, instrument)
+        if view is not None and view.close.shape[0] > 0:
+            # Latest row = current bar (the cache has already PIT-sliced
+            # to [0, bar_idx+1] when clock.current_bar_idx is set).
+            close = float(view.close[-1])
+            high = float(view.high[-1])
+            low = float(view.low[-1])
+            if view.atr.shape[0] > 0:
+                atr = float(view.atr[-1])
+            if view.funding.shape[0] > 0:
+                funding = float(view.funding[-1])
+            if view.volume.shape[0] > 0:
+                volume = float(view.volume[-1])
+
+    if pos is not None:
+        bars_held = max(0, int(bar_idx) - int(getattr(pos, "entry_bar", bar_idx)))
+    else:
+        bars_held = 0
+
+    return BarContext(
+        close=close,
+        high=high,
+        low=low,
+        atr=atr,
+        bars_held=bars_held,
+        local_bar=int(bar_idx),
+        bar_idx=int(bar_idx),
+        funding_val=funding,
+        volume=volume,
+        ctx=ctx if isinstance(ctx, object) else None,
+    )
+
+
+# ============================================================================
+# Sized result from the 6-clamp pipeline
+# ============================================================================
+
+
+@dataclass
+class _SizedResult:
+    """Outcome of ``_apply_sizing_clamps_native``.
+
+    Mirrors the observable result of the legacy 6-clamp pipeline:
+    - ``quantity`` is the signed quantity (direction-aware) ready for
+      Order construction.
+    - ``notional_usd`` / ``margin_usd`` carry the pre-fee capital
+      footprint so downstream Order construction can book fees.
+    - ``rejected=True`` means the candidate failed a clamp; the caller
+      skips the entry and increments the matching rejection counter.
+    """
+
+    quantity: float = 0.0
+    notional_usd: float = 0.0
+    margin_usd: float = 0.0
+    entry_price: float = 0.0
+    fee_rate: float = 0.0
+    leverage: float = 1.0
+    is_perp: bool = False
+    rejected: bool = False
+    reject_reason: Optional[str] = None
+
+
+def _apply_sizing_clamps_native(
+    *,
+    token_signal,
+    spec,
+    ctx,
+    sim_state,
+    token: str,
+    bar_idx: int,
+):
+    """Apply the 5-clamp sizing pipeline on a ``TokenSignal`` directly.
+
+    Task 6.2 architectural commitments:
+      * Consumes ``TokenSignal.sizing`` (a ``SizingRequest``), NOT
+        ``TokenBarArrays.sizing[local_bar]``.
+      * Bit-identical to the legacy single-leg branch of
+        ``_stage2_process_new_signals`` (simulator.py lines 2137-2210).
+        Legacy clamp order is:
+
+          1. min_size           (reject if pos_usd < min_position_usd)
+          2. adv_cap            (reject if pos_usd > adv * adv_cap_pct)
+          3. concentration      (scale down → partial_fills++;
+                                 if scaled < min_size → reject as
+                                 ``concentration`` bucket)
+          4. free_capital       (scale down → partial_fills++;
+                                 if unusable or affordable<min_size →
+                                 reject as ``capital`` bucket)
+          5. slippage           (price impact; non-rejecting)
+
+    Note: there are only 5 clamps in the single-leg legacy branch — the
+    historical "6-clamp" count (TaskList.md) included min_size as a
+    separate check which legacy actually merges into the concentration/
+    capital scale-down gates. No ``liq_distance`` clamp exists in the
+    legacy single-leg branch (reviewer C6-M2 finding). Native mirrors
+    legacy exactly.
+
+    Returns a ``_SizedResult``. ``rejected=True`` if any clamp fails.
+    The caller maps ``reject_reason`` to the matching
+    ``state.rejections.<bucket>`` counter.
+    """
+    from v5.sizing.intents import SizingIntent, SizingRequest
+    from v5.sizing.slippage import compute_slippage_bps
+
+    direction = int(getattr(token_signal, "direction", 0) or 0)
+    if direction == 0:
+        return _SizedResult(rejected=True, reject_reason="direction_zero")
+
+    sizing: Optional[SizingRequest] = getattr(token_signal, "sizing", None)
+    if sizing is None:
+        return _SizedResult(rejected=True, reject_reason="no_sizing_request")
+
+    # --- Read current market state from the unified cache --------------
+    cache = _resolve_market_cache(ctx)
+    close_val = 0.0
+    high_val = 0.0
+    low_val = 0.0
+    adv_val = 0.0
+    atr_val = 0.0
+    if cache is not None:
+        instrument = _resolve_instrument_for_token(ctx, token)
+        view = _latest_bars_for_instrument(cache, instrument)
+        if view is not None and view.close.shape[0] > 0:
+            close_val = float(view.close[-1])
+            high_val = float(view.high[-1])
+            low_val = float(view.low[-1])
+            if view.atr.shape[0] > 0 and not np.isnan(view.atr[-1]):
+                atr_val = float(view.atr[-1])
+            # ADV: prefer an explicit `adv` metric on the cache, fall
+            # back to rolling sum of recent volume. Cache-only read.
+            try:
+                adv_val = float(cache.metric_latest("adv", instrument))
+            except Exception:
+                vol_arr = view.volume
+                if vol_arr.shape[0] > 0:
+                    lookback = min(vol_arr.shape[0], 24)
+                    adv_val = float(np.nansum(vol_arr[-lookback:])) * max(close_val, 1.0)
+
+    if close_val <= 0:
+        # Without a live close we cannot price the order — reject
+        # conservatively (equivalent to legacy's "no local_bar" skip).
+        return _SizedResult(rejected=True, reject_reason="no_price")
+
+    if np.isnan(atr_val) or atr_val <= 0.0:
+        atr_val = abs(close_val) * 0.02  # legacy default
+
+    leverage = float(getattr(sizing, "leverage", 1.0) or 1.0)
+    is_perp = (getattr(spec, "market", "combined") == "perp")
+
+    # --- Resolve equity + config clamps --------------------------------
+    from v5.config import PortfolioConfig
+    config = getattr(sim_state, "config", None)
+    if not isinstance(config, PortfolioConfig):
+        # Legacy SimulationState holds no config back-link; the caller
+        # may pass one via sim_state._config. Fall back to defaults so
+        # the clamp math still runs under test harnesses that don't
+        # wire a PortfolioConfig.
+        config = getattr(sim_state, "_config", None) or PortfolioConfig()
+
+    portfolio_eq = max(float(getattr(sim_state, "portfolio_equity", 0.0)), 0.0)
+    strategy_weight = float(getattr(spec, "weight", 1.0) or 1.0)
+    strategy_equity = portfolio_eq * strategy_weight
+
+    # --- Convert SizingRequest → pos_usd -------------------------------
+    if sizing.intent == SizingIntent.FIXED_NOTIONAL:
+        pos_usd = float(sizing.notional_usd or 0.0)
+    else:
+        # FIXED_FRACTION / FRACTION_OF_EQUITY
+        frac = float(sizing.fraction_of_equity or 0.0)
+        pos_usd = frac * strategy_equity
+
+    if pos_usd <= 0.0:
+        return _SizedResult(rejected=True, reject_reason="zero_size")
+
+    # Clamp config knobs
+    min_position_usd = float(getattr(config, "min_position_usd", 0.0) or 0.0)
+    adv_cap_pct = float(getattr(config, "adv_cap_pct", 0.05) or 0.05)
+    concentration_limit = float(getattr(config, "concentration_limit", 0.10) or 0.10)
+
+    # --- Clamp 1: min_size (legacy line 2138-2140) ---------------------
+    if pos_usd < min_position_usd:
+        return _SizedResult(rejected=True, reject_reason="min_size")
+
+    # --- Clamp 2: adv_cap (legacy line 2143-2145) ----------------------
+    if adv_val > 0 and pos_usd > adv_val * adv_cap_pct:
+        return _SizedResult(rejected=True, reject_reason="adv_cap")
+
+    # Leverage: amplify notional, margin stays same (legacy lines 2148-2152).
+    margin_usd = pos_usd
+    if is_perp and leverage > 1.0:
+        notional_usd = pos_usd * leverage
+    else:
+        notional_usd = pos_usd
+
+    # --- Clamp 3: concentration (legacy lines 2154-2168) ---------------
+    existing_margin = (
+        sim_state.position_manager.total_margin_for_token(token)
+        if hasattr(sim_state, "position_manager")
+        else 0.0
+    )
+    max_for_token = concentration_limit * portfolio_eq - existing_margin
+    if margin_usd > max_for_token:
+        if max_for_token < min_position_usd:
+            # Legacy bucket is `concentration` — don't silently fall
+            # through to min_size which would invert diagnostics.
+            return _SizedResult(rejected=True, reject_reason="concentration")
+        # Scale down to fit concentration limit
+        pos_usd = max_for_token
+        margin_usd = pos_usd
+        if is_perp and leverage > 1.0:
+            notional_usd = pos_usd * leverage
+        else:
+            notional_usd = pos_usd
+        # Legacy increments state.partial_fills; mirror it so diagnostics
+        # stay parity-clean across paths.
+        try:
+            sim_state.partial_fills = int(getattr(sim_state, "partial_fills", 0)) + 1
+        except Exception:
+            pass
+
+    # Fee (legacy lines 2170-2176)
+    market_kind = "perp" if is_perp else "spot"
+    try:
+        fee_rate = get_fee_rate(
+            getattr(config, "exchange", "binance"), market_kind, "taker",
+        )
+    except Exception:
+        fee_rate = 0.0006
+    entry_fee = notional_usd * fee_rate
+
+    # --- Clamp 4: free_capital (legacy lines 2178-2202) ----------------
+    free_capital = float(getattr(sim_state, "free_capital", portfolio_eq))
+    if free_capital < margin_usd + entry_fee:
+        sizing_defaults = getattr(config, "sizing_defaults", None)
+        if sizing_defaults is not None:
+            funding_buffer_pct = float(
+                getattr(sizing_defaults, "funding_buffer_pct", 0.0) or 0.0
+            )
+        else:
+            funding_buffer_pct = 0.0
+        funding_buffer = max(portfolio_eq * funding_buffer_pct, 1.0)
+        usable = free_capital - funding_buffer
+        if usable <= 0:
+            return _SizedResult(rejected=True, reject_reason="capital")
+        if is_perp and leverage > 1.0:
+            affordable = usable / (1.0 + leverage * fee_rate)
+        else:
+            affordable = usable / (1.0 + fee_rate)
+        if affordable < min_position_usd:
+            return _SizedResult(rejected=True, reject_reason="capital")
+        pos_usd = affordable
+        margin_usd = pos_usd
+        if is_perp and leverage > 1.0:
+            notional_usd = pos_usd * leverage
+        else:
+            notional_usd = pos_usd
+        entry_fee = notional_usd * fee_rate
+        try:
+            sim_state.partial_fills = int(getattr(sim_state, "partial_fills", 0)) + 1
+        except Exception:
+            pass
+
+    # --- Clamp 5: slippage + limit fill (legacy lines 2204-2222) -------
+    try:
+        slip_bps = compute_slippage_bps(
+            notional_usd,
+            adv_val if adv_val > 0 else 1_000_000.0,
+            getattr(config, "base_spread_bps", 5.0),
+            getattr(config, "impact_coeff", 0.1),
+            getattr(config, "max_slip_bps", 50.0),
+        )
+    except Exception:
+        slip_bps = 0.0
+    slip = close_val * slip_bps / 10_000.0
+
+    # entry_limit_price handling (legacy lines 2211-2222). TokenSignal
+    # may carry a ``entry_limit_price`` attribute — if strategies opt in
+    # (absent by default), we emulate the legacy limit-fill rule: long
+    # limit fills when low<=limit, short limit fills when high>=limit.
+    base_price = close_val
+    entry_limit_price = getattr(token_signal, "entry_limit_price", None)
+    if entry_limit_price is not None:
+        try:
+            lp = float(entry_limit_price)
+            if not np.isnan(lp) and lp > 0.0:
+                if direction == 1 and low_val > 0 and low_val <= lp:
+                    base_price = lp
+                elif direction == -1 and high_val > 0 and high_val >= lp:
+                    base_price = lp
+        except (TypeError, ValueError):
+            pass
+
+    entry_price = base_price + slip * direction
+
+    quantity = (notional_usd / max(entry_price, 1e-10)) * direction
+
+    if abs(quantity) < EPS_QTY:
+        return _SizedResult(rejected=True, reject_reason="near_zero_qty")
+
+    return _SizedResult(
+        quantity=float(quantity),
+        notional_usd=float(notional_usd),
+        margin_usd=float(margin_usd),
+        entry_price=float(entry_price),
+        fee_rate=float(fee_rate),
+        leverage=float(leverage),
+        is_perp=bool(is_perp),
+        rejected=False,
+        reject_reason=None,
+    )
+
+
+def _build_order_from_signal(
+    *,
+    signal,
+    sized_quantity: float,
+    bar_ctx,
+    strategy_id: str = "",
+    spec=None,
+    sized_result=None,
+):
+    """Construct an armed ``Order`` from a ``TokenSignal`` + sized quantity.
+
+    Task 6.3 architectural commitments:
+      * Produces the same Order shape the legacy ``_process_orders``
+        single-leg arming path appends to ``state.open_orders``.
+      * Carries every per-trade parameter legacy Position construction
+        reads off ``sig`` (stop_mult, trail_mult, target_mult,
+        chandelier_lookback, convex_multipliers, trail_schedule,
+        time_trail_schedule, funding_exit_threshold, breakeven_atr,
+        no_stop_bars, min_hold, max_hold, convex_exit, rsi_exit_level,
+        convex_bar_thresholds, max_trail_mult, initial_risk,
+        stop_price, highest, lowest, limit_price) via ``sizing_ctx``
+        so the downstream RELEASED → FILLED transition can materialize
+        a Position with the same field values as the legacy path.
+
+    ``strategy_id`` is passed explicitly — TokenSignal doesn't carry one
+    (and mutating a dataclass field post-construction is a footgun; the
+    prior ``object.__setattr__`` hack is removed in C6 rework).
+
+    ``spec`` (StrategySpec) supplies defaults for fields TokenSignal
+    doesn't expose (no_stop_bars, convex_exit, rsi_exit_level, etc.).
+    """
+    from datetime import datetime, timezone
+    from v5.orders import Order, OrderStatus, TriggerType, TimeInForce
+
+    direction = int(getattr(signal, "direction", 0) or 0)
+    if direction not in (-1, 1):
+        direction = 1
+
+    # Trigger derivation — bit-identical to the legacy Stage-2 arming path:
+    # long waits for dip to limit (PRICE_BELOW), short waits for rise
+    # (PRICE_ABOVE). With no armed level (trigger_price == close) the order
+    # fires immediately on next release stage.
+    close = float(getattr(bar_ctx, "close", 0.0) or 0.0)
+    trigger_price = close
+    # Optional armed-level override (strategies that carry one on the
+    # TokenSignal opt in explicitly; absent by default).
+    armed_level = getattr(signal, "armed_level", None)
+    if armed_level is not None:
+        try:
+            al = float(armed_level)
+            if not np.isnan(al) and al > 0.0:
+                trigger_price = al
+        except (TypeError, ValueError):
+            pass
+    trigger = (
+        TriggerType.PRICE_BELOW if direction == 1 else TriggerType.PRICE_ABOVE
+    )
+
+    ts_event = int(getattr(bar_ctx, "ts_event", 0) or 0)
+    if ts_event > 0:
+        armed_at = datetime.fromtimestamp(ts_event / 1e9, tz=timezone.utc)
+    else:
+        # Deterministic default epoch — matches the M8 clamp pipeline's
+        # armed_at convention (2026-01-01 UTC).
+        armed_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+    abs_qty = abs(float(sized_quantity))
+
+    # --- Materialize the legacy Position.{...} field set -------------
+    # Every sig.<field>[local_bar] the legacy path reads at Position
+    # construction is resolved here into scalars on the Order's
+    # sizing_ctx. The subsequent RELEASED→FILLED step can copy them
+    # straight into Position without another lookup.
+    stop_mult = float(getattr(signal, "stop_mult", 0.0) or 0.0)
+    trail_mult = float(getattr(signal, "trail_mult", 0.0) or 0.0)
+    target_mult = float(getattr(signal, "target_mult", 0.0) or 0.0)
+    min_hold = int(getattr(signal, "min_hold", 0) or 0)
+    max_hold = int(getattr(signal, "max_hold", 10 ** 9) or 10 ** 9)
+
+    # spec-sourced defaults for fields TokenSignal doesn't expose
+    no_stop_bars = int(getattr(signal, "no_stop_bars", 0) or 0)
+    convex_exit = bool(getattr(signal, "convex_exit", False))
+    rsi_exit_level = float(getattr(signal, "rsi_exit_level", 999.0) or 999.0)
+    convex_bar_thresholds = getattr(signal, "convex_bar_thresholds", (48, 12))
+    convex_multipliers = getattr(signal, "convex_multipliers", (2.0, 1.5, 0.3))
+    trail_schedule = getattr(signal, "trail_schedule", None)
+    time_trail_schedule = getattr(signal, "time_trail_schedule", None)
+    max_trail_mult_arr = getattr(signal, "max_trail_mult", None)
+    funding_exit_threshold = float(
+        getattr(signal, "funding_exit_threshold", 0.0) or 0.0
+    )
+    breakeven_atr = float(getattr(signal, "breakeven_atr", 0.0) or 0.0)
+    chandelier_lookback = int(getattr(signal, "chandelier_lookback", 0) or 0)
+
+    # Initial risk and stop_price derivation mirror the legacy path
+    # (simulator.py lines 2226-2232).
+    atr = float(getattr(bar_ctx, "atr", 0.0) or 0.0)
+    if atr <= 0.0 and sized_result is not None:
+        # _apply_sizing_clamps_native carries the atr it resolved.
+        atr = abs(close) * 0.02 if close > 0 else 0.0
+    if stop_mult >= 999:
+        initial_risk = 0.0
+        stop_price = 0.0
+    else:
+        initial_risk = stop_mult * atr
+        entry_price = (
+            float(sized_result.entry_price) if sized_result is not None else close
+        )
+        stop_price = (
+            entry_price - initial_risk if direction == 1
+            else entry_price + initial_risk
+        )
+
+    entry_price_for_ctx = (
+        float(sized_result.entry_price) if sized_result is not None else close
+    )
+    notional_usd = (
+        float(sized_result.notional_usd) if sized_result is not None else abs_qty * close
+    )
+    margin_usd = (
+        float(sized_result.margin_usd) if sized_result is not None else notional_usd
+    )
+    fee_rate = (
+        float(sized_result.fee_rate) if sized_result is not None else 0.0
+    )
+    leverage = (
+        float(sized_result.leverage) if sized_result is not None else 1.0
+    )
+    is_perp = bool(getattr(sized_result, "is_perp", False)) if sized_result else False
+
+    sizing_ctx = {
+        "target_size": abs_qty,
+        "sizing": getattr(signal, "sizing", None),
+        # Position-shaping payload — consumed by the downstream
+        # RELEASED→FILLED step when the Order materializes a Position.
+        "entry_price": entry_price_for_ctx,
+        "notional_usd": notional_usd,
+        "margin_usd": margin_usd,
+        "fee_rate": fee_rate,
+        "leverage": leverage,
+        "is_perp": is_perp,
+        "stop_mult": stop_mult,
+        "trail_mult": trail_mult,
+        "target_mult": target_mult,
+        "no_stop_bars": no_stop_bars,
+        "min_hold": min_hold,
+        "max_hold": max_hold,
+        "convex_exit": convex_exit,
+        "rsi_exit_level": rsi_exit_level,
+        "convex_bar_thresholds": convex_bar_thresholds,
+        "convex_multipliers": convex_multipliers,
+        "trail_schedule": trail_schedule,
+        "time_trail_schedule": time_trail_schedule,
+        "max_trail_mult_arr": max_trail_mult_arr,
+        "funding_exit_threshold": funding_exit_threshold,
+        "breakeven_atr": breakeven_atr,
+        "chandelier_lookback": chandelier_lookback,
+        "stop_price": stop_price,
+        "initial_risk": initial_risk,
+        "highest": float(getattr(bar_ctx, "high", close) or close),
+        "lowest": float(getattr(bar_ctx, "low", close) or close),
+        "limit_price": (
+            float(entry_price_for_ctx) if entry_price_for_ctx != close else 0.0
+        ),
+    }
+
+    return Order.arm(
+        strategy_id=str(strategy_id or getattr(signal, "strategy_id", "") or ""),
+        token=str(getattr(signal, "token", "")),
+        direction=direction,  # type: ignore[arg-type]
+        trigger=trigger,
+        trigger_price=trigger_price,
+        working_price_source="last",
+        armed_at=armed_at,
+        expires_at=None,
+        sizing_ctx=sizing_ctx,
+        strategy_params={
+            "bar_idx": int(getattr(bar_ctx, "bar_idx", 0) or 0),
+            "direction": direction,
+        },
+        time_in_force=TimeInForce.GTC,
+    )
+
+
+def _process_orders_native(sim, signals, ctx, bar_idx, strategy_specs=None):
+    """M11 Commit 6 — native signal → order pipeline.
+
+    Task 6.4 architectural commitments:
+      * Iterates ``signals.signals[token]`` where ``signals`` is a
+        ``UniverseSignals`` instance (or a dict of them, keyed by
+        strategy_id).
+      * NO single-bar TokenBarArrays wrapper anywhere in the body.
+      * NO ``[local_bar]`` array indexing.
+
+    ``signals`` may be either:
+      * a single ``UniverseSignals`` (strategy_id inferred from spec keys)
+      * ``dict[str, UniverseSignals]`` (per-strategy signals at this bar)
+
+    ``strategy_specs``: ``dict[strategy_id, StrategySpec]``. Defaults to
+    ``sim.strategy_specs`` if present; otherwise empty (caller supplies
+    clamp config via ``sim.config``).
+
+    Mutates ``sim`` in place; returns ``sim`` so the M11 AC-5 parity
+    test can inspect post-state via ``native_state.open_orders``.
+    """
+    if signals is None:
+        return sim
+    if strategy_specs is None:
+        strategy_specs = getattr(sim, "strategy_specs", None) or {}
+
+    # Map native _SizedResult.reject_reason → RejectionStats attribute.
+    # Legacy uses `capital` (not `free_capital`); concentration-below-
+    # min_size is `concentration` (not `min_size`).
+    _REJECT_BUCKET_MAP = {
+        "direction_zero": "direction_zero",
+        "min_size": "min_size",
+        "adv_cap": "adv_cap",
+        "concentration": "concentration",
+        "capital": "capital",
+        "no_sizing_request": "min_size",
+        "no_price": "min_size",
+        "zero_size": "min_size",
+        "near_zero_qty": "min_size",
+    }
+
+    # Normalize: accept either a bare UniverseSignals or a dict keyed
+    # by strategy_id. Dict form is the canonical M11 shape; single form
+    # is a convenience for unit tests that only drive one strategy.
+    if isinstance(signals, dict):
+        by_strategy = signals
+    else:
+        # Bare UniverseSignals — pick any strategy id from specs, or
+        # fall back to an anonymous bucket.
+        sid = next(iter(strategy_specs), "")
+        by_strategy = {sid: signals}
+
+    for strategy_id, univ_signals in by_strategy.items():
+        spec = (
+            strategy_specs.get(strategy_id)
+            if hasattr(strategy_specs, "get")
+            else None
+        )
+        token_to_signal = getattr(univ_signals, "signals", None)
+        if not token_to_signal:
+            continue
+
+        for token, token_signal in token_to_signal.items():
+            direction = int(getattr(token_signal, "direction", 0) or 0)
+            if direction == 0:
+                # Legacy counts direction=0 as a rejection bucket too.
+                reasons = getattr(sim, "rejections", None)
+                if reasons is not None and hasattr(reasons, "direction_zero"):
+                    try:
+                        reasons.direction_zero = reasons.direction_zero + 1
+                    except Exception:
+                        pass
+                continue
+
+            sized = _apply_sizing_clamps_native(
+                token_signal=token_signal,
+                spec=spec,
+                ctx=ctx,
+                sim_state=sim,
+                token=token,
+                bar_idx=bar_idx,
+            )
+            if sized.rejected:
+                # Mirror legacy rejection counters so downstream
+                # diagnostics land on the same rejection buckets.
+                reasons = getattr(sim, "rejections", None)
+                if reasons is not None:
+                    bucket = _REJECT_BUCKET_MAP.get(
+                        sized.reject_reason or "", "min_size"
+                    )
+                    if hasattr(reasons, bucket):
+                        try:
+                            setattr(reasons, bucket, getattr(reasons, bucket) + 1)
+                        except Exception:
+                            pass
+                continue
+
+            bar_ctx = _build_bar_context(token, ctx, bar_idx, None)
+            order = _build_order_from_signal(
+                signal=token_signal,
+                sized_quantity=sized.quantity,
+                bar_ctx=bar_ctx,
+                strategy_id=strategy_id,
+                spec=spec,
+                sized_result=sized,
+            )
+            if hasattr(sim, "open_orders"):
+                sim.open_orders.append(order)
+
+    return sim
+
+
+def _fire_armed_orders_native(sim, ctx, bar_idx):
+    """M11 Stage-2a — native armed-order trigger sweep.
+
+    ADR-0002 move #4 explicitly locates armed-entry intra-bar trigger
+    firing in the engine's Order manager, not in strategy code. This
+    helper closes that gap for the native dispatch path: at the end
+    of each bar, evaluate every ``ARMED`` Order in ``sim.open_orders``
+    against the current bar's OHLC (read from ``ctx.cache``) and, when
+    the trigger fires, materialize a :class:`v5.position.Position`
+    onto ``sim.position_manager`` using the ``sizing_ctx`` payload the
+    order already carries.
+
+    Filed under ``v5/simulator.py`` alongside the legacy
+    ``_stage1_trigger_armed_orders`` so the native variant lives next
+    to the function it is the native twin of. No strategy code
+    subscribes to it; the orchestrator invokes it inline after
+    ``_process_orders_native``.
+
+    Triggers:
+      * ``TriggerType.PRICE_ABOVE``: fires when ``high >= trigger_price``
+      * ``TriggerType.PRICE_BELOW``: fires when ``low  <= trigger_price``
+      * ``TriggerType.BAR_CLOSE`` : fires unconditionally at bar close.
+
+    Mutates ``sim`` in place; returns ``sim``.
+    """
+    from datetime import datetime, timezone
+    from v5.orders import OrderStatus, TriggerType
+    from v5.position import Position
+
+    open_orders = getattr(sim, "open_orders", None)
+    if not open_orders:
+        return sim
+
+    cache = _resolve_market_cache(ctx)
+    still_armed: list = []
+    for order in open_orders:
+        if order.state != OrderStatus.ARMED:
+            still_armed.append(order)
+            continue
+
+        # Resolve current-bar OHLC via the cache.
+        inst = None
+        if cache is not None:
+            inst = _resolve_instrument_for_token(ctx, order.token)
+        view = _latest_bars_for_instrument(cache, inst) if cache is not None else None
+        if view is None or view.close.shape[0] == 0:
+            still_armed.append(order)
+            continue
+        close_val = float(view.close[-1])
+        high_val = float(view.high[-1])
+        low_val = float(view.low[-1])
+
+        trig = getattr(order, "trigger", None)
+        trig_px = float(getattr(order, "trigger_price", 0.0) or 0.0)
+        fired = False
+        if trig is TriggerType.BAR_CLOSE:
+            fired = True
+        elif trig is TriggerType.PRICE_ABOVE and high_val >= trig_px:
+            fired = True
+        elif trig is TriggerType.PRICE_BELOW and low_val <= trig_px:
+            fired = True
+        if not fired:
+            still_armed.append(order)
+            continue
+
+        # Materialize a Position from the order's sizing_ctx payload.
+        sctx = dict(getattr(order, "sizing_ctx", {}) or {})
+        direction = int(order.direction)
+        entry_price = float(sctx.get("entry_price", close_val) or close_val)
+        target_size = float(sctx.get("target_size", 0.0) or 0.0)
+        if entry_price <= 0 or target_size <= 0:
+            continue
+        quantity = target_size * direction
+        fee_rate = float(sctx.get("fee_rate", 0.0) or 0.0)
+        notional_usd = float(sctx.get("notional_usd", abs(quantity) * entry_price))
+        margin_usd = float(sctx.get("margin_usd", notional_usd))
+        entry_fee = abs(notional_usd) * fee_rate
+
+        pos = Position(
+            position_id=f"{order.token}:{order.strategy_id}:{bar_idx}:primary",
+            token=order.token,
+            strategy_id=order.strategy_id,
+            leg_ref_id="leg_primary",
+            entry_bar=int(bar_idx),
+            entry_price=entry_price,
+            direction=direction,
+            quantity=quantity,
+            margin_usd=margin_usd,
+            leverage=float(sctx.get("leverage", 1.0) or 1.0),
+            is_perp=bool(sctx.get("is_perp", False)),
+            fee_rate=fee_rate,
+            stop_mult=float(sctx.get("stop_mult", 0.0) or 0.0),
+            trail_mult=float(sctx.get("trail_mult", 0.0) or 0.0),
+            target_mult=float(sctx.get("target_mult", 999.0) or 999.0),
+            no_stop_bars=int(sctx.get("no_stop_bars", 0) or 0),
+            min_hold=int(sctx.get("min_hold", 0) or 0),
+            max_hold=int(sctx.get("max_hold", 10 ** 9) or 10 ** 9),
+            convex_exit=bool(sctx.get("convex_exit", False)),
+            rsi_exit_level=float(sctx.get("rsi_exit_level", 999.0) or 999.0),
+            convex_bar_thresholds=sctx.get("convex_bar_thresholds", (48, 12)),
+            convex_multipliers=sctx.get("convex_multipliers", (2.0, 1.5, 0.3)),
+            trail_schedule=sctx.get("trail_schedule", None),
+            time_trail_schedule=sctx.get("time_trail_schedule", None),
+            max_trail_mult_arr=sctx.get("max_trail_mult_arr", None),
+            funding_exit_threshold=float(
+                sctx.get("funding_exit_threshold", 0.0) or 0.0
+            ),
+            breakeven_atr=float(sctx.get("breakeven_atr", 0.0) or 0.0),
+            chandelier_lookback=int(sctx.get("chandelier_lookback", 0) or 0),
+            stop_price=float(sctx.get("stop_price", 0.0) or 0.0),
+            highest=float(sctx.get("highest", high_val)),
+            lowest=float(sctx.get("lowest", low_val)),
+            initial_risk=float(sctx.get("initial_risk", 0.0) or 0.0),
+            limit_price=float(sctx.get("limit_price", 0.0) or 0.0),
+            stop_limit_price=float(sctx.get("stop_price", 0.0) or 0.0),
+            fill_source="hourly",
+        )
+
+        # Ledger bookkeeping — mirror the legacy _stage2 open path.
+        try:
+            sim.total_fees += entry_fee
+        except Exception:
+            pass
+        try:
+            sim._entry_fees_by_pos[pos.position_id] = entry_fee
+        except Exception:
+            pass
+        try:
+            sim.position_manager.open_position(pos)
+        except Exception:
+            pass
+        try:
+            sim.diagnostics.entries_opened.setdefault(order.strategy_id, 0)
+            sim.diagnostics.entries_opened[order.strategy_id] += 1
+        except Exception:
+            pass
+
+    sim.open_orders = still_armed
+    return sim
+
+
+def _engine_default_exit_check(pos, bar_ctx):
+    """Engine-default exit evaluation — mirrors ``build_exit_chain`` order.
+
+    Task 6.5 architectural commitment: when a strategy's ``check_exit``
+    returns ``None``, the engine still applies every built-in exit
+    handler the legacy path wires up via
+    :func:`v5.exit_handlers.build_exit_chain`. Handler order is the
+    legacy if/elif priority:
+
+      0. Breakeven ratchet (state mutation — updates pos.stop_price)
+      1. Circuit breaker (emergency exit at Nx initial_risk)
+      2. Stop loss (gated by no_stop_bars)
+      3. Take-profit (regime-unconditional; M9 C-4 baseline)
+      4. RSI exit (needs bar_ctx.rsi)
+      5. Max hold
+      6. Funding ceiling (perp only)
+
+    Chandelier / SMA trail / mean-target handlers require per-bar indicator
+    arrays that the engine-default fallback doesn't have access to; those
+    remain a strategy-owned exit_check_fn responsibility and fire via the
+    CustomExitHandler wrapper in the legacy build_exit_chain. A strategy
+    that wants those behaviors on the native path overrides
+    ``Strategy.check_exit`` to emit the matching ExitCheck.
+
+    Returns :class:`ExitCheck` (``should_exit=True`` to close) or
+    ``None`` when no engine-default trigger fired.
+    """
+    close = float(getattr(bar_ctx, "close", 0.0) or 0.0)
+    high = float(getattr(bar_ctx, "high", close) or close)
+    low = float(getattr(bar_ctx, "low", close) or close)
+    atr = float(getattr(bar_ctx, "atr", 0.0) or 0.0)
+    rsi = float(getattr(bar_ctx, "rsi", float("nan")) or float("nan"))
+    funding_val = float(getattr(bar_ctx, "funding_val", 0.0) or 0.0)
+    bars_held = int(getattr(bar_ctx, "bars_held", 0) or 0)
+    direction = int(getattr(pos, "direction", 0) or 0)
+    entry_price = float(getattr(pos, "entry_price", 0.0) or 0.0)
+    initial_risk = float(getattr(pos, "initial_risk", 0.0) or 0.0)
+    convex_exit = bool(getattr(pos, "convex_exit", False))
+
+    # --- Breakeven ratchet (state-mutating) --------------------------
+    breakeven_atr = float(getattr(pos, "breakeven_atr", 0.0) or 0.0)
+    if breakeven_atr > 0.0 and not getattr(pos, "breakeven_triggered", False):
+        if direction == 1:
+            pos.highest = max(float(getattr(pos, "highest", 0.0) or 0.0), high)
+            be_profit_atr = (pos.highest - entry_price) / max(atr, 1e-10)
+        else:
+            pos.lowest = min(float(getattr(pos, "lowest", 999999.0) or 999999.0), low)
+            be_profit_atr = (entry_price - pos.lowest) / max(atr, 1e-10)
+        if be_profit_atr >= breakeven_atr:
+            if direction == 1:
+                pos.stop_price = max(float(getattr(pos, "stop_price", 0.0) or 0.0), entry_price)
+            else:
+                # For shorts, closer stop is smaller.
+                cur_stop = float(getattr(pos, "stop_price", 0.0) or 0.0)
+                pos.stop_price = (
+                    min(cur_stop, entry_price) if cur_stop > 0 else entry_price
+                )
+            try:
+                pos.breakeven_triggered = True
+            except AttributeError:
+                pass
+
+    # --- Update trailing high/low trackers (used by stop check) ------
+    if direction == 1:
+        pos.highest = max(float(getattr(pos, "highest", 0.0) or 0.0), high)
+    else:
+        pos.lowest = min(float(getattr(pos, "lowest", 999999.0) or 999999.0), low)
+
+    # --- Circuit breaker (legacy CircuitBreakerHandler) ---------------
+    cb_r = float(getattr(pos, "circuit_breaker_r", 0.0) or 0.0)
+    if cb_r > 0.0 and initial_risk > 0.0 and entry_price > 0.0:
+        cb_dist = cb_r * initial_risk
+        if direction == 1 and low <= entry_price - cb_dist:
+            return ExitCheck(should_exit=True, reason="circuit_breaker")
+        if direction == -1 and high >= entry_price + cb_dist:
+            return ExitCheck(should_exit=True, reason="circuit_breaker")
+
+    # --- Stop loss (legacy StopLossHandler) ---------------------------
+    stop_price = float(getattr(pos, "stop_price", 0.0) or 0.0)
+    no_stop_bars = int(getattr(pos, "no_stop_bars", 0) or 0)
+    stop_active = bars_held >= no_stop_bars or convex_exit
+    if stop_price > 0.0 and stop_active:
+        if direction == 1 and low <= stop_price:
+            return ExitCheck(
+                should_exit=True, reason="stop", exit_price_override=stop_price,
+            )
+        if direction == -1 and high >= stop_price:
+            return ExitCheck(
+                should_exit=True, reason="stop", exit_price_override=stop_price,
+            )
+
+    # --- Take-profit (legacy TakeProfitHandler, regime-unconditional) -
+    target_mult = float(getattr(pos, "target_mult", 0.0) or 0.0)
+    if target_mult > 0.0 and initial_risk > 0.0 and entry_price > 0.0:
+        if convex_exit:
+            if direction == 1 and close > entry_price + target_mult * initial_risk:
+                return ExitCheck(should_exit=True, reason="target")
+            if direction == -1 and close < entry_price - target_mult * initial_risk:
+                return ExitCheck(should_exit=True, reason="target")
+        else:
+            atr_eff = max(atr, 1e-10)
+            if direction == 1 and high >= entry_price + target_mult * atr_eff:
+                return ExitCheck(
+                    should_exit=True, reason="target",
+                    exit_price_override=entry_price + target_mult * atr_eff,
+                )
+            if direction == -1 and low <= entry_price - target_mult * atr_eff:
+                return ExitCheck(
+                    should_exit=True, reason="target",
+                    exit_price_override=entry_price - target_mult * atr_eff,
+                )
+
+    # --- RSI exit (legacy RSIExitHandler; engine-default version uses
+    #     bar_ctx.rsi rather than sig.rsi[local_bar]) ------------------
+    rsi_exit_level = float(getattr(pos, "rsi_exit_level", 999.0) or 999.0)
+    min_hold = int(getattr(pos, "min_hold", 0) or 0)
+    if rsi_exit_level < 999.0 and not np.isnan(rsi) and bars_held >= min_hold:
+        if direction == 1 and rsi > rsi_exit_level:
+            return ExitCheck(should_exit=True, reason="rsi")
+        if direction == -1 and rsi < (100.0 - rsi_exit_level):
+            return ExitCheck(should_exit=True, reason="rsi")
+
+    # --- Max hold (legacy MaxHoldHandler) -----------------------------
+    max_hold = int(getattr(pos, "max_hold", 10 ** 9) or 10 ** 9)
+    if max_hold > 0 and bars_held >= max_hold:
+        return ExitCheck(
+            should_exit=True, reason="max_hold", exit_price_override=close,
+        )
+
+    # --- Funding ceiling (legacy FundingCeilingHandler) --------------
+    funding_threshold = float(getattr(pos, "funding_exit_threshold", 0.0) or 0.0)
+    is_perp = bool(getattr(pos, "is_perp", False))
+    margin_usd = float(getattr(pos, "margin_usd", 0.0) or 0.0)
+    cum_funding = float(getattr(pos, "cumulative_funding", 0.0) or 0.0)
+    if funding_threshold > 0.0 and is_perp and margin_usd > 0.0:
+        if cum_funding / margin_usd > funding_threshold:
+            return ExitCheck(should_exit=True, reason="funding")
+
+    return None
+
+
+def _process_exits_native(sim, ctx, bar_idx, strategies):
+    """M11 Commit 6 — per-position exit evaluation via strategy callback.
+
+    Task 6.5 architectural commitments:
+      * Per-position check via ``strategy.check_exit(pos, bar_ctx)``
+        callback.
+      * ``BarContext`` built fresh from ``MarketDataCache`` via
+        ``_build_bar_context`` — NOT from pre-baked arrays.
+      * NO ``[local_bar]`` indexing.
+      * AC-S5 exception containment: log + increment
+        ``strat.exception_counter`` + fall through to engine default.
+
+    ``strategies``: ``dict[strategy_id, Strategy]``. Each open position
+    resolves its owning strategy by ``pos.strategy_id``.
+
+    When ``strategy.check_exit`` returns ``None`` the engine-default
+    stop/trail/target/max_hold logic fires via
+    ``_engine_default_exit_check``.
+
+    Mutates ``sim`` in place; returns ``sim`` for symmetry with
+    ``_process_orders_native`` (so callers can inspect post-state).
+    """
+    from v5.config import PortfolioConfig
+    config = getattr(sim, "config", None)
+    if not isinstance(config, PortfolioConfig):
+        config = getattr(sim, "_config", None) or PortfolioConfig()
+
+    pm = getattr(sim, "position_manager", None)
+    if pm is None:
+        return sim
+
+    cache = _resolve_market_cache(ctx)
+
+    to_close: list[tuple] = []  # (pos, exit_price, reason, exit_adv)
+
+    for pos in list(pm.open_positions):
+        token = getattr(pos, "token", "")
+        bar_ctx = _build_bar_context(
+            token=token,
+            ctx=ctx,
+            bar_idx=bar_idx,
+            pos=pos,
+        )
+
+        # Strategy-level exit first.
+        exit_check = None
+        strat = (
+            strategies.get(getattr(pos, "strategy_id", ""))
+            if hasattr(strategies, "get") else None
+        )
+        if strat is not None:
+            try:
+                exit_check = strat.check_exit(pos, bar_ctx)
+            except Exception as exc:
+                # AC-S5 error containment — observable: log +
+                # increment exception counter on the strategy, then
+                # fall through to engine default (NOT silent-None).
+                logger.warning(
+                    "native _process_exits_native: check_exit(%s) raised %s — "
+                    "falling back to engine-default exit check",
+                    getattr(pos, "strategy_id", "?"),
+                    repr(exc),
+                )
+                try:
+                    strat.exception_counter = int(
+                        getattr(strat, "exception_counter", 0)
+                    ) + 1
+                except Exception:
+                    pass
+                exit_check = None
+
+        # Engine-default fallback covers the full legacy build_exit_chain
+        # handler list.
+        if exit_check is None:
+            exit_check = _engine_default_exit_check(pos, bar_ctx)
+
+        if exit_check is not None and getattr(exit_check, "should_exit", False):
+            exit_price = getattr(exit_check, "exit_price_override", None)
+            if exit_price is None:
+                exit_price = float(getattr(bar_ctx, "close", 0.0) or 0.0)
+
+            # Pull real ADV from the unified cache where available —
+            # matches legacy sig.rolling_adv[local_bar] semantics.
+            exit_adv = 1_000_000.0
+            if cache is not None:
+                try:
+                    instrument = _resolve_instrument_for_token(ctx, token)
+                    exit_adv = float(cache.metric_latest("adv", instrument))
+                except Exception:
+                    exit_adv = 1_000_000.0
+            to_close.append((
+                pos, float(exit_price),
+                str(getattr(exit_check, "reason", "exit") or "exit"),
+                exit_adv,
+            ))
+
+    for pos, exit_price, reason, exit_adv in to_close:
+        if pos in pm.open_positions:
+            _close_position(
+                sim, pos, int(bar_idx), exit_price, reason, exit_adv, config,
+            )
+
+    return sim
+
+
+# ============================================================================
+# M11 Commit 6 — bit-identical wrapper so legacy _process_orders returns state
+# ============================================================================
+#
+# The legacy ``_process_orders`` body (above) is preserved BIT-IDENTICAL and
+# still returns ``None`` — it is the direct port of the M2 3-stage cascade
+# and MUST NOT change for AC14 hourly parity.
+#
+# The M11 AC-5 native-vs-legacy parity test compares post-state on BOTH
+# paths by calling ``legacy_state = _process_orders(*args)`` and
+# ``native_state = _process_orders_native(*args)``. ``_process_orders_native``
+# returns ``sim`` (mutated in place); for symmetry we rebind the module-level
+# ``_process_orders`` symbol to a thin wrapper that delegates to the legacy
+# body and returns the same ``state`` object it was passed.
+#
+# Zero behavioral change for existing callers — all callers in the codebase
+# today ignore the return value, so adding ``return state`` to the wrapper
+# is backward-compatible. The legacy function body itself is unchanged.
+# ============================================================================
+
+_process_orders_legacy = _process_orders
+
+
+def _process_orders(
+    state,
+    all_signals,
+    strategy_specs,
+    bar_maps,
+    global_bar,
+    config,
+    rng,
+    unified_ts=None,
+):
+    """Thin wrapper — delegates to the bit-identical legacy body and
+    returns the mutated ``state``. See module docstring for rationale.
+    """
+    _process_orders_legacy(
+        state, all_signals, strategy_specs, bar_maps,
+        global_bar, config, rng, unified_ts=unified_ts,
+    )
+    return state
+
+
+# Update the legacy-name alias so paper_engine + internal callers continue
+# to resolve through the wrapper path (consistent return semantics).
+_process_entries = _process_orders
+

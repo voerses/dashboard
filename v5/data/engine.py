@@ -1,8 +1,8 @@
-"""M6 — DataEngine orchestrator (AC-D2, AC-D4, AC-D14, AC-D15, AC-D17, AC-D18 C3).
+"""M6/M11 — DataEngine orchestrator (AC-D2, AC-D4, AC-D14, AC-D15, AC-D17, AC-D18 C3).
 
 Delegates everything to collaborators:
   - DataClientRegistry for venue lookup + transport priority
-  - MultiInstrumentCache (3-tuple key) for BAR streams
+  - MarketDataCache (polymorphic, M11) for BarData + every other Data subclass
   - GapDetector for monotonicity + gap handling (upstream of cache)
   - MessageBus for handler dispatch
 
@@ -10,29 +10,38 @@ Routing cascade per design §2.8:
   1. registry.get_clients(instrument) — priority-sorted
   2. Venue-capabilities price-type validation (C3)
   3. _resolve_mode(subscription, clients) — honors fallback_allowed
-  4. Dispatch per data_kind — BAR through gap→cache→bus; non-BAR bypass cache
+  4. Dispatch per Data subclass — BarData through gap→cache→bus; others bypass cache
   5. M4 aggregation fallback if no native support
   6. Raise RuntimeError if still unsupported
 """
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
+from v5.bar_spec import BarSpec
 from v5.data.bus import MessageBus, SubscriptionHandle
-from v5.data.cache import MultiInstrumentCache
+from v5.data.cache import MarketDataCache
 from v5.data.exceptions import PriceTypeNotSupported
 from v5.data.gaps import GapDetector
 from v5.data.instruments import InstrumentRegistry
 from v5.data.registry import DataClientRegistry
 from v5.data.streams import (
-    DataKind,
+    BarData,
     DataStream,
     Subscription,
     TransportMode,
     Venue,
 )
+
+# Sanity floor for GCD-based clock advance: tick resolutions smaller than
+# one minute would explode the simulation loop (e.g. second-granularity
+# resolutions on a multi-year backtest). Reject configurations whose GCD
+# falls below this floor at register time — fail fast, surface the pathology
+# at the strategy declaration site instead of at run time.
+_GCD_FLOOR_NS: int = 60 * 1_000_000_000  # 60 seconds in ns
 
 _log = logging.getLogger(__name__)
 
@@ -40,6 +49,17 @@ _log = logging.getLogger(__name__)
 _DEFERRED_EVENT_TYPES = frozenset({
     "BookSnapshot", "Liquidation", "OpenInterest", "Ticker", "IndexPrice",
 })
+
+
+def _bar_spec_to_ns(bar_spec: BarSpec) -> int:
+    """Convert a ``BarSpec`` to its period in nanoseconds.
+
+    Used by ``DataEngine.register_strategy_cadences`` to derive each
+    strategy's cadence from its declared bar resolutions. Thin wrapper
+    around ``BarSpec.period_ns`` — kept as a module-level helper so the
+    engine's GCD-cadence math is self-contained and testable.
+    """
+    return int(bar_spec.period_ns)
 
 
 class DegradedState:
@@ -79,13 +99,13 @@ class DataEngine:
         self,
         registry: Optional[DataClientRegistry] = None,
         bus: Optional[MessageBus] = None,
-        cache: Optional[MultiInstrumentCache] = None,
+        cache: Optional[MarketDataCache] = None,
         instrument_registry: Optional[InstrumentRegistry] = None,
         clock=None,
     ):
         self.registry = registry if registry is not None else DataClientRegistry()
         self.bus = bus if bus is not None else MessageBus()
-        self.cache = cache if cache is not None else MultiInstrumentCache()
+        self.cache = cache if cache is not None else MarketDataCache(clock=clock)
         self.instrument_registry = (
             instrument_registry if instrument_registry is not None else InstrumentRegistry()
         )
@@ -100,6 +120,11 @@ class DataEngine:
         self._degraded_handlers: List[Callable[[Any], None]] = []
         # Per-subscription transport binding: stream → picked client
         self._stream_client: Dict[DataStream, Any] = {}
+        # M11 Commit 5 — GCD cadence tracking (ADR-0002 move #4). Populated
+        # by register_strategy_cadences(strategies) before the event loop
+        # starts; consumed by advance_one_tick() + strategies_due_at().
+        self._strategy_cadences: Dict[str, int] = {}   # strategy_id → ns per bar
+        self._clock_advance_ns: int = 0                # GCD of all cadences
 
     # ------------------------------------------------------------
     # Lifecycle
@@ -250,7 +275,7 @@ class DataEngine:
             except Exception:
                 continue
 
-        if picked is None and stream.data_kind == DataKind.BAR:
+        if picked is None and stream.data_class is BarData:
             # Aggregation fallback: find a smaller-spec client
             picked = self._try_aggregation_fallback(stream, mode, clients)
             if picked is not None:
@@ -262,12 +287,12 @@ class DataEngine:
                 f"aggregation fallback unavailable"
             )
 
-        # Step 5: dispatch by data_kind — BAR through gap→cache→bus;
-        # non-BAR bypass cache
-        if stream.data_kind == DataKind.BAR:
+        # Step 5: dispatch by data subclass — BarData through gap→cache→bus;
+        # non-BarData bypass cache
+        if stream.data_class is BarData:
             self._setup_bar_pipeline(subscription, picked)
-        # Register handler on bus for all data_kinds (including BAR — bus
-        # dispatch is the sole path for strategy handlers)
+        # Register handler on bus for every data_class (including BarData —
+        # bus dispatch is the sole path for strategy handlers)
         self.bus.subscribe(stream, subscription.handler)
 
         # Delegate to client
@@ -304,7 +329,7 @@ class DataEngine:
                 continue
             smaller_stream = DS(
                 instrument=stream.instrument,
-                data_kind=DataKind.BAR,
+                data_class=BarData,
                 bar_spec=BarSpec.from_minutes(candidate_minutes),
                 price_type=stream.price_type,
                 source=stream.source,
@@ -321,12 +346,28 @@ class DataEngine:
         return None
 
     def _setup_bar_pipeline(self, subscription: Subscription, client: Any) -> None:
-        """Wire GapDetector → cache for a BAR stream."""
+        """Wire GapDetector → cache for a BAR stream.
+
+        M11 (Commit 3): cache ingress is ``MarketDataCache.on_data(bar,
+        role=...)``. ``ParquetReplayClient`` yields ``BarData`` instances
+        directly (``_ReplayBar`` deleted); ``BinanceWSClient`` and the
+        live path emit ``BarData`` natively too. The sole remaining
+        duck-typed bar shape reaching ``on_bar`` is ``_NanBar`` from
+        ``GapDetector``'s NAN_FILL path, whose OHLC is NaN and therefore
+        cannot be a ``BarData`` directly. Sanitization happens inside
+        ``MarketDataCache.on_bar``.
+        """
         stream = subscription.stream
         role = subscription.role
 
         def cache_and_bus(bar):
-            self.cache.on_bar(bar, role=role)
+            # M11: prefer on_data (strict Data subclass ingress) and fall
+            # back to on_bar (duck-typed legacy shape) so the pipeline
+            # works with mixed ingress shapes during the Commit 2-3 window.
+            if isinstance(bar, BarData):
+                self.cache.on_data(bar, role=role)
+            else:
+                self.cache.on_bar(bar, role=role)
             self.bus.publish(stream, bar)
 
         detector = GapDetector(
@@ -399,7 +440,8 @@ class DataEngine:
         Other backtest entry points (DO NOT confuse):
           - v5.backtest.run_backtest_mtf — M5 paper-adjacent facade
           - v5.simulator.run_backtest_mtf — the real simulation engine
-          - v5.portfolio_backtest.run_backtest — portfolio-level wrapper
+          - v5.portfolio_backtest.run_portfolio_backtest — legacy CLI portfolio wrapper
+          - v5.run_backtest.run_backtest — M11 event-driven orchestrator
 
         Real impl lands in M7 when the strategy API is redesigned to wire
         bars from DataEngine → on_bar → M5 Order lifecycle → trade archive.
@@ -438,6 +480,212 @@ class DataEngine:
         raise RuntimeError(
             f"no PULL_ONCE-capable client for venue {stream.instrument.venue.value}"
         )
+
+    # ------------------------------------------------------------
+    # M11 Commit 5 — GCD cadence tracking (ADR-0002 move #4)
+    # ------------------------------------------------------------
+
+    def register_strategy_cadences(
+        self,
+        strategies: List[Any],
+        effective_subs_by_strategy: Optional[Dict[str, List[Any]]] = None,
+    ) -> None:
+        """Compute per-strategy cadence + the engine's GCD clock tick.
+
+        ADR-0002 move #4: mixed-cadence portfolios (e.g. 1h factor strategy
+        coexisting with a 5m breakout strategy) must drive the simulation
+        loop at the greatest-common-divisor tick across all subscribed bar
+        resolutions, with each strategy's ``generate()`` callback invoked
+        only on its own declared cadence.
+
+        For each strategy we inspect ``required_data()`` → ``list[Subscription]``
+        and take the MIN of the ns-period of every ``BarData`` subscription
+        as that strategy's cadence. Strategies with zero ``BarData``
+        subscriptions (metric-only; unusual) default their cadence to the
+        engine's overall GCD so they tick every clock advance.
+
+        ``effective_subs_by_strategy`` — optional override keyed by the
+        strategy id, supplying the subscription list the orchestrator
+        actually subscribed on that strategy's behalf. This is the
+        declarative-augmentation path (ADR-0002 move #1): the orchestrator
+        may synthesize defaults for a no-args strategy (per METRIC_IDS /
+        EXTRA_BAR_RESOLUTIONS_MIN) and pass them here, without mutating
+        the strategy's ``.required_data`` method. When an entry is present
+        for a strategy it takes precedence over ``strat.required_data()``;
+        absent entries fall back to the declarative read.
+
+        Strategy id resolution order: ``strategy.id`` → ``strategy.strategy_id``
+        → ``strategy.name`` → ``type(strategy).__name__``. Be defensive — the
+        existing strategy classes may have slightly different id conventions.
+
+        Stores:
+          - ``self._strategy_cadences``: dict[str, int] — strategy_id → ns
+            per bar
+          - ``self._clock_advance_ns``: int — GCD of all cadences (engine
+            tick resolution)
+
+        Raises ``ValueError`` if:
+          - no strategies have any ``BarData`` subscription (nothing to
+            compute the GCD from)
+          - the computed GCD falls below ``_GCD_FLOOR_NS`` (sub-minute
+            resolutions would explode the tick loop)
+          - any strategy's cadence is not an integer multiple of the GCD
+            (shouldn't happen mathematically, but defensive)
+        """
+        cadences: Dict[str, int] = {}
+        all_resolutions_ns: Set[int] = set()
+        override = dict(effective_subs_by_strategy or {})
+
+        for strat in strategies:
+            sid = self._strategy_id(strat)
+            if sid in override:
+                subs = list(override[sid])
+            else:
+                try:
+                    subs = strat.required_data()
+                except Exception as e:
+                    raise ValueError(
+                        f"strategy {sid!r} required_data() raised: {e!r}"
+                    ) from e
+
+            bar_ns: List[int] = []
+            for sub in subs:
+                stream = getattr(sub, "stream", None)
+                if stream is None:
+                    continue
+                if getattr(stream, "data_class", None) is not BarData:
+                    continue
+                bar_spec = getattr(stream, "bar_spec", None)
+                if bar_spec is None:
+                    continue
+                bar_ns.append(_bar_spec_to_ns(bar_spec))
+
+            if bar_ns:
+                cadences[sid] = min(bar_ns)
+                all_resolutions_ns.update(bar_ns)
+            else:
+                # Metric-only / no-BarData strategies — defer cadence
+                # assignment until after we know the GCD so they tick every
+                # clock advance (cadence == GCD). Placeholder recorded as 0
+                # and patched below.
+                cadences[sid] = 0
+
+        if not all_resolutions_ns:
+            raise ValueError(
+                "register_strategy_cadences: no strategy declared a BarData "
+                "subscription — cannot compute GCD clock tick"
+            )
+
+        gcd_ns = math.gcd(*all_resolutions_ns)
+        if gcd_ns < _GCD_FLOOR_NS:
+            raise ValueError(
+                f"register_strategy_cadences: GCD {gcd_ns} ns is below floor "
+                f"{_GCD_FLOOR_NS} ns (1 minute); pathological sub-minute "
+                f"resolution would explode the tick loop. Resolutions: "
+                f"{sorted(all_resolutions_ns)}"
+            )
+
+        # Defensive check: every strategy's cadence must be an integer
+        # multiple of the GCD. Mathematically trivial given GCD definition
+        # — this catches upstream bugs (e.g. a subclass overriding
+        # _bar_spec_to_ns) before they corrupt the dispatch filter.
+        for sid, cadence_ns in cadences.items():
+            if cadence_ns == 0:
+                cadences[sid] = gcd_ns
+                continue
+            if cadence_ns % gcd_ns != 0:
+                raise ValueError(
+                    f"register_strategy_cadences: strategy {sid!r} cadence "
+                    f"{cadence_ns} ns is not an integer multiple of GCD "
+                    f"{gcd_ns} ns — resolutions are not GCD-compatible"
+                )
+
+        self._strategy_cadences = cadences
+        self._clock_advance_ns = gcd_ns
+
+    def advance_one_tick(self) -> int:
+        """Advance the engine's clock by one GCD tick; return new bar_idx.
+
+        Delegates to ``self.clock.advance(self._clock_advance_ns)`` if the
+        clock exposes an ``advance()`` method. Also increments the clock's
+        ``current_bar_idx`` counter (the monotonic tick count since start)
+        — some test clocks don't auto-update this field, so the engine
+        bumps it here to keep it in lock-step with ``now_ns()``.
+
+        Raises ``RuntimeError`` if ``register_strategy_cadences()`` hasn't
+        been called (``_clock_advance_ns == 0``).
+        """
+        if self._clock_advance_ns <= 0:
+            raise RuntimeError(
+                "advance_one_tick: call register_strategy_cadences(strategies) "
+                "before advancing the clock"
+            )
+        if self.clock is None:
+            raise RuntimeError("advance_one_tick: no clock configured on DataEngine")
+
+        advance_fn = getattr(self.clock, "advance", None)
+        if callable(advance_fn):
+            advance_fn(self._clock_advance_ns)
+        else:
+            raise RuntimeError(
+                f"advance_one_tick: clock {type(self.clock).__name__} does "
+                f"not expose an advance() method"
+            )
+
+        # Bump current_bar_idx in lock-step with now_ns(). The GCD tick is
+        # the monotonic unit — bar_idx is the count of GCD ticks since
+        # simulation start.
+        new_idx = int(getattr(self.clock, "current_bar_idx", 0)) + 1
+        try:
+            self.clock.current_bar_idx = new_idx
+        except AttributeError:
+            # Some clock implementations (e.g. frozen dataclasses) may not
+            # allow attribute assignment — caller is responsible for
+            # maintaining current_bar_idx in that case.
+            pass
+        return new_idx
+
+    def strategies_due_at(self, bar_idx: int) -> List[str]:
+        """Return the list of strategy IDs whose cadence aligns at this bar.
+
+        A strategy with ``cadence_ns`` is due when
+        ``(bar_idx * clock_advance_ns) % cadence_ns == 0`` — equivalently
+        ``bar_idx % (cadence_ns // clock_advance_ns) == 0``.
+
+        Example: with GCD=5m (clock_advance_ns = 300*1e9) and a 1h strategy
+        (cadence_ns = 3600*1e9), ticks_per_cadence = 3600/300 = 12 — the
+        1h strategy is due at bar_idx = 0, 12, 24, 36, ...
+
+        Returns the list in insertion order of ``_strategy_cadences`` for
+        stable dispatch ordering.
+        """
+        if self._clock_advance_ns <= 0:
+            return []
+        bar_idx = int(bar_idx)
+        due: List[str] = []
+        for sid, cadence_ns in self._strategy_cadences.items():
+            ticks_per_cadence = cadence_ns // self._clock_advance_ns
+            if ticks_per_cadence <= 0:
+                continue
+            if bar_idx % ticks_per_cadence == 0:
+                due.append(sid)
+        return due
+
+    @staticmethod
+    def _strategy_id(strategy: Any) -> str:
+        """Resolve a strategy identifier, defensively.
+
+        Preference order:
+          1. ``strategy.id`` (M11 Strategy Protocol convention)
+          2. ``strategy.strategy_id`` (legacy M7 convention)
+          3. ``strategy.name``
+          4. ``type(strategy).__name__`` (class name as last resort)
+        """
+        for attr in ("id", "strategy_id", "name"):
+            val = getattr(strategy, attr, None)
+            if isinstance(val, str) and val:
+                return val
+        return type(strategy).__name__
 
 
 class _FakeInstrumentForVenue:

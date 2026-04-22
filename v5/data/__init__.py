@@ -1,12 +1,20 @@
-"""M6 — v5/data/ data architecture package.
+"""M6/M11 — v5/data/ data architecture package.
+
+M11 (ADR-0002 move #1): the closed ``DataKind`` enum is replaced by a
+polymorphic ``Data`` class hierarchy. ``DataStream`` is typed by the ``Data``
+subclass the stream carries; ``DataClientRegistry`` matches clients against
+``(Venue, Data subclass)``.
 
 FIX vocabulary mapping (parallel to M4/M5 discipline):
-  - Bar → MDEntryType(269) = 4 OpeningPrice / 5 ClosingPrice /
+  - BarData → MDEntryType(269) = 4 OpeningPrice / 5 ClosingPrice /
                              7 TradingSessionHighPrice / 8 TradingSessionLowPrice
                              (composite at BarSpec resolution)
-  - Trade → MDEntryType(269) = 2 Trade; aggressor side via Side(54)
-  - FundingRate → no FIX standard; vendor extension (MDEntryType='f' proposed)
-  - MarkPrice → MDEntryType(269) = 6 SettlementPrice (approximate mapping)
+  - TradeData → MDEntryType(269) = 2 Trade; aggressor side via Side(54)
+  - FundingRateData → no FIX standard; vendor extension (MDEntryType='f' proposed)
+  - MarkPriceData → MDEntryType(269) = 6 SettlementPrice (approximate mapping)
+  - MetricData → vendor extension; metric_id discriminator
+  - OrderBookData → composite MDEntry set (bids/asks)
+  - CustomData → strategy-owned; type_name discriminator
   - InstrumentId → SecurityID(48) + SecurityIDSource(22) + SecurityExchange(207)
   - InstrumentId.asset_class → Product(460)
   - Instrument.tick_size → MinPriceIncrement(969)
@@ -41,29 +49,43 @@ from v5.data.exceptions import (
 )
 from v5.data.strategy import DataDeclaringStrategy, union_subscriptions
 from v5.data.streams import (
-    DataKind,
+    BarData,
+    CustomData,
+    Data,
     DataStream,
+    FundingRateData,
     GapPolicy,
     InstrumentId,
+    MarkPriceData,
+    MetricData,
+    OrderBookData,
     Subscription,
+    TradeData,
     TransportMode,
     Venue,
 )
 
 __all__ = [
+    "BarData",
     "ClockDriftHigh",
+    "CustomData",
+    "Data",
     "DataDeclaringStrategy",
     "DataGapError",
-    "DataKind",
     "DataStream",
+    "FundingRateData",
     "GapPolicy",
     "InstrumentId",
+    "MarkPriceData",
     "MessageBus",
+    "MetricData",
+    "OrderBookData",
     "PriceTypeNotSupported",
     "RateLimitExceeded",
     "Subscription",
     "SubscriptionHandle",
     "SymbolNotFound",
+    "TradeData",
     "TransportMode",
     "Venue",
     "union_subscriptions",

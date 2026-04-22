@@ -44,11 +44,11 @@ class TestBacktestParityFlagOn:
         from v5.data.engine import DataEngine
         from v5.data.clients.parquet_replay import ParquetReplayClient
         from v5.data.registry import DataClientRegistry
-        from v5.data.streams import Venue
+        from v5.data.streams import BarData, Venue
 
         reg = DataClientRegistry()
         replay = ParquetReplayClient(fixture_root=FIXTURE_ROOT / "parquet")
-        reg.register(Venue.BINANCE, lambda _c: replay)
+        reg.register(Venue.BINANCE, BarData, lambda _c: replay)
 
         engine = DataEngine(registry=reg)
         engine.use_data_engine_flag = True

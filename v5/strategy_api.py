@@ -175,18 +175,6 @@ def __getattr__(name):
     raise AttributeError(f"module 'v5.strategy_api' has no attribute {name!r}")
 
 
-def _build_token_bar_arrays_from_generate(strategy, n_bars, ctx, *, guarded=False):
-    """M9 C-7 re-export for strategies implementing VectorizedStrategy.
-
-    Thin delegator to v5/simulator.py's implementation — kept in
-    strategy_api so strategies can import without violating the
-    engine/strategy isolation grep (AC #22)."""
-    from v5.simulator import (
-        _build_token_bar_arrays_from_generate as _impl,
-    )
-    return _impl(strategy, n_bars, ctx, guarded=guarded)
-
-
 class StrategyStateMutationError(RuntimeError):
     """M9 C-7: raised when a strategy mutates `self` state during
     `_engine_precompute_fallback` (backtest setup loop calls
