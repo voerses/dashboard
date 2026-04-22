@@ -204,74 +204,226 @@ class TokenView:
     """Read-only view of a single token's bar history + indicators.
 
     Arrays returned via attribute access are numpy views with
-    `writeable=False` set. AC-S3 indicator accessors return SCALAR at
-    current bar_idx (not array slices).
+    ``writeable=False`` set. AC-S3 indicator accessors return SCALAR at
+    current ``bar_idx`` (not array slices).
+
+    M11 (Commit 2, ADR-0002 move #3): ``TokenView`` DELEGATES to a
+    ``MarketDataCache``. Construction flavors:
+
+      1. **Cache-backed** (new)::
+
+            tv = TokenView(token=..., cache=mdc, instrument=inst,
+                           bar_spec=bs, bar_idx=i)
+
+         OHLCV properties delegate to ``cache.bars(inst, bs)``; metric
+         accessors delegate to ``cache.metric(metric_id, inst)``. No
+         ``_arrays`` dict is held internally — every read is a live
+         slice of the cache's rolling window.
+
+      2. **Arrays-backed** (legacy, M7 DataView construction path)::
+
+            tv = TokenView(token, arrays_dict, bar_idx=..., indicator_cache=...)
+
+         Arrays are sliced at construction and held as read-only views.
+         Kept so the M7 ``DataView.per_token()`` factory continues to
+         function during the Commit 2 → Commit 6 window. When Commit 6
+         switches signal processing to consume ``UniverseSignals`` and
+         ``BarContext`` natively, ``DataView`` itself is refactored to
+         construct cache-backed views.
     """
 
     def __init__(
         self,
         token: str,
-        arrays: dict[str, np.ndarray],
+        arrays: "dict[str, np.ndarray] | None" = None,
         bar_idx: int = 0,
         indicator_cache=None,
         timeframe: str = "1h",
+        *,
+        cache: "Optional[object]" = None,
+        instrument: "Optional[object]" = None,
+        bar_spec: "Optional[object]" = None,
     ):
         self._token = token
         self._bar_idx = bar_idx
-        self._cache = indicator_cache
+        self._indicator_cache = indicator_cache
         self._timeframe = timeframe
-        # Store read-only views (slice up to current bar_idx + 1 for
-        # AC-D6 no-look-ahead invariant; fall back to full array for bar_idx
-        # at or beyond last bar)
+        self._cache = cache
+        self._instrument = instrument
+        self._bar_spec = bar_spec
+        # Arrays-backed path — held only when cache is None. MarketDataCache
+        # path never populates _arrays; reads go live through the cache.
         self._arrays: dict[str, np.ndarray] = {}
-        end = min(bar_idx + 1, len(arrays["close"])) if len(arrays["close"]) else 0
-        for field_name, arr in arrays.items():
-            sliced = arr[:end] if end > 0 else arr[:0]
-            view = sliced.view()
-            view.flags.writeable = False
-            self._arrays[field_name] = view
+        if cache is None:
+            if arrays is None:
+                raise TypeError(
+                    "TokenView requires either arrays= (legacy) or cache= + "
+                    "instrument= + bar_spec= (M11)"
+                )
+            end = min(bar_idx + 1, len(arrays["close"])) if len(arrays["close"]) else 0
+            for field_name, arr in arrays.items():
+                sliced = arr[:end] if end > 0 else arr[:0]
+                view = sliced.view()
+                view.flags.writeable = False
+                self._arrays[field_name] = view
+        else:
+            if instrument is None or bar_spec is None:
+                raise TypeError(
+                    "Cache-backed TokenView requires instrument= and bar_spec="
+                )
 
     @property
     def token(self) -> str:
         return self._token
 
+    # --------------------------------------------------------------
+    # Internal: cache-backed OHLCV reader
+    # --------------------------------------------------------------
+
+    def _cache_bars(self):
+        """Return the cache's bar view, sliced to [0, bar_idx+1].
+
+        Falls back to the raw ``cache.bars(...)`` view when
+        ``current_bar_idx`` is unset on the backing clock (the cache's
+        own PIT slice kicks in there).
+        """
+        # Local import avoids cycle at module load — v5.data.cache imports
+        # from v5.data.streams, and universe_context is in the top-level
+        # v5 namespace not imported by cache.
+        bars = self._cache.bars(self._instrument, self._bar_spec)
+        # Apply PIT slice using this view's bar_idx. Arrays are float32
+        # numpy views — returning views with writeable=False preserves
+        # the AC-S2 read-only invariant from the legacy path.
+        end = min(self._bar_idx + 1, bars.close.shape[0])
+        return _BarArraysSlice(
+            close=_readonly(bars.close[:end]),
+            open=_readonly(bars.open[:end]),
+            high=_readonly(bars.high[:end]),
+            low=_readonly(bars.low[:end]),
+            volume=_readonly(bars.volume[:end]),
+        )
+
     @property
     def close(self) -> np.ndarray:
+        if self._cache is not None:
+            return self._cache_bars().close
         return self._arrays["close"]
 
     @property
     def open(self) -> np.ndarray:
+        if self._cache is not None:
+            return self._cache_bars().open
         return self._arrays["open"]
 
     @property
     def high(self) -> np.ndarray:
+        if self._cache is not None:
+            return self._cache_bars().high
         return self._arrays["high"]
 
     @property
     def low(self) -> np.ndarray:
+        if self._cache is not None:
+            return self._cache_bars().low
         return self._arrays["low"]
 
     @property
     def volume(self) -> np.ndarray:
+        if self._cache is not None:
+            return self._cache_bars().volume
         return self._arrays["volume"]
 
-    # Stdlib indicator accessors — return scalar at current bar_idx (AC-S3).
+    # --------------------------------------------------------------
+    # M11 metric accessors — delegate to MarketDataCache
+    # --------------------------------------------------------------
+
+    def metric(self, metric_id: str) -> np.ndarray:
+        """Return the full metric series (sliced to PIT window) for this
+        token. Requires a cache-backed TokenView."""
+        if self._cache is None:
+            raise RuntimeError(
+                "TokenView.metric(...) requires a cache-backed view "
+                "(pass cache=... to TokenView)"
+            )
+        arr = self._cache.metric(metric_id, self._instrument)
+        # Return a read-only view of the underlying array
+        view = arr.view()
+        try:
+            view.flags.writeable = False
+        except ValueError:
+            pass
+        return view
+
+    def metric_latest(self, metric_id: str) -> float:
+        """Return the latest metric value as a scalar."""
+        if self._cache is None:
+            raise RuntimeError(
+                "TokenView.metric_latest(...) requires a cache-backed view"
+            )
+        return float(self._cache.metric_latest(metric_id, self._instrument))
+
+    # --------------------------------------------------------------
+    # Stdlib indicator accessors — return scalar at current bar_idx (AC-S3)
+    # --------------------------------------------------------------
 
     def ema(self, n: int, col: str = "close") -> float:
         from v5.indicators import ema_fn
-        return self._cache.compute(
+        arr = self._column_for_indicator(col)
+        return self._indicator_cache.compute(
             ema_fn, token=self._token, bar_idx=self._bar_idx,
             timeframe=self._timeframe,
-            arr=self._arrays[col], n=n, col=col,
+            arr=arr, n=n, col=col,
         )
 
     def sma(self, n: int, col: str = "close") -> float:
         from v5.indicators import sma_fn
-        return self._cache.compute(
+        arr = self._column_for_indicator(col)
+        return self._indicator_cache.compute(
             sma_fn, token=self._token, bar_idx=self._bar_idx,
             timeframe=self._timeframe,
-            arr=self._arrays[col], n=n, col=col,
+            arr=arr, n=n, col=col,
         )
+
+    def _column_for_indicator(self, col: str) -> np.ndarray:
+        """Resolve a column by name for indicator compute.
+
+        Arrays-backed path reads from the held _arrays dict; cache-backed
+        path slices the cache's BarArrays view so indicators see the same
+        PIT-correct data as the OHLCV properties.
+        """
+        if self._cache is None:
+            return self._arrays[col]
+        bars = self._cache_bars()
+        attr = getattr(bars, col, None)
+        if attr is None:
+            raise KeyError(f"unknown OHLCV column for indicator: {col!r}")
+        return attr
+
+
+# --------------------------------------------------------------
+# Internal: BarArrays slice (mirrors v5.data.cache.BarArrays shape
+# for the subset of columns TokenView exposes)
+# --------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class _BarArraysSlice:
+    close: np.ndarray
+    open: np.ndarray
+    high: np.ndarray
+    low: np.ndarray
+    volume: np.ndarray
+
+
+def _readonly(arr: np.ndarray) -> np.ndarray:
+    """Return a read-only view of ``arr`` (AC-S2 invariant)."""
+    v = arr.view()
+    try:
+        v.flags.writeable = False
+    except ValueError:
+        # Already read-only or non-contiguous — leave as-is.
+        pass
+    return v
 
 
 # ============================================================
@@ -280,7 +432,20 @@ class TokenView:
 
 
 class DataView:
-    """Mutable inner view (per design §2.8 ID2)."""
+    """Mutable inner view (per design §2.8 ID2).
+
+    M11 (Commit 2, task 2.6): owns a single ``MarketDataCache`` that is
+    constructed once per simulation and shared across all ``TokenView``
+    instances built via ``per_token()``. The legacy synthetic-arrays
+    path (arrays dict per token) is preserved so existing M7-era tests
+    continue to pass; the M11 ``TokenView`` constructor decides which
+    backing to use based on whether a cache was supplied.
+
+    Today, ``per_token()`` returns arrays-backed ``TokenView``
+    instances (the synthetic-array pattern is what exercises existing
+    M7/M8/M9 tests). Production wiring (via ``DataEngine`` replay
+    clients, M11 commit 6+) constructs cache-backed views.
+    """
 
     def __init__(
         self,
@@ -293,6 +458,7 @@ class DataView:
         registry_extra: Optional[list[str]] = None,
         timeframe: str = "1h",
     ):
+        from v5.data.cache import MarketDataCache
         from v5.indicators import IndicatorCache
         self._default_venue = default_venue
         self._bar_idx = 0
@@ -302,6 +468,10 @@ class DataView:
         self._registry_extra = tuple(registry_extra or ())
         self._indicator_cache = IndicatorCache()
         self._timeframe = timeframe
+        # M11: single shared MarketDataCache per DataView instance.
+        # Production (M11 commit 6+) populates it via DataEngine subscribers;
+        # tests today use the legacy synthetic-arrays path below.
+        self._market_cache = MarketDataCache()
         # Synthetic bar data — float32 arrays for deterministic tests.
         # M9 C-3: mix timeframe into the seed so different timeframes
         # produce genuinely different price paths (stable / deterministic
@@ -324,6 +494,11 @@ class DataView:
     def indicator_cache(self):
         """Shared IndicatorCache for this DataView (AC-S3)."""
         return self._indicator_cache
+
+    @property
+    def market_cache(self):
+        """Shared MarketDataCache for this DataView (M11 commit 2)."""
+        return self._market_cache
 
     def per_token(self, symbol: str, venue: Optional[Venue] = None) -> TokenView:
         """Returns TokenView for (symbol, venue=default). Read-only arrays."""
